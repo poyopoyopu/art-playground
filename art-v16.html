@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Art Playground v16 — Living Mandala</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;background:#02040a;overflow:hidden}
+body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif}canvas{display:block;width:100%;height:100%;touch-action:none}
+#edit{position:fixed;top:max(18px,env(safe-area-inset-top));right:18px;width:58px;height:58px;border-radius:50%;border:1px solid #ffffff14;background:#07101ddd;color:#dce7f7;font-size:20px;z-index:5}
+.tip{position:fixed;left:50%;bottom:max(24px,env(safe-area-inset-bottom));transform:translateX(-50%);color:#aab7cb;background:#08111dcc;padding:9px 14px;border-radius:999px;font-size:11px;letter-spacing:.08em;pointer-events:none;opacity:.55;z-index:4;transition:opacity 1s}.tip.hide{opacity:0}
+#shade{position:fixed;inset:0;background:#0009;opacity:0;pointer-events:none;transition:.25s;z-index:9}
+#panel{position:fixed;left:0;right:0;bottom:0;z-index:10;transform:translateY(105%);transition:transform .32s cubic-bezier(.2,.8,.2,1);background:#101827f7;border-top:1px solid #ffffff16;border-radius:28px 28px 0 0;padding:12px 16px calc(18px + env(safe-area-inset-bottom))}
+body.open #panel{transform:translateY(0)}body.open #shade{opacity:1;pointer-events:auto}
+.handle{width:42px;height:4px;border-radius:9px;background:#ffffff33;margin:0 auto 16px}.head{display:flex;justify-content:space-between;align-items:center;margin-bottom:15px}.head b{font-size:27px}.close{border:0;border-radius:999px;padding:10px 16px;background:#ffffff0d;color:#dbe5f3;font-size:15px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}.mode{min-height:58px;border-radius:17px;border:1px solid #ffffff0d;background:#1a2638;color:#dbe5f3;font-weight:800;letter-spacing:.08em}.mode.active{background:#7186b9;color:#fff;border-color:#a9c0ff66}
+.random{width:100%;margin-top:12px;min-height:62px;border:1px solid #ffffff12;border-radius:18px;background:linear-gradient(135deg,#29364c,#142034);color:#eef5ff;font-size:18px;font-weight:800;letter-spacing:.16em}.note{margin:11px 4px 0;color:#8c99ac;font-size:11px;line-height:1.65}
+</style></head><body>
+<canvas id="c"></canvas><button id="edit" aria-label="編集">⚙︎</button><div id="shade"></div>
+<div class="tip">触ると、模様がゆっくり流れて歪む</div>
+<section id="panel"><div class="handle"></div><div class="head"><b>Art Playground</b><button class="close" id="close">閉じる</button></div>
+<div class="grid" id="grid"></div><button class="random" id="random">↻ RANDOM</button>
+<div class="note">FIELDは細かくウネウネ。KALEIDOは対称の気持ちよさ。MANDALAは花びら・輪・珠・曲線を重ねた「育つ曼荼羅」。RANDOMは現在のパネルを固定したまま表情だけ変える。</div></section>
+<script>
+const c=document.querySelector('#c'),x=c.getContext('2d',{alpha:false}),$=q=>document.querySelector(q);
+let W=1,H=1,dpr=1,t=0,last=0,mode='field',drag=false,phase=0,seed=Math.random()*99;
+let P={},T={},touches=[],glitters=[];
+const modes=['field','kaleido','mandala'],names={field:'FIELD',kaleido:'KALEIDO',mandala:'MANDALA'};
+const R=(a,b)=>a+Math.random()*(b-a);
+function choose(first=false){T={h:R(0,360),density:R(.75,1.35),speed:R(.4,1.25),warp:R(.35,1.15),twist:R(.35,1.25),scale:R(.72,1.28),arms:5+Math.floor(Math.random()*6),petals:3+Math.floor(Math.random()*5)};if(first)P={...T};seed=Math.random()*999}
+choose(true);
+function resize(){dpr=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;c.width=W*dpr;c.height=H*dpr;x.setTransform(dpr,0,0,dpr,0,0)}addEventListener('resize',resize);resize();
+const hue=h=>((h%360)+360)%360,hs=(h,a=.5,l=60)=>'hsla('+hue(h)+',92%,'+l+'%,'+a+')';
+function morph(dt){for(const k in T)P[k]+=(T[k]-P[k])*Math.min(1,dt*.55)}
+function force(px,py){let dx=0,dy=0;for(const q of touches){let ax=px-q.x,ay=py-q.y,d=Math.hypot(ax,ay);if(d<q.r&&d>1){let v=(1-d/q.r)*q.a,an=Math.atan2(ay,ax)+Math.PI/2;dx+=Math.cos(an)*v*q.r*.38;dy+=Math.sin(an)*v*q.r*.38}}return{x:px+dx,y:py+dy}}
+function touch(px,py,strong){touches.push({x:px,y:py,r:Math.min(W,H)*(strong?.23:.16),a:strong?1:.58});if(touches.length>7)touches.shift();burst(px,py,strong?18:4)}
+function burst(px,py,n){for(let i=0;i<n;i++){let a=Math.random()*6.283,s=R(.3,2.8);glitters.push({x:px,y:py,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:R(.35,.9),age:0,size:R(.25,.65),h:P.h+R(-20,140),p:R(0,6.28)})}if(glitters.length>110)glitters.splice(0,glitters.length-110)}
+function randomize(){choose(false);phase++;$('.tip').classList.add('hide')}
+function field(){
+ const max=Math.floor(720*P.density),step=Math.max(16,Math.sqrt(W*H/max));x.save();x.globalCompositeOperation='screen';
+ let row=0;for(let gy=step*.45;gy<H+step;gy+=step,row++)for(let gx=step*.45,col=0;gx<W+step;gx+=step,col++){
+  let u=gx/W,v=gy/H,w=Math.sin(u*8.8+v*2.3-t*.8+seed)+.55*Math.sin(v*11-u*2+t*.65)+.28*Math.cos((u+v)*13-t*.3);
+  let dx=Math.sin(v*8+t*.5+w)*step*(.28+.5*P.warp)+Math.cos(u*10-t*.3)*step*.22;
+  let dy=Math.cos(u*8-t*.45+w)*step*(.28+.5*P.warp)+Math.sin(v*9+t*.25)*step*.22;
+  let z=force(gx+dx,gy+dy),q=.5+.5*Math.sin(w*2.2+t*.25),r=step*(.05+.43*q)*P.scale;
+  x.save();x.translate(z.x,z.y);x.rotate(Math.atan2(dy,dx)+w*.7);x.strokeStyle=hs(P.h+145*q+35*Math.sin(u*4+v*5),.13+.48*q,46+30*q);x.lineWidth=.45+1.15*q;
+  if((row+col+Math.floor(phase))%4===0){x.beginPath();x.arc(0,0,r,0,6.283);x.stroke()}
+  else if((row+col)%4===1){x.beginPath();x.moveTo(-r,0);x.bezierCurveTo(-r*.2,-r*.9,r*.35,r*.85,r,0);x.stroke()}
+  else {x.beginPath();x.moveTo(-r,-r*.35);x.quadraticCurveTo(0,r*(.8+Math.sin(w)*.3),r,-r*.2);x.stroke()}x.restore();
+ }x.restore();
+}
+function kaleido(){
+ const cx=W/2,cy=H/2,N=Math.floor(170+250*P.density),S=7+Math.floor(P.twist*4),M=Math.min(W,H)*.72;x.save();x.globalCompositeOperation='screen';
+ for(let i=0;i<N;i++){let q=i/N,a=(i*2.399+t*.08)%(6.283/S),r=Math.sqrt(q)*M,sz=(3+18*(1-q))*P.scale;
+  for(let m=0;m<S;m++){let aa=a+m*6.283/S,px=cx+Math.cos(aa)*r,py=cy+Math.sin(aa)*r,z=force(px,py);x.save();x.translate(z.x,z.y);x.rotate(aa+Math.sin(i+t)*.8);x.strokeStyle=hs(P.h+i*1.25+m*18,.1+.42*(1-q),52+28*q);x.lineWidth=.55+1.4*(1-q);x.beginPath();x.moveTo(-sz,0);x.lineTo(0,-sz*.7);x.lineTo(sz,0);x.lineTo(0,sz*.7);x.closePath();x.stroke();x.restore()}
+ }x.restore();
+}
+function loop(cx,cy,r,lobes,rot,amp,h,alpha){
+ const pts=150;x.beginPath();for(let i=0;i<=pts;i++){let a=i*6.283/pts+rot,rr=r*(1+amp*Math.cos(a*lobes)+.045*Math.sin(a*lobes*3+t*.16));let z=force(cx+Math.cos(a)*rr,cy+Math.sin(a)*rr);i?x.lineTo(z.x,z.y):x.moveTo(z.x,z.y)}x.strokeStyle=hs(h,alpha,62);x.stroke();
+}
+function mandala(){
+ const cx=W/2,cy=H/2,M=Math.min(W,H),arms=Math.round(P.arms),rings=6+Math.floor(P.density*5),rot=t*.035+phase*.12;x.save();x.globalCompositeOperation='screen';x.lineJoin='round';
+ // 大きな花びらの骨格
+ for(let ring=0;ring<rings;ring++){let q=(ring+1)/(rings+1),r=M*(.055+q*.42)*P.scale,lobes=arms+(ring%3),amp=.10+.12*(1-q);x.lineWidth=.55+1.45*(1-q);loop(cx,cy,r,lobes,rot*(1+ring*.1),amp,P.h+ring*32+60*Math.sin(t*.04+ring),.18+.32*(1-q));
+  // 各輪の間に小さな珠と小花。複製感より装飾感を優先。
+  let nodes=arms*(ring%2?2:1);for(let n=0;n<nodes;n++){let a=n*6.283/nodes+rot*(1+ring*.1),rr=r*(1+amp*Math.cos(a*lobes));let z=force(cx+Math.cos(a)*rr,cy+Math.sin(a)*rr),s=M*(.004+.012*(1-q));x.strokeStyle=hs(P.h+ring*42+n*9,.28,72);x.lineWidth=.5+1.1*(1-q);x.beginPath();x.arc(z.x,z.y,s,0,6.283);x.stroke();
+    if(ring%2===0){let a2=a+.19+Math.sin(t*.2+ring)*.05,z2=force(cx+Math.cos(a2)*rr,cy+Math.sin(a2)*rr);x.beginPath();x.moveTo(z.x,z.y);x.quadraticCurveTo((z.x+z2.x)/2+Math.cos(a+1.57)*M*.018,(z.y+z2.y)/2+Math.sin(a+1.57)*M*.018,z2.x,z2.y);x.stroke()}
+  }
+ }
+ // 中心のロゼット：ここはカレイドと違い、連続した花が重なる
+ for(let layer=0;layer<4;layer++){let r=M*(.035+layer*.024)*P.scale,l=arms+(layer%2?arms:0);x.lineWidth=1.35-layer*.18;loop(cx,cy,r,l,-rot*(1+layer*.45),.22,P.h+layer*58,.34)}
+ // 花びらを放射状に追加
+ for(let a=0;a<arms;a++){let aa=a*6.283/arms+rot*.18;for(let k=0;k<3;k++){let rr=M*(.11+k*.095)*P.scale,px=cx+Math.cos(aa)*rr,py=cy+Math.sin(aa)*rr,z=force(px,py),s=M*(.028+k*.008);x.save();x.translate(z.x,z.y);x.rotate(aa);x.strokeStyle=hs(P.h+70+k*42+a*8,.22,67);x.lineWidth=.7; x.beginPath();x.moveTo(-s,0);x.bezierCurveTo(-s*.2,-s*.95,s*.72,-s*.7,s,0);x.bezierCurveTo(s*.2,s*.95,-s*.72,s*.7,-s,0);x.stroke();x.restore()}}
+ x.restore();
+}
+function draw(){x.fillStyle='#02040a';x.fillRect(0,0,W,H);if(mode==='field')field();else if(mode==='kaleido')kaleido();else mandala()}
+function glitter(dt){x.save();x.globalCompositeOperation='screen';for(let i=glitters.length-1;i>=0;i--){let g=glitters[i];g.age+=dt;if(g.age>g.life){glitters.splice(i,1);continue}let q=1-g.age/g.life,tw=.5+.5*Math.sin(t*15+g.p),s=g.size*(1+tw*2);g.x+=g.vx;g.y+=g.vy;g.vx*=.976;g.vy=g.vy*.976+.006;x.strokeStyle=hs(g.h,q*.85,94);x.lineWidth=.35;x.beginPath();x.moveTo(g.x-s*5,g.y);x.lineTo(g.x+s*5,g.y);x.moveTo(g.x,g.y-s*5);x.lineTo(g.x,g.y+s*5);x.stroke()}x.restore()}
+function frame(ms){if(!last)last=ms;let dt=Math.min(.05,(ms-last)/1000);last=ms;morph(dt);t+=dt*(.42+P.speed*.65);draw();glitter(dt);touches.forEach(q=>{q.a*=.982;q.r+=1.15});touches=touches.filter(q=>q.a>.03);requestAnimationFrame(frame)}requestAnimationFrame(frame);
+c.addEventListener('pointerdown',e=>{drag=true;c.setPointerCapture?.(e.pointerId);let r=c.getBoundingClientRect();touch(e.clientX-r.left,e.clientY-r.top,true);$('.tip').classList.add('hide')});
+c.addEventListener('pointermove',e=>{if(!drag)return;let r=c.getBoundingClientRect();touch(e.clientX-r.left,e.clientY-r.top,false)});c.addEventListener('pointerup',()=>drag=false);c.addEventListener('pointercancel',()=>drag=false);
+const grid=$('#grid');for(const m of modes){let b=document.createElement('button');b.className='mode';b.dataset.m=m;b.textContent=names[m];b.onclick=()=>{mode=m;choose(false);phase++;sync()};grid.appendChild(b)}
+function sync(){[...grid.children].forEach(b=>b.classList.toggle('active',b.dataset.m===mode))}
+$('#edit').onclick=()=>{document.body.classList.add('open');sync()};$('#close').onclick=()=>document.body.classList.remove('open');$('#shade').onclick=()=>document.body.classList.remove('open');$('#random').onclick=randomize;sync();setTimeout(()=>$('.tip').classList.add('hide'),4200);
+</script></body></html>
