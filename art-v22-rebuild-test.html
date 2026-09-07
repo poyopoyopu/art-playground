@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Art Playground v22</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#03040a}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#ui{position:fixed;inset:0;pointer-events:none;color:#f4f5ff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+#title{position:absolute;left:7vw;top:max(7vh,48px);text-shadow:0 2px 18px #000}
+#title b{font-size:clamp(26px,7vw,44px);font-weight:700;letter-spacing:.01em}
+#title small{display:block;margin-top:7px;font-size:11px;letter-spacing:.34em;opacity:.62}
+#hint{position:absolute;bottom:7vh;left:50%;transform:translateX(-50%);font-size:11px;letter-spacing:.2em;opacity:.42;white-space:nowrap}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui"><div id="title"><b>Art Playground</b><small>PSYCHEDELIC LIVING MANDALA</small></div><div id="hint">触れた場所だけ、世界が目を覚ます</div></div>
+<script>
+(()=>{
+const c=document.querySelector('#c'),ctx=c.getContext('2d',{alpha:false});
+const TWO=Math.PI*2;
+let W,H,D=1,scene, sctx, motes=[], portals=[], wakes=[], last=0;
+const R=(a,b)=>a+Math.random()*(b-a);
+const pick=a=>a[(Math.random()*a.length)|0];
+const hues=[5,18,32,46,58,74,96,128,162,188,204,222,248,272,294,316,336];
+function fit(){
+ D=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;
+ c.width=W*D;c.height=H*D;ctx.setTransform(D,0,0,D,0,0);
+ scene=document.createElement('canvas');scene.width=W*D;scene.height=H*D;
+ sctx=scene.getContext('2d');sctx.setTransform(D,0,0,D,0,0);
+ build();
+}
+function bg(){
+ const g=sctx.createRadialGradient(W*.5,H*.48,0,W*.5,H*.48,Math.max(W,H)*.8);
+ g.addColorStop(0,'#0b0714');g.addColorStop(.52,'#050611');g.addColorStop(1,'#010208');
+ sctx.fillStyle=g;sctx.fillRect(0,0,W,H);
+}
+function dot(x,y,r,h,a=1){
+ sctx.fillStyle=`hsla(${h},95%,${R(58,82)}%,${a})`;
+ sctx.beginPath();sctx.arc(x,y,r,0,TWO);sctx.fill();
+}
+function line(x1,y1,x2,y2,h,a=.7,w=1){
+ sctx.strokeStyle=`hsla(${h},92%,${R(54,76)}%,${a})`;sctx.lineWidth=w;
+ sctx.beginPath();sctx.moveTo(x1,y1);sctx.lineTo(x2,y2);sctx.stroke();
+}
+function mandala(x,y,r,h,seed){
+ const q=7+(seed%7), rot=(seed*.618)%TWO;
+ sctx.save();sctx.translate(x,y);sctx.rotate(rot);
+ // outer aura
+ sctx.strokeStyle=`hsla(${h},90%,70%,.22)`;sctx.lineWidth=Math.max(1,r*.025);
+ sctx.beginPath();sctx.arc(0,0,r*1.03,0,TWO);sctx.stroke();
+ // 3 dense petal layers
+ for(let layer=0;layer<4;layer++){
+   const n=q+layer*2, rr=r*(.18+layer*.2), hh=(h+layer*26)%360;
+   sctx.strokeStyle=`hsla(${hh},96%,${70-layer*3}%,${.78-layer*.08})`;
+   sctx.lineWidth=Math.max(.8,r*(.026-layer*.003));
+   for(let i=0;i<n;i++){
+     const a=i*TWO/n;
+     sctx.save();sctx.rotate(a);
+     sctx.beginPath();
+     sctx.moveTo(0,rr*.12);
+     sctx.bezierCurveTo(rr*.20,-rr*.82,rr*.76,-rr*.80,rr*.94,0);
+     sctx.bezierCurveTo(rr*.76,rr*.80,rr*.20,rr*.82,0,rr*.12);
+     sctx.closePath();sctx.stroke();
+     // stained-glass inner facet
+     sctx.strokeStyle=`hsla(${(hh+55)%360},100%,78%,.35)`;
+     sctx.lineWidth=Math.max(.45,r*.01);
+     sctx.beginPath();sctx.moveTo(rr*.12,0);sctx.lineTo(rr*.72,-rr*.24);sctx.lineTo(rr*.72,rr*.24);sctx.closePath();sctx.stroke();
+     sctx.restore();
+   }
+ }
+ // spokes
+ sctx.strokeStyle=`hsla(${(h+100)%360},90%,72%,.45)`;sctx.lineWidth=Math.max(.7,r*.012);
+ for(let i=0;i<q*2;i++){
+   const a=i*TWO/(q*2),d=r*R(.34,.92);
+   sctx.beginPath();sctx.moveTo(Math.cos(a)*r*.12,Math.sin(a)*r*.12);sctx.lineTo(Math.cos(a)*d,Math.sin(a)*d);sctx.stroke();
+ }
+ // concentric eye
+ for(let k=0;k<4;k++){
+   sctx.strokeStyle=`hsla(${(h+k*44)%360},100%,${82-k*8}%,${.85-k*.1})`;
+   sctx.lineWidth=Math.max(.8,r*.018);
+   sctx.beginPath();sctx.arc(0,0,r*(.06+k*.055),0,TWO);sctx.stroke();
+ }
+ sctx.fillStyle=`hsla(${(h+35)%360},100%,78%,.95)`;sctx.beginPath();sctx.arc(0,0,r*.045,0,TWO);sctx.fill();
+ // beads
+ for(let i=0;i<q*2;i++){
+   const a=i*TWO/(q*2),d=r*R(.55,.98);
+   dot(x+Math.cos(a+rot)*d,y+Math.sin(a+rot)*d,Math.max(.7,r*.025),(h+i*17)%360,.8);
+ }
+ sctx.restore();
+}
+function build(){
+ bg(); portals=[];motes=[];
+ // dense tiled field, large + medium + tiny
+ const levels=[
+  {count:Math.max(10,Math.floor(W*H/75000)),min:85,max:145},
+  {count:Math.max(28,Math.floor(W*H/24000)),min:38,max:78},
+  {count:Math.max(60,Math.floor(W*H/9000)),min:14,max:34}
+ ];
+ let id=1;
+ for(const L of levels)for(let i=0;i<L.count;i++){
+   const p={x:R(-25,W+25),y:R(-25,H+25),r:R(L.min,L.max),h:pick(hues),seed:id++,phase:R(0,TWO),rate:R(-.00045,.00045)};
+   portals.push(p);mandala(p.x,p.y,p.r,p.h,p.seed);
+ }
+ // micro stained-glass confetti fills empty areas
+ for(let i=0;i<Math.min(1500,W*H/420);i++){
+   const x=R(0,W),y=R(0,H),h=pick(hues),r=R(.5,2.3);
+   dot(x,y,r,h,R(.25,.8));
+   if(i%5===0){
+     const a=R(0,TWO),d=R(5,25);
+     line(x,y,x+Math.cos(a)*d,y+Math.sin(a)*d,h,.28,.6);
+   }
+   motes.push({x,y,h,r,p:R(0,TWO),s:R(.3,1.5)});
+ }
+}
+function wake(x,y){
+ const h=pick(hues);
+ wakes.push({x,y,r:4,life:1,h});
+ for(const p of portals){
+   const d=Math.hypot(p.x-x,p.y-y);
+   if(d<220+p.r) p.phase+=R(-1.2,1.2);
+ }
+}
+function frame(t){
+ ctx.fillStyle='#02030a';ctx.fillRect(0,0,W,H);
+ ctx.drawImage(scene,0,0,W,H);
+ ctx.globalCompositeOperation='lighter';
+ // only selected portions of whole field breathe: cheap overlay animation
+ for(let i=0;i<portals.length;i++){
+   const p=portals[i];
+   if((i%3)!==0)continue;
+   const pulse=.5+.5*Math.sin(t*.001+p.phase);
+   const rr=p.r*(.08+.04*pulse);
+   const g=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,rr*4);
+   g.addColorStop(0,`hsla(${p.h},100%,82%,${.10+.08*pulse})`);
+   g.addColorStop(.5,`hsla(${(p.h+60)%360},100%,65%,.025)`);
+   g.addColorStop(1,'transparent');
+   ctx.fillStyle=g;ctx.beginPath();ctx.arc(p.x,p.y,rr*4,0,TWO);ctx.fill();
+   ctx.strokeStyle=`hsla(${(p.h+80)%360},100%,82%,${.12+.12*pulse})`;
+   ctx.lineWidth=1.2;ctx.beginPath();ctx.arc(p.x,p.y,p.r*(.12+.025*pulse),0,TWO);ctx.stroke();
+ }
+ // moving micro life
+ for(let i=0;i<motes.length;i+=2){
+   const m=motes[i],x=m.x+Math.sin(t*.0005*m.s+m.p)*3,y=m.y+Math.cos(t*.0007*m.s+m.p)*4;
+   ctx.fillStyle=`hsla(${m.h},100%,78%,${.15+.28*(.5+.5*Math.sin(t*.001*m.s+m.p))})`;
+   ctx.beginPath();ctx.arc(x,y,m.r,0,TWO);ctx.fill();
+ }
+ for(let i=wakes.length-1;i>=0;i--){
+   const w=wakes[i];w.r+=3.2;w.life-=.018;
+   if(w.life<=0){wakes.splice(i,1);continue}
+   ctx.strokeStyle=`hsla(${w.h},100%,80%,${w.life*.65})`;ctx.lineWidth=1+3*w.life;
+   ctx.beginPath();ctx.arc(w.x,w.y,w.r,0,TWO);ctx.stroke();
+   ctx.strokeStyle=`hsla(${(w.h+90)%360},100%,75%,${w.life*.35})`;
+   ctx.beginPath();ctx.arc(w.x,w.y,w.r*.58,0,TWO);ctx.stroke();
+ }
+ ctx.globalCompositeOperation='source-over';
+ requestAnimationFrame(frame);
+}
+c.addEventListener('pointerdown',e=>wake(e.clientX,e.clientY));
+c.addEventListener('pointermove',e=>{if(e.buttons)wake(e.clientX,e.clientY)});
+addEventListener('resize',fit,{passive:true});fit();requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
