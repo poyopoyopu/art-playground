@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Art Playground v22 Living</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#02030a}
+canvas{display:block;width:100%;height:100%}
+#ui{position:fixed;inset:0;pointer-events:none;color:#f5f3ff;
+font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+#title{position:absolute;left:6vw;top:max(6vh,42px);text-shadow:0 3px 22px #000}
+#title b{display:block;font-size:clamp(27px,7vw,45px);letter-spacing:.01em}
+#title span{display:block;margin-top:7px;font-size:11px;letter-spacing:.32em;opacity:.58}
+#sub{position:absolute;bottom:5.5vh;width:100%;text-align:center;font-size:11px;letter-spacing:.25em;opacity:.35}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui"><div id="title"><b>Art Playground</b><span>PSYCHEDELIC • LIVING MANDALA</span></div><div id="sub">一部分が、生きている</div></div>
+<script>
+(()=>{
+const c=document.getElementById('c'),ctx=c.getContext('2d',{alpha:false});
+const TAU=Math.PI*2;
+let W,H,D,staticLayer,sc,items=[],dust=[],living=[];
+const rnd=(a,b)=>a+Math.random()*(b-a);
+const pick=a=>a[(Math.random()*a.length)|0];
+const hues=[0,12,25,38,52,66,84,108,136,165,188,204,222,244,266,286,308,328,342];
+
+function setup(){
+ D=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;
+ c.width=W*D;c.height=H*D;ctx.setTransform(D,0,0,D,0,0);
+ staticLayer=document.createElement('canvas');
+ staticLayer.width=W*D;staticLayer.height=H*D;
+ sc=staticLayer.getContext('2d');sc.setTransform(D,0,0,D,0,0);
+ build();
+}
+function stroke(h,a,w){
+ sc.strokeStyle=`hsla(${(h+360)%360},95%,72%,${a})`;sc.lineWidth=w;
+}
+function fill(h,a,l=72){
+ sc.fillStyle=`hsla(${(h+360)%360},96%,${l}%,${a})`;
+}
+function petal(cx,cy,ang,len,w,h,a){
+ sc.save();sc.translate(cx,cy);sc.rotate(ang);
+ stroke(h,a,Math.max(.45,w*.035));
+ sc.beginPath();sc.moveTo(0,0);
+ sc.bezierCurveTo(len*.15,-w,len*.82,-w*.78,len,0);
+ sc.bezierCurveTo(len*.82,w*.78,len*.15,w,0,0);
+ sc.stroke();
+ sc.restore();
+}
+function drawMandala(p,target=sc,anim=0){
+ const {x,y,r,h,seed}=p;
+ const sc=target;
+ sc.save();sc.translate(x,y);sc.rotate(seed+anim);
+ // dark jewel halo
+ const g=sc.createRadialGradient(0,0,r*.04,0,0,r*1.22);
+ g.addColorStop(0,`hsla(${h},90%,28%,.10)`);
+ g.addColorStop(.72,`hsla(${(h+80)%360},85%,20%,.025)`);
+ g.addColorStop(1,'transparent');
+ sc.fillStyle=g;sc.beginPath();sc.arc(0,0,r*1.22,0,TAU);sc.fill();
+
+ const layers=4;
+ for(let L=0;L<layers;L++){
+   const n=7+((Math.floor(seed*10)+L*3)%7);
+   const rr=r*(.16+L*.19);
+   for(let i=0;i<n;i++){
+     const a=i*TAU/n+L*.09;
+     petal(0,0,a,rr*(1.05+L*.10),rr*.42,(h+L*27+i*5)%360,.72-L*.08);
+     // inner facet line
+     sc.save();sc.rotate(a);
+     stroke((h+95+L*18)%360,.30,Math.max(.35,r*.007));
+     sc.beginPath();sc.moveTo(rr*.20,0);sc.lineTo(rr*.68,-rr*.15);sc.lineTo(rr*.86,0);sc.lineTo(rr*.68,rr*.15);sc.closePath();sc.stroke();
+     sc.restore();
+   }
+   stroke((h+L*34)%360,.30,Math.max(.45,r*.009));
+   sc.beginPath();sc.arc(0,0,rr*.92,0,TAU);sc.stroke();
+ }
+ // eye-like center
+ for(let k=0;k<5;k++){
+   stroke((h+k*43)%360,.82-k*.11,Math.max(.6,r*.018));
+   sc.beginPath();sc.arc(0,0,r*(.055+k*.055),0,TAU);sc.stroke();
+ }
+ fill((h+55)%360,.9,78);sc.beginPath();sc.arc(0,0,r*.035,0,TAU);sc.fill();
+ // beads
+ const beads=10+Math.floor(r/15);
+ for(let i=0;i<beads;i++){
+   const a=i*TAU/beads+seed*.37,d=r*rnd(.48,1.04);
+   const br=Math.max(.6,r*rnd(.012,.026));
+   fill((h+i*19)%360,.74,78);
+   sc.beginPath();sc.arc(Math.cos(a)*d,Math.sin(a)*d,br,0,TAU);sc.fill();
+ }
+ sc.restore();
+}
+function build(){
+ // deep psychedelic background
+ const bg=sc.createRadialGradient(W*.5,H*.5,0,W*.5,H*.5,Math.max(W,H)*.82);
+ bg.addColorStop(0,'#0a0614');bg.addColorStop(.46,'#050712');bg.addColorStop(1,'#010207');
+ sc.fillStyle=bg;sc.fillRect(0,0,W,H);
+
+ items=[];dust=[];living=[];
+ // deliberately layered hierarchy: big anchors -> medium -> small
+ const groups=[
+  [Math.max(7,Math.floor(W*H/105000)),105,170],
+  [Math.max(20,Math.floor(W*H/36000)),55,100],
+  [Math.max(45,Math.floor(W*H/15000)),25,52],
+  [Math.max(65,Math.floor(W*H/9000)),10,26]
+ ];
+ let k=0;
+ for(const [count,min,max] of groups){
+   for(let i=0;i<count;i++){
+     const p={x:rnd(-20,W+20),y:rnd(-20,H+20),r:rnd(min,max),
+       h:pick(hues),seed:rnd(0,TAU),phase:rnd(0,TAU),rate:rnd(.00035,.0012),group:k};
+     items.push(p);
+     // 一部だけを「生きている層」にする。静止画の密度は保ちつつ、
+     // 画面のあちこちで確実に動きが見えるようにする。
+     const isLiving = (p.group < 3 && ((items.length % 9 === 0) || (p.group === 0 && items.length % 2 === 0)));
+     p.living=isLiving;
+     if(isLiving) living.push(p); else drawMandala(p);
+   }k++;
+ }
+ // micro universe between mandalas
+ const n=Math.min(1900,Math.max(500,Math.floor(W*H/430)));
+ for(let i=0;i<n;i++){
+   const x=rnd(0,W),y=rnd(0,H),h=pick(hues),r=rnd(.35,1.65);
+   fill(h,rnd(.22,.82),rnd(60,84));sc.beginPath();sc.arc(x,y,r,0,TAU);sc.fill();
+   if(i%4===0){
+     const a=rnd(0,TAU),d=rnd(4,18);
+     stroke((h+35)%360,.20,.5);
+     sc.beginPath();sc.moveTo(x,y);sc.lineTo(x+Math.cos(a)*d,y+Math.sin(a)*d);sc.stroke();
+   }
+   dust.push({x,y,h,r,p:rnd(0,TAU),s:rnd(.3,1.3)});
+ }
+}
+function draw(t){
+ ctx.fillStyle='#02030a';ctx.fillRect(0,0,W,H);
+ ctx.drawImage(staticLayer,0,0,W,H);
+
+ // ここからが「見える動き」。
+ // 全部を毎フレーム描き直さず、選んだ一部だけを呼吸・回転させる。
+ // iPhoneでも重くなりすぎないよう、living層は少数に限定。
+ ctx.globalCompositeOperation='source-over';
+ for(let i=0;i<living.length;i++){
+   const p=living[i];
+   const breath=.93 + .10*Math.sin(t*.00115 + p.phase*1.7);
+   const driftX=Math.sin(t*.00055+p.phase)*p.r*.055;
+   const driftY=Math.cos(t*.00068+p.phase)*p.r*.045;
+   const spin=.00020*t*(i%2?1:-1);
+
+   ctx.save();
+   ctx.translate(p.x+driftX,p.y+driftY);
+   ctx.scale(breath,breath);
+   ctx.translate(-(p.x+driftX),-(p.y+driftY));
+   drawMandala({...p,x:p.x+driftX,y:p.y+driftY},ctx,spin);
+
+   // 生きている中心の脈動を強める
+   const q=.5+.5*Math.sin(t*.0022+p.phase);
+   ctx.globalCompositeOperation='lighter';
+   ctx.strokeStyle=`hsla(${(p.h+120)%360},100%,78%,${.10+.18*q})`;
+   ctx.lineWidth=1.1+q*1.8;
+   ctx.beginPath();ctx.arc(p.x+driftX,p.y+driftY,p.r*(.16+.035*q),0,TAU);ctx.stroke();
+   ctx.restore();
+   ctx.globalCompositeOperation='source-over';
+ }
+
+ // 動きの軌跡：静かな粒だけでなく、少し大きく漂わせる
+ ctx.globalCompositeOperation='lighter';
+ for(let i=0;i<dust.length;i+=9){
+   const d=dust[i];
+   const x=d.x+Math.sin(t*.00065*d.s+d.p)*5.5;
+   const y=d.y+Math.cos(t*.00072*d.s+d.p)*5.5;
+   const a=.10+.38*(.5+.5*Math.sin(t*.0015*d.s+d.p));
+   ctx.fillStyle=`hsla(${d.h},100%,78%,${a})`;
+   ctx.beginPath();ctx.arc(x,y,d.r*(1.2+.5*Math.sin(t*.001+d.p)),0,TAU);ctx.fill();
+ }
+ ctx.globalCompositeOperation='source-over';
+ requestAnimationFrame(draw);
+}
+addEventListener('resize',setup,{passive:true});
+setup();requestAnimationFrame(draw);
+})();
+</script>
+</body></html>
