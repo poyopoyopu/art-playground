@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Prototype — Organic Mandala Mural</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#07050c}
+canvas{display:block;width:100%;height:100%}
+#ui{position:fixed;inset:0;pointer-events:none;color:#f5f3ff;
+font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+#title{position:absolute;left:5vw;top:max(5vh,36px);text-shadow:0 3px 20px #000}
+#title b{display:block;font-size:clamp(20px,5vw,30px);letter-spacing:.02em;opacity:.9}
+#title span{display:block;margin-top:5px;font-size:10px;letter-spacing:.28em;opacity:.5}
+#loading{position:fixed;inset:0;background:#07050c;color:#9d92c9;display:flex;align-items:center;justify-content:center;
+font-family:-apple-system,sans-serif;font-size:13px;letter-spacing:.1em;z-index:10}
+</style>
+</head>
+<body>
+<div id="loading">壁画を織っています…</div>
+<canvas id="c"></canvas>
+<div id="ui"><div id="title"><b>Organic Mandala Mural</b><span>PROTOTYPE — 一部分だけ生きている</span></div></div>
+<script>
+(()=>{
+const c=document.getElementById('c'),ctx=c.getContext('2d',{alpha:false});
+const loadingEl=document.getElementById('loading');
+const TAU=Math.PI*2;
+let W,H,D,base,bctx,cells=[],living=[];
+const rnd=(a,b)=>a+Math.random()*(b-a);
+const pick=a=>a[(Math.random()*a.length)|0];
+
+// 調和の取れたパレット群(グループ内でグラデーションを組む)
+const paletteGroups=[
+  ['#12d7d0','#0891ff','#3b3bd6'],   // シアン〜青紫
+  ['#ff2e9a','#e01ee8','#7a1fd8'],   // マゼンタ〜紫
+  ['#ffcf1a','#ff9d1a','#ff5a3c'],   // 黄〜オレンジ〜赤
+  ['#b6ff2e','#4be86a','#12b88a'],   // 黄緑〜緑
+  ['#ff5ac8','#ffb020','#12d7d0']    // 混色アクセント
+];
+
+function setup(){
+  D=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;
+  c.width=W*D;c.height=H*D;ctx.setTransform(D,0,0,D,0,0);
+  base=document.createElement('canvas');
+  base.width=W*D;base.height=H*D;
+  bctx=base.getContext('2d');bctx.setTransform(D,0,0,D,0,0);
+  build();
+}
+
+// ---- 円充填(隙間のない配置) ----
+function place(radius,maxTry){
+  for(let t=0;t<maxTry;t++){
+    const x=rnd(-radius*.3,W+radius*.3), y=rnd(-radius*.3,H+radius*.3);
+    let ok=true;
+    for(const cell of cells){
+      const d=Math.hypot(cell.x-x,cell.y-y);
+      if(d < (cell.r+radius)*0.80){ ok=false; break; }
+    }
+    if(ok) return {x,y};
+  }
+  return null;
+}
+
+function buildCells(){
+  cells=[];
+  const area=W*H;
+  const buckets=[
+    {r:[70,120], n:Math.max(4, Math.floor(area/58000))},
+    {r:[36,66],  n:Math.max(10, Math.floor(area/22000))},
+    {r:[18,34],  n:Math.max(18, Math.floor(area/9000))},
+    {r:[8,17],   n:Math.max(30, Math.floor(area/4200))}
+  ];
+  for(const bk of buckets){
+    for(let i=0;i<bk.n;i++){
+      const r=rnd(bk.r[0],bk.r[1]);
+      const pos=place(r,26);
+      if(!pos) continue;
+      cells.push(makeCell(pos.x,pos.y,r));
+    }
+  }
+  // 残った隙間を極小モチーフで埋める(サンプリングして未充填点を探す)
+  for(let pass=0; pass<3; pass++){
+    for(let i=0;i<220;i++){
+      const x=rnd(0,W), y=rnd(0,H);
+      let covered=false;
+      for(const cell of cells){
+        if(Math.hypot(cell.x-x,cell.y-y) < cell.r*0.92){ covered=true; break; }
+      }
+      if(!covered){
+        const r=rnd(6,13);
+        cells.push(makeCell(x,y,r));
+      }
+    }
+  }
+}
+
+function makeCell(x,y,r){
+  return {
+    x,y,r,
+    seed:rnd(0,TAU),
+    rot:rnd(0,TAU),
+    petals:5+Math.floor(rnd(0,5)),
+    palette:pick(paletteGroups),
+    type: r>55 ? 'flower' : (r>26 ? (Math.random()<0.5?'flower':'eye') : (Math.random()<0.4?'eye':'leaf')),
+    phase:rnd(0,TAU),
+    breatheRate:rnd(0.00028,0.00075),
+    living:false
+  };
+}
+
+// ---- モチーフ描画 ----
+function drawFlower(g,cell,scale,petalFlex,hueShift){
+  const {r,seed,palette}=cell;
+  const R=r*scale;
+  g.save();
+  g.translate(cell.x,cell.y);
+  g.rotate(cell.rot+hueShift*0.0006);
+
+  const n=cell.petals;
+  for(let i=0;i<n;i++){
+    const a=i*TAU/n;
+    const flex=1+Math.sin(petalFlex+i*1.7+seed)*0.10;
+    const len=R*0.92*flex;
+    const w=R*0.40;
+    g.save();
+    g.rotate(a);
+    const grad=g.createLinearGradient(0,0,len,0);
+    grad.addColorStop(0,palette[0]);
+    grad.addColorStop(0.55,palette[1]);
+    grad.addColorStop(1,palette[2]);
+    g.fillStyle=grad;
+    g.strokeStyle='rgba(5,3,10,0.92)';
+    g.lineWidth=Math.max(1.1,R*0.045);
+    g.beginPath();
+    g.moveTo(0,0);
+    g.bezierCurveTo(len*0.20,-w,len*0.80,-w*0.68,len,0);
+    g.bezierCurveTo(len*0.80,w*0.68,len*0.20,w,0,0);
+    g.closePath();
+    g.fill(); g.stroke();
+    // 内側の装飾ライン
+    g.strokeStyle='rgba(255,255,255,0.35)';
+    g.lineWidth=Math.max(0.6,R*0.015);
+    g.beginPath();
+    g.moveTo(len*0.18,0); g.lineTo(len*0.7,0);
+    g.stroke();
+    g.restore();
+  }
+
+  // 中心の目
+  const eyeR=R*0.30;
+  const grad2=g.createRadialGradient(0,0,eyeR*0.05,0,0,eyeR);
+  grad2.addColorStop(0,'#ffffff');
+  grad2.addColorStop(0.35,palette[0]);
+  grad2.addColorStop(0.75,palette[2]);
+  grad2.addColorStop(1,'rgba(5,3,10,0.9)');
+  g.fillStyle=grad2;
+  g.strokeStyle='rgba(5,3,10,0.95)';
+  g.lineWidth=Math.max(1,R*0.05);
+  g.beginPath(); g.arc(0,0,eyeR,0,TAU); g.fill(); g.stroke();
+  g.fillStyle='rgba(5,3,10,0.95)';
+  g.beginPath(); g.arc(0,0,eyeR*0.32,0,TAU); g.fill();
+
+  g.restore();
+}
+
+function drawEye(g,cell,scale,pulse){
+  const {r,palette,rot}=cell;
+  const R=r*scale;
+  g.save();
+  g.translate(cell.x,cell.y);
+  g.rotate(rot);
+  // アーモンド型
+  g.beginPath();
+  g.moveTo(-R,0);
+  g.quadraticCurveTo(0,-R*0.72,R,0);
+  g.quadraticCurveTo(0,R*0.72,-R,0);
+  g.closePath();
+  const grad=g.createLinearGradient(-R,0,R,0);
+  grad.addColorStop(0,palette[2]); grad.addColorStop(0.5,palette[1]); grad.addColorStop(1,palette[0]);
+  g.fillStyle=grad;
+  g.strokeStyle='rgba(5,3,10,0.92)';
+  g.lineWidth=Math.max(1.1,R*0.07);
+  g.fill(); g.stroke();
+
+  const ir=R*(0.38+pulse*0.08);
+  g.fillStyle=palette[0];
+  g.beginPath(); g.arc(0,0,ir,0,TAU); g.fill();
+  g.fillStyle='rgba(5,3,10,0.95)';
+  g.beginPath(); g.arc(0,0,ir*0.42,0,TAU); g.fill();
+  g.restore();
+}
+
+function drawLeaf(g,cell,scale){
+  const {r,palette,rot}=cell;
+  const R=r*scale;
+  g.save();
+  g.translate(cell.x,cell.y);
+  g.rotate(rot);
+  g.beginPath();
+  g.moveTo(0,-R);
+  g.quadraticCurveTo(R*0.85,0,0,R);
+  g.quadraticCurveTo(-R*0.85,0,0,-R);
+  g.closePath();
+  const grad=g.createLinearGradient(0,-R,0,R);
+  grad.addColorStop(0,palette[0]); grad.addColorStop(1,palette[1]);
+  g.fillStyle=grad;
+  g.strokeStyle='rgba(5,3,10,0.9)';
+  g.lineWidth=Math.max(1,R*0.09);
+  g.fill(); g.stroke();
+  g.strokeStyle='rgba(255,255,255,0.3)';
+  g.lineWidth=Math.max(0.5,R*0.03);
+  g.beginPath(); g.moveTo(0,-R*0.75); g.lineTo(0,R*0.75); g.stroke();
+  g.restore();
+}
+
+function drawCell(g,cell,t){
+  if(cell.type==='flower') drawFlower(g,cell,cell._scale||1, t*0.0016+cell.phase, t);
+  else if(cell.type==='eye') drawEye(g,cell,cell._scale||1, 0.5+0.5*Math.sin(t*0.0012+cell.phase));
+  else drawLeaf(g,cell,cell._scale||1);
+}
+
+function build(){
+  loadingEl.style.display='flex';
+  // 背景
+  const bg=bctx.createRadialGradient(W*0.5,H*0.46,0,W*0.5,H*0.46,Math.max(W,H)*0.85);
+  bg.addColorStop(0,'#120a1c'); bg.addColorStop(0.55,'#0a0714'); bg.addColorStop(1,'#050308');
+  bctx.fillStyle=bg; bctx.fillRect(0,0,W,H);
+
+  buildCells();
+
+  // 生きている層を一部選出(中〜大サイズ優先、全体の6〜9%程度)
+  living=[];
+  const sorted=[...cells].sort((a,b)=>b.r-a.r);
+  const livingCount=Math.max(8, Math.floor(cells.length*0.05));
+  for(let i=0;i<sorted.length && living.length<livingCount;i++){
+    if(sorted[i].r>16 && Math.random()<0.35){
+      sorted[i].living=true;
+      living.push(sorted[i]);
+    }
+  }
+
+  // 静止層を焼き込み(livingは除く)
+  for(const cell of cells){
+    if(cell.living) continue;
+    drawCell(bctx,cell,0);
+  }
+
+  loadingEl.style.display='none';
+}
+
+function draw(t){
+  ctx.drawImage(base,0,0,W,H);
+  for(const cell of living){
+    const breathe=1+Math.sin(t*cell.breatheRate+cell.phase)*0.085;
+    cell._scale=breathe;
+    drawCell(ctx,cell,t);
+  }
+  requestAnimationFrame(draw);
+}
+
+addEventListener('resize',setup,{passive:true});
+setup();
+requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>
