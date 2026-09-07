@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ART v21 — さらさら砂庭</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#05060c}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#ui{position:fixed;inset:0;pointer-events:none;font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#dfe7ff}
+#title{position:absolute;left:18px;top:max(16px,env(safe-area-inset-top));font-size:11px;letter-spacing:.2em;opacity:.55}
+#hint{position:absolute;left:50%;bottom:max(24px,env(safe-area-inset-bottom));transform:translateX(-50%);font-size:11px;letter-spacing:.04em;opacity:.42;white-space:nowrap;text-align:center}
+#reset{pointer-events:auto;position:absolute;right:16px;top:max(12px,env(safe-area-inset-top));width:54px;height:54px;border-radius:50%;
+border:1px solid #ffffff22;background:#0a1020bb;color:#eaf2ff;font-size:20px}
+#tilt{pointer-events:auto;position:absolute;left:50%;bottom:max(58px,calc(env(safe-area-inset-bottom) + 34px));transform:translateX(-50%);
+padding:8px 16px;border-radius:999px;border:1px solid #ffffff30;background:#151b2ecc;color:#eaf2ff;font-size:12px;display:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui">
+  <div id="title">さらさら砂庭 · v21</div>
+  <div id="hint">指でなぞって砂を出す<br>スマホを傾けると流れる</div>
+  <button id="tilt">傾きセンサーをON</button>
+  <button id="reset" aria-label="リセット">↻</button>
+</div>
+
+<script>
+(()=>{
+"use strict";
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d", {alpha:false});
+const tiltBtn = document.getElementById("tilt");
+const resetBtn = document.getElementById("reset");
+
+const CELL = 5;
+let W=1, H=1, gw=1, gh=1;
+let grid;          // Uint16Array: 0 = empty, else (hue*1 + 1) 1..360 storable
+let off, offCtx, imgData, buf;
+
+const hueLUT = new Array(361);
+function hslToRgb(h,s,l){
+  h/=360;
+  const c=(1-Math.abs(2*l-1))*s;
+  const x=c*(1-Math.abs((h*6)%2-1));
+  const m=l-c/2;
+  let r,g,b;
+  if(h<1/6){r=c;g=x;b=0}
+  else if(h<2/6){r=x;g=c;b=0}
+  else if(h<3/6){r=0;g=c;b=x}
+  else if(h<4/6){r=0;g=x;b=c}
+  else if(h<5/6){r=x;g=0;b=c}
+  else{r=c;g=0;b=x}
+  return [Math.round((r+m)*255),Math.round((g+m)*255),Math.round((b+m)*255)];
+}
+for(let hh=0; hh<=360; hh++){ hueLUT[hh]=hslToRgb(hh,0.78,0.62); }
+
+function resize(){
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = W;
+  canvas.height = H;
+  ctx.imageSmoothingEnabled = false;
+
+  const prevGw=gw, prevGh=gh, prevGrid=grid;
+  gw = Math.max(20, Math.floor(W/CELL));
+  gh = Math.max(20, Math.floor(H/CELL));
+  grid = new Uint16Array(gw*gh);
+
+  if(prevGrid){
+    // 既存の砂をできるだけ引き継ぐ(粗いスケールでコピー)
+    for(let y=0;y<Math.min(gh,prevGh);y++){
+      for(let x=0;x<Math.min(gw,prevGw);x++){
+        grid[y*gw+x]=prevGrid[y*prevGw+x];
+      }
+    }
+  }
+
+  off = document.createElement("canvas");
+  off.width=gw; off.height=gh;
+  offCtx = off.getContext("2d");
+  imgData = offCtx.createImageData(gw,gh);
+  buf = imgData.data;
+}
+window.addEventListener("resize", resize, {passive:true});
+resize();
+
+// ---- 傾きセンサー ----
+let gx=0, gy=1; // デフォルトは下向き
+let tiltActive=false;
+
+function applyTilt(beta, gamma){
+  const nx = Math.max(-1, Math.min(1, gamma/45));
+  const ny = Math.max(-1, Math.min(1, (beta-20)/45));
+  gx = nx;
+  gy = Math.max(-1, Math.min(1, ny + 0.35)); // 常にわずかに下方向のベースを足す
+}
+function onOrient(e){
+  if(e.beta===null || e.gamma===null) return;
+  applyTilt(e.beta, e.gamma);
+}
+function enableTilt(){
+  if(typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function"){
+    DeviceOrientationEvent.requestPermission().then(state=>{
+      if(state==="granted"){
+        window.addEventListener("deviceorientation", onOrient);
+        tiltActive=true;
+        tiltBtn.style.display="none";
+      }
+    }).catch(()=>{});
+  }else if(typeof DeviceOrientationEvent !== "undefined"){
+    window.addEventListener("deviceorientation", onOrient);
+    tiltActive=true;
+    tiltBtn.style.display="none";
+  }
+}
+if(typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function"){
+  tiltBtn.style.display="block";
+}
+tiltBtn.addEventListener("click", enableTilt);
+
+// ---- 砂を追加 ----
+let hueBase = Math.random()*360;
+let pressing=false, lastPX=0, lastPY=0;
+
+function addSandAt(px,py){
+  const cx = Math.floor(px/CELL), cy = Math.floor(py/CELL);
+  const r = 3;
+  for(let dy=-r; dy<=r; dy++){
+    for(let dx=-r; dx<=r; dx++){
+      if(dx*dx+dy*dy> r*r) continue;
+      const x=cx+dx, y=cy+dy;
+      if(x<0||x>=gw||y<0||y>=gh) continue;
+      if(Math.random()<0.55 && grid[y*gw+x]===0){
+        const hue = Math.floor((hueBase + dx*6 + dy*6 + Math.random()*20) % 360);
+        grid[y*gw+x] = hue+1;
+      }
+    }
+  }
+}
+
+function pointerPos(e){
+  const r = canvas.getBoundingClientRect();
+  return {x:e.clientX-r.left, y:e.clientY-r.top};
+}
+canvas.addEventListener("pointerdown",(e)=>{
+  canvas.setPointerCapture?.(e.pointerId);
+  pressing=true;
+  const p=pointerPos(e); lastPX=p.x; lastPY=p.y;
+  addSandAt(p.x,p.y);
+  hueBase=(hueBase+17)%360;
+});
+canvas.addEventListener("pointermove",(e)=>{
+  if(!pressing) return;
+  const p=pointerPos(e);
+  addSandAt(p.x,p.y);
+  lastPX=p.x; lastPY=p.y;
+});
+canvas.addEventListener("pointerup",()=>{ pressing=false; });
+canvas.addEventListener("pointercancel",()=>{ pressing=false; });
+
+resetBtn.addEventListener("click",()=>{
+  grid.fill(0);
+  hueBase=Math.random()*360;
+});
+
+// ---- 砂の物理更新 ----
+function step(){
+  const dxSign = gx>0.12?1:(gx<-0.12?-1:0);
+  const dySign = gy>0.12?1:(gy<-0.12?-1:0);
+  const pdx = dxSign, pdy = (dxSign===0&&dySign===0)?1:dySign;
+
+  const yStart = pdy>=0? gh-1 : 0;
+  const yEnd   = pdy>=0? -1   : gh;
+  const yStep  = pdy>=0? -1   : 1;
+  const xStart = pdx>=0? gw-1 : 0;
+  const xEnd   = pdx>=0? -1   : gw;
+  const xStep  = pdx>=0? -1   : 1;
+
+  for(let y=yStart; y!==yEnd; y+=yStep){
+    const row=y*gw;
+    for(let x=xStart; x!==xEnd; x+=xStep){
+      const idx=row+x;
+      const v=grid[idx];
+      if(v===0) continue;
+
+      let moved=false;
+      const flipFirst = Math.random()<0.5;
+
+      // 主方向
+      let tx=x+pdx, ty=y+pdy;
+      if(tx>=0&&tx<gw&&ty>=0&&ty<gh&&grid[ty*gw+tx]===0){
+        grid[ty*gw+tx]=v; grid[idx]=0; moved=true;
+      }
+      if(!moved){
+        const alt1x = pdx!==0? x+pdx : x+(flipFirst?1:-1);
+        const alt1y = pdx!==0? y : y+pdy;
+        const alt2x = pdx!==0? x : x+(flipFirst?-1:1);
+        const alt2y = pdx!==0? y+pdy : y+pdy;
+        const cands = pdx!==0
+          ? [[x, y+pdy],[x+pdx, y]]
+          : [[x+(flipFirst?1:-1), y+pdy],[x+(flipFirst?-1:1), y+pdy]];
+        for(const [nx,ny] of cands){
+          if(nx>=0&&nx<gw&&ny>=0&&ny<gh&&grid[ny*gw+nx]===0){
+            grid[ny*gw+nx]=v; grid[idx]=0; moved=true; break;
+          }
+        }
+      }
+    }
+  }
+}
+
+function render(){
+  for(let i=0;i<grid.length;i++){
+    const v=grid[i];
+    const o=i*4;
+    if(v===0){
+      buf[o]=5; buf[o+1]=6; buf[o+2]=12; buf[o+3]=255;
+    }else{
+      const rgb=hueLUT[(v-1)|0];
+      buf[o]=rgb[0]; buf[o+1]=rgb[1]; buf[o+2]=rgb[2]; buf[o+3]=255;
+    }
+  }
+  offCtx.putImageData(imgData,0,0);
+  ctx.drawImage(off,0,0,gw,gh,0,0,W,H);
+}
+
+function loop(){
+  step();
+  render();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
