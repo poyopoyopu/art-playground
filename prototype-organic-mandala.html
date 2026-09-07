@@ -6,7 +6,7 @@
 <title>Prototype — Organic Mandala Mural</title>
 <style>
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#07050c}
-canvas{display:block;width:100%;height:100%}
+canvas{display:block;width:100%;height:100%;touch-action:none}
 #ui{position:fixed;inset:0;pointer-events:none;color:#f5f3ff;
 font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 #title{position:absolute;left:5vw;top:max(5vh,36px);text-shadow:0 3px 20px #000}
@@ -21,23 +21,23 @@ font-family:-apple-system,sans-serif;font-size:13px;letter-spacing:.1em;z-index:
 <body>
 <div id="loading"><div id="spinner"></div><div>壁画を織っています…</div></div>
 <canvas id="c"></canvas>
-<div id="ui"><div id="title"><b>Organic Mandala Mural</b><span>PROTOTYPE v2 — 一部分だけ生きている</span></div></div>
+<div id="ui"><div id="title"><b>Organic Mandala Mural</b><span>PROTOTYPE v3 — 触れると目が開く</span></div></div>
 <script>
 (()=>{
 const c=document.getElementById('c'),ctx=c.getContext('2d',{alpha:false});
 const loadingEl=document.getElementById('loading');
 const TAU=Math.PI*2;
-let W,H,D,base,bctx,cells=[],living=[];
+let W,H,D,base,bctx,cells=[],living=[],ripples=[];
 const rnd=(a,b)=>a+Math.random()*(b-a);
 const pick=a=>a[(Math.random()*a.length)|0];
 
-// 不穏・毒々しいパレット群(濁った混ざり方を狙う)
+// 不穏・毒々しいパレット群(ネオンで発光するような鮮やかさ)
 const paletteGroups=[
-  ['#7a0b1e','#b3411a','#c9a227'],   // 血と腐敗
-  ['#3a0b4d','#7a1f6b','#9fc94a'],   // 打撲紫〜酸っぱい緑
-  ['#0e3b2e','#1f8f5c','#c7d92a'],   // 苔〜毒黄緑
-  ['#4a0f3a','#c22a6b','#e8c23a'],   // 爛れたピンク〜黄
-  ['#1a2b4a','#2f7a8c','#8fd6c9']    // 溺れた青緑
+  ['#ff1f3d','#ff6a1a','#e8ff1a'],   // 血〜業火〜毒黄
+  ['#c026ff','#ff26c9','#c6ff1a'],   // 電撃紫〜蛍光ピンク〜酸緑
+  ['#00ff8c','#c6ff1a','#fff23a'],   // 毒緑〜蛍光黄
+  ['#ff1a8c','#ff8c1a','#fff23a'],   // 爛れたピンク〜金
+  ['#1ae8ff','#1a5eff','#c026ff']    // 溺れた青〜紫
 ];
 
 function setup(){
@@ -125,6 +125,8 @@ function makeCell(x,y,r){
 // ---- 目(スリット瞳孔・血走った白目) ----
 function drawEyeShape(g,R,lookAngle,pupilColorA,pupilColorB,scleraShade){
   g.save();
+  g.shadowColor=pupilColorA;
+  g.shadowBlur=R*0.9;
   const grad=g.createRadialGradient(0,0,R*0.05,0,0,R);
   grad.addColorStop(0,scleraShade[0]);
   grad.addColorStop(0.7,scleraShade[1]);
@@ -133,11 +135,12 @@ function drawEyeShape(g,R,lookAngle,pupilColorA,pupilColorB,scleraShade){
   g.strokeStyle='rgba(5,3,6,0.95)';
   g.lineWidth=Math.max(0.8,R*0.09);
   g.beginPath(); g.arc(0,0,R,0,TAU); g.fill(); g.stroke();
+  g.shadowBlur=0;
 
   // 血管
-  g.strokeStyle='rgba(180,20,30,0.55)';
-  g.lineWidth=Math.max(0.4,R*0.03);
-  for(let i=0;i<3;i++){
+  g.strokeStyle='rgba(255,30,50,0.75)';
+  g.lineWidth=Math.max(0.5,R*0.035);
+  for(let i=0;i<4;i++){
     const a=rnd(0,TAU);
     g.beginPath();
     g.moveTo(Math.cos(a)*R*0.15,Math.sin(a)*R*0.15);
@@ -145,14 +148,17 @@ function drawEyeShape(g,R,lookAngle,pupilColorA,pupilColorB,scleraShade){
     g.stroke();
   }
 
-  // スリット瞳孔(向きランダム)
+  // スリット瞳孔(向きランダム、光る)
   const px=Math.cos(lookAngle)*R*0.18, py=Math.sin(lookAngle)*R*0.18;
   g.translate(px,py);
   g.rotate(lookAngle+Math.PI/2);
+  g.shadowColor=pupilColorB;
+  g.shadowBlur=R*0.7;
   const irisGrad=g.createLinearGradient(0,-R*0.42,0,R*0.42);
   irisGrad.addColorStop(0,pupilColorA); irisGrad.addColorStop(1,pupilColorB);
   g.fillStyle=irisGrad;
   g.beginPath(); g.ellipse(0,0,R*0.30,R*0.42,0,0,TAU); g.fill();
+  g.shadowBlur=0;
   g.fillStyle='rgba(4,2,4,0.98)';
   g.beginPath(); g.ellipse(0,0,R*0.09,R*0.40,0,0,TAU); g.fill();
   g.restore();
@@ -214,13 +220,13 @@ function drawFlower(g,cell,scale,petalFlex,hueShift){
     const ex=Math.cos(e.a)*R*e.d, ey=Math.sin(e.a)*R*e.d;
     g.save();
     g.translate(ex,ey);
-    drawEyeShape(g,R*e.size,e.lookA,palette[0],palette[2],['#d8cf8a','#8a6a3a']);
+    drawEyeShape(g,R*e.size,e.lookA,palette[0],palette[2],['#fff6b8','#c9a13a']);
     g.restore();
   }
 
   // 中心の大きな目
   const eyeR=R*0.30;
-  drawEyeShape(g,eyeR,cell.seed*3,palette[1],palette[2],['#e6d9a0','#5a3a2a']);
+  drawEyeShape(g,eyeR,cell.seed*3,palette[1],palette[2],['#fff6b8','#8a5a1a']);
 
   g.restore();
 }
@@ -243,7 +249,7 @@ function drawEye(g,cell,scale,pulse){
   g.lineWidth=Math.max(1.1,R*0.08);
   g.fill(); g.stroke();
 
-  drawEyeShape(g,R*(0.5+pulse*0.06),rot*2,palette[0],palette[2],['#d8cf8a','#6a4a2a']);
+  drawEyeShape(g,R*(0.5+pulse*0.06),rot*2,palette[0],palette[2],['#fff6b8','#a06a1a']);
   g.restore();
 }
 
@@ -309,8 +315,32 @@ function draw(t){
     cell._scale=breathe;
     drawCell(ctx,cell,t);
   }
+  for(let i=ripples.length-1;i>=0;i--){
+    const rp=ripples[i];
+    rp.r+=5.5; rp.life-=0.02;
+    if(rp.life<=0){ ripples.splice(i,1); continue; }
+    ctx.save();
+    ctx.globalAlpha=Math.max(0,rp.life);
+    ctx.translate(rp.x,rp.y);
+    drawEyeShape(ctx,rp.r,rp.a,rp.pal[0],rp.pal[2],['#fff6b8','#c9a13a']);
+    ctx.restore();
+  }
   requestAnimationFrame(draw);
 }
+
+function wake(x,y){
+  ripples.push({x,y,r:4,life:1,a:rnd(0,TAU),pal:pick(paletteGroups)});
+  for(const cell of living){
+    const d=Math.hypot(cell.x-x,cell.y-y);
+    if(d<260){ cell.phase+=rnd(-1.3,1.3); }
+  }
+}
+function canvasPos(e){
+  const r=c.getBoundingClientRect();
+  return {x:e.clientX-r.left, y:e.clientY-r.top};
+}
+c.addEventListener('pointerdown',e=>{const p=canvasPos(e);wake(p.x,p.y);});
+c.addEventListener('pointermove',e=>{if(e.buttons){const p=canvasPos(e);wake(p.x,p.y);}});
 
 addEventListener('resize',setup,{passive:true});
 setup();
