@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>ぐるぐるスタジオ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600&family=Noto+Sans+JP:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js"></script>
+<style>
+  :root{
+    --bg: #1c1a22;
+    --panel: #232130;
+    --line: #35323f;
+    --text-1: #f2f0f7;
+    --text-2: #a7a3b8;
+    --accent: #8b8cf2;
+    --accent-2: #f2a65a;
+  }
+  *{ box-sizing:border-box; }
+  html,body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text-1);
+    font-family:"Noto Sans JP", -apple-system, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .wrap{
+    max-width:460px;
+    margin:0 auto;
+    padding:28px 20px 40px;
+    min-height:100vh;
+  }
+  header{ margin-bottom:20px; }
+  h1{
+    font-family:"Fredoka", sans-serif;
+    font-weight:600;
+    font-size:26px;
+    margin:0 0 6px;
+    letter-spacing:0.02em;
+  }
+  header p{
+    margin:0;
+    font-size:13px;
+    color:var(--text-2);
+    line-height:1.6;
+  }
+  .stage{
+    width:100%;
+    aspect-ratio:3/4;
+    border-radius:18px;
+    overflow:hidden;
+    border:1px solid var(--line);
+    margin-bottom:22px;
+    position:relative;
+    background:#0a0a0a;
+  }
+  canvas{ display:block; width:100%; height:100%; }
+  .deck{ display:flex; flex-direction:column; }
+  .row{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:11px 0;
+    border-bottom:1px solid var(--line);
+  }
+  .row:first-child{ border-top:1px solid var(--line); }
+  .row label{
+    font-size:12px;
+    color:var(--text-2);
+    width:72px;
+    flex-shrink:0;
+  }
+  .row .val{
+    font-family:"Fredoka", sans-serif;
+    font-size:13px;
+    min-width:30px;
+    text-align:right;
+    color:var(--text-1);
+  }
+  input[type=range]{
+    flex:1;
+    -webkit-appearance:none;
+    appearance:none;
+    height:4px;
+    border-radius:2px;
+    background:var(--line);
+    outline:none;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;
+    width:20px;
+    height:20px;
+    border-radius:50%;
+    background:var(--accent);
+    border:3px solid var(--bg);
+    box-shadow:0 0 0 1px var(--accent);
+    cursor:pointer;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:20px;
+    height:20px;
+    border-radius:50%;
+    background:var(--accent);
+    border:3px solid var(--bg);
+    box-shadow:0 0 0 1px var(--accent);
+    cursor:pointer;
+  }
+  .photo-row{ display:flex; gap:8px; flex:1; }
+  .photo-label{
+    flex:1;
+    text-align:center;
+    padding:9px 10px;
+    border-radius:999px;
+    border:1px solid var(--line);
+    font-size:12px;
+    cursor:pointer;
+    color:var(--text-1);
+  }
+  button{
+    padding:11px 10px;
+    border-radius:999px;
+    border:1px solid var(--line);
+    background:transparent;
+    color:var(--text-1);
+    font-family:"Noto Sans JP", sans-serif;
+    font-size:12px;
+    cursor:pointer;
+  }
+  button:disabled{ opacity:0.5; }
+  .toggles{ display:flex; gap:8px; margin-top:14px; }
+  .toggles button{ flex:1; }
+  button.active{ background:var(--accent); border-color:var(--accent); color:#1c1a22; }
+  footer{ margin-top:22px; font-size:12px; color:var(--text-2); text-align:center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>ぐるぐるスタジオ</h1>
+    <p>黄金角のスパイラルと混沌をブレンドするジェネラティブアート。写真を選べば色も形もそこから生まれるし、キャラの顔にもできる。</p>
+  </header>
+
+  <div class="stage"><canvas id="spiralCanvas"></canvas></div>
+
+  <div class="deck">
+    <div class="row">
+      <label>写真</label>
+      <div class="photo-row">
+        <label for="photoInput" class="photo-label" id="photoLabel">写真を選ぶ</label>
+        <input type="file" id="photoInput" accept="image/*" style="display:none;">
+        <button id="clearPhotoBtn">クリア</button>
+      </div>
+    </div>
+    <div class="row">
+      <label>点の数</label>
+      <input type="range" id="countSlider" min="150" max="700" step="10" value="420">
+      <span class="val" id="countOut">420</span>
+    </div>
+    <div class="row">
+      <label>秩序⇔混沌</label>
+      <input type="range" id="chaosSlider" min="0" max="100" step="1" value="15">
+      <span class="val" id="chaosOut">15</span>
+    </div>
+    <div class="row">
+      <label>角度のズレ</label>
+      <input type="range" id="devSlider" min="-50" max="50" step="1" value="0">
+      <span class="val" id="devOut">0</span>
+    </div>
+    <div class="row">
+      <label>速さ</label>
+      <input type="range" id="rotSlider" min="1" max="30" step="1" value="3">
+      <span class="val" id="rotOut">3</span>
+    </div>
+    <div class="row">
+      <label>ぐにゃぐにゃ</label>
+      <input type="range" id="wobbleSlider" min="0" max="100" step="1" value="18">
+      <span class="val" id="wobbleOut">18</span>
+    </div>
+    <div class="row">
+      <label>色の速さ</label>
+      <input type="range" id="hueSpeedSlider" min="0" max="60" step="1" value="14">
+      <span class="val" id="hueSpeedOut">14</span>
+    </div>
+    <div class="toggles">
+      <button id="faceBtn">顔を表示</button>
+      <button id="gifBtn">GIFで保存</button>
+    </div>
+    <div class="toggles">
+      <button id="randomBtn">ランダム</button>
+      <button id="autoBtn">オートランダムON</button>
+    </div>
+  </div>
+
+  <footer>速さを1〜3くらいにするとゆったり眺められる。GIF保存は3秒ぶんを書き出すよ。</footer>
+</div>
+
+<script>
+(function(){
+  var canvas = document.getElementById('spiralCanvas');
+  var ctx = canvas.getContext('2d');
+  var wrap = canvas.parentElement;
+  var t = 0;
+
+  var countSlider = document.getElementById('countSlider');
+  var countOut = document.getElementById('countOut');
+  var chaosSlider = document.getElementById('chaosSlider');
+  var chaosOut = document.getElementById('chaosOut');
+  var devSlider = document.getElementById('devSlider');
+  var devOut = document.getElementById('devOut');
+  var rotSlider = document.getElementById('rotSlider');
+  var rotOut = document.getElementById('rotOut');
+  var wobbleSlider = document.getElementById('wobbleSlider');
+  var wobbleOut = document.getElementById('wobbleOut');
+  var hueSpeedSlider = document.getElementById('hueSpeedSlider');
+  var hueSpeedOut = document.getElementById('hueSpeedOut');
+  var randomBtn = document.getElementById('randomBtn');
+  var autoBtn = document.getElementById('autoBtn');
+  var faceBtn = document.getElementById('faceBtn');
+  var gifBtn = document.getElementById('gifBtn');
+  var photoInput = document.getElementById('photoInput');
+  var photoLabel = document.getElementById('photoLabel');
+  var clearPhotoBtn = document.getElementById('clearPhotoBtn');
+
+  var chaosCurrent = parseFloat(chaosSlider.value) / 100;
+  var devCurrent = parseFloat(devSlider.value);
+  var rotCurrent = parseFloat(rotSlider.value);
+  var wobbleCurrent = parseFloat(wobbleSlider.value) / 100;
+  var hueSpeedCurrent = parseFloat(hueSpeedSlider.value);
+  var seed = 1;
+  var hueOffset = 0;
+  var autoOn = false;
+  var autoTimer = 0;
+  var autoInterval = 260;
+  var showFace = false;
+  var recordingHook = null;
+
+  var photoData = null;
+  var sampleW = 130, sampleH = 174;
+
+  countSlider.addEventListener('input', function(){ countOut.textContent = countSlider.value; });
+  chaosSlider.addEventListener('input', function(){ chaosOut.textContent = chaosSlider.value; });
+  devSlider.addEventListener('input', function(){ devOut.textContent = devSlider.value; });
+  rotSlider.addEventListener('input', function(){ rotOut.textContent = rotSlider.value; });
+  wobbleSlider.addEventListener('input', function(){ wobbleOut.textContent = wobbleSlider.value; });
+  hueSpeedSlider.addEventListener('input', function(){ hueSpeedOut.textContent = hueSpeedSlider.value; });
+
+  faceBtn.addEventListener('click', function(){
+    showFace = !showFace;
+    faceBtn.classList.toggle('active', showFace);
+  });
+
+  photoInput.addEventListener('change', function(e){
+    var file = e.target.files && e.target.files[0];
+    if(!file) return;
+    var reader = new FileReader();
+    reader.onload = function(ev){
+      var img = new Image();
+      img.onload = function(){
+        var off = document.createElement('canvas');
+        off.width = sampleW; off.height = sampleH;
+        var octx = off.getContext('2d');
+        var scale = Math.max(sampleW/img.width, sampleH/img.height);
+        var dw = img.width*scale, dh = img.height*scale;
+        var dx = (sampleW-dw)/2, dy = (sampleH-dh)/2;
+        octx.drawImage(img, dx, dy, dw, dh);
+        photoData = octx.getImageData(0,0,sampleW,sampleH).data;
+        photoLabel.textContent = '写真を変える';
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  clearPhotoBtn.addEventListener('click', function(){
+    photoData = null;
+    photoInput.value = '';
+    photoLabel.textContent = '写真を選ぶ';
+  });
+
+  function triggerRandom(){
+    seed = Math.random() * 10000;
+    hueOffset = Math.random() * 360;
+    var vals = {
+      chaosSlider: Math.round(Math.random()*100),
+      devSlider: Math.round(-50 + Math.random()*100),
+      rotSlider: Math.round(1 + Math.random()*14),
+      wobbleSlider: Math.round(Math.random()*100),
+      hueSpeedSlider: Math.round(Math.random()*30)
+    };
+    chaosSlider.value = vals.chaosSlider; chaosOut.textContent = vals.chaosSlider;
+    devSlider.value = vals.devSlider; devOut.textContent = vals.devSlider;
+    rotSlider.value = vals.rotSlider; rotOut.textContent = vals.rotSlider;
+    wobbleSlider.value = vals.wobbleSlider; wobbleOut.textContent = vals.wobbleSlider;
+    hueSpeedSlider.value = vals.hueSpeedSlider; hueSpeedOut.textContent = vals.hueSpeedSlider;
+  }
+
+  randomBtn.addEventListener('click', function(){ triggerRandom(); autoTimer = 0; });
+  autoBtn.addEventListener('click', function(){
+    autoOn = !autoOn;
+    autoBtn.textContent = autoOn ? 'オートランダムOFF' : 'オートランダムON';
+    autoBtn.classList.toggle('active', autoOn);
+    autoTimer = 0;
+  });
+
+  gifBtn.addEventListener('click', function(){
+    if(recordingHook) return;
+    var originalText = gifBtn.textContent;
+    gifBtn.textContent = '録画中…';
+    gifBtn.disabled = true;
+
+    var dpr = window.devicePixelRatio || 1;
+    var cssW = Math.round(canvas.width/dpr);
+    var cssH = Math.round(canvas.height/dpr);
+
+    var gif = new GIF({
+      workers: 2,
+      quality: 10,
+      width: cssW,
+      height: cssH,
+      workerScript: 'https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js'
+    });
+
+    var frameCount = 0;
+    var maxFrames = 30;
+    var captureInterval = 5;
+    var frameTick = 0;
+
+    recordingHook = function(){
+      frameTick++;
+      if(frameTick % captureInterval !== 0) return;
+      var tmp = document.createElement('canvas');
+      tmp.width = cssW; tmp.height = cssH;
+      var tctx = tmp.getContext('2d');
+      tctx.drawImage(canvas, 0, 0, canvas.width, canvas.height, 0, 0, cssW, cssH);
+      gif.addFrame(tmp, {delay: 90, copy:true});
+      frameCount++;
+      if(frameCount >= maxFrames){
+        recordingHook = null;
+        gif.on('finished', function(blob){
+          var url = URL.createObjectURL(blob);
+          var a = document.createElement('a');
+          a.href = url;
+          a.download = 'guruguru.gif';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(function(){ URL.revokeObjectURL(url); }, 3000);
+          gifBtn.textContent = originalText;
+          gifBtn.disabled = false;
+        });
+        gif.render();
+      }
+    };
+  });
+
+  function hashRandom(i, s){
+    var x = Math.sin(i*127.1 + s*311.7) * 43758.5453;
+    return x - Math.floor(x);
+  }
+
+  function samplePhotoPixel(u, v){
+    var x = Math.min(sampleW-1, Math.max(0, Math.floor(u*sampleW)));
+    var y = Math.min(sampleH-1, Math.max(0, Math.floor(v*sampleH)));
+    var idx = (y*sampleW + x) * 4;
+    return [photoData[idx], photoData[idx+1], photoData[idx+2]];
+  }
+
+  function luminanceAt(u,v){
+    var p = samplePhotoPixel(u,v);
+    return (0.299*p[0] + 0.587*p[1] + 0.114*p[2]) / 255;
+  }
+
+  function rgbToHue(r,g,b){
+    r/=255; g/=255; b/=255;
+    var max=Math.max(r,g,b), min=Math.min(r,g,b);
+    var h=0;
+    if(max!==min){
+      var d = max-min;
+      if(max===r) h = ((g-b)/d + (g<b?6:0));
+      else if(max===g) h = (b-r)/d + 2;
+      else h = (r-g)/d + 4;
+      h *= 60;
+    }
+    return h;
+  }
+
+  var goldenAngle = Math.PI * (3 - Math.sqrt(5));
+
+  function resize(){
+    var rect = wrap.getBoundingClientRect();
+    var dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(rect.width * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  function drawFace(size){
+    var eyeR = Math.max(0.8, size*0.16);
+    var eyeOffset = size*0.34;
+    ctx.fillStyle = '#1a2a33';
+    ctx.beginPath();
+    ctx.arc(-eyeOffset*0.6, -eyeOffset*0.15, eyeR, 0, Math.PI*2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(eyeOffset*0.6, -eyeOffset*0.15, eyeR, 0, Math.PI*2);
+    ctx.fill();
+    ctx.strokeStyle = '#1a2a33';
+    ctx.lineWidth = Math.max(0.6, size*0.12);
+    ctx.beginPath();
+    ctx.arc(0, size*0.22, size*0.28, 0.15*Math.PI, 0.85*Math.PI);
+    ctx.stroke();
+  }
+
+  function draw(){
+    var dpr = window.devicePixelRatio || 1;
+    var w = canvas.width / dpr;
+    var h = canvas.height / dpr;
+
+    ctx.fillStyle = '#0a0a0a';
+    ctx.fillRect(0,0,w,h);
+
+    var n = parseInt(countSlider.value, 10);
+    var cx = w/2, cy = h/2;
+    var maxR = Math.min(w,h) * 0.46;
+    var c = maxR / Math.sqrt(n);
+    var angleMult = 1 + devCurrent * 0.002;
+
+    for(var i=0; i<n; i++){
+      var r = c * Math.sqrt(i);
+      var orderAngle = i * goldenAngle * angleMult + t * rotCurrent * 0.01;
+      var ox = cx + r * Math.cos(orderAngle);
+      var oy = cy + r * Math.sin(orderAngle);
+
+      var rr = hashRandom(i, seed) * maxR;
+      var ra = hashRandom(i, seed+1000) * Math.PI * 2 + t*rotCurrent*0.003;
+      var rx0 = cx + rr * Math.cos(ra);
+      var ry0 = cy + rr * Math.sin(ra);
+
+      var x = ox + (rx0 - ox) * chaosCurrent;
+      var y = oy + (ry0 - oy) * chaosCurrent;
+
+      x += wobbleCurrent * 9 * Math.sin(t*0.02 + i*0.31);
+      y += wobbleCurrent * 9 * Math.cos(t*0.017 + i*0.27);
+
+      var u = Math.min(1, Math.max(0, x / w));
+      var v = Math.min(1, Math.max(0, y / h));
+
+      var hue, size, rx, ry, angle;
+
+      if(photoData){
+        var p = samplePhotoPixel(u, v);
+        var baseHue = rgbToHue(p[0], p[1], p[2]);
+        hue = (baseHue + t*hueSpeedCurrent*0.01*36*0.4 + hueOffset*chaosCurrent) % 360;
+        if(hue < 0) hue += 360;
+        var lum = (0.299*p[0]+0.587*p[1]+0.114*p[2]) / 255;
+
+        var eps = 1.5/sampleW;
+        var lumR = luminanceAt(Math.min(1,u+eps), v);
+        var lumL = luminanceAt(Math.max(0,u-eps), v);
+        var lumU = luminanceAt(u, Math.max(0,v-eps));
+        var lumD = luminanceAt(u, Math.min(1,v+eps));
+        var dxL = lumR-lumL, dyL = lumD-lumU;
+        var edgeMag = Math.min(1, Math.sqrt(dxL*dxL+dyL*dyL) * 6);
+        angle = Math.atan2(dyL, dxL);
+
+        size = (2.4 + 5.2*lum) * (0.7 + 0.3*Math.sin(t*2 + i*0.13));
+        rx = size*(1+edgeMag*1.7);
+        ry = size*(1-edgeMag*0.35);
+      } else {
+        var orderedHue = (i * (goldenAngle*180/Math.PI) + t*hueSpeedCurrent*0.01*36 + hueOffset) % 360;
+        var jitter = (hashRandom(i, seed+2000) - 0.5) * 300 * chaosCurrent;
+        hue = (orderedHue + jitter) % 360;
+        if(hue < 0) hue += 360;
+
+        var distFromCenter = Math.sqrt((x-cx)*(x-cx) + (y-cy)*(y-cy));
+        size = 3 + 4.5 * (distFromCenter / maxR) * (0.7 + 0.3*Math.sin(t*2 + i*0.13));
+        rx = size; ry = size;
+        angle = orderAngle;
+      }
+
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(angle);
+      ctx.beginPath();
+      ctx.fillStyle = 'hsl(' + hue.toFixed(0) + ',' + (photoData ? '78%,54%' : '82%,58%') + ')';
+      ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI*2);
+      ctx.fill();
+      if(showFace){ drawFace(size); }
+      ctx.restore();
+    }
+  }
+
+  function animate(){
+    t += 0.5;
+
+    if(autoOn){
+      autoTimer++;
+      if(autoTimer > autoInterval){
+        triggerRandom();
+        autoTimer = 0;
+      }
+    }
+
+    var chaosTarget = parseFloat(chaosSlider.value) / 100;
+    var devTarget = parseFloat(devSlider.value);
+    var rotTarget = parseFloat(rotSlider.value);
+    var wobbleTarget = parseFloat(wobbleSlider.value) / 100;
+    var hueSpeedTarget = parseFloat(hueSpeedSlider.value);
+
+    chaosCurrent += (chaosTarget - chaosCurrent) * 0.03;
+    devCurrent += (devTarget - devCurrent) * 0.03;
+    rotCurrent += (rotTarget - rotCurrent) * 0.03;
+    wobbleCurrent += (wobbleTarget - wobbleCurrent) * 0.03;
+    hueSpeedCurrent += (hueSpeedTarget - hueSpeedCurrent) * 0.03;
+
+    draw();
+    if(recordingHook) recordingHook();
+    requestAnimationFrame(animate);
+  }
+  animate();
+})();
+</script>
+</body>
+</html>

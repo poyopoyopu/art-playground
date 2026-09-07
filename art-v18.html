@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>ヘンテコ文字スタジオ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600&family=Noto+Sans+JP:wght@400;500&family=Noto+Sans+Symbols:wght@400&family=Noto+Sans+Symbols+2&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js"></script>
+<style>
+  :root{
+    --bg: #1c1a22;
+    --line: #35323f;
+    --text-1: #f2f0f7;
+    --text-2: #a7a3b8;
+    --accent: #8b8cf2;
+  }
+  *{ box-sizing:border-box; }
+  html,body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text-1);
+    font-family:"Noto Sans JP", -apple-system, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .wrap{ max-width:460px; margin:0 auto; padding:28px 20px 40px; min-height:100vh; }
+  header{ margin-bottom:20px; }
+  h1{
+    font-family:"Fredoka", sans-serif;
+    font-weight:600;
+    font-size:26px;
+    margin:0 0 6px;
+    letter-spacing:0.02em;
+  }
+  header p{ margin:0; font-size:13px; color:var(--text-2); line-height:1.6; }
+  .stage{
+    width:100%;
+    height:66vh;
+    border-radius:18px;
+    overflow:hidden;
+    border:1px solid var(--line);
+    margin-bottom:16px;
+    background:#0a0a0a;
+    position:sticky;
+    top:10px;
+    z-index:5;
+    box-shadow:0 10px 20px -12px rgba(0,0,0,0.7);
+  }
+  .wrap.hidden-ui{ padding:10px 10px 0; }
+  .wrap.hidden-ui header,
+  .wrap.hidden-ui .deck,
+  .wrap.hidden-ui details,
+  .wrap.hidden-ui footer{ display:none; }
+  .wrap.hidden-ui .stage{ height:calc(100vh - 20px); top:0; margin-bottom:0; }
+  .ui-toggle{
+    position:absolute;
+    top:10px;
+    right:10px;
+    width:38px;
+    height:38px;
+    padding:0;
+    border-radius:50%;
+    border:1px solid rgba(255,255,255,0.25);
+    background:rgba(10,10,10,0.55);
+    color:var(--text-1);
+    font-size:16px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index:6;
+  }
+  .ui-toggle.left{ left:10px; right:auto; }
+  canvas{ display:block; width:100%; height:100%; }
+  .deck{ display:flex; flex-direction:column; }
+  .row{ display:flex; align-items:center; gap:12px; padding:11px 0; border-bottom:1px solid var(--line); }
+  .row:first-child{ border-top:1px solid var(--line); }
+  .row label{ font-size:18px; width:30px; flex-shrink:0; text-align:center; }
+  .row .val{ font-family:"Fredoka", sans-serif; font-size:13px; min-width:30px; text-align:right; color:var(--text-1); }
+  input[type=range]{
+    flex:1; -webkit-appearance:none; appearance:none; height:4px;
+    border-radius:2px; background:var(--line); outline:none;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:20px; height:20px; border-radius:50%;
+    background:var(--accent); border:3px solid var(--bg); box-shadow:0 0 0 1px var(--accent); cursor:pointer;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:20px; height:20px; border-radius:50%;
+    background:var(--accent); border:3px solid var(--bg); box-shadow:0 0 0 1px var(--accent); cursor:pointer;
+  }
+  input[type=text]{
+    flex:1; height:36px; border-radius:999px; border:1px solid var(--line);
+    background:transparent; color:var(--text-1); padding:0 14px; font-size:14px; outline:none;
+  }
+  input[type=color]{
+    -webkit-appearance:none; appearance:none; width:38px; height:38px; padding:0;
+    border:1px solid var(--line); border-radius:50%; background:none; cursor:pointer; flex-shrink:0;
+  }
+  input[type=color]::-webkit-color-swatch-wrapper{ padding:0; border-radius:50%; }
+  input[type=color]::-webkit-color-swatch{ border:none; border-radius:50%; }
+  .photo-label{
+    flex:1; text-align:center; padding:9px 10px; border-radius:999px;
+    border:1px solid var(--line); font-size:12px; cursor:pointer; color:var(--text-1);
+  }
+  button{
+    padding:11px 10px; border-radius:999px; border:1px solid var(--line);
+    background:transparent; color:var(--text-1);
+    font-family:"Noto Sans JP", sans-serif; font-size:12px; cursor:pointer;
+  }
+  button:disabled{ opacity:0.5; }
+  .toggles{ display:flex; gap:8px; margin-top:14px; }
+  .toggles button{ flex:1; }
+  button.active{ background:var(--accent); border-color:var(--accent); color:#1c1a22; }
+  footer{ margin-top:22px; font-size:12px; color:var(--text-2); text-align:center; }
+  details{ margin-top:20px; border:1px solid var(--line); border-radius:12px; padding:2px 14px; }
+  summary{ padding:10px 0; font-size:13px; color:var(--text-1); cursor:pointer; }
+  .help-list{ margin:0 0 14px; padding:0; list-style:none; }
+  .help-list li{
+    display:flex; gap:10px; font-size:12px; color:var(--text-2);
+    line-height:1.6; padding:6px 0; border-top:1px solid var(--line);
+  }
+  .help-list li span.ico{ font-size:16px; flex-shrink:0; width:20px; text-align:center; }
+</style>
+</head>
+<body>
+<div class="wrap" id="appWrap">
+  <header>
+    <h1>ヘンテコ文字スタジオ</h1>
+    <p>★や◆やアルケミー記号みたいな変な文字を、黄金角のスパイラルに乗せて色をぐるぐる回しながら漂わせるよ。画面の文字を直接タップして追加・削除もできる。</p>
+  </header>
+
+  <div class="stage">
+    <canvas id="glyphCanvas"></canvas>
+    <button id="tapModeBtn" class="ui-toggle left" title="タッチで追加中(押すと削除モードに)">👆</button>
+    <button id="toggleUiBtn" class="ui-toggle" title="コントロールを隠す">⌄</button>
+  </div>
+
+  <div class="deck">
+    <div class="row">
+      <label title="自分の文字を追加">📝</label>
+      <input type="text" id="customInput" placeholder="好きな文字を入力">
+      <button id="addCharBtn">追加</button>
+    </div>
+    <div class="row">
+      <label title="背景色">🌌</label>
+      <input type="color" id="bgColorInput" value="#0a0a0a">
+      <span style="font-size:12px;color:var(--text-2);">タップして背景色を変更</span>
+    </div>
+    <div class="row">
+      <label title="天国側">😇</label>
+      <input type="range" id="heavenHellSlider" min="0" max="100" step="1" value="50">
+      <label title="地獄側" style="width:30px;flex-shrink:0;text-align:center;">😈</label>
+    </div>
+    <div class="row">
+      <label title="背景に写真">🖼</label>
+      <div style="flex:1;display:flex;gap:8px;">
+        <label for="bgPhotoInput" class="photo-label" id="bgPhotoLabel">背景に写真を使う</label>
+        <input type="file" id="bgPhotoInput" accept="image/*" style="display:none;">
+        <button id="clearBgPhotoBtn">クリア</button>
+      </div>
+    </div>
+    <div class="row">
+      <label title="文字の数">🔢</label>
+      <input type="range" id="countSlider" min="80" max="280" step="10" value="150">
+      <span class="val" id="countOut">150</span>
+    </div>
+    <div class="row">
+      <label title="秩序⇔混沌">🌀</label>
+      <input type="range" id="chaosSlider" min="0" max="100" step="1" value="15">
+      <span class="val" id="chaosOut">15</span>
+    </div>
+    <div class="row">
+      <label title="角度のズレ">📐</label>
+      <input type="range" id="devSlider" min="-50" max="50" step="1" value="0">
+      <span class="val" id="devOut">0</span>
+    </div>
+    <div class="row">
+      <label title="速さ">⚡</label>
+      <input type="range" id="rotSlider" min="1" max="20" step="1" value="2">
+      <span class="val" id="rotOut">2</span>
+    </div>
+    <div class="row">
+      <label title="ぐにゃぐにゃ">🫧</label>
+      <input type="range" id="wobbleSlider" min="0" max="100" step="1" value="10">
+      <span class="val" id="wobbleOut">10</span>
+    </div>
+    <div class="row">
+      <label title="色の速さ">🎨</label>
+      <input type="range" id="hueSpeedSlider" min="0" max="40" step="1" value="6">
+      <span class="val" id="hueSpeedOut">6</span>
+    </div>
+    <div class="row">
+      <label title="文字の大きさ">🔍</label>
+      <input type="range" id="sizeSlider" min="10" max="28" step="1" value="17">
+      <span class="val" id="sizeOut">17</span>
+    </div>
+    <div class="row">
+      <label title="バーストの秒数">⏱</label>
+      <input type="range" id="durationSlider" min="1" max="10" step="1" value="4">
+      <span class="val" id="durationOut">4</span>
+    </div>
+    <div class="toggles">
+      <button id="glyphBtn">🔀 文字を変える</button>
+      <button id="resetCharsBtn">♻️ 文字リセット</button>
+    </div>
+    <div class="toggles">
+      <button id="randomBtn">🎲 ランダム</button>
+      <button id="autoBtn">♾️ オートランダムON</button>
+    </div>
+    <div class="toggles">
+      <button id="burstBtn">🌪 バースト</button>
+      <button id="gifBtn">🎞 GIFで保存</button>
+    </div>
+  </div>
+
+  <details>
+    <summary>ⓘ スライダーの説明</summary>
+    <ul class="help-list">
+      <li><span class="ico">👆</span><span>画面左上のボタン。「👆タッチで追加」中は模様の文字を直接タップするとその文字が追加される。押して「🗑タッチで削除」に切り替えると、タップした文字がプールから消える。</span></li>
+      <li><span class="ico">📝</span><span>好きな文字を入力して「追加」(またはEnter)すると、その文字も模様に混ざる。</span></li>
+      <li><span class="ico">🌌</span><span>背景色のベース。タップして選んだ色を中心に、明るさと色合いが自動でゆっくり呼吸するように動き続ける。</span></li>
+      <li><span class="ico">😇</span><span>天国⇔地獄。左に寄せるとハッピーな配色・絵文字(星・花・虹など)、右に寄せるとホラー系(頭蓋骨・炎・悪魔など)の配色・絵文字に近づく。中央は元のバランス。</span></li>
+      <li><span class="ico">🖼</span><span>背景に写真。選ぶとその写真が背景になり、背景色の自動アニメは一時的に止まる。「クリア」で元に戻る。</span></li>
+      <li><span class="ico">🔢</span><span>文字の数。画面に出す記号の数。多いほど密集する。</span></li>
+      <li><span class="ico">🌀</span><span>秩序⇔混沌。0だと黄金角の綺麗な渦、100に近づくほど記号がバラバラな位置に散らばる。</span></li>
+      <li><span class="ico">📐</span><span>角度のズレ。黄金角(137.5°)から少しズラす量。ズラすほど渦が「腕」状に割れる。0が一番均等な渦。</span></li>
+      <li><span class="ico">⚡</span><span>速さ。全体の回転・動きの速度。</span></li>
+      <li><span class="ico">🫧</span><span>ぐにゃぐにゃ。各記号の位置に加える揺れの強さ。</span></li>
+      <li><span class="ico">🎨</span><span>色の速さ。色(色相)が変わっていく速さ。</span></li>
+      <li><span class="ico">🔍</span><span>文字の大きさ。記号の基本サイズ。</span></li>
+      <li><span class="ico">⏱</span><span>バーストの秒数。次の「バースト」ボタンで完全ランダムになる時間の長さ。</span></li>
+      <li><span class="ico">🔀</span><span>文字を変える。使う記号の組み合わせだけシャッフルする。</span></li>
+      <li><span class="ico">♻️</span><span>文字リセット。追加・削除した文字を全部消して最初のセットに戻す。</span></li>
+      <li><span class="ico">🎲</span><span>ランダム。上の数値を全部いっぺんに新しい組み合わせへジワジワ移行させる。</span></li>
+      <li><span class="ico">♾️</span><span>オートランダムON。何もしなくても数秒おきに勝手に組み合わせが変わり続ける。</span></li>
+      <li><span class="ico">🌪</span><span>バースト。指定した秒数だけ完全ランダムに暴れて、終わったら元の設定に戻る。</span></li>
+      <li><span class="ico">🎞</span><span>GIFで保存。今の動きを数秒ぶんGIFとして書き出してダウンロードする。</span></li>
+    </ul>
+  </details>
+</div>
+
+<script>
+(function(){
+  var canvas = document.getElementById('glyphCanvas');
+  var ctx = canvas.getContext('2d');
+  var wrap = canvas.parentElement;
+  var t = 0;
+
+  var baseGlyphs = ['✩','✪','✫','✬','✭','✮','✯','✰','✡','✱','✲','✳','✴','✵','✶','✷','✸','✹',
+    '❄','❅','❆','❇','❈','❉','❊','❋','◆','◇','◈','◊','●','○','◐','◑','◒','◓','◔','◕',
+    '◧','◨','◩','◪','■','□','▢','▣','▤','▥','▦','▧','▨','▩',
+    '♔','♕','♖','♗','♘','♙','♚','♛','♜','♝','♞','♟',
+    '✝','✞','✟','✙','♱','✛','❦','❧','ღ','⚘','✧','✦','⟲','⟳','↯',
+    '☯','☮','☢','☣','⚛','♠','♣','♥','♦','☺','☻','☹',
+    '☀','☁','☂','☃','⚡','✨','🌙','⭐','💫','🌈','🦋','🌀','☄','⚜','⚙','🔮','♾',
+    '♈','♉','♊','♋','♌','♍','♎','♏','♐','♑','♒','♓',
+    '⚕','⚚','⚝','⚞','⚟','⚡','⚢','⚣','⚤','⚥','⚦','⚧','⚨','⚩',
+    '⚬','⚭','⚮','⚯','⚱','⚲','⚳','⚴','⚵','⚶','⚷','⚸','⚹','⚺','⚻','⚼',
+    '🜁','🜂','🜃','🜄','🜅','🜆','🜇','🜈','🜉','🜊','🜋','🜌','🜍','🜎','🜏',
+    '🜐','🜑','🜒','🜓','🜔','🜕','🜖','🜗','🜘','🜙','🜚','🜛','🜜','🜝','🜞',
+    '🝀','🝁','🝂','🝃','🝆','🝇','🝈','🝉','🝊','🝋','🝌','🝎','🝏',
+    '⌘','⌥','⏣','⏥','◉','◍','⧫','⧬','⧭','⧮','⧯'];
+
+  var heavenGlyphs = ['☀','🌟','✨','🌈','💫','❀','✿','🕊','🌸','☁','🌻','🦋','💛','💖','🎀','⭐','🌼','😇','🧚'];
+  var hellGlyphs = ['☠','💀','🔥','😈','👹','👺','🦇','🕷','🕸','⛓','⚰','🪦','☣','☢','🌑','👻'];
+  var baseHeavenGlyphs = heavenGlyphs.slice();
+  var baseHellGlyphs = hellGlyphs.slice();
+
+  var glyphs = baseGlyphs.slice();
+  var activePool = glyphs.slice();
+  var lastPoints = [];
+
+  var countSlider = document.getElementById('countSlider');
+  var countOut = document.getElementById('countOut');
+  var chaosSlider = document.getElementById('chaosSlider');
+  var chaosOut = document.getElementById('chaosOut');
+  var devSlider = document.getElementById('devSlider');
+  var devOut = document.getElementById('devOut');
+  var rotSlider = document.getElementById('rotSlider');
+  var rotOut = document.getElementById('rotOut');
+  var wobbleSlider = document.getElementById('wobbleSlider');
+  var wobbleOut = document.getElementById('wobbleOut');
+  var hueSpeedSlider = document.getElementById('hueSpeedSlider');
+  var hueSpeedOut = document.getElementById('hueSpeedOut');
+  var sizeSlider = document.getElementById('sizeSlider');
+  var sizeOut = document.getElementById('sizeOut');
+  var durationSlider = document.getElementById('durationSlider');
+  var durationOut = document.getElementById('durationOut');
+  var glyphBtn = document.getElementById('glyphBtn');
+  var resetCharsBtn = document.getElementById('resetCharsBtn');
+  var randomBtn = document.getElementById('randomBtn');
+  var autoBtn = document.getElementById('autoBtn');
+  var burstBtn = document.getElementById('burstBtn');
+  var gifBtn = document.getElementById('gifBtn');
+  var customInput = document.getElementById('customInput');
+  var addCharBtn = document.getElementById('addCharBtn');
+  var bgColorInput = document.getElementById('bgColorInput');
+  var heavenHellSlider = document.getElementById('heavenHellSlider');
+  var bgPhotoInput = document.getElementById('bgPhotoInput');
+  var bgPhotoLabel = document.getElementById('bgPhotoLabel');
+  var clearBgPhotoBtn = document.getElementById('clearBgPhotoBtn');
+  var tapModeBtn = document.getElementById('tapModeBtn');
+
+  var eraseMode = false;
+  tapModeBtn.addEventListener('click', function(){
+    eraseMode = !eraseMode;
+    tapModeBtn.textContent = eraseMode ? '🗑' : '👆';
+    tapModeBtn.title = eraseMode ? 'タッチで削除中(押すと追加モードに)' : 'タッチで追加中(押すと削除モードに)';
+    tapModeBtn.classList.toggle('active', eraseMode);
+  });
+
+  function handleCanvasTap(clientX, clientY){
+    var rect = canvas.getBoundingClientRect();
+    var px = clientX - rect.left;
+    var py = clientY - rect.top;
+    var best = null, bestDist = Infinity;
+    for(var k=0; k<lastPoints.length; k++){
+      var p = lastPoints[k];
+      var dx = p.x - px, dy = p.y - py;
+      var dist = Math.sqrt(dx*dx + dy*dy);
+      var hitR = Math.max(16, p.size * 0.9);
+      if(dist < hitR && dist < bestDist){ bestDist = dist; best = p; }
+    }
+    if(!best) return;
+    var ch = best.ch;
+    if(eraseMode){
+      glyphs = glyphs.filter(function(g){ return g !== ch; });
+      heavenGlyphs = heavenGlyphs.filter(function(g){ return g !== ch; });
+      hellGlyphs = hellGlyphs.filter(function(g){ return g !== ch; });
+    } else {
+      for(var rep=0; rep<5; rep++){ glyphs.push(ch); }
+    }
+    glyphSeed = Math.random() * 10000;
+    rebuildPool();
+  }
+  canvas.addEventListener('click', function(e){ handleCanvasTap(e.clientX, e.clientY); });
+
+  function hexToHsl(hex){
+    hex = hex.replace('#','');
+    var r = parseInt(hex.substring(0,2),16)/255;
+    var g = parseInt(hex.substring(2,4),16)/255;
+    var b = parseInt(hex.substring(4,6),16)/255;
+    var max=Math.max(r,g,b), min=Math.min(r,g,b);
+    var h=0,s=0,l=(max+min)/2;
+    if(max!==min){
+      var d=max-min;
+      s = l>0.5 ? d/(2-max-min) : d/(max+min);
+      if(max===r) h=((g-b)/d+(g<b?6:0));
+      else if(max===g) h=(b-r)/d+2;
+      else h=(r-g)/d+4;
+      h*=60;
+    }
+    return {h:h, s:s*100, l:l*100};
+  }
+
+  var bgColor = bgColorInput.value;
+  var neutralHsl = hexToHsl(bgColor);
+  var bgImg = null;
+
+  bgColorInput.addEventListener('input', function(){
+    bgColor = bgColorInput.value;
+    neutralHsl = hexToHsl(bgColor);
+  });
+
+  bgPhotoInput.addEventListener('change', function(e){
+    var file = e.target.files && e.target.files[0];
+    if(!file) return;
+    var reader = new FileReader();
+    reader.onload = function(ev){
+      var img = new Image();
+      img.onload = function(){
+        bgImg = img;
+        bgPhotoLabel.textContent = '写真を変える';
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  clearBgPhotoBtn.addEventListener('click', function(){
+    bgImg = null;
+    bgPhotoInput.value = '';
+    bgPhotoLabel.textContent = '背景に写真を使う';
+  });
+
+  function rebuildPool(){
+    var v = parseFloat(heavenHellSlider.value);
+    var heavenWeight = Math.max(0, (50 - v) / 50);
+    var hellWeight = Math.max(0, (v - 50) / 50);
+    var reps = 4;
+    var pool = glyphs.slice();
+    var hn = Math.round(heavenWeight * reps);
+    var dn = Math.round(hellWeight * reps);
+    for(var i=0; i<heavenGlyphs.length; i++){
+      for(var r=0; r<hn; r++){ pool.push(heavenGlyphs[i]); }
+    }
+    for(var j=0; j<hellGlyphs.length; j++){
+      for(var r2=0; r2<dn; r2++){ pool.push(hellGlyphs[j]); }
+    }
+    if(pool.length === 0) pool = ['✩'];
+    activePool = pool;
+  }
+  heavenHellSlider.addEventListener('input', rebuildPool);
+  rebuildPool();
+
+  var heavenHellCurrent = parseFloat(heavenHellSlider.value);
+  var chaosCurrent = parseFloat(chaosSlider.value) / 100;
+  var devCurrent = parseFloat(devSlider.value);
+  var rotCurrent = parseFloat(rotSlider.value);
+  var wobbleCurrent = parseFloat(wobbleSlider.value) / 100;
+  var hueSpeedCurrent = parseFloat(hueSpeedSlider.value);
+  var seed = 1;
+  var glyphSeed = 7;
+  var hueOffset = 0;
+  var autoOn = false;
+  var autoTimer = 0;
+  var autoInterval = 300;
+  var burstActive = false;
+  var burstTimer = null;
+  var burstReshuffle = null;
+  var recordingHook = null;
+
+  countSlider.addEventListener('input', function(){ countOut.textContent = countSlider.value; });
+  chaosSlider.addEventListener('input', function(){ chaosOut.textContent = chaosSlider.value; });
+  devSlider.addEventListener('input', function(){ devOut.textContent = devSlider.value; });
+  rotSlider.addEventListener('input', function(){ rotOut.textContent = rotSlider.value; });
+  wobbleSlider.addEventListener('input', function(){ wobbleOut.textContent = wobbleSlider.value; });
+  hueSpeedSlider.addEventListener('input', function(){ hueSpeedOut.textContent = hueSpeedSlider.value; });
+  sizeSlider.addEventListener('input', function(){ sizeOut.textContent = sizeSlider.value; });
+  durationSlider.addEventListener('input', function(){ durationOut.textContent = durationSlider.value; });
+
+  glyphBtn.addEventListener('click', function(){ glyphSeed = Math.random() * 10000; });
+
+  function addCustomChars(){
+    var val = customInput.value;
+    if(!val) return;
+    var chars = Array.from(val);
+    var added = [];
+    for(var k=0; k<chars.length; k++){
+      var c = chars[k];
+      if(c.trim() === '') continue;
+      if(added.indexOf(c) === -1) added.push(c);
+    }
+    for(var j=0; j<added.length; j++){
+      for(var rep=0; rep<5; rep++){ glyphs.push(added[j]); }
+    }
+    customInput.value = '';
+    glyphSeed = Math.random() * 10000;
+    rebuildPool();
+  }
+
+  addCharBtn.addEventListener('click', addCustomChars);
+  customInput.addEventListener('keydown', function(e){
+    if(e.key === 'Enter'){
+      e.preventDefault();
+      addCustomChars();
+    }
+  });
+
+  resetCharsBtn.addEventListener('click', function(){
+    glyphs = baseGlyphs.slice();
+    heavenGlyphs = baseHeavenGlyphs.slice();
+    hellGlyphs = baseHellGlyphs.slice();
+    glyphSeed = Math.random() * 10000;
+    rebuildPool();
+  });
+
+  function triggerRandom(extremeChaos){
+    seed = Math.random() * 10000;
+    glyphSeed = Math.random() * 10000;
+    hueOffset = Math.random() * 360;
+    var vals = {
+      chaosSlider: extremeChaos ? 100 : Math.round(Math.random()*100),
+      devSlider: Math.round(-50 + Math.random()*100),
+      rotSlider: Math.round(1 + Math.random()* (extremeChaos ? 19 : 10)),
+      wobbleSlider: Math.round(Math.random()* (extremeChaos ? 100 : 60)),
+      hueSpeedSlider: Math.round(Math.random()* (extremeChaos ? 40 : 16))
+    };
+    chaosSlider.value = vals.chaosSlider; chaosOut.textContent = vals.chaosSlider;
+    devSlider.value = vals.devSlider; devOut.textContent = vals.devSlider;
+    rotSlider.value = vals.rotSlider; rotOut.textContent = vals.rotSlider;
+    wobbleSlider.value = vals.wobbleSlider; wobbleOut.textContent = vals.wobbleSlider;
+    hueSpeedSlider.value = vals.hueSpeedSlider; hueSpeedOut.textContent = vals.hueSpeedSlider;
+  }
+
+  randomBtn.addEventListener('click', function(){ triggerRandom(false); autoTimer = 0; });
+  autoBtn.addEventListener('click', function(){
+    autoOn = !autoOn;
+    autoBtn.textContent = autoOn ? '♾️ オートランダムOFF' : '♾️ オートランダムON';
+    autoBtn.classList.toggle('active', autoOn);
+    autoTimer = 0;
+  });
+
+  burstBtn.addEventListener('click', function(){
+    if(burstActive) return;
+    burstActive = true;
+    var duration = parseInt(durationSlider.value, 10);
+    var saved = {
+      chaos: chaosSlider.value, dev: devSlider.value, rot: rotSlider.value,
+      wobble: wobbleSlider.value, hueSpeed: hueSpeedSlider.value
+    };
+    burstBtn.textContent = '🌪 バースト中…';
+    burstBtn.disabled = true;
+
+    burstReshuffle = setInterval(function(){ triggerRandom(true); }, 400);
+
+    burstTimer = setTimeout(function(){
+      clearInterval(burstReshuffle);
+      burstReshuffle = null;
+      chaosSlider.value = saved.chaos; chaosOut.textContent = saved.chaos;
+      devSlider.value = saved.dev; devOut.textContent = saved.dev;
+      rotSlider.value = saved.rot; rotOut.textContent = saved.rot;
+      wobbleSlider.value = saved.wobble; wobbleOut.textContent = saved.wobble;
+      hueSpeedSlider.value = saved.hueSpeed; hueSpeedOut.textContent = saved.hueSpeed;
+      burstBtn.textContent = '🌪 バースト';
+      burstBtn.disabled = false;
+      burstActive = false;
+    }, duration * 1000);
+  });
+
+  var gifWorkerBlobUrl = null;
+  var gifWorkerFetchFailed = false;
+
+  function ensureGifWorker(callback){
+    if(gifWorkerBlobUrl){ callback(gifWorkerBlobUrl); return; }
+    if(gifWorkerFetchFailed){ callback(null); return; }
+    fetch('https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js')
+      .then(function(res){
+        if(!res.ok) throw new Error('worker fetch failed: ' + res.status);
+        return res.text();
+      })
+      .then(function(text){
+        var blob = new Blob([text], {type: 'application/javascript'});
+        gifWorkerBlobUrl = URL.createObjectURL(blob);
+        callback(gifWorkerBlobUrl);
+      })
+      .catch(function(err){
+        console.error('GIF worker load failed', err);
+        gifWorkerFetchFailed = true;
+        callback(null);
+      });
+  }
+
+  gifBtn.addEventListener('click', function(){
+    if(recordingHook) return;
+    var originalText = gifBtn.textContent;
+    gifBtn.textContent = '準備中…';
+    gifBtn.disabled = true;
+
+    ensureGifWorker(function(workerUrl){
+      if(!workerUrl){
+        gifBtn.textContent = '保存に失敗…';
+        setTimeout(function(){
+          gifBtn.textContent = originalText;
+          gifBtn.disabled = false;
+        }, 2200);
+        return;
+      }
+
+      gifBtn.textContent = '録画中…';
+
+      var dpr = window.devicePixelRatio || 1;
+      var cssW = Math.round(canvas.width/dpr);
+      var cssH = Math.round(canvas.height/dpr);
+      var exportScale = Math.min(dpr, 2);
+      var exportW = Math.round(cssW * exportScale);
+      var exportH = Math.round(cssH * exportScale);
+
+      var gif = new GIF({
+        workers: 2,
+        quality: 5,
+        width: exportW,
+        height: exportH,
+        workerScript: workerUrl
+      });
+
+      var frameCount = 0;
+      var maxFrames = 16;
+      var captureInterval = 5;
+      var frameTick = 0;
+
+      recordingHook = function(){
+        frameTick++;
+        if(frameTick % captureInterval !== 0) return;
+        var tmp = document.createElement('canvas');
+        tmp.width = exportW; tmp.height = exportH;
+        var tctx = tmp.getContext('2d');
+        tctx.drawImage(canvas, 0, 0, canvas.width, canvas.height, 0, 0, exportW, exportH);
+        gif.addFrame(tmp, {delay: 90, copy:true});
+        frameCount++;
+        if(frameCount >= maxFrames){
+          recordingHook = null;
+          gif.on('finished', function(blob){
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = 'henteko-moji.gif';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(function(){ URL.revokeObjectURL(url); }, 3000);
+            gifBtn.textContent = originalText;
+            gifBtn.disabled = false;
+          });
+          gif.on('abort', function(){
+            gifBtn.textContent = originalText;
+            gifBtn.disabled = false;
+          });
+          try{
+            gif.render();
+          } catch(err){
+            console.error('GIF render error', err);
+            gifBtn.textContent = originalText;
+            gifBtn.disabled = false;
+          }
+        }
+      };
+    });
+  });
+
+  function hashRandom(i, s){
+    var x = Math.sin(i*127.1 + s*311.7) * 43758.5453;
+    return x - Math.floor(x);
+  }
+
+  var goldenAngle = Math.PI * (3 - Math.sqrt(5));
+  var fontStack = "'Noto Sans Symbols 2', 'Noto Sans Symbols', 'Noto Sans JP', sans-serif";
+
+  function resize(){
+    var rect = wrap.getBoundingClientRect();
+    var dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(rect.width * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  var appWrap = document.getElementById('appWrap');
+  var toggleUiBtn = document.getElementById('toggleUiBtn');
+  var uiHidden = false;
+  toggleUiBtn.addEventListener('click', function(){
+    uiHidden = !uiHidden;
+    appWrap.classList.toggle('hidden-ui', uiHidden);
+    toggleUiBtn.textContent = uiHidden ? '⌃' : '⌄';
+    toggleUiBtn.title = uiHidden ? 'コントロールを表示' : 'コントロールを隠す';
+    requestAnimationFrame(function(){ requestAnimationFrame(resize); });
+  });
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  var heavenBgTarget = {h:45, s:55, l:9};
+  var hellBgTarget = {h:355, s:55, l:6};
+
+  function computeBgFill(){
+    var v = heavenHellCurrent;
+    var target, factor;
+    if(v <= 50){ factor = (50 - v) / 50; target = heavenBgTarget; }
+    else { factor = (v - 50) / 50; target = hellBgTarget; }
+    var h = neutralHsl.h + (target.h - neutralHsl.h) * factor;
+    var s = neutralHsl.s + (target.s - neutralHsl.s) * factor;
+    var l = neutralHsl.l + (target.l - neutralHsl.l) * factor;
+    l += 3 * Math.sin(t*0.015);
+    h += 6 * Math.sin(t*0.008);
+    if(l < 1) l = 1; if(l > 40) l = 40;
+    if(s < 0) s = 0; if(s > 100) s = 100;
+    return 'hsl(' + h.toFixed(0) + ',' + s.toFixed(0) + '%,' + l.toFixed(0) + '%)';
+  }
+
+  function draw(){
+    var dpr = window.devicePixelRatio || 1;
+    var w = canvas.width / dpr;
+    var h = canvas.height / dpr;
+
+    if(bgImg){
+      var scale = Math.max(w/bgImg.width, h/bgImg.height);
+      var dw = bgImg.width*scale, dh = bgImg.height*scale;
+      var dx = (w-dw)/2, dy = (h-dh)/2;
+      ctx.drawImage(bgImg, dx, dy, dw, dh);
+      ctx.fillStyle = 'rgba(0,0,0,0.28)';
+      ctx.fillRect(0,0,w,h);
+    } else {
+      ctx.fillStyle = computeBgFill();
+      ctx.fillRect(0,0,w,h);
+    }
+
+    var n = parseInt(countSlider.value, 10);
+    var cx = w/2, cy = h/2;
+    var maxR = Math.min(w,h) * 0.46;
+    var c = maxR / Math.sqrt(n);
+    var angleMult = 1 + devCurrent * 0.002;
+    var baseSize = parseFloat(sizeSlider.value);
+
+    var moodFactor = (heavenHellCurrent - 50) / 50;
+    var moodTargetHue = moodFactor < 0 ? 45 : 355;
+    var moodStrength = Math.abs(moodFactor) * 0.55;
+
+    lastPoints.length = 0;
+
+    for(var i=0; i<n; i++){
+      var r = c * Math.sqrt(i);
+      var orderAngle = i * goldenAngle * angleMult + t * rotCurrent * 0.01;
+      var ox = cx + r * Math.cos(orderAngle);
+      var oy = cy + r * Math.sin(orderAngle);
+
+      var rr = hashRandom(i, seed) * maxR;
+      var ra = hashRandom(i, seed+1000) * Math.PI * 2 + t*rotCurrent*0.003;
+      var rx = cx + rr * Math.cos(ra);
+      var ry = cy + rr * Math.sin(ra);
+
+      var x = ox + (rx - ox) * chaosCurrent;
+      var y = oy + (ry - oy) * chaosCurrent;
+
+      x += wobbleCurrent * 7 * Math.sin(t*0.010 + i*0.31);
+      y += wobbleCurrent * 7 * Math.cos(t*0.009 + i*0.27);
+
+      var orderedHue = (i * (goldenAngle*180/Math.PI) + t*hueSpeedCurrent*0.01*18 + hueOffset) % 360;
+      var jitter = (hashRandom(i, seed+2000) - 0.5) * 150 * chaosCurrent;
+      var hue = (orderedHue + jitter) % 360;
+      if(hue < 0) hue += 360;
+      hue = hue * (1 - moodStrength) + moodTargetHue * moodStrength;
+      hue = hue % 360;
+      if(hue < 0) hue += 360;
+
+      var lightness = 62 + (moodFactor < 0 ? Math.abs(moodFactor)*10 : -moodFactor*22);
+      var saturation = 68 + (moodFactor > 0 ? moodFactor*15 : 0);
+
+      var distFromCenter = Math.sqrt((x-cx)*(x-cx) + (y-cy)*(y-cy));
+      var pulse = 1 + 0.05 * Math.sin(t*0.4 + i*0.05);
+      var size = baseSize * (0.6 + 0.6*(distFromCenter / maxR)) * pulse;
+
+      var gi = Math.floor(hashRandom(i, glyphSeed) * activePool.length);
+      var ch = activePool[gi];
+
+      lastPoints.push({x:x, y:y, size:size, ch:ch});
+
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(orderAngle * 0.12);
+      ctx.font = size.toFixed(1) + 'px ' + fontStack;
+      ctx.fillStyle = 'hsl(' + hue.toFixed(0) + ',' + saturation.toFixed(0) + '%,' + lightness.toFixed(0) + '%)';
+      ctx.fillText(ch, 0, 0);
+      ctx.restore();
+    }
+  }
+
+  function animate(){
+    t += 0.3;
+
+    if(autoOn){
+      autoTimer++;
+      if(autoTimer > autoInterval){
+        triggerRandom(false);
+        autoTimer = 0;
+      }
+    }
+
+    var chaosTarget = parseFloat(chaosSlider.value) / 100;
+    var devTarget = parseFloat(devSlider.value);
+    var rotTarget = parseFloat(rotSlider.value);
+    var wobbleTarget = parseFloat(wobbleSlider.value) / 100;
+    var hueSpeedTarget = parseFloat(hueSpeedSlider.value);
+    var heavenHellTarget = parseFloat(heavenHellSlider.value);
+
+    chaosCurrent += (chaosTarget - chaosCurrent) * 0.025;
+    devCurrent += (devTarget - devCurrent) * 0.025;
+    rotCurrent += (rotTarget - rotCurrent) * 0.025;
+    wobbleCurrent += (wobbleTarget - wobbleCurrent) * 0.025;
+    hueSpeedCurrent += (hueSpeedTarget - hueSpeedCurrent) * 0.025;
+    heavenHellCurrent += (heavenHellTarget - heavenHellCurrent) * 0.02;
+
+    draw();
+    if(recordingHook) recordingHook();
+    requestAnimationFrame(animate);
+  }
+  animate();
+})();
+</script>
+</body>
+</html>
