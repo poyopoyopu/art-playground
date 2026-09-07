@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Art Playground — Becoming</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#06060a}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+.ui{position:fixed;inset:0;pointer-events:none;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif;color:#eee}
+.head{position:absolute;left:6vw;top:7vh}
+.k{font-size:10px;letter-spacing:.42em;color:#c9c3bc99}
+h1{margin:10px 0 0;font-size:clamp(30px,7vw,52px);letter-spacing:.02em;font-weight:650}
+.sub{margin-top:5px;font-size:9px;letter-spacing:.38em;color:#bdb6ae99}
+button{pointer-events:auto;position:absolute;right:6vw;top:7vh;width:74px;height:74px;border-radius:50%;border:1px solid #ffffff24;background:#0a0b12c9;color:#eee;font-size:31px}
+.hint{position:absolute;left:50%;bottom:7vh;transform:translateX(-50%);white-space:nowrap;font-size:11px;letter-spacing:.2em;color:#ddd8d055}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="ui"><div class="head"><div class="k">ART PLAYGROUND</div><h1>BECOMING</h1><div class="sub">NOT MOVING · BECOMING</div></div><button id="reset">↻</button><div class="hint">触れると、世界が別の方向へ進む</div></div>
+<script>
+(()=>{
+const c=document.getElementById('c'),ctx=c.getContext('2d',{alpha:false});
+let W,H,D,agents=[],sources=[],t=0,frame=0,seed=1,drag=false;
+const cols=['#ff3f86','#ff8b45','#ffe45e','#7cff6b','#41dfbf','#4db9ff','#8c72ff','#dc65ff'];
+function rnd(){seed=(seed*1664525+1013904223)>>>0;return seed/4294967296}
+function choice(a){return a[(rnd()*a.length)|0]}
+function noise(x,y,z){
+ const n=Math.sin(x*12.9898+y*78.233+z*37.719)*43758.5453;
+ return n-Math.floor(n)
+}
+function reset(){
+ seed=(Date.now()>>>0); agents=[];sources=[];t=0;frame=0;
+ const n=Math.min(900,Math.max(420,Math.floor(W*H/1700)));
+ for(let i=0;i<n;i++){
+   let a=rnd()*Math.PI*2, r=Math.pow(rnd(),1.7)*Math.min(W,H)*.38;
+   agents.push({x:W*.5+Math.cos(a)*r,y:H*.52+Math.sin(a)*r,
+    px:0,py:0,a:a,age:rnd()*200,life:180+rnd()*600,
+    sp:.35+rnd()*1.25,col:choice(cols),branch:rnd()});
+ }
+ sources.push({x:W*.5,y:H*.52,p:1,col:choice(cols),born:0});
+ ctx.fillStyle='#06060a';ctx.fillRect(0,0,W,H);
+}
+function resize(){
+ D=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;
+ c.width=W*D;c.height=H*D;ctx.setTransform(D,0,0,D,0,0);reset();
+}
+function field(x,y,time){
+ // competing invisible currents — no fixed orbit
+ let nx=x/W,ny=y/H, a=0;
+ a+=Math.sin(nx*5.7+time*.19)*1.1;
+ a+=Math.cos(ny*6.3-time*.13)*1.05;
+ a+=Math.sin((nx+ny)*8.2+time*.07)*.75;
+ for(const s of sources){
+   let dx=x-s.x,dy=y-s.y,d=Math.sqrt(dx*dx+dy*dy)+1;
+   a+=Math.atan2(dy,dx)*0.0007*Math.min(180000/d,14)*s.p;
+ }
+ return a;
+}
+function birth(x,y,p=1){
+ sources.push({x,y,p,col:choice(cols),born:t});
+ if(sources.length>9)sources.shift();
+ for(let i=0;i<70;i++){
+   let a=rnd()*Math.PI*2,r=rnd()*18;
+   agents.push({x:x+Math.cos(a)*r,y:y+Math.sin(a)*r,px:x,py:y,a,
+     age:0,life:140+rnd()*460,sp:.5+rnd()*1.5,col:choice(cols),branch:rnd()});
+ }
+}
+function draw(){
+ t+=.016;frame++;
+ // trails persist: the picture has memory
+ ctx.globalCompositeOperation='source-over';
+ ctx.fillStyle='rgba(6,6,10,0.018)';
+ ctx.fillRect(0,0,W,H);
+ ctx.globalCompositeOperation='lighter';
+ // occasional autonomous mutation
+ if(frame%170===0 && rnd()<.45) birth(rnd()*W,rnd()*H,.45);
+ for(let i=agents.length-1;i>=0;i--){
+   const q=agents[i];q.px=q.x;q.py=q.y;
+   let target=field(q.x,q.y,t);
+   // agents don't simply follow: they hesitate, turn, and split
+   q.a+=(Math.sin(target-q.a))*0.055+(rnd()-.5)*.13;
+   if(q.branch>.992){q.a+=(rnd()-.5)*1.7;q.branch=0}
+   q.x+=Math.cos(q.a)*q.sp;q.y+=Math.sin(q.a)*q.sp;
+   q.age++;
+   let fade=Math.min(1,q.age/25,(q.life-q.age)/50);
+   ctx.strokeStyle=q.col;ctx.globalAlpha=Math.max(0,fade)*.42;
+   ctx.lineWidth=.45+(q.sp*.7);
+   ctx.beginPath();ctx.moveTo(q.px,q.py);ctx.lineTo(q.x,q.y);ctx.stroke();
+   // rare seed: evolution, not decoration
+   if(q.age>80 && rnd()<.0009) birth(q.x,q.y,.18);
+   if(q.x<-30||q.x>W+30||q.y<-30||q.y>H+30||q.age>q.life) agents.splice(i,1);
+ }
+ // sources slowly alter the current, then disappear
+ for(let i=sources.length-1;i>=0;i--){
+   let s=sources[i];s.p*=.9987;
+   if(s.p<.04)sources.splice(i,1);
+ }
+ // keep ecology alive without exploding performance
+ if(agents.length<280)birth(W*(.25+rnd()*.5),H*(.25+rnd()*.5),.35);
+ ctx.globalAlpha=1;ctx.globalCompositeOperation='source-over';
+ requestAnimationFrame(draw);
+}
+function point(e){let r=c.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top}}
+c.addEventListener('pointerdown',e=>{drag=true;let p=point(e);birth(p.x,p.y,1)});
+c.addEventListener('pointermove',e=>{if(drag&&Math.random()<.18){let p=point(e);birth(p.x,p.y,.45)}});
+addEventListener('pointerup',()=>drag=false);
+document.getElementById('reset').onclick=reset;
+resize();addEventListener('resize',resize);requestAnimationFrame(draw);
+})();
+</script>
+</body></html>
