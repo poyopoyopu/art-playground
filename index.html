@@ -185,31 +185,31 @@
     <h2>LOG</h2>
     <div class="grid2">
       <div class="tile" onclick="openArt('art-v22.html','v22')">
-        <iframe src="art-v22.html" loading="lazy"></iframe>
+        <iframe data-src="art-v22.html" loading="lazy"></iframe>
         <div class="cap"><div class="v">v22</div><div class="name">Psychedelic</div></div>
       </div>
       <div class="tile" onclick="openArt('art-v21.html','v21')">
-        <iframe src="art-v21.html" loading="lazy"></iframe>
+        <iframe data-src="art-v21.html" loading="lazy"></iframe>
         <div class="cap"><div class="v">v21</div></div>
       </div>
       <div class="tile" onclick="openArt('art-v20.html','v20')">
-        <iframe src="art-v20.html" loading="lazy"></iframe>
+        <iframe data-src="art-v20.html" loading="lazy"></iframe>
         <div class="cap"><div class="v">v20</div><div class="name">ALIVE</div></div>
       </div>
       <div class="tile" onclick="openArt('art-v16.html','v16')">
-        <iframe src="art-v16.html" loading="lazy"></iframe>
+        <iframe data-src="art-v16.html" loading="lazy"></iframe>
         <div class="cap"><div class="v">v16</div><div class="name">Living Mandala</div></div>
       </div>
       <div class="tile" onclick="openArt('art-v15.html','v15')">
-        <iframe src="art-v15.html" loading="lazy"></iframe>
+        <iframe data-src="art-v15.html" loading="lazy"></iframe>
         <div class="cap"><div class="v">v15</div><div class="name">Field Restore</div></div>
       </div>
       <div class="tile" onclick="openArt('art-v10.html','v10')">
-        <iframe src="art-v10.html" loading="lazy"></iframe>
+        <iframe data-src="art-v10.html" loading="lazy"></iframe>
         <div class="cap"><div class="v">v10</div></div>
       </div>
       <div class="tile" onclick="openArt('art-v6.html','v6')">
-        <iframe src="art-v6.html" loading="lazy"></iframe>
+        <iframe data-src="art-v6.html" loading="lazy"></iframe>
         <div class="cap"><div class="v">v6</div></div>
       </div>
     </div>
@@ -229,11 +229,11 @@
     <h2>クロちゃんと作った実験</h2>
     <div class="grid2">
       <div class="tile" onclick="openArt('art-v17.html','v17 — ぐるぐるスタジオ')">
-        <iframe src="art-v17.html" loading="lazy"></iframe>
+        <iframe data-src="art-v17.html" loading="lazy"></iframe>
         <div class="cap"><div class="v">v17</div><div class="name">ぐるぐるスタジオ</div></div>
       </div>
       <div class="tile" onclick="openArt('art-v18.html','v18 — ヘンテコ文字スタジオ')">
-        <iframe src="art-v18.html" loading="lazy"></iframe>
+        <iframe data-src="art-v18.html" loading="lazy"></iframe>
         <div class="cap"><div class="v">v18</div><div class="name">ヘンテコ文字スタジオ</div></div>
       </div>
     </div>
@@ -294,6 +294,32 @@ document.querySelectorAll('.tile iframe, .feature iframe').forEach(function(f){
   f.addEventListener('load', scalePreviews);
 });
 scalePreviews();
+
+// 画面に入ったタイルだけライブ読み込みし、外れたら破棄して負荷を下げる
+if('IntersectionObserver' in window){
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(entry){
+      var iframe = entry.target.querySelector('iframe');
+      if(!iframe) return;
+      if(entry.isIntersecting){
+        var src = iframe.getAttribute('data-src');
+        if(src && iframe.getAttribute('src') !== src){
+          iframe.setAttribute('src', src);
+        }
+      } else {
+        if(iframe.getAttribute('src')){
+          iframe.removeAttribute('src');
+        }
+      }
+    });
+  }, { rootMargin: '200px 0px' });
+  document.querySelectorAll('.tile').forEach(function(t){ io.observe(t); });
+} else {
+  // 非対応ブラウザ向けフォールバック: 全部読み込む
+  document.querySelectorAll('.tile iframe[data-src]').forEach(function(f){
+    f.setAttribute('src', f.getAttribute('data-src'));
+  });
+}
 </script>
 </body>
 </html>
