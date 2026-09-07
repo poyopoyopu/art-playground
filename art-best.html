@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Art Playground — Living Garden</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#05060d}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+.ui{position:fixed;inset:0;pointer-events:none;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif;color:#f4f1e8}
+.title{position:absolute;left:7vw;top:7vh;letter-spacing:.18em;font-size:12px;color:#d7d0c7aa}
+.title b{display:block;font-size:clamp(26px,6vw,46px);letter-spacing:.02em;color:#f5f0e8;margin-top:10px}
+.title span{display:block;margin-top:6px;letter-spacing:.35em;font-size:9px;color:#cfc5b6aa}
+button{pointer-events:auto;position:absolute;right:7vw;top:7vh;width:76px;height:76px;border-radius:50%;border:1px solid #ffffff22;background:#0b0e19cc;color:#eee;font-size:33px;backdrop-filter:blur(8px)}
+.hint{position:absolute;bottom:8vh;left:50%;transform:translateX(-50%);font-size:12px;letter-spacing:.18em;color:#e9dfd055;white-space:nowrap}
+</style></head>
+<body><canvas id="c"></canvas>
+<div class="ui"><div class="title">ART PLAYGROUND<b>LIVING GARDEN</b><span>GENERATIVE · ORGANIC · ALIVE</span></div><button id="r">↻</button><div class="hint">触れた場所から、世界が生きる</div></div>
+<script>
+(()=>{
+const c=document.getElementById('c'),x=c.getContext('2d',{alpha:false});
+let W,H,D,seed=1,t0=performance.now(),last=t0, motes=[], vines=[], blooms=[], ripples=[], energy=[];
+const R=()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296};
+const pick=a=>a[(R()*a.length)|0];
+const palette=['#ff4f9a','#ff9b54','#ffd95a','#a8ef6a','#58e0c3','#55bde6','#7c8cff','#b777e8','#f5d8ff'];
+function resize(){D=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;c.width=W*D;c.height=H*D;x.setTransform(D,0,0,D,0,0);build()}
+function build(){
+ seed=(Date.now()>>>0); motes=[];vines=[];blooms=[];ripples=[];energy=[];
+ const n=Math.max(80,Math.min(150,(W*H/9000)|0));
+ for(let i=0;i<n;i++){let a=R()*Math.PI*2,r=Math.sqrt(R()),cx=W*.5+(R()-.5)*W*.72,cy=H*.53+(R()-.5)*H*.72;
+  blooms.push({x:cx,y:cy,r:12+R()*35,pet:5+(R()*7|0),col:pick(palette),phase:R()*9,life:R(),speed:.12+R()*.35,rot:R()*6,glow:6+R()*10});
+ }
+ for(let i=0;i<n*1.8;i++)motes.push({x:R()*W,y:R()*H,s:1+R()*2.7,col:pick(palette),p:R()*9,spd:.15+R()*.5});
+ for(let i=0;i<18;i++){let y=R()*H;vines.push({y,amp:30+R()*90,f:0.25+R()*.7,p:R()*6,col:pick(palette),w:.5+R()*1.4})}
+}
+function roundedLeaf(cx,cy,len,w,ang,col,alpha){
+ x.save();x.translate(cx,cy);x.rotate(ang);x.globalAlpha=alpha;
+ const g=x.createLinearGradient(-len/2,0,len/2,0);g.addColorStop(0,'#fff3');g.addColorStop(.45,col);g.addColorStop(1,'#0000');
+ x.fillStyle=g;x.beginPath();x.moveTo(-len/2,0);x.quadraticCurveTo(-len*.08,-w,len/2,0);x.quadraticCurveTo(-len*.08,w,-len/2,0);x.fill();
+ x.strokeStyle='#ffffff20';x.lineWidth=.6;x.beginPath();x.moveTo(-len*.42,0);x.lineTo(len*.42,0);x.stroke();x.restore()
+}
+function flower(b,time,boost=0){
+ const pulse=1+Math.sin(time*b.speed+b.phase)*.08+boost*.18, rr=b.r*pulse;
+ x.save();x.translate(b.x,b.y);x.rotate(b.rot+Math.sin(time*.08+b.phase)*.18);
+ x.globalCompositeOperation='screen';x.shadowBlur=b.glow+boost*16;x.shadowColor=b.col;
+ for(let k=0;k<b.pet;k++){let a=k*Math.PI*2/b.pet+Math.sin(time*.12+b.phase)*.04;roundedLeaf(Math.cos(a)*rr*.42,Math.sin(a)*rr*.42,rr*1.55,rr*.55,a,b.col,.72)}
+ x.shadowBlur=0;x.fillStyle='#080912';x.beginPath();x.arc(0,0,rr*.28,0,7);x.fill();
+ x.strokeStyle=b.col;x.globalAlpha=.9;x.lineWidth=1.4;x.beginPath();x.arc(0,0,rr*.31,0,7);x.stroke();
+ x.restore()
+}
+function eventAt(px,py,strong=1){
+ ripples.push({x:px,y:py,r:1,v:90+strong*120,a:1,col:pick(palette)});
+ for(let i=0;i<20;i++){let a=R()*7,d=R()*80;energy.push({x:px,y:py,tx:px+Math.cos(a)*d,ty:py+Math.sin(a)*d,p:0,col:pick(palette),s:strong})}
+}
+function draw(now){
+ const time=(now-t0)/1000,dt=Math.min(.033,(now-last)/1000);last=now;
+ x.globalCompositeOperation='source-over';x.fillStyle='#05060d';x.fillRect(0,0,W,H);
+ // subtle living fabric
+ x.globalCompositeOperation='lighter';
+ for(const v of vines){x.strokeStyle=v.col+'18';x.lineWidth=v.w;x.beginPath();for(let X=-30;X<W+40;X+=18){let Y=v.y+Math.sin(X*.008*v.f+time*.22+v.p)*v.amp+Math.sin(X*.02+time*.17+v.p)*12;X===-30?x.moveTo(X,Y):x.lineTo(X,Y)}x.stroke()}
+ // motes
+ for(const m of motes){m.x+=Math.sin(time*m.spd+m.p)*.08;m.y+=Math.cos(time*m.spd*.8+m.p)*.08;if(m.x<0)m.x=W;if(m.x>W)m.x=0;if(m.y<0)m.y=H;if(m.y>H)m.y=0;
+  x.fillStyle=m.col;x.globalAlpha=.2+Math.sin(time*m.spd+m.p)*.12;x.beginPath();x.arc(m.x,m.y,m.s,0,7);x.fill()}
+ x.globalAlpha=1;
+ // localized ripple influence
+ for(const b of blooms){let boost=0;for(const q of ripples){let d=Math.hypot(b.x-q.x,b.y-q.y);boost+=Math.max(0,1-Math.abs(d-q.r)/150)*q.a}flower(b,time,boost)}
+ for(let i=ripples.length-1;i>=0;i--){let q=ripples[i];q.r+=q.v*dt;q.a-=dt*.23;x.strokeStyle=q.col;x.globalAlpha=Math.max(0,q.a)*.28;x.lineWidth=1.5;x.beginPath();x.arc(q.x,q.y,q.r,0,7);x.stroke();if(q.a<=0)ripples.splice(i,1)}
+ for(let i=energy.length-1;i>=0;i--){let e=energy[i];e.p+=dt*(.7+e.s);let p=Math.min(1,e.p),xx=e.x+(e.tx-e.x)*p,yy=e.y+(e.ty-e.y)*p;x.fillStyle=e.col;x.globalAlpha=(1-p)*.9;x.beginPath();x.arc(xx,yy,2.2+(1-p)*2,0,7);x.fill();if(p>=1)energy.splice(i,1)}
+ // autonomous surprises
+ if(Math.sin(time*.23)*Math.sin(time*.23)>.997 && ripples.length<3) eventAt(R()*W,R()*H,.55);
+ x.globalAlpha=1;x.globalCompositeOperation='source-over';
+ requestAnimationFrame(draw)
+}
+let down=0;
+function touch(e){const p=e.touches?e.touches[0]:e;eventAt(p.clientX,p.clientY,1.2)}
+c.addEventListener('pointerdown',e=>{down=1;touch(e)});c.addEventListener('pointermove',e=>{if(down&&e.buttons!==0&&Math.random()<.15)touch(e)});addEventListener('pointerup',()=>down=0);
+document.getElementById('r').onclick=()=>{build();eventAt(W*.5,H*.5,1.5)};
+resize();addEventListener('resize',resize);requestAnimationFrame(draw);
+})();
+</script></body></html>
