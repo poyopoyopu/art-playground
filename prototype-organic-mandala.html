@@ -12,12 +12,14 @@ font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 #title{position:absolute;left:5vw;top:max(5vh,36px);text-shadow:0 3px 20px #000}
 #title b{display:block;font-size:clamp(20px,5vw,30px);letter-spacing:.02em;opacity:.9}
 #title span{display:block;margin-top:5px;font-size:10px;letter-spacing:.28em;opacity:.5}
-#loading{position:fixed;inset:0;background:#07050c;color:#9d92c9;display:flex;align-items:center;justify-content:center;
+#loading{position:fixed;inset:0;background:#07050c;color:#9d92c9;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;
 font-family:-apple-system,sans-serif;font-size:13px;letter-spacing:.1em;z-index:10}
+#spinner{width:34px;height:34px;border-radius:50%;border:3px solid #ffffff22;border-top-color:#c9a2ff;animation:spin 0.9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
-<div id="loading">壁画を織っています…</div>
+<div id="loading"><div id="spinner"></div><div>壁画を織っています…</div></div>
 <canvas id="c"></canvas>
 <div id="ui"><div id="title"><b>Organic Mandala Mural</b><span>PROTOTYPE v2 — 一部分だけ生きている</span></div></div>
 <script>
@@ -39,12 +41,13 @@ const paletteGroups=[
 ];
 
 function setup(){
-  D=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;
+  D=Math.min(devicePixelRatio||1,1.5);W=innerWidth;H=innerHeight;
   c.width=W*D;c.height=H*D;ctx.setTransform(D,0,0,D,0,0);
   base=document.createElement('canvas');
   base.width=W*D;base.height=H*D;
   bctx=base.getContext('2d');bctx.setTransform(D,0,0,D,0,0);
-  build();
+  loadingEl.style.display='flex';
+  setTimeout(build, 30);
 }
 
 // ---- 円充填(かなり密に重ねる) ----
@@ -65,10 +68,10 @@ function buildCells(){
   cells=[];
   const area=W*H;
   const buckets=[
-    {r:[70,125], n:Math.max(5, Math.floor(area/50000))},
-    {r:[36,66],  n:Math.max(12, Math.floor(area/18000))},
-    {r:[18,34],  n:Math.max(22, Math.floor(area/7500))},
-    {r:[8,17],   n:Math.max(36, Math.floor(area/3600))}
+    {r:[70,125], n:Math.max(4, Math.floor(area/62000))},
+    {r:[36,66],  n:Math.max(10, Math.floor(area/24000))},
+    {r:[18,34],  n:Math.max(16, Math.floor(area/10500))},
+    {r:[8,17],   n:Math.max(26, Math.floor(area/5200))}
   ];
   for(const bk of buckets){
     for(let i=0;i<bk.n;i++){
@@ -268,11 +271,9 @@ function drawLeaf(g,cell,scale){
 }
 
 function drawCell(g,cell,t){
-  g.globalCompositeOperation='multiply';
   if(cell.type==='flower') drawFlower(g,cell,cell._scale||1, t*0.0016+cell.phase, t);
   else if(cell.type==='eye') drawEye(g,cell,cell._scale||1, 0.5+0.5*Math.sin(t*0.0012+cell.phase));
   else drawLeaf(g,cell,cell._scale||1);
-  g.globalCompositeOperation='source-over';
 }
 
 function build(){
