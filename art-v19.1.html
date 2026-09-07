@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ART v19.1 — Living Field</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#05060c}
+body{touch-action:none}
+canvas{display:block;width:100%;height:100%}
+#ui{position:fixed;inset:0;pointer-events:none;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#dfe7ff}
+#title{position:absolute;left:22px;top:max(22px,env(safe-area-inset-top));font-size:12px;letter-spacing:.18em;opacity:.62}
+#hint{position:absolute;left:50%;bottom:max(26px,env(safe-area-inset-bottom));transform:translateX(-50%);font-size:12px;opacity:.48;white-space:nowrap}
+#reset{pointer-events:auto;position:absolute;right:20px;top:max(16px,env(safe-area-inset-top));width:64px;height:64px;border-radius:50%;
+border:1px solid #ffffff25;background:#0a0c18e6;color:#eaf0ff;font-size:26px}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui">
+  <div id="title">LIVING FIELD · v19.1</div>
+  <div id="hint">触ると流れが変わる</div>
+  <button id="reset" aria-label="リセット">↻</button>
+</div>
+
+<script>
+(()=>{
+"use strict";
+
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d", {alpha:false});
+const resetBtn = document.getElementById("reset");
+
+const N = 220;
+const pts = [];
+const touches = [];
+let w=1,h=1,dpr=1,hue=Math.random()*360,last=0;
+
+const rnd=(a,b)=>a+Math.random()*(b-a);
+
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  w=window.innerWidth;
+  h=window.innerHeight;
+  canvas.width=Math.round(w*dpr);
+  canvas.height=Math.round(h*dpr);
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+window.addEventListener("resize",resize,{passive:true});
+resize();
+
+function make(i){
+  return {
+    x:rnd(0,w), y:rnd(0,h),
+    vx:rnd(-0.7,0.7), vy:rnd(-0.7,0.7),
+    s:rnd(5,19), a:rnd(0,Math.PI*2),
+    spin:rnd(-0.018,0.018),
+    phase:rnd(0,100), kind:i%4
+  };
+}
+
+function seed(){
+  pts.length=0;
+  for(let i=0;i<N;i++) pts.push(make(i));
+}
+
+function drawShape(p,t){
+  const s=p.s*(0.72+0.28*Math.sin(t*0.001+p.phase));
+  const col=(hue+p.x*0.04+p.y*0.018+t*0.008)%360;
+
+  ctx.save();
+  ctx.translate(p.x,p.y);
+  ctx.rotate(p.a);
+  ctx.lineWidth=Math.max(0.8,s*0.11);
+  ctx.strokeStyle=`hsla(${col},82%,68%,0.82)`;
+  ctx.beginPath();
+
+  if(p.kind===0){
+    ctx.moveTo(-s*.75,-s*.10);
+    ctx.lineTo(-s*.18,-s*.62);
+    ctx.lineTo(s*.70,-s*.35);
+    ctx.lineTo(s*.55,s*.52);
+    ctx.lineTo(-s*.45,s*.66);
+    ctx.closePath();
+  }else if(p.kind===1){
+    ctx.ellipse(0,0,s*.72,s*.42,0,0,Math.PI*2);
+  }else if(p.kind===2){
+    ctx.moveTo(-s*.70,0);
+    ctx.quadraticCurveTo(-s*.25,-s*.80,s*.20,-s*.55);
+    ctx.quadraticCurveTo(s*.85,-s*.20,s*.55,s*.60);
+    ctx.quadraticCurveTo(0,s*.85,-s*.70,0);
+  }else{
+    ctx.moveTo(-s*.72,-s*.55);
+    ctx.lineTo(s*.62,-s*.68);
+    ctx.lineTo(s*.78,s*.25);
+    ctx.lineTo(-s*.35,s*.70);
+    ctx.closePath();
+  }
+
+  ctx.stroke();
+  ctx.restore();
+}
+
+function addTouch(clientX,clientY,power=0.12){
+  const r=canvas.getBoundingClientRect();
+  touches.push({
+    x:clientX-r.left,
+    y:clientY-r.top,
+    r:Math.min(w,h)*0.24,
+    power
+  });
+  if(touches.length>18) touches.shift();
+}
+
+function loop(t){
+  if(!last) last=t;
+  const dt=Math.min(34,t-last);
+  last=t;
+
+  ctx.fillStyle="#05060c";
+  ctx.fillRect(0,0,w,h);
+
+  for(const p of pts){
+    p.vx+=(Math.sin(p.y*.004+t*.00022)+Math.cos(p.x*.003-t*.00017))*.004;
+    p.vy+=(Math.cos(p.x*.004+t*.00019)-Math.sin(p.y*.003+t*.00023))*.004;
+
+    for(const z of touches){
+      const dx=p.x-z.x,dy=p.y-z.y;
+      const d=Math.hypot(dx,dy)||1;
+      if(d<z.r){
+        const k=(1-d/z.r)*z.power;
+        p.vx+=dx/d*k;
+        p.vy+=dy/d*k;
+      }
+    }
+
+    p.vx*=0.992;
+    p.vy*=0.992;
+    p.x+=p.vx*dt*0.06;
+    p.y+=p.vy*dt*0.06;
+    p.a+=p.spin*dt*0.06;
+
+    if(p.x<-35)p.x=w+35;
+    if(p.x>w+35)p.x=-35;
+    if(p.y<-35)p.y=h+35;
+    if(p.y>h+35)p.y=-35;
+
+    drawShape(p,t);
+  }
+
+  for(let i=touches.length-1;i>=0;i--){
+    touches[i].r*=0.982;
+    if(touches[i].r<10) touches.splice(i,1);
+  }
+
+  requestAnimationFrame(loop);
+}
+
+canvas.addEventListener("pointerdown",(e)=>{
+  canvas.setPointerCapture?.(e.pointerId);
+  addTouch(e.clientX,e.clientY,0.18);
+});
+canvas.addEventListener("pointermove",(e)=>{
+  if(e.pressure>0 || e.buttons) addTouch(e.clientX,e.clientY,0.08);
+});
+
+resetBtn.addEventListener("click",()=>{
+  seed();
+  hue=Math.random()*360;
+  touches.length=0;
+});
+
+seed();
+requestAnimationFrame(loop);
+
+})();
+</script>
+</body>
+</html>

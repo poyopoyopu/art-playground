@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ja"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ART v20 — ALIVE</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#03050b}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#ui{position:fixed;inset:0;pointer-events:none;font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#dbe7ff}
+#name{position:absolute;left:18px;top:max(16px,env(safe-area-inset-top));font-size:11px;letter-spacing:.22em;opacity:.45}
+#hint{position:absolute;left:50%;bottom:max(24px,env(safe-area-inset-bottom));transform:translateX(-50%);font-size:11px;letter-spacing:.08em;opacity:.42;white-space:nowrap}
+#reset{pointer-events:auto;position:absolute;right:16px;top:max(12px,env(safe-area-inset-top));width:54px;height:54px;border-radius:50%;border:1px solid #ffffff22;background:#0a1020bb;color:#eaf2ff;font-size:22px}
+</style></head><body>
+<canvas id="c"></canvas>
+<div id="ui"><div id="name">ALIVE FIELD · v20</div><div id="hint">触って、世界をかき回す</div><button id="reset">↻</button></div>
+<script>
+(()=>{"use strict";
+const c=document.getElementById("c"),g=c.getContext("2d",{alpha:false});
+let W=1,H=1,D=1,last=0,hue=Math.random()*360;
+const NUM=520, A=[], touches=[];
+const rnd=(a,b)=>a+Math.random()*(b-a);
+function resize(){D=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;c.width=W*D;c.height=H*D;g.setTransform(D,0,0,D,0,0)}
+addEventListener("resize",resize,{passive:true});resize();
+function make(){return{x:rnd(0,W),y:rnd(0,H),vx:rnd(-.5,.5),vy:rnd(-.5,.5),p:rnd(0,99),s:rnd(.7,2.8),h:rnd(-70,110),trail:[]}}
+function seed(){A.length=0;for(let i=0;i<NUM;i++)A.push(make());hue=rnd(0,360)}
+seed();
+function addTouch(e,power){let r=c.getBoundingClientRect();touches.push({x:e.clientX-r.left,y:e.clientY-r.top,r:Math.min(W,H)*.30,p:power});if(touches.length>12)touches.shift();document.getElementById("hint").style.opacity=".12"}
+function field(p,t){
+ let u=p.x/W,v=p.y/H;
+ let a=Math.sin(v*9+t*.00028)+Math.cos(u*7-t*.00019);
+ let b=Math.cos(u*11+t*.00021)-Math.sin(v*8+t*.00025);
+ let ang=Math.atan2(b,a);
+ let swirl=Math.sin((u+v)*6+t*.00016+p.p)*.42;
+ return ang+swirl;
+}
+function loop(t){
+ if(!last)last=t;let dt=Math.min(40,t-last);last=t;
+ g.fillStyle="rgb(3,5,11)";g.fillRect(0,0,W,H);
+ g.globalCompositeOperation="lighter";
+ for(const p of A){
+   let ang=field(p,t),speed=.22+Math.sin(t*.0007+p.p)*.10;
+   p.vx+=Math.cos(ang)*speed;p.vy+=Math.sin(ang)*speed;
+   for(const z of touches){
+     let dx=p.x-z.x,dy=p.y-z.y,d=Math.hypot(dx,dy)||1;
+     if(d<z.r){let q=(1-d/z.r)*z.p;
+       // 指の周りを逃げながら回り込む
+       p.vx+=(dx/d*q*2.8)+(-dy/d*q*.85);
+       p.vy+=(dy/d*q*2.8)+( dx/d*q*.85);
+     }
+   }
+   p.vx*=.962;p.vy*=.962;p.x+=p.vx*dt*.055;p.y+=p.vy*dt*.055;
+   if(p.x<-20)p.x=W+20;if(p.x>W+20)p.x=-20;if(p.y<-20)p.y=H+20;if(p.y>H+20)p.y=-20;
+   p.trail.push([p.x,p.y]);if(p.trail.length>7)p.trail.shift();
+   let col=(hue+p.h+Math.sin(t*.00035+p.p)*45)%360;
+   g.strokeStyle=`hsla(${col},95%,68%,.13)`;g.lineWidth=p.s*.65;g.beginPath();
+   for(let i=0;i<p.trail.length;i++){let q=p.trail[i];i?g.lineTo(q[0],q[1]):g.moveTo(q[0],q[1])}g.stroke();
+   g.fillStyle=`hsla(${col},95%,75%,.65)`;g.beginPath();g.arc(p.x,p.y,p.s,0,Math.PI*2);g.fill();
+ }
+ g.globalCompositeOperation="source-over";
+ for(let i=touches.length-1;i>=0;i--){let z=touches[i];z.r*=.988;if(z.r<8)touches.splice(i,1)}
+ hue=(hue+.018)%360;
+ requestAnimationFrame(loop);
+}
+c.addEventListener("pointerdown",e=>{c.setPointerCapture?.(e.pointerId);addTouch(e,.55)});
+c.addEventListener("pointermove",e=>{if(e.buttons)addTouch(e,.20)});
+document.getElementById("reset").onclick=()=>{seed();touches.length=0};
+requestAnimationFrame(loop);
+})();
+</script></body></html>
