@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Art Playground — USAGI / Psychedelic Living Portrait</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#030207}
+canvas{position:fixed;inset:0;width:100%;height:100%;touch-action:none}
+.ui{position:fixed;inset:0;pointer-events:none;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif;color:#fff}
+.title{position:absolute;left:5.5vw;top:5.5vh;text-shadow:0 2px 14px #000}
+.title small{display:block;font-size:9px;letter-spacing:.42em;opacity:.7}
+.title b{display:block;font-size:clamp(30px,7vw,48px);letter-spacing:.02em;margin-top:8px}
+.title span{font-size:9px;letter-spacing:.30em;opacity:.42}
+button{pointer-events:auto;position:absolute;right:5.5vw;top:5.5vh;width:64px;height:64px;border-radius:50%;border:1px solid #ffffff28;background:#080711b8;color:#fff;font-size:30px}
+.hint{position:absolute;bottom:4.5vh;left:50%;transform:translateX(-50%);font-size:10px;letter-spacing:.18em;opacity:.32;white-space:nowrap}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="ui"><div class="title"><small>ART PLAYGROUND</small><b>USAGI</b><span>PSYCHEDELIC LIVING PORTRAIT</span></div><button id="regen">↻</button><div class="hint">触れると、流れがゆっくり変わる</div></div>
+<script>
+(()=>{
+'use strict';
+const c=document.getElementById('c'),ctx=c.getContext('2d',{alpha:false});
+let W,H,D,t=0,seed=1,pts=[],touch=[],phase=0;
+const COLS=8,ROWS=13,MAX=620;
+const palette=[330,18,48,92,164,198,250,285];
+function rand(){seed=(seed*1664525+1013904223)>>>0;return seed/4294967296}
+function resize(){D=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;c.width=W*D;c.height=H*D;ctx.setTransform(D,0,0,D,0,0);init()}
+function init(){seed=(Date.now()>>>0);pts=[];touch=[];phase=rand()*20;
+ for(let i=0;i<MAX;i++){pts.push({a:rand()*6.283,r:.28+rand()*.42,p:rand()*6.283,s:.4+rand()*1.2,h:palette[(rand()*palette.length)|0]})}}
+function bunnyPath(){const cx=W*.5,cy=H*.50,s=Math.min(W,H)*.42,p=new Path2D();
+ p.ellipse(cx,cy+s*.25,s*.34,s*.40,0,0,6.283);p.ellipse(cx,cy-s*.14,s*.43,s*.39,0,0,6.283);
+ p.ellipse(cx-s*.24,cy-s*.56,s*.13,s*.32,-.08,0,6.283);p.ellipse(cx+s*.24,cy-s*.56,s*.13,s*.32,.08,0,6.283);return p}
+function bunnyMask(x,y){const cx=W*.5,cy=H*.50,s=Math.min(W,H)*.42;
+ const e1=((x-(cx-s*.24))/(s*.13))**2+((y-(cy-s*.56))/(s*.32))**2,e2=((x-(cx+s*.24))/(s*.13))**2+((y-(cy-s*.56))/(s*.32))**2;
+ const head=((x-cx)/(s*.43))**2+((y-(cy-s*.14))/(s*.39))**2,body=((x-cx)/(s*.34))**2+((y-(cy+s*.25))/(s*.40))**2;return e1<1||e2<1||head<1||body<1}
+function flow(x,y,time){
+ const nx=x/W,ny=y/H;
+ let a=Math.sin(nx*7.2+time*.22)*1.0+Math.cos(ny*6.4-time*.18)*.8+Math.sin((nx-ny)*15-time*.12)*.42;
+ const cx=W*.5,cy=H*.5,dx=x-cx,dy=y-cy,d=Math.hypot(dx,dy)+1;
+ a+=Math.sin(d*.020-time*.32)*.7+Math.atan2(dy,dx)*.35;
+ for(const q of touch){const dd=Math.hypot(x-q.x,y-q.y),R=Math.min(W,H)*.42;if(dd<R)a+=q.power*(1-dd/R)*Math.sin(q.a+time*.3)}
+ return a}
+function hsv(h,s,v){return `hsl(${h%360} ${s}% ${v}%)`}
+function hex(cx,cy,r,warp,time,hue,alpha){
+ ctx.beginPath();
+ for(let k=0;k<6;k++){const a=k*Math.PI/3,rr=r*(1+.10*Math.sin(time*1.1+cx*.018+cy*.012+k));const x=cx+Math.cos(a)*rr,y=cy+Math.sin(a)*rr;k?ctx.lineTo(x,y):ctx.moveTo(x,y)}ctx.closePath();
+ ctx.strokeStyle=hsv(hue,92,62);ctx.globalAlpha=alpha;ctx.lineWidth=Math.max(.45,r*.018);ctx.stroke();
+}
+function background(time){
+ ctx.globalCompositeOperation='source-over';ctx.fillStyle='#030207';ctx.fillRect(0,0,W,H);
+ const R=Math.min(W,H),r=Math.max(20,R*.047),dx=r*1.72,dy=r*1.50;
+ for(let row=-2;row<ROWS+3;row++)for(let col=-2;col<COLS+3;col++){
+   const x=col*dx+(row&1)*dx*.5+W*.08;
+   const y=row*dy+H*.13;
+   const f=flow(x,y,time),dr=r*(1+.16*Math.sin(time*.65+col*.9+row*.7));
+   const xx=x+Math.cos(f)*r*.55,yy=y+Math.sin(f)*r*.55;
+   const hue=(col*31+row*23+time*22+Math.sin(f)*45+360)%360;
+   hex(xx,yy,dr,time,hue,.34);
+   if((col+row)%3===0){ctx.globalAlpha=.07;ctx.fillStyle=hsv(hue,95,55);ctx.fill()}
+ }
+ // broad non-rigid currents
+ ctx.globalAlpha=.12;ctx.lineWidth=1;
+ for(let k=0;k<11;k++){
+   ctx.beginPath();
+   for(let i=0;i<=110;i++){const u=i/110,x=-.08*W+u*1.16*W;const y=H*(.08+k*.085)+Math.sin(u*10+k+time*.55)*H*.035+Math.sin(u*23-time*.3)*H*.012;k?ctx.lineTo(x,y):ctx.moveTo(x,y)}
+   ctx.strokeStyle=hsv((k*32+time*30)%360,90,58);ctx.stroke();
+ }
+}
+function surrounding(time){
+ const cx=W*.5,cy=H*.50,R=Math.min(W,H),rot=time*.035;
+ ctx.globalCompositeOperation='lighter';
+ for(const p of pts){
+   const a=p.a+rot+Math.sin(time*.24+p.p)*.16;let rr=p.r*R*(1+Math.sin(time*.5+p.p)*.035);
+   let x=cx+Math.cos(a)*rr*(W/H),y=cy+Math.sin(a)*rr;
+   const fa=flow(x,y,time),bend=10*Math.sin(time*.8+p.p);
+   x+=Math.cos(fa)*bend;y+=Math.sin(fa)*bend;
+   if(bunnyMask(x,y)){rr+=R*.11;x=cx+Math.cos(a)*rr*(W/H);y=cy+Math.sin(a)*rr}
+   const pulse=.55+.45*Math.sin(time*p.s+p.p),sz=.55+p.s*.75;
+   ctx.globalAlpha=.10+.22*pulse;ctx.fillStyle=hsv(p.h+time*18,90,68);
+   ctx.beginPath();ctx.arc(x,y,sz*(.7+.7*pulse),0,6.283);ctx.fill();
+ }
+ ctx.globalCompositeOperation='source-over';ctx.globalAlpha=1;
+}
+function drawBunny(time){
+ const cx=W*.5,cy=H*.50,s=Math.min(W,H)*.42,path=bunnyPath();
+ // Dark translucent body: no blown-out white silhouette.
+ ctx.save();ctx.fillStyle='rgba(8,4,13,.78)';ctx.fill(path);ctx.restore();
+ // The same hex/flow language lives inside the rabbit.
+ ctx.save();ctx.clip(path);ctx.globalCompositeOperation='lighter';
+ const r=Math.max(16,s*.075);
+ for(let row=-5;row<12;row++)for(let col=-4;col<5;col++){
+   const x=cx+(col+(row&1)*.5)*r*1.72,y=cy+(row-4)*r*1.50;
+   const f=flow(x,y,time),xx=x+Math.cos(f)*r*.42,yy=y+Math.sin(f)*r*.42;
+   const hue=(col*42+row*29+time*25+Math.sin(f)*55+360)%360;
+   hex(xx,yy,r*(.92+.12*Math.sin(time+col-row)),time,hue,.72);
+ }
+ // flowing internal strands
+ for(let k=0;k<17;k++){
+   ctx.beginPath();
+   for(let i=0;i<=70;i++){const u=i/70,x=cx-s*.52+u*s*1.04;const y=cy-s*.72+k*s*.095+Math.sin(u*9+k*.7+time*.7)*s*.055+Math.sin(u*21-time*.4)*s*.018;i?ctx.lineTo(x,y):ctx.moveTo(x,y)}
+   ctx.strokeStyle=hsv((k*22+time*32)%360,96,66);ctx.globalAlpha=.34;ctx.lineWidth=1.1;ctx.stroke();
+ }
+ ctx.restore();
+ // Colorful contour instead of white glow.
+ ctx.save();ctx.globalCompositeOperation='lighter';ctx.lineWidth=1.4;ctx.shadowBlur=8;
+ const g=ctx.createLinearGradient(cx-s*.45,cy-s*.7,cx+s*.45,cy+s*.6);g.addColorStop(0,'#ff4da6');g.addColorStop(.22,'#ffd85a');g.addColorStop(.46,'#53e4cf');g.addColorStop(.68,'#5da2ff');g.addColorStop(1,'#d76cff');
+ ctx.strokeStyle=g;ctx.shadowColor='#d76cff';ctx.globalAlpha=.82;ctx.stroke(path);ctx.restore();
+ // Simple face, kept dark and visible.
+ ctx.save();ctx.fillStyle='#05030a';ctx.globalAlpha=.9;ctx.beginPath();ctx.arc(cx-s*.15,cy-s*.15,s*.034,0,6.283);ctx.arc(cx+s*.15,cy-s*.15,s*.034,0,6.283);ctx.fill();
+ ctx.strokeStyle='#ff9dc9';ctx.lineWidth=s*.009;ctx.beginPath();ctx.arc(cx,cy+s*.005,s*.052,.18*Math.PI,.82*Math.PI);ctx.stroke();ctx.restore();
+}
+function draw(time){
+ t=time*.001;background(t);surrounding(t);drawBunny(t);
+ for(let i=touch.length-1;i>=0;i--){touch[i].power*=.965;if(touch[i].power<.025)touch.splice(i,1)}
+ requestAnimationFrame(draw)}
+let down=false;function touchAt(e){const r=c.getBoundingClientRect();touch.push({x:e.clientX-r.left,y:e.clientY-r.top,power:1,a:Math.atan2(e.clientY-r.top-H*.5,e.clientX-r.left-W*.5)});if(touch.length>4)touch.shift()}
+c.addEventListener('pointerdown',e=>{down=true;touchAt(e)});c.addEventListener('pointermove',e=>{if(down)touchAt(e)});addEventListener('pointerup',()=>down=false);
+document.getElementById('regen').onclick=init;addEventListener('resize',resize);resize();requestAnimationFrame(draw);
+})();
+</script>
+</body></html>
