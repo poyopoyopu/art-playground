@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Particle Cosmos II — Art Playground</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#04040a;overscroll-behavior:none}
+canvas#c{display:block;width:100%;height:100%;touch-action:none}
+.ui{position:fixed;inset:0;pointer-events:none;color:#fff;font-family:system-ui,-apple-system,sans-serif}
+.controls{position:absolute;right:5vw;top:max(5vh,env(safe-area-inset-top));display:flex;gap:9px;pointer-events:auto}
+.btn{width:46px;height:46px;border-radius:50%;border:1px solid #ffffff20;background:#0a0a16a0;color:#fff;font-size:18px;backdrop-filter:blur(8px)}
+.btn:disabled{opacity:.35}
+.mode{position:absolute;left:50%;bottom:max(4.5vh,env(safe-area-inset-bottom));transform:translateX(-50%);font-size:9px;letter-spacing:.3em;opacity:.4;white-space:nowrap;text-align:center;transition:opacity 1s}
+.mode b{display:block;font-size:11px;letter-spacing:.36em;margin-bottom:5px;opacity:.85}
+.tip{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:10px;letter-spacing:.34em;opacity:.6;text-align:center;transition:opacity 1.4s;pointer-events:none;white-space:nowrap}
+.flash{position:absolute;inset:0;background:#fff;opacity:0;transition:opacity .18s}
+.sheet{position:fixed;inset:0;background:#04040ae8;backdrop-filter:blur(14px);display:none;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:24px;z-index:9;color:#fff;font-family:system-ui,-apple-system,sans-serif;text-align:center}
+.sheet.on{display:flex}
+.sheet h3{margin:0;font-size:12px;letter-spacing:.34em;font-weight:600;opacity:.8}
+.sheet p{margin:0;font-size:12px;line-height:1.7;opacity:.6;max-width:280px}
+.bar{width:min(72vw,300px);height:3px;background:#ffffff1a;border-radius:3px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,#7ad9ff,#ff7ad9);transition:width .2s}
+.sheet img{max-width:min(78vw,340px);max-height:52vh;border-radius:12px;border:1px solid #ffffff1a}
+.sheet button{pointer-events:auto;border:1px solid #ffffff28;background:#ffffff10;color:#fff;border-radius:22px;padding:11px 26px;font-size:12px;letter-spacing:.2em;backdrop-filter:blur(8px)}
+.row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+</style></head><body>
+<canvas id="c"></canvas>
+<div class="ui">
+  <div class="controls">
+    <button class="btn" id="mode" aria-label="mode">✦</button>
+    <button class="btn" id="regen" aria-label="regenerate">↻</button>
+    <button class="btn" id="gif" aria-label="export gif">◉</button>
+  </div>
+  <div class="tip" id="tip">DRAG · HOLD · FLICK</div>
+  <div class="mode"><b id="modeName">MANDALA</b><span>tap ✦ to transform</span></div>
+  <div class="flash" id="flash"></div>
+</div>
+
+<div class="sheet" id="sheet">
+  <h3 id="sheetTitle">RENDERING LOOP</h3>
+  <div class="bar"><i id="barFill"></i></div>
+  <p id="sheetMsg">3秒のシームレスループを描き出しています…</p>
+  <div class="row" id="sheetActions"></div>
+</div>
+
+<script>
+(()=>{
+"use strict";
+const c=document.getElementById('c'),ctx=c.getContext('2d',{alpha:false});
+const tipEl=document.getElementById('tip'),modeEl=document.getElementById('modeName'),flashEl=document.getElementById('flash');
+const sheet=document.getElementById('sheet'),sheetTitle=document.getElementById('sheetTitle'),
+      sheetMsg=document.getElementById('sheetMsg'),barFill=document.getElementById('barFill'),
+      sheetActions=document.getElementById('sheetActions');
+
+const LOOP=3, TAU=Math.PI*2;
+let W=0,H=0,D=1,S=1,N=0,pts=[],mode=0,t0=performance.now();
+let fold=6,foldTarget=6,drag=null,glitter=[],ripples=[],quality=1,exporting=false;
+
+const MODES=['MANDALA','KALEIDO','LATTICE','VORTEX','MOIRE'];
+const PAL=[
+ [[.55,.42,.55],[.48,.45,.42],[1,1,.85],[.00,.28,.58]],
+ [[.52,.50,.52],[.48,.46,.48],[1,1,1],[.15,.42,.72]],
+ [[.48,.52,.55],[.42,.42,.48],[1,.9,1.1],[.62,.28,.10]],
+ [[.55,.45,.50],[.45,.48,.45],[.9,1,1.05],[.35,.60,.15]],
+ [[.50,.48,.58],[.46,.48,.42],[1.1,1,.9],[.80,.18,.44]]
+];
+
+// ---------- hue sprite atlas ----------
+const HUES=48, sprites=[];
+for(let i=0;i<HUES;i++){
+ const s=document.createElement('canvas'),R=16;
+ s.width=s.height=R*2;
+ const g=s.getContext('2d'),h=i*360/HUES;
+ const rg=g.createRadialGradient(R,R,0,R,R,R);
+ rg.addColorStop(0,`hsla(${h},100%,86%,1)`);
+ rg.addColorStop(.28,`hsla(${h},100%,64%,.75)`);
+ rg.addColorStop(1,`hsla(${h},100%,50%,0)`);
+ g.fillStyle=rg;g.fillRect(0,0,R*2,R*2);
+ sprites.push(s);
+}
+
+// ---------- noise ----------
+function hash(x,y){const n=Math.sin(x*127.1+y*311.7)*43758.5453;return n-Math.floor(n)}
+function vnoise(x,y){
+ const ix=Math.floor(x),iy=Math.floor(y),fx=x-ix,fy=y-iy;
+ const ux=fx*fx*(3-2*fx),uy=fy*fy*(3-2*fy);
+ const a=hash(ix,iy),b=hash(ix+1,iy),cc=hash(ix,iy+1),d=hash(ix+1,iy+1);
+ return a+(b-a)*ux+(cc-a)*uy+(a-b-cc+d)*ux*uy;
+}
+function fbm(x,y){return vnoise(x,y)*.6+vnoise(x*2.1,y*2.1)*.3+vnoise(x*4.3,y*4.3)*.12}
+
+/* ---------- TIME CONTEXT ----------
+   T.loop=false : live mode, T.t = seconds (free running)
+   T.loop=true  : export mode, T.p = loop phase 0..TAU, every motion snapped
+                  to a whole number of cycles per LOOP so frame 0 == frame N. */
+function T_rot(T,k){                     // continuous rotation, k rad/sec
+ if(!T.loop)return k*T.t;
+ return Math.round(k*LOOP/TAU)*T.p;      // may freeze (0 turns) — that's fine
+}
+function T_spin(T,k){                    // rotation that must stay alive
+ if(!T.loop)return k*T.t;
+ return Math.max(1,Math.round(k*LOOP/TAU))*T.p;
+}
+function T_osc(T,freq,ph){               // sin(freq*t+ph), always ≥1 cycle
+ if(!T.loop)return Math.sin(freq*T.t+ph);
+ return Math.sin(Math.max(1,Math.round(freq*LOOP/TAU))*T.p+ph);
+}
+function T_flow(T,x,y,k){                // fbm drifting with time
+ if(!T.loop)return fbm(x+k*T.t,y);
+ const R=Math.max(.6,k*LOOP*.5);         // drift becomes a closed circle
+ return fbm(x+Math.cos(T.p)*R, y+Math.sin(T.p)*R);
+}
+function T_order(T){
+ return T.loop ? .5+.5*Math.sin(T.p) : .5+.5*Math.sin(T.t*.055);
+}
+
+// ---------- formations ----------
+function formation(p,T,order,S){
+ const f=fold; let a,r;
+ if(mode===0){
+  const ringR=(.14+p.ring*.115)*S*.92, petals=f*(1+(p.ring%2));
+  a=p.sector*TAU/f + p.u*TAU/f + T_rot(T,.05);
+  r=ringR*(.86+.14*T_osc(T,.5,petals*a+p.ring));
+  r+=T_osc(T,.9,a*f*2+p.phase)*S*.012*(1.6-order);
+ } else if(mode===1){
+  const wedge=TAU/f; let local=p.u*wedge;
+  if(p.sector%2===1)local=wedge-local;
+  a=p.sector*wedge+local+T_rot(T,.03);
+  const band=p.rad;
+  r=band*S*.5*(.7+.3*T_osc(T,.7,band*11+p.phase));
+  r+=T_flow(T,Math.cos(a)*2.4,Math.sin(a)*2.4,.09)*S*.10*(1.3-order);
+ } else if(mode===2){
+  const cols=Math.round(16+f),rows=22;
+  const gi=Math.floor(p.seed*cols),gj=Math.floor(p.seed2*rows),off=(gj%2)*.5;
+  let gx=((gi+off)/cols-.5)*S*1.30, gy=(gj/rows-.5)*S*1.55;
+  const wx=T_flow(T,gx/S*3,gy/S*3,.11)-.5, wy=T_flow(T,gx/S*3+9,gy/S*3,.11)-.5;
+  const amp=S*(.05+.24*(1-order));
+  gx+=wx*amp;gy+=wy*amp;
+  a=Math.atan2(gy,gx);r=Math.hypot(gx,gy);
+ } else if(mode===3){
+  const rr=p.rad*S*.52;
+  a=p.sector*TAU/f + Math.log(1+rr/S*7)*2.1 + T_spin(T,.22) + p.u*.5;
+  const curl=(T_flow(T,Math.cos(a)*3,Math.sin(a)*3,.14)-.5)*(1-order);
+  r=rr*(.9+.1*T_osc(T,.8,p.phase))+curl*S*.18;
+ } else {
+  const setA=p.seed<.5, k=setA?f:f+2, rr=(.1+p.rad*.42)*S;
+  a=p.sector*TAU/k+p.u*TAU/k+(setA?T_rot(T,.07):-T_rot(T,.07));
+  r=rr*(.88+.12*T_osc(T,.9,k*a));
+  a+=(setA?-1:1)*.10*T_osc(T,.3,0);
+ }
+ return [a,r];
+}
+
+// ---------- global field warp ----------
+function warp(x,y,T,order,w,h,S,live){
+ const cx=w*.5,cy=h*.5;
+ const dx=x-cx,dy=y-cy;
+ const n=T_flow(T,dx/S*1.6,dy/S*1.6,.07);
+ const sw=(n-.5)*(1-order)*.85;
+ const cs=Math.cos(sw),sn=Math.sin(sw);
+ x=cx+(dx*cs-dy*sn); y=cy+(dx*sn+dy*cs);
+ if(!live)return [x,y];
+ for(let i=0;i<ripples.length;i++){
+  const q=ripples[i];
+  const ddx=x-q.x,ddy=y-q.y,d=Math.hypot(ddx,ddy)+1,band=Math.abs(d-q.r);
+  if(band<q.w){
+   const push=(1-band/q.w)*q.life*q.amp;
+   x+=ddx/d*push; y+=ddy/d*push;
+   x+=-ddy/d*push*q.spin; y+=ddx/d*push*q.spin;
+  }
+ }
+ if(drag){
+  const ddx=x-drag.x,ddy=y-drag.y,d=Math.hypot(ddx,ddy)+1,range=S*(.42+drag.hold*.55);
+  if(d<range){
+   const q=1-d/range,f=q*q,tw=(drag.hold*1.5+.55)*f;
+   const cc=Math.cos(tw),ss=Math.sin(tw);
+   x=drag.x+(ddx*cc-ddy*ss)*(1+f*.42);
+   y=drag.y+(ddx*ss+ddy*cc)*(1+f*.42);
+   x+=drag.vx*f*2.6; y+=drag.vy*f*2.6;
+  }
+ }
+ return [x,y];
+}
+
+// ---------- scene draw (shared by screen and export) ----------
+function drawScene(g,arr,T,w,h,S,live){
+ const order=T_order(T);
+ g.globalCompositeOperation='source-over';
+ g.fillStyle=`rgba(4,4,10,${.13+.10*order})`;
+ g.fillRect(0,0,w,h);
+ const P=PAL[mode],cx=w*.5,cy=h*.5;
+ g.globalCompositeOperation='lighter';
+ for(let i=0;i<arr.length;i++){
+  const p=arr[i];
+  let [a,r]=formation(p,T,order,S);
+  let tx=cx+Math.cos(a)*r, ty=cy+Math.sin(a)*r*.95;
+  [tx,ty]=warp(tx,ty,T,order,w,h,S,live);
+  p.x+=(tx-p.x)*.075+p.vx;
+  p.y+=(ty-p.y)*.075+p.vy;
+  p.vx*=.9;p.vy*=.9;
+  const vel=Math.hypot(p.x-p.px,p.y-p.py);p.px=p.x;p.py=p.y;
+  // colour drift is linear in time, which would jump at the loop seam —
+  // in loop mode colour comes purely from position (which is already periodic)
+  const m=(r/S*1.5+a*.09+(T.loop?0:T.t*.045)+p.seed*.18);
+  const hue=((P[2][0]*m+P[3][0])*360+(P[1][0]*Math.cos(6.283*m))*60)%360;
+  let idx=Math.floor(hue/360*HUES)%HUES; if(idx<0)idx+=HUES;
+  const alpha=Math.min(.95,.20+vel*.16+p.size*.06);
+  const sz=p.size*(1.6+Math.min(3.2,vel*.30))*(1+(1-order)*.25);
+  g.globalAlpha=alpha;
+  g.drawImage(sprites[idx],p.x-sz,p.y-sz,sz*2,sz*2);
+ }
+ g.globalAlpha=1;
+ g.globalCompositeOperation='source-over';
+}
+
+function resize(){
+ if(exporting)return;
+ D=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;S=Math.min(W,H);
+ c.width=Math.round(W*D);c.height=Math.round(H*D);
+ ctx.setTransform(D,0,0,D,0,0);
+ build();
+}
+function makeParticles(n,w,h){
+ const arr=[],per=Math.max(1,Math.floor(n/24));
+ for(let i=0;i<n;i++){
+  arr.push({sector:Math.floor(i/per),u:(i%per)/per,
+   seed:Math.random(),seed2:Math.random(),
+   ring:Math.floor(Math.random()*7),rad:Math.pow(Math.random(),.55),
+   phase:Math.random()*TAU,size:.5+Math.random()*1.5,
+   x:w/2,y:h/2,px:w/2,py:h/2,vx:0,vy:0});
+ }
+ return arr;
+}
+function build(){
+ N=Math.max(1600,Math.min(4200,Math.round(W*H/170*quality)));
+ pts=makeParticles(N,W,H);
+ glitter=[];ripples=[];drag=null;
+ ctx.fillStyle='#04040a';ctx.fillRect(0,0,W,H);
+ flash();
+}
+function flash(){flashEl.style.opacity=.14;setTimeout(()=>flashEl.style.opacity=0,90);}
+
+// ---------- live loop ----------
+let last=performance.now(),acc=0,frames=0,check=performance.now();
+function frame(now){
+ const dt=Math.min((now-last)/1000,.05);last=now;
+ if(exporting){requestAnimationFrame(frame);return}
+ const t=(now-t0)/1000;
+ acc+=dt*1000;frames++;
+ if(now-check>2200){
+  const avg=acc/frames;
+  if(avg>32&&quality>.55){quality=.55;build();}
+  else if(avg<19&&quality<1){quality=1;build();}
+  acc=0;frames=0;check=now;
+ }
+ if(Math.abs(fold-foldTarget)<.02&&Math.random()<.0016){
+  foldTarget=[3,4,5,6,7,8,9,12][Math.floor(Math.random()*8)];
+ }
+ fold+=(foldTarget-fold)*Math.min(1,dt*1.1);
+
+ drawScene(ctx,pts,{loop:false,t},W,H,S,true);
+
+ ctx.globalCompositeOperation='lighter';
+ for(let i=glitter.length-1;i>=0;i--){
+  const g=glitter[i];
+  g.life-=dt*1.5;
+  if(g.life<=0){glitter.splice(i,1);continue}
+  g.x+=g.vx;g.y+=g.vy;g.vx*=.94;g.vy=g.vy*.94+.045;
+  const tw=g.life*(.5+.5*Math.sin(now*.02+g.ph));
+  ctx.strokeStyle=`hsla(${g.h},100%,88%,${tw})`;ctx.lineWidth=.7;
+  const s=g.s*(.5+tw);
+  ctx.beginPath();
+  ctx.moveTo(g.x-s,g.y);ctx.lineTo(g.x+s,g.y);
+  ctx.moveTo(g.x,g.y-s);ctx.lineTo(g.x,g.y+s);
+  ctx.stroke();
+ }
+ for(let i=ripples.length-1;i>=0;i--){
+  const q=ripples[i];
+  q.r+=q.v;q.life-=dt*.55;q.amp*=.985;
+  if(q.life<=0||q.r>S*1.6){ripples.splice(i,1);continue}
+  ctx.strokeStyle=`hsla(${q.h},100%,74%,${q.life*.16})`;
+  ctx.lineWidth=1+q.life*1.6;
+  ctx.beginPath();ctx.arc(q.x,q.y,q.r,0,TAU);ctx.stroke();
+ }
+ ctx.globalCompositeOperation='source-over';
+ if(drag){
+  drag.hold=Math.min(1,drag.hold+dt*(drag.moving?-1.4:.75));
+  drag.moving=false;drag.vx*=.72;drag.vy*=.72;
+ }
+ requestAnimationFrame(frame);
+}
+
+// ---------- input ----------
+function pos(e){const r=c.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top}}
+function spark(x,y,n,power){
+ for(let i=0;i<n;i++){
+  const a=Math.random()*TAU,sp=(.4+Math.random()*2.6)*power;
+  glitter.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:.5+Math.random()*.7,
+   s:.9+Math.random()*2.1,h:(x/W*360+Math.random()*70)%360,ph:Math.random()*TAU});
+ }
+ if(glitter.length>320)glitter.splice(0,glitter.length-320);
+}
+c.addEventListener('pointerdown',e=>{
+ if(exporting)return;
+ e.preventDefault();
+ try{c.setPointerCapture(e.pointerId)}catch(_){}
+ const p=pos(e);
+ drag={x:p.x,y:p.y,vx:0,vy:0,hold:0,moving:false,id:e.pointerId};
+ spark(p.x,p.y,10,1);tipEl.style.opacity=0;
+},{passive:false});
+c.addEventListener('pointermove',e=>{
+ if(!drag||e.pointerId!==drag.id)return;
+ const p=pos(e),dx=p.x-drag.x,dy=p.y-drag.y;
+ drag.vx=dx;drag.vy=dy;drag.x=p.x;drag.y=p.y;
+ if(Math.abs(dx)+Math.abs(dy)>1.5){drag.moving=true;spark(p.x,p.y,2,.7);}
+},{passive:true});
+function release(e){
+ if(!drag||(e&&e.pointerId!==drag.id))return;
+ const speed=Math.hypot(drag.vx,drag.vy);
+ ripples.push({x:drag.x,y:drag.y,r:6,v:3.4+speed*.10,w:S*.16,life:1,
+  amp:S*(.030+Math.min(.075,speed*.006))+drag.hold*S*.05,
+  spin:(Math.random()<.5?-1:1)*(.25+drag.hold*.7),h:(drag.x/W*360)%360});
+ if(ripples.length>5)ripples.shift();
+ spark(drag.x,drag.y,14+Math.min(26,speed*1.6),1.3);
+ if(drag.hold>.6)foldTarget=[3,4,5,6,7,8,9,12][Math.floor(Math.random()*8)];
+ drag=null;
+}
+c.addEventListener('pointerup',release);
+c.addEventListener('pointercancel',()=>{drag=null});
+c.addEventListener('contextmenu',e=>e.preventDefault());
+
+document.getElementById('regen').onclick=()=>{
+ foldTarget=[3,4,5,6,7,8,9,12][Math.floor(Math.random()*8)];
+ for(const p of pts){p.seed=Math.random();p.seed2=Math.random();
+  p.rad=Math.pow(Math.random(),.55);p.ring=Math.floor(Math.random()*7);p.phase=Math.random()*TAU;}
+ ripples.push({x:W/2,y:H/2,r:4,v:8,w:S*.22,life:1,amp:S*.06,spin:.6,h:Math.random()*360});
+ flash();
+};
+document.getElementById('mode').onclick=()=>{
+ mode=(mode+1)%MODES.length;modeEl.textContent=MODES[mode];
+ ripples.push({x:W/2,y:H/2,r:4,v:9,w:S*.25,life:1,amp:S*.05,spin:.4,h:Math.random()*360});
+ flash();
+};
+
+// ---------- GIF export ----------
+const GIF_JS='https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js';
+const GIF_WORKER='https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js';
+let workerURL=null;
+
+function loadScript(src){
+ return new Promise((res,rej)=>{
+  const s=document.createElement('script');
+  s.src=src;s.onload=()=>res();s.onerror=()=>rej(new Error('script'));
+  document.head.appendChild(s);
+ });
+}
+async function prepGif(){
+ if(!window.GIF)await loadScript(GIF_JS);
+ if(!workerURL){
+  const r=await fetch(GIF_WORKER);
+  if(!r.ok)throw new Error('worker');
+  workerURL=URL.createObjectURL(await r.blob());
+ }
+}
+function sheetOn(title,msg){
+ sheetTitle.textContent=title;sheetMsg.textContent=msg;
+ sheetActions.innerHTML='';barFill.style.width='0%';
+ sheet.classList.add('on');
+}
+function sheetOff(){sheet.classList.remove('on');sheetActions.innerHTML='';}
+function addBtn(label,fn){
+ const b=document.createElement('button');b.textContent=label;b.onclick=fn;
+ sheetActions.appendChild(b);return b;
+}
+
+async function exportGif(){
+ const btn=document.getElementById('gif');
+ btn.disabled=true;exporting=true;
+ sheetOn('RENDERING LOOP','3秒のシームレスループを描き出しています…');
+ try{
+  await prepGif();
+
+  const side=Math.min(460,Math.round(Math.min(innerWidth,innerHeight)*1.1));
+  const FPS=15, FRAMES=LOOP*FPS;             // 45 frames
+  const off=document.createElement('canvas');
+  off.width=off.height=side;
+  const g=off.getContext('2d',{alpha:false});
+  g.fillStyle='#04040a';g.fillRect(0,0,side,side);
+
+  const arr=makeParticles(Math.min(3200,pts.length),side,side);
+  const eS=side;
+
+  const gif=new GIF({workers:2,quality:12,dither:false,
+   width:side,height:side,workerScript:workerURL,repeat:0});
+
+  // pre-roll: periodic input → the easing settles onto a periodic orbit,
+  // so frame 0 and frame N line up exactly.
+  const PRE=FRAMES*2;
+  for(let i=0;i<PRE;i++){
+   drawScene(g,arr,{loop:true,p:(i%FRAMES)/FRAMES*TAU},side,side,eS,false);
+   if(i%12===0){
+    barFill.style.width=(i/PRE*22)+'%';
+    await new Promise(r=>setTimeout(r,0));
+   }
+  }
+  // capture
+  for(let i=0;i<FRAMES;i++){
+   drawScene(g,arr,{loop:true,p:i/FRAMES*TAU},side,side,eS,false);
+   gif.addFrame(g,{copy:true,delay:1000/FPS});
+   barFill.style.width=(22+i/FRAMES*28)+'%';
+   await new Promise(r=>setTimeout(r,0));
+  }
+
+  sheetMsg.textContent='GIFにエンコード中…';
+  const blob=await new Promise((res,rej)=>{
+   gif.on('progress',pr=>{barFill.style.width=(50+pr*50)+'%'});
+   gif.on('finished',b=>res(b));
+   gif.on('abort',()=>rej(new Error('abort')));
+   gif.render();
+  });
+
+  const url=URL.createObjectURL(blob);
+  const kb=Math.round(blob.size/1024);
+  sheetTitle.textContent='LOOP READY';
+  sheetMsg.textContent=`${side}×${side} · ${LOOP}s · ${kb}KB — 画像を長押しして保存できます`;
+  barFill.style.width='100%';
+  const img=new Image();img.src=url;
+  sheet.insertBefore(img,sheetActions);
+  sheetActions.innerHTML='';
+  const a=document.createElement('a');
+  a.href=url;a.download='particle-cosmos-loop.gif';
+  a.textContent='ダウンロード';
+  a.style.cssText='pointer-events:auto;border:1px solid #ffffff28;background:#ffffff10;color:#fff;border-radius:22px;padding:11px 26px;font-size:12px;letter-spacing:.2em;text-decoration:none';
+  sheetActions.appendChild(a);
+  addBtn('閉じる',()=>{img.remove();URL.revokeObjectURL(url);sheetOff();});
+ }catch(err){
+  sheetTitle.textContent='EXPORT FAILED';
+  sheetMsg.textContent='GIFの書き出しに失敗しました。通信環境を確認してもう一度お試しください。';
+  addBtn('閉じる',sheetOff);
+ }finally{
+  exporting=false;btn.disabled=false;last=performance.now();
+ }
+}
+document.getElementById('gif').onclick=exportGif;
+
+addEventListener('resize',resize);
+setTimeout(()=>{tipEl.style.opacity=0},6000);
+resize();requestAnimationFrame(frame);
+})();
+</script></body></html>
