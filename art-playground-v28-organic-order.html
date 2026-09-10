@@ -145,7 +145,7 @@ function T_order(T){
 }
 
 // ---------- formations ----------
-function formation(p,T,order,S){
+function formation(p,T,order,S,w,h){
  const f=fold; let a,r;
  if(mode===0){
   const ringR=(.14+p.ring*.115)*S*.92, petals=f*(1+(p.ring%2));
@@ -160,16 +160,22 @@ function formation(p,T,order,S){
   r=band*S*.5*(.7+.3*T_osc(T,.7,band*11+p.phase));
   r+=T_flow(T,Math.cos(a)*2.4,Math.sin(a)*2.4,.09)*S*.10*(1.3-order);
  } else if(mode===2){
-  // LATTICE fills the actual portrait viewport instead of a square S-based box.
-  // This keeps the lower third populated on tall iPhones.
-  const cols=Math.round(30+f*1.4),rows=60;
-  const gi=Math.floor(p.seed*cols),gj=Math.floor(p.seed2*rows),off=(gj%2)*.5;
-  let gx=((gi+off)/cols-.5)*W*1.12;
-  let gy=((gj/(rows-1))-.5)*H*1.08;
-  const wx=T_flow(T,gx/S*3,gy/S*3,.11)-.5, wy=T_flow(T,gx/S*3+9,gy/S*3,.11)-.5;
-  const amp=S*(.05+.24*(1-order));
-  gx+=wx*amp;gy+=wy*amp;
-  a=Math.atan2(gy,gx);r=Math.hypot(gx,gy);
+  // LATTICE: build against the actual viewport, not a square world.
+  // This guarantees that portrait iPhones stay populated from top to bottom.
+  const cols=Math.max(28,Math.ceil(w/24));
+  const rows=Math.max(58,Math.ceil(h/27));
+  const cells=cols*rows;
+  const cell=p.gridCell==null?(p.gridCell=(Math.floor(p.seed*cells)%cells)):p.gridCell;
+  const gi=cell%cols, gj=Math.floor(cell/cols);
+  const jx=(p.seed2-.5)*.42, jy=(p.seed-.5)*.42;
+  const gx0=((gi+jx)/(cols-1)-.5)*w*1.10;
+  const gy0=((gj+jy)/(rows-1)-.5)*h*1.10;
+  let gx=gx0, gy=gy0;
+  const wx=T_flow(T,gx/w*3,gy/h*3,.11)-.5;
+  const wy=T_flow(T,gx/w*3+9,gy/h*3,.11)-.5;
+  const amp=Math.min(w,h)*(.035+.13*(1-order));
+  gx+=wx*amp; gy+=wy*amp;
+  a=Math.atan2(gy,gx); r=Math.hypot(gx,gy);
  } else if(mode===3){
   const rr=p.rad*S*.52;
   a=p.sector*TAU/f + Math.log(1+rr/S*7)*2.1 + T_spin(T,.22) + p.u*.5;
@@ -225,7 +231,7 @@ function drawScene(g,arr,T,w,h,S,live){
  g.globalCompositeOperation='lighter';
  for(let i=0;i<arr.length;i++){
   const p=arr[i];
-  let [a,r]=formation(p,T,order,S);
+  let [a,r]=formation(p,T,order,S,w,h);
   let tx=cx+Math.cos(a)*r, ty=cy+Math.sin(a)*r*.95;
   [tx,ty]=warp(tx,ty,T,order,w,h,S,live);
   p.x+=(tx-p.x)*.075+p.vx;
@@ -250,9 +256,8 @@ function drawScene(g,arr,T,w,h,S,live){
 function resize(){
  if(exporting)return;
  D=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;
-  // Portrait screens need more vertical composition; extend the world vertically without changing the canvas.
-  const portraitBoost=H/W>1.18?1.62:1;
-  S=Math.min(W,H)*portraitBoost;
+  // Keep S stable for radial modes. LATTICE uses the actual W/H viewport directly.
+  S=Math.min(W,H);
  c.width=Math.round(W*D);c.height=Math.round(H*D);
  ctx.setTransform(D,0,0,D,0,0);
  build();
@@ -269,7 +274,7 @@ function makeParticles(n,w,h){
  return arr;
 }
 function build(){
- N=Math.max(2200,Math.min(9000,Math.round(W*H/120*quality)));
+ N=Math.max(2400,Math.min(7600,Math.round(W*H/130*quality)));
  pts=makeParticles(N,W,H);
  glitter=[];ripples=[];drag=null;
  ctx.fillStyle='#04040a';ctx.fillRect(0,0,W,H);
