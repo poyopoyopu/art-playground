@@ -186,7 +186,9 @@ function warp(x,y,T,order,w,h,S,live){
 function drawScene(g,arr,T,w,h,S,live){
  const order=T_order(T);
  g.globalCompositeOperation='source-over';
- g.fillStyle=`rgba(4,4,10,${.13+.10*order})`;
+ // trail length is set by how much time each frame covers, not by frame count,
+ // so a higher-fps export keeps the same look instead of growing longer streaks
+ g.fillStyle=`rgba(4,4,10,${(.13+.10*order)*(T.fadeMul||1)})`;
  g.fillRect(0,0,w,h);
  const P=PAL[mode],cx=w*.5,cy=h*.5;
  g.globalCompositeOperation='lighter';
@@ -373,15 +375,38 @@ function addBtn(label,fn){
  sheetActions.appendChild(b);return b;
 }
 
+// GIF delays must be whole multiples of 10ms, so only these rates stay honest.
+const PRESETS=[
+ {name:'SMOOTH',  fps:25,   delay:40, side:400, note:'75コマ · 一番なめらか · 容量大'},
+ {name:'BALANCED',fps:20,   delay:50, side:440, note:'60コマ · なめらかさと容量のバランス'},
+ {name:'LIGHT',   fps:12.5, delay:80, side:460, note:'38コマ · 軽い · 容量小'}
+];
+
+function askPreset(){
+ return new Promise(res=>{
+  sheetOn('EXPORT LOOP','なめらかさを選んでください');
+  barFill.parentElement.style.display='none';
+  PRESETS.forEach(p=>{
+   addBtn(`${p.name} · ${p.fps}fps`,()=>{
+    barFill.parentElement.style.display='';
+    res(p);
+   }).title=p.note;
+  });
+  addBtn('キャンセル',()=>{barFill.parentElement.style.display='';res(null)});
+ });
+}
+
 async function exportGif(){
  const btn=document.getElementById('gif');
+ const preset=await askPreset();
+ if(!preset){sheetOff();return}
  btn.disabled=true;exporting=true;
  sheetOn('RENDERING LOOP','3秒のシームレスループを描き出しています…');
  try{
   await prepGif();
 
-  const side=Math.min(460,Math.round(Math.min(innerWidth,innerHeight)*1.1));
-  const FPS=15, FRAMES=LOOP*FPS;             // 45 frames
+  const side=Math.min(preset.side,Math.round(Math.min(innerWidth,innerHeight)*1.1));
+  const FRAMES=Math.round(LOOP*preset.fps);
   const off=document.createElement('canvas');
   off.width=off.height=side;
   const g=off.getContext('2d',{alpha:false});
@@ -397,7 +422,7 @@ async function exportGif(){
   // so frame 0 and frame N line up exactly.
   const PRE=FRAMES*2;
   for(let i=0;i<PRE;i++){
-   drawScene(g,arr,{loop:true,p:(i%FRAMES)/FRAMES*TAU},side,side,eS,false);
+   drawScene(g,arr,{loop:true,p:(i%FRAMES)/FRAMES*TAU,fadeMul:preset.delay/66.7},side,side,eS,false);
    if(i%12===0){
     barFill.style.width=(i/PRE*22)+'%';
     await new Promise(r=>setTimeout(r,0));
@@ -405,8 +430,8 @@ async function exportGif(){
   }
   // capture
   for(let i=0;i<FRAMES;i++){
-   drawScene(g,arr,{loop:true,p:i/FRAMES*TAU},side,side,eS,false);
-   gif.addFrame(g,{copy:true,delay:1000/FPS});
+   drawScene(g,arr,{loop:true,p:i/FRAMES*TAU,fadeMul:preset.delay/66.7},side,side,eS,false);
+   gif.addFrame(g,{copy:true,delay:preset.delay});
    barFill.style.width=(22+i/FRAMES*28)+'%';
    await new Promise(r=>setTimeout(r,0));
   }
@@ -420,9 +445,13 @@ async function exportGif(){
   });
 
   const url=URL.createObjectURL(blob);
-  const kb=Math.round(blob.size/1024);
+  const mb=(blob.size/1048576).toFixed(1);
+  const overWeb=blob.size>15*1048576, overApp=blob.size>5*1048576;
   sheetTitle.textContent='LOOP READY';
-  sheetMsg.textContent=`${side}×${side} · ${LOOP}s · ${kb}KB — 画像を長押しして保存できます`;
+  sheetMsg.textContent=`${side}×${side} · ${preset.fps}fps · ${FRAMES}コマ · ${mb}MB`
+   +(overWeb?' — Xの上限15MB超え。LIGHTで撮り直しを'
+    :overApp?' — 5MB超えなのでSafariのx.comから投稿を'
+    :' — Xアプリからそのまま投稿できます');
   barFill.style.width='100%';
   const img=new Image();img.src=url;
   sheet.insertBefore(img,sheetActions);
