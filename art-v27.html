@@ -1,6 +1,10 @@
 <!doctype html>
 <html lang="ja"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Particle Cosmos">
 <title>Particle Cosmos II — Art Playground</title>
 <style>
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -23,6 +27,28 @@ canvas#c{display:block;width:100%;height:100%;touch-action:none}
 .sheet img{max-width:min(78vw,340px);max-height:52vh;border-radius:12px;border:1px solid #ffffff1a}
 .sheet button{pointer-events:auto;border:1px solid #ffffff28;background:#ffffff10;color:#fff;border-radius:22px;padding:11px 26px;font-size:12px;letter-spacing:.2em;backdrop-filter:blur(8px)}
 .row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+
+/* clock — tabular figures so the digits never jitter, heavy shadow so it stays
+   readable over the brightest part of the artwork */
+.clock{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+ display:none;flex-direction:column;align-items:center;gap:6px;
+ font-family:ui-monospace,"SF Mono",SFMono-Regular,Menlo,monospace;
+ font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;
+ pointer-events:none;user-select:none;-webkit-user-select:none}
+.clock.on{display:flex}
+.clock .t{font-size:clamp(44px,16.5vw,132px);line-height:1;font-weight:600;letter-spacing:.01em;
+ color:#fff;text-shadow:0 0 3px rgba(0,0,0,.95),0 0 14px rgba(0,0,0,.9),0 4px 34px rgba(0,0,0,.85)}
+.clock .t i{font-style:normal;opacity:.62}
+.clock .d{font-size:clamp(11px,3.3vw,17px);letter-spacing:.30em;color:#fff;opacity:.62;
+ text-shadow:0 0 3px rgba(0,0,0,.95),0 2px 16px rgba(0,0,0,.9)}
+.controls{transition:opacity .6s}
+.controls.idle{opacity:0;pointer-events:none}
+
+.toast{position:absolute;left:50%;bottom:calc(max(4.5vh,env(safe-area-inset-bottom)) + 58px);
+ transform:translateX(-50%);max-width:78vw;padding:11px 18px;border-radius:14px;
+ background:#0a0a16d8;border:1px solid #ffffff1f;backdrop-filter:blur(10px);
+ font-size:12px;line-height:1.6;text-align:center;opacity:0;transition:opacity .35s;pointer-events:none}
+.toast.on{opacity:1}
 </style></head><body>
 <canvas id="c"></canvas>
 <div class="ui">
@@ -30,7 +56,14 @@ canvas#c{display:block;width:100%;height:100%;touch-action:none}
     <button class="btn" id="mode" aria-label="mode">✦</button>
     <button class="btn" id="regen" aria-label="regenerate">↻</button>
     <button class="btn" id="gif" aria-label="export gif">◉</button>
+    <button class="btn" id="clockBtn" aria-label="clock">🕐</button>
+    <button class="btn" id="fsBtn" aria-label="fullscreen">⛶</button>
   </div>
+  <div class="clock" id="clock">
+    <div class="t" id="clockTime">00:00<i>:00</i></div>
+    <div class="d" id="clockDate"></div>
+  </div>
+  <div class="toast" id="toast"></div>
   <div class="tip" id="tip">DRAG · HOLD · FLICK</div>
   <div class="mode"><b id="modeName">MANDALA</b><span>tap ✦ to transform</span></div>
   <div class="flash" id="flash"></div>
@@ -494,6 +527,83 @@ async function exportGif(){
  }
 }
 document.getElementById('gif').onclick=exportGif;
+
+// ---------- clock / fullscreen ----------
+const clockEl=document.getElementById('clock'),clockTime=document.getElementById('clockTime'),
+      clockDate=document.getElementById('clockDate'),toastEl=document.getElementById('toast');
+let clockOn=false,wakeLock=null,toastTimer=null;
+
+function toast(msg,ms){
+ clearTimeout(toastTimer);
+ toastEl.textContent=msg;toastEl.classList.add('on');
+ toastTimer=setTimeout(()=>toastEl.classList.remove('on'),ms||3600);
+}
+
+const WEEK=['日','月','火','水','木','金','土'];
+function pad(n){return n<10?'0'+n:''+n}
+function tickClock(){
+ if(!clockOn)return;
+ const d=new Date();
+ clockTime.innerHTML=`${pad(d.getHours())}:${pad(d.getMinutes())}<i>:${pad(d.getSeconds())}</i>`;
+ clockDate.textContent=`${d.getMonth()+1}月${d.getDate()}日 (${WEEK[d.getDay()]})`;
+}
+// re-sync to the second boundary each tick so the display never drifts
+function scheduleTick(){
+ tickClock();
+ setTimeout(scheduleTick,1000-(Date.now()%1000)+8);
+}
+scheduleTick();
+
+async function requestWake(){
+ try{ if('wakeLock' in navigator) wakeLock=await navigator.wakeLock.request('screen'); }catch(_){}
+}
+function releaseWake(){ try{ wakeLock&&wakeLock.release(); }catch(_){} wakeLock=null; }
+document.addEventListener('visibilitychange',()=>{
+ if(document.visibilityState==='visible'&&clockOn&&!wakeLock)requestWake();
+});
+
+document.getElementById('clockBtn').onclick=()=>{
+ clockOn=!clockOn;
+ clockEl.classList.toggle('on',clockOn);
+ if(clockOn){tickClock();requestWake();}else{releaseWake();showControls();}
+ bumpIdle();
+};
+
+// with the clock up this doubles as a display piece, so the buttons get out of
+// the way until the screen is touched again
+const controlsEl=document.querySelector('.controls');
+let idleTimer=null;
+function showControls(){controlsEl.classList.remove('idle')}
+function bumpIdle(){
+ showControls();
+ clearTimeout(idleTimer);
+ if(clockOn)idleTimer=setTimeout(()=>controlsEl.classList.add('idle'),4000);
+}
+addEventListener('pointerdown',bumpIdle,{passive:true});
+
+const docEl=document.documentElement;
+function fsElement(){return document.fullscreenElement||document.webkitFullscreenElement}
+function fsSupported(){
+ return !!(docEl.requestFullscreen||docEl.webkitRequestFullscreen);
+}
+document.getElementById('fsBtn').onclick=async()=>{
+ // iPhone Safari has no Fullscreen API at all — only the standalone home-screen
+ // app runs without browser chrome, so point there instead of failing silently.
+ if(!fsSupported()){
+  if(window.navigator.standalone)toast('すでにフルスクリーンで動いています');
+  else toast('iPhoneのSafariは全画面表示に対応していません。共有ボタン → 「ホーム画面に追加」で開くと、フチなしの全画面で使えます',7000);
+  return;
+ }
+ try{
+  if(fsElement()){
+   (document.exitFullscreen||document.webkitExitFullscreen).call(document);
+  }else{
+   await (docEl.requestFullscreen||docEl.webkitRequestFullscreen).call(docEl);
+  }
+ }catch(_){ toast('全画面表示に切り替えられませんでした'); }
+};
+['fullscreenchange','webkitfullscreenchange','orientationchange'].forEach(ev=>
+ addEventListener(ev,()=>setTimeout(resize,120)));
 
 addEventListener('resize',resize);
 setTimeout(()=>{tipEl.style.opacity=0},6000);
