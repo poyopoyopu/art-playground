@@ -57,6 +57,12 @@ let W=0,H=0,D=1,S=1,N=0,pts=[],mode=0,t0=performance.now();
 let fold=6,foldTarget=6,drag=null,glitter=[],ripples=[],quality=1,exporting=false;
 
 const MODES=['MANDALA','KALEIDO','LATTICE','VORTEX','MOIRE'];
+// per-mode brightness trim
+const MODE_GAIN=[1,.92,1,.55,.9];
+/* Per-mode trail length. VORTEX sweeps through several turns per loop, so a
+   long trail stops being a streak and just fills the disc solid — it needs a
+   much shorter memory than the slow, static formations. */
+const MODE_FADE=[1,1,1,4.4,1];
 const PAL=[
  [[.55,.42,.55],[.48,.45,.42],[1,1,.85],[.00,.28,.58]],
  [[.52,.50,.52],[.48,.46,.48],[1,1,1],[.15,.42,.72]],
@@ -138,10 +144,20 @@ function formation(p,T,order,S){
   gx+=wx*amp;gy+=wy*amp;
   a=Math.atan2(gy,gx);r=Math.hypot(gx,gy);
  } else if(mode===3){
-  const rr=p.rad*S*.52;
-  a=p.sector*TAU/f + Math.log(1+rr/S*7)*2.1 + T_spin(T,.22) + p.u*.5;
+  /* VORTEX — nested ribbon arms under differential rotation.
+     Inner radii rotate faster than outer ones, so the arms wind themselves
+     tight and then unwind again over the loop: the structure itself changes,
+     rather than a fixed spiral being spun around. */
+  const arms=Math.max(2,Math.round(f));
+  const armIdx=p.sector%arms;
+  const q=.28+.72*Math.sqrt(p.rad);          // area-uniform, with an inner cutoff
+  const rr=q*S*.46;
+  const ribbon=(p.u-.5)*(S*.10)/rr;          // constant arc width, not constant angle
+  const wind=2.4+2.0*T_osc(T,.5,0);          // winding strength breathes over the loop
+  const shear=wind*(Math.pow(q,-.5)-1);      // inner turns faster than outer
+  a=armIdx*TAU/arms+ribbon+shear+T_spin(T,.22);
   const curl=(T_flow(T,Math.cos(a)*3,Math.sin(a)*3,.14)-.5)*(1-order);
-  r=rr*(.9+.1*T_osc(T,.8,p.phase))+curl*S*.18;
+  r=rr*(1+.06*T_osc(T,.8,p.phase))+curl*S*.16;
  } else {
   const setA=p.seed<.5, k=setA?f:f+2, rr=(.1+p.rad*.42)*S;
   a=p.sector*TAU/k+p.u*TAU/k+(setA?T_rot(T,.07):-T_rot(T,.07));
@@ -188,7 +204,8 @@ function drawScene(g,arr,T,w,h,S,live){
  g.globalCompositeOperation='source-over';
  // trail length is set by how much time each frame covers, not by frame count,
  // so a higher-fps export keeps the same look instead of growing longer streaks
- g.fillStyle=`rgba(4,4,10,${(.13+.10*order)*(T.fadeMul||1)})`;
+ const fade=Math.min(.65,(.13+.10*order)*(T.fadeMul||1)*MODE_FADE[mode]);
+ g.fillStyle=`rgba(4,4,10,${fade})`;
  g.fillRect(0,0,w,h);
  const P=PAL[mode],cx=w*.5,cy=h*.5;
  g.globalCompositeOperation='lighter';
@@ -206,8 +223,14 @@ function drawScene(g,arr,T,w,h,S,live){
   const m=(r/S*1.5+a*.09+(T.loop?0:T.t*.045)+p.seed*.18);
   const hue=((P[2][0]*m+P[3][0])*360+(P[1][0]*Math.cos(6.283*m))*60)%360;
   let idx=Math.floor(hue/360*HUES)%HUES; if(idx<0)idx+=HUES;
-  const alpha=Math.min(.95,.20+vel*.16+p.size*.06);
-  const sz=p.size*(1.6+Math.min(3.2,vel*.30))*(1+(1-order)*.25);
+  /* Brightness and size follow speed, but the old version added speed linearly
+     and clamped, so any fast formation pinned every particle at maximum — which
+     is what turned VORTEX into a white disc. This saturates smoothly instead,
+     measured against a reference speed, so fast modes stay readable. */
+  const vn=vel/(S*.012), b=vn/(1+vn);
+  const gain=(T.gain||1)*MODE_GAIN[mode];
+  const alpha=Math.min(.95,(.31+1.05*b+p.size*.085)*gain);
+  const sz=p.size*(1.5+2.2*b)*(1+(1-order)*.25);
   g.globalAlpha=alpha;
   g.drawImage(sprites[idx],p.x-sz,p.y-sz,sz*2,sz*2);
  }
@@ -422,7 +445,7 @@ async function exportGif(){
   // so frame 0 and frame N line up exactly.
   const PRE=FRAMES*2;
   for(let i=0;i<PRE;i++){
-   drawScene(g,arr,{loop:true,p:(i%FRAMES)/FRAMES*TAU,fadeMul:preset.delay/66.7},side,side,eS,false);
+   drawScene(g,arr,{loop:true,p:(i%FRAMES)/FRAMES*TAU,fadeMul:preset.delay/66.7,gain:preset.delay/66.7},side,side,eS,false);
    if(i%12===0){
     barFill.style.width=(i/PRE*22)+'%';
     await new Promise(r=>setTimeout(r,0));
@@ -430,7 +453,7 @@ async function exportGif(){
   }
   // capture
   for(let i=0;i<FRAMES;i++){
-   drawScene(g,arr,{loop:true,p:i/FRAMES*TAU,fadeMul:preset.delay/66.7},side,side,eS,false);
+   drawScene(g,arr,{loop:true,p:i/FRAMES*TAU,fadeMul:preset.delay/66.7,gain:preset.delay/66.7},side,side,eS,false);
    gif.addFrame(g,{copy:true,delay:preset.delay});
    barFill.style.width=(22+i/FRAMES*28)+'%';
    await new Promise(r=>setTimeout(r,0));
