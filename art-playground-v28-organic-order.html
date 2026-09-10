@@ -7,7 +7,10 @@
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#04040a;overscroll-behavior:none}
 canvas#c{display:block;width:100%;height:100%;touch-action:none}
 .ui{position:fixed;inset:0;pointer-events:none;color:#fff;font-family:system-ui,-apple-system,sans-serif}
-.controls{position:absolute;right:5vw;top:max(5vh,env(safe-area-inset-top));display:flex;gap:9px;pointer-events:auto}
+.clockWrap{position:absolute;left:5vw;top:max(3.2vh,env(safe-area-inset-top));padding:8px 13px 7px;border-radius:10px;background:#05050bd9;border:1px solid #ffffff24;box-shadow:0 5px 24px #0008;backdrop-filter:blur(10px);z-index:2}
+.clock{font:700 22px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.055em;color:#fff;text-shadow:0 1px 12px #fff8;font-variant-numeric:tabular-nums}
+.clockSub{margin-top:5px;font-size:7px;line-height:1;letter-spacing:.34em;opacity:.48}
+.controls{position:absolute;right:5vw;top:max(3.2vh,env(safe-area-inset-top));display:flex;gap:9px;pointer-events:auto}
 .btn{width:46px;height:46px;border-radius:50%;border:1px solid #ffffff20;background:#0a0a16a0;color:#fff;font-size:18px;backdrop-filter:blur(8px)}
 .btn:disabled{opacity:.35}
 .mode{position:absolute;left:50%;bottom:max(4.5vh,env(safe-area-inset-bottom));transform:translateX(-50%);font-size:9px;letter-spacing:.3em;opacity:.4;white-space:nowrap;text-align:center;transition:opacity 1s}
@@ -29,6 +32,10 @@ canvas#c{display:block;width:100%;height:100%;touch-action:none}
 </head><body>
 <canvas id="c"></canvas>
 <div class="ui">
+  <div class="clockWrap">
+    <div class="clock" id="clock">00:00:00</div>
+    <div class="clockSub">REAL TIME</div>
+  </div>
   <div class="controls">
     <button class="btn" id="mode" aria-label="mode">✦</button>
     <button class="btn" id="regen" aria-label="regenerate">↻</button>
@@ -58,6 +65,12 @@ const sheet=document.getElementById('sheet'),sheetTitle=document.getElementById(
 const LOOP=3, TAU=Math.PI*2;
 let W=0,H=0,D=1,S=1,N=0,pts=[],mode=0,t0=performance.now();
 let fold=6,foldTarget=6,drag=null,glitter=[],ripples=[],quality=1,exporting=false;
+const clockEl=document.getElementById('clock');
+function updateClock(){
+ const d=new Date(),pad=n=>String(n).padStart(2,'0');
+ clockEl.textContent=pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());
+}
+setInterval(updateClock,200); updateClock();
   let worldPhase=0, phaseTarget=0, anomaly=0, anomalyTarget=0;
   let hueDrift=0, densityPulse=0, split=0, splitTarget=0;
   const MAX_GLITTER=300, MAX_RIPPLES=6;
@@ -383,12 +396,12 @@ function addBtn(label,fn){
 async function exportGif(){
  const btn=document.getElementById('gif');
  btn.disabled=true;exporting=true;
- sheetOn('RENDERING LOOP','3秒のシームレスループを描き出しています…');
+ sheetOn('RENDERING LOOP','3秒・30fpsの滑らかなシームレスGIFを描き出しています…');
  try{
   await prepGif();
 
-  const side=Math.min(460,Math.round(Math.min(innerWidth,innerHeight)*1.1));
-  const FPS=15, FRAMES=LOOP*FPS;             // 45 frames
+  const side=Math.min(520,Math.round(Math.min(innerWidth,innerHeight)*1.1));
+  const FPS=30, FRAMES=LOOP*FPS;             // 90 frames
   const off=document.createElement('canvas');
   off.width=off.height=side;
   const g=off.getContext('2d',{alpha:false});
@@ -396,8 +409,10 @@ async function exportGif(){
 
   const arr=makeParticles(Math.min(3200,pts.length),side,side);
   const eS=side;
+  // Export is rendered directly to a square canvas: no portrait-to-square
+  // stretching, so the circular composition stays circular.
 
-  const gif=new GIF({workers:2,quality:12,dither:false,
+  const gif=new GIF({workers:2,quality:7,dither:false,
    width:side,height:side,workerScript:workerURL,repeat:0});
 
   // pre-roll: periodic input → the easing settles onto a periodic orbit,
@@ -429,7 +444,7 @@ async function exportGif(){
   const url=URL.createObjectURL(blob);
   const kb=Math.round(blob.size/1024);
   sheetTitle.textContent='LOOP READY';
-  sheetMsg.textContent=`${side}×${side} · ${LOOP}s · ${kb}KB — 画像を長押しして保存できます`;
+  sheetMsg.textContent=`${side}×${side} · ${LOOP}s · ${FPS}fps · ${kb}KB — 画像を長押しして保存できます`;
   barFill.style.width='100%';
   const img=new Image();img.src=url;
   sheet.insertBefore(img,sheetActions);
