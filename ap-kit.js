@@ -244,10 +244,26 @@ async function exportGif(btn){
     const img=new Image();img.src=url;
     sheetEl.querySelector('.apk-card').insertBefore(img,barWrap);
     acts.innerHTML='';
-    const a=el('a',null,'ダウンロード');
+
+    /* Hand the GIF straight to the system share sheet, so it reaches Photos or
+       the X app as a real .gif file. Saving by long-pressing the preview can
+       flatten it to a still frame; this passes the file itself.
+       navigator.share must run inside the tap, so the File is built up front
+       and the call is the first thing the handler does. */
+    const file=new File([blob],(opts.gifName||'loop')+'.gif',{type:'image/gif'});
+    const canShare = navigator.canShare && navigator.share && navigator.canShare({files:[file]});
+    if(canShare){
+      addAct('共有 / 写真に保存',async()=>{
+        try{ await navigator.share({files:[file]}); }
+        catch(err){ if(err && err.name!=='AbortError')toast('共有できませんでした'); }
+      });
+    }
+    const a=el('a',null,canShare?'ファイルに保存':'ダウンロード');
     a.href=url;a.download=(opts.gifName||'loop')+'.gif';
     acts.appendChild(a);
     addAct('閉じる',()=>{img.remove();URL.revokeObjectURL(url);sheetEl.classList.remove('apk-on')});
+    if(!canShare&&/iPhone|iPad/.test(navigator.userAgent))
+      sheetMsg.textContent+='（このブラウザは共有に非対応です。ダウンロードしてファイルAppから投稿してください）';
   }catch(e){
     console.error(e);
     sheetTitle.textContent='EXPORT FAILED';
