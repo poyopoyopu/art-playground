@@ -21,14 +21,26 @@ let opts=null, clockOn=false, wakeLock=null, toastTimer=null, idleTimer=null,
 
 const CSS=`
 .apk-ctrl{position:fixed;z-index:60;right:4vw;bottom:max(3.4vh,env(safe-area-inset-bottom));
- display:flex;gap:8px;transition:opacity .6s}
-.apk-ctrl.apk-idle{opacity:0;pointer-events:none}
+ display:flex;gap:8px;transition:opacity .7s,transform .7s}
+.apk-ctrl.apk-idle{opacity:0;transform:translateY(10px);pointer-events:none}
+/* capsule dock: one floating bar instead of loose circles, centred so it reads
+   as a tool that appeared rather than furniture that was always there */
+.apk-ctrl.apk-dock{right:auto;left:50%;transform:translateX(-50%);gap:2px;padding:6px;
+ border-radius:30px;background:rgba(8,8,14,.5);border:1px solid rgba(255,255,255,.14);
+ backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:0 6px 30px #0009}
+.apk-ctrl.apk-dock.apk-idle{transform:translateX(-50%) translateY(10px)}
+.apk-ctrl.apk-dock .apk-btn{border:none;background:transparent;box-shadow:none;backdrop-filter:none;
+ width:46px;height:46px}
+.apk-ctrl.apk-dock .apk-btn.apk-on{background:rgba(255,255,255,.92);color:#07070e}
 .apk-btn{width:42px;height:42px;border-radius:50%;border:1px solid #ffffff24;background:#07070ecc;
  color:#fff;font-size:15px;line-height:1;box-shadow:0 4px 18px #0009;backdrop-filter:blur(10px);
  padding:0;font-family:inherit}
 .apk-btn:active{transform:scale(.92)}
 .apk-btn.apk-on{background:#fff;color:#07070e;border-color:#fff}
 .apk-btn:disabled{opacity:.35}
+.apk-clock.apk-top{top:calc(env(safe-area-inset-top) + 20px);transform:translate(-50%,0)}
+.apk-clock.apk-top .apk-t{font-size:clamp(30px,8.5vw,58px)}
+.apk-clock.apk-top .apk-d{font-size:clamp(10px,2.7vw,14px);letter-spacing:.26em}
 .apk-clock{position:fixed;z-index:55;left:50%;top:50%;transform:translate(-50%,-50%);display:none;
  flex-direction:column;align-items:center;gap:6px;pointer-events:none;
  font-family:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
@@ -87,7 +99,8 @@ function build(){
   sheetEl.appendChild(card);
   document.body.appendChild(sheetEl);
 
-  ctrlEl=el('div','apk-ctrl');
+  if(opts.clockPos==='top')clockEl.classList.add('apk-top');
+  ctrlEl=el('div','apk-ctrl'+(opts.dock?' apk-dock':''));
   (opts.buttons||[]).forEach(b=>{
     const n=el('button','apk-btn',b.label);
     n.setAttribute('aria-label',b.name||'button');
@@ -107,21 +120,30 @@ function build(){
     bumpIdle();
   };
   ctrlEl.appendChild(ck);
-  const fs=el('button','apk-btn','⛶');fs.setAttribute('aria-label','fullscreen');
-  fs.onclick=toggleFullscreen;ctrlEl.appendChild(fs);
+  // No fullscreen button when the piece asks for none: the browser, OS and
+  // home-screen web app already have their own, and a second one gets in the way.
+  if(opts.fullscreenButton!==false){
+    const fs=el('button','apk-btn','⛶');fs.setAttribute('aria-label','fullscreen');
+    fs.onclick=toggleFullscreen;ctrlEl.appendChild(fs);
+  }
   document.body.appendChild(ctrlEl);
+  if(opts.autoHide)bumpIdle();
 
   addEventListener('pointerdown',bumpIdle,{passive:true});
 }
 
 // ---------- clock ----------
-const WEEK=['日','月','火','水','木','金','土'];
+const WEEK_JA=['日','月','火','水','木','金','土'];
+const WEEK_EN=['SUN','MON','TUE','WED','THU','FRI','SAT'];
 const pad=n=>String(n).padStart(2,'0');
 function tick(){
   if(!clockOn)return;
   const d=new Date();
   clockT.innerHTML=pad(d.getHours())+':'+pad(d.getMinutes())+'<i>:'+pad(d.getSeconds())+'</i>';
-  clockD.textContent=(d.getMonth()+1)+'月'+d.getDate()+'日 ('+WEEK[d.getDay()]+')';
+  // 'spec' is the house format: YYYY MM DD DDD, month as a number, never "SEP 11"
+  clockD.textContent = (opts.clockFormat==='spec')
+    ? d.getFullYear()+' '+pad(d.getMonth()+1)+' '+pad(d.getDate())+' '+WEEK_EN[d.getDay()]
+    : (d.getMonth()+1)+'月'+d.getDate()+'日 ('+WEEK_JA[d.getDay()]+')';
 }
 // re-sync to the second boundary each tick so the display never drifts
 function schedule(){tick();setTimeout(schedule,1000-(Date.now()%1000)+8)}
@@ -134,7 +156,8 @@ function releaseWake(){try{wakeLock&&wakeLock.release()}catch(_){}wakeLock=null}
 function showCtrl(){ctrlEl&&ctrlEl.classList.remove('apk-idle')}
 function bumpIdle(){
   showCtrl();clearTimeout(idleTimer);
-  if(clockOn)idleTimer=setTimeout(()=>ctrlEl.classList.add('apk-idle'),4000);
+  // while viewing there should be only the artwork (and the clock, if on)
+  if(clockOn||opts.autoHide)idleTimer=setTimeout(()=>ctrlEl.classList.add('apk-idle'),3500);
 }
 
 function toast(msg,ms){
