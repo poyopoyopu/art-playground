@@ -1,0 +1,615 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#020207"><meta name="color-scheme" content="dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Standing Law">
+<title>Art Playground — STANDING LAW</title>
+<!--
+  STANDING LAW (v30) — based on LIVING LAW
+  Base: ChatGPT. Revisions: Claude.
+  The change of principle in this revision: a touch no longer applies a force that
+  fades. It writes into a law texture that the shader reads every frame, so the
+  region you touched keeps obeying what you wrote there after you let go.
+-->
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;width:100%;height:100%;min-height:100%;overflow:hidden;background:#020207;color:#fff;
+ font-family:system-ui,-apple-system,sans-serif}
+body{height:100dvh;touch-action:none;overscroll-behavior:none}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+
+.controls{position:fixed;z-index:6;right:4vw;bottom:max(3.5vh,env(safe-area-inset-bottom));
+ display:flex;gap:8px;transition:opacity .6s}
+.controls.idle{opacity:0;pointer-events:none}
+.btn{width:40px;height:40px;border-radius:50%;border:1px solid #ffffff25;background:#05050bd9;color:#fff;
+ font-size:14px;box-shadow:0 4px 18px #0008;backdrop-filter:blur(10px)}
+.btn:active{transform:scale(.92)}
+.btn.act{border-color:#ffffff60;background:#ffffff1e}
+.label{position:fixed;z-index:4;left:50%;bottom:max(4vh,env(safe-area-inset-bottom));transform:translateX(-50%);
+ font-size:8px;letter-spacing:.42em;opacity:.28;pointer-events:none;white-space:nowrap;transition:opacity 1.2s}
+.label.hide{opacity:0}
+.flash{position:fixed;inset:0;z-index:3;background:#fff;opacity:0;pointer-events:none;mix-blend-mode:screen;
+ transition:opacity .08s}
+
+/* clock — same spec as v27: centred, seconds held back, tabular figures, heavy
+   shadow so it survives the brightest part of the field */
+.clock{position:fixed;z-index:5;left:50%;top:50%;transform:translate(-50%,-50%);display:none;
+ flex-direction:column;align-items:center;gap:6px;
+ font-family:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
+ font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;
+ pointer-events:none;user-select:none;-webkit-user-select:none}
+.clock.on{display:flex}
+.clock .t{font-size:clamp(44px,16.5vw,132px);line-height:1;font-weight:600;letter-spacing:.01em;color:#fff;
+ text-shadow:0 0 3px rgba(0,0,0,.95),0 0 14px rgba(0,0,0,.9),0 4px 34px rgba(0,0,0,.85)}
+.clock .t i{font-style:normal;opacity:.62}
+.clock .d{font-size:clamp(11px,3.3vw,17px);letter-spacing:.3em;opacity:.62;
+ text-shadow:0 0 3px rgba(0,0,0,.95),0 2px 16px rgba(0,0,0,.9)}
+
+.toast{position:fixed;z-index:7;left:50%;bottom:calc(max(3.5vh,env(safe-area-inset-bottom)) + 52px);
+ transform:translateX(-50%);max-width:78vw;padding:11px 18px;border-radius:14px;background:#0a0a16d8;
+ border:1px solid #ffffff1f;backdrop-filter:blur(10px);font-size:12px;line-height:1.6;text-align:center;
+ opacity:0;transition:opacity .35s;pointer-events:none}
+.toast.on{opacity:1}
+
+.sheet{position:fixed;inset:0;z-index:20;display:none;align-items:center;justify-content:center;
+ background:#000b;backdrop-filter:blur(18px)}
+.sheet.on{display:flex}
+.card{width:min(88vw,360px);padding:22px;border:1px solid #ffffff20;border-radius:20px;background:#080812ee;
+ text-align:center;box-shadow:0 20px 80px #000}
+.card h2{margin:0 0 8px;font-size:13px;letter-spacing:.2em}
+.card p{margin:0;font-size:11px;line-height:1.7;opacity:.6}
+.card img{max-width:100%;max-height:42vh;margin-top:14px;border-radius:12px;border:1px solid #ffffff1a}
+.bar{height:3px;margin:16px 0;background:#ffffff12;border-radius:4px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,#7ad9ff,#ff7ad9);transition:width .12s}
+.acts{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:14px}
+.acts button,.acts a{padding:9px 18px;border:1px solid #ffffff25;border-radius:20px;background:none;color:#fff;
+ font-size:10px;letter-spacing:.16em;text-decoration:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="flash" id="flash"></div>
+
+<div class="clock" id="clock">
+  <div class="t" id="clockTime">00:00<i>:00</i></div>
+  <div class="d" id="clockDate"></div>
+</div>
+
+<div class="label" id="label">TOUCH THE LAW · HOLD TO WRITE IT</div>
+
+<div class="controls" id="controls">
+  <button class="btn" id="mutate" aria-label="mutate">✦</button>
+  <button class="btn" id="wipe" aria-label="wipe law">↻</button>
+  <button class="btn" id="gif" aria-label="export gif">◉</button>
+  <button class="btn" id="clockBtn" aria-label="clock">🕐</button>
+  <button class="btn" id="fsBtn" aria-label="fullscreen">⛶</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div class="sheet" id="sheet"><div class="card">
+  <h2 id="sheetTitle">EXPORT LOOP</h2>
+  <p id="sheetMsg"></p>
+  <div class="bar" id="barWrap"><i id="bar"></i></div>
+  <div class="acts" id="acts"></div>
+</div></div>
+
+<script>
+const c=document.getElementById('c');
+const gl=c.getContext('webgl2',{antialias:false,alpha:false,preserveDrawingBuffer:true});
+if(!gl){document.body.innerHTML='<div style="padding:30px">WebGL2対応ブラウザが必要です。</div>';throw Error('WebGL2')}
+
+const VS=`#version 300 es
+precision highp float;in vec2 a;out vec2 uv;void main(){uv=a*.5+.5;gl_Position=vec4(a,0.,1.);}`;
+
+/* ---------------------------------------------------------------------------
+   LAW SHADER
+   A small persistent texture holding, per place on screen, what the rules are:
+     R  extra symmetry written here
+     G  standing twist (0.5 = none, away from 0.5 = turned one way or the other)
+     B  extra density / colour shift
+   A finger adds to it. Nothing else erases it. It bleeds into its neighbours
+   extremely slowly, so borders soften but the region itself stays for minutes.
+   --------------------------------------------------------------------------- */
+const LAW_FS=`#version 300 es
+precision highp float;
+out vec4 o;in vec2 uv;
+uniform sampler2D prevLaw;
+uniform vec2 lawRes;
+uniform float aspect,dtn,wipe;
+uniform int touchCount;
+uniform vec4 touch[5];
+void main(){
+  vec4 L=texture(prevLaw,uv);
+  vec2 px=1.0/lawRes;
+  vec4 n=(texture(prevLaw,uv+vec2(px.x,0.))+texture(prevLaw,uv-vec2(px.x,0.))
+         +texture(prevLaw,uv+vec2(0.,px.y))+texture(prevLaw,uv-vec2(0.,px.y)))*.25;
+  // Bleed into the neighbours, and fade toward neutral — both deliberately
+  // slow. Measured at 60fps: ~96% of what you wrote is still there after a
+  // minute, ~84% after five. Borders soften; the region itself stays.
+  L=mix(L,n,clamp(.0025*dtn,0.,1.));
+  vec4 neutral=vec4(0.,.5,0.,1.);
+  L=mix(L,neutral,clamp(.00001*dtn,0.,1.));
+  for(int i=0;i<5;i++){
+    if(i<touchCount){
+      vec2 d=uv-touch[i].xy; d.x*=aspect;
+      float w=exp(-dot(d,d)/(touch[i].z*touch[i].z+1e-5));
+      L.r+=w*dtn*.0075;
+      L.g+=w*dtn*.0090*touch[i].w;
+      L.b+=w*dtn*.0060;
+    }
+  }
+  L=mix(L,neutral,wipe);
+  o=vec4(clamp(L.r,0.,1.),clamp(L.g,0.,1.),clamp(L.b,0.,1.),1.);
+}`;
+
+const MAIN_FS=`#version 300 es
+precision highp float;
+out vec4 o;in vec2 uv;
+uniform vec2 res;
+uniform float time,seed,law,energy,chaos;
+uniform float loopMode,phase,loopDur,maxR;
+uniform int touchCount;
+uniform vec4 touch[5];
+uniform sampler2D prev;
+uniform sampler2D lawTex;
+#define PI 3.14159265359
+
+/* Every animated phase goes through this. Live, it is just time*k. While
+   exporting, k becomes a whole number of turns per loop so the last frame
+   lands exactly on the first. The original cycles here run for 9-23 seconds
+   each, so at a 3-second loop every one of them would round down to zero and
+   the GIF would come out a still image — hence the floor of one. Each term
+   then completes exactly one cycle per loop, in step with the others. */
+float T(float k){
+  float cycles=max(1.0,floor(k*loopDur/6.2831853+0.5));
+  return mix(time*k,cycles*phase,loopMode);
+}
+
+float hash21(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
+float n2(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
+  return mix(mix(hash21(i),hash21(i+vec2(1,0)),f.x),mix(hash21(i+vec2(0,1)),hash21(i+1.),f.x),f.y);}
+mat2 rot(float a){float s=sin(a),c=cos(a);return mat2(c,-s,s,c);}
+
+/* Wider palette than the original. The old version fed a narrow range into a
+   single cosine, which is why everything came out blue-green whatever you did;
+   hue now also travels with radius and with the local law. */
+vec3 pal(float t){return .5+.5*cos(6.28318*(vec3(.00,.33,.67)+t*vec3(1.0,1.0,1.0)));}
+
+vec2 foldHex(vec2 p,float L){
+  for(int i=0;i<4;i++){p=abs(p);if(p.x<p.y)p=p.yx;p.x-=.5;p*=rot(.5235987756+L*.09);}
+  return p;
+}
+float lawField(vec2 p,float L,float lsym,float lden){
+  float ang=atan(p.y,p.x),r=length(p);
+  float rings=8.+floor(L*5.)+floor(lden*6.);
+  float sectors=6.+floor(L*7.)+floor(lsym*8.);
+  float a=ang/PI*sectors*.5+sin(r*9.-T(.7)+L)*.22;
+  float radial=sin(r*rings*PI-T(.55)+sin(ang*3.+L)*1.5);
+  float spokes=sin(a*PI+sin(r*5.-T(.4))*.8);
+  vec2 h=foldHex(p*(1.1+L*.16+lden*.5),L);
+  float lattice=sin((h.x+h.y)*12.-T(.35))*sin((h.x-h.y)*9.+T(.27));
+  return radial*.36+spokes*.28+lattice*.22;
+}
+void main(){
+  vec2 p=(gl_FragCoord.xy-.5*res)/min(res.x,res.y);
+  float t=T(.33);
+  float L=law;
+
+  vec4 LW=texture(lawTex,uv);
+  float lsym=LW.r;
+  float ltwist=(LW.g-.5)*2.;
+  float lden=LW.b;
+
+  vec2 q=p;
+  // the standing twist written into this place, applied before anything else
+  q=rot(ltwist*2.3)*q;
+  for(int k=0;k<3;k++){
+    float s=1.45+float(k)*.62+L*.06+lden*.35;
+    q=rot(sin(T(.0594)+float(k)*1.7)*(.18+chaos*.14))*q;
+    q=foldHex(q*s,L);
+    q*=1.0/(1.0+length(q)*.12);
+  }
+
+  // a live finger still pushes, on top of what it is writing
+  float touchEnergy=0.;
+  for(int i=0;i<5;i++){
+    if(i<touchCount){
+      vec2 tp=(touch[i].xy-.5*res)/min(res.x,res.y);
+      float d=length(p-tp);
+      float w=exp(-d*d/(touch[i].z*touch[i].z+.0001));
+      touchEnergy+=w;
+      q=rot(w*(1.1+L*.5)*touch[i].w)*q;
+      q+=(tp-p)*w*(.18+.28*energy);
+    }
+  }
+
+  float f=lawField(q+vec2(sin(q.y*4.+t),cos(q.x*4.-t))*.025*(1.+chaos),L,lsym,lden);
+  float detail=n2(q*7.+f*2.)*.24+n2(q*17.-f*3.)*.12;
+  float bands=sin((f+detail)*10.+L*1.7+t)+.45*sin((f+detail)*23.-T(.561));
+
+  float hue=.10+f*.46+bands*.10+L*.035+length(p)*.30+lsym*.42+lden*.22;
+  vec3 col=pal(hue);
+  float glow=.55+.45*sin(f*8.+t);
+  col*=.72+.48*glow;
+  col+=pal(hue+.35)*touchEnergy*.35;
+
+  float seam=abs(sin((q.x+q.y)*18.+f*4.)*sin((q.x-q.y)*15.-f*3.));
+  seam=pow(seam,18.);
+  col+=(.4+.6*pal(hue+.5))*seam*.30;
+
+  vec3 old=texture(prev,uv).rgb;
+  col=mix(col,old,.055+.045*(1.-chaos));
+  /* The mask used to be a disc of radius 0.9, but |p| reaches 1.08 at the top
+     of a portrait phone and 1.19 in the corners, so the pattern was cut off
+     into an oval with black above and below. Measuring against the actual
+     corner distance lets it fill the screen, with only a light vignette left. */
+  float d=length(p)/maxR;
+  float vign=1.-smoothstep(.58,1.16,d);
+  col*=.82+.18*vign;
+  o=vec4(pow(max(col,0.),vec3(.88)),1.);
+}`;
+
+function compile(type,src){
+  const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(s));
+  return s;
+}
+function link(fsSrc){
+  const p=gl.createProgram();
+  gl.attachShader(p,compile(gl.VERTEX_SHADER,VS));
+  gl.attachShader(p,compile(gl.FRAGMENT_SHADER,fsSrc));
+  gl.bindAttribLocation(p,0,'a');
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(p));
+  return p;
+}
+const prog=link(MAIN_FS), lawProg=link(LAW_FS);
+
+const quad=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,quad);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+function bindQuad(){gl.bindBuffer(gl.ARRAY_BUFFER,quad);gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);}
+
+const U={};
+['res','time','seed','law','energy','chaos','loopMode','phase','loopDur','maxR','touchCount','prev','lawTex']
+ .forEach(k=>U[k]=gl.getUniformLocation(prog,k));
+const UT=[];for(let i=0;i<5;i++)UT.push(gl.getUniformLocation(prog,'touch['+i+']'));
+const LU={};
+['prevLaw','lawRes','aspect','dtn','wipe','touchCount'].forEach(k=>LU[k]=gl.getUniformLocation(lawProg,k));
+const LUT=[];for(let i=0;i<5;i++)LUT.push(gl.getUniformLocation(lawProg,'touch['+i+']'));
+
+let W=1,H=1,dpr=1,A=null,B=null;
+let law=3.8,targetLaw=3.8,energy=.35,chaos=.58,seed=Math.random()*1000;
+let last=performance.now(),lastMutate=performance.now(),exporting=false,wipeFlag=0;
+const fingers=new Map();
+
+const LAWRES=160;
+let lawA=null,lawB=null;
+
+function tex(w,h){
+  const x=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,x);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+  return x;
+}
+const fbo=gl.createFramebuffer();
+function bindTarget(t,w,h){
+  gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,t,0);
+  gl.viewport(0,0,w,h);
+}
+function clearTo(t,w,h,r,g,b){
+  bindTarget(t,w,h);gl.clearColor(r,g,b,1);gl.clear(gl.COLOR_BUFFER_BIT);
+}
+
+function initLaw(){
+  if(lawA)gl.deleteTexture(lawA);
+  if(lawB)gl.deleteTexture(lawB);
+  lawA=tex(LAWRES,LAWRES);lawB=tex(LAWRES,LAWRES);
+  clearTo(lawA,LAWRES,LAWRES,0,.5,0);
+  clearTo(lawB,LAWRES,LAWRES,0,.5,0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+}
+initLaw();
+
+function resize(){
+  const r=c.getBoundingClientRect();
+  const vw=Math.max(1,Math.round(r.width)),vh=Math.max(1,Math.round(r.height));
+  dpr=Math.min(devicePixelRatio||1,1.65);
+  const nw=Math.max(1,Math.floor(vw*dpr)),nh=Math.max(1,Math.floor(vh*dpr));
+  if(nw===W&&nh===H&&A)return;
+  W=nw;H=nh;c.width=W;c.height=H;
+  if(A)gl.deleteTexture(A);
+  if(B)gl.deleteTexture(B);
+  A=tex(W,H);B=tex(W,H);
+  clearTo(A,W,H,.005,.003,.012);clearTo(B,W,H,.005,.003,.012);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.viewport(0,0,W,H);
+}
+let rq=0;
+function queue(){if(rq)return;rq=1;requestAnimationFrame(()=>{rq=0;resize()})}
+new ResizeObserver(queue).observe(c);
+addEventListener('resize',queue,{passive:true});
+addEventListener('orientationchange',()=>setTimeout(queue,120),{passive:true});
+if(window.visualViewport)visualViewport.addEventListener('resize',queue,{passive:true});
+resize();
+
+function swap(){const x=A;A=B;B=x}
+function swapLaw(){const x=lawA;lawA=lawB;lawB=x}
+
+function mutate(power){
+  power=power||1;
+  seed=Math.random()*1000;
+  targetLaw=1.5+Math.random()*9.5;
+  chaos=Math.max(.18,Math.min(1,chaos+(Math.random()-.35)*.38*power));
+  energy=Math.min(1,energy+.55*power);
+  const f=document.getElementById('flash');
+  f.style.opacity=.09;setTimeout(()=>f.style.opacity=0,90);
+}
+
+// ---- law pass: paint what the fingers are writing, then keep it ----
+function stepLaw(dtn){
+  gl.useProgram(lawProg);bindQuad();
+  bindTarget(lawB,LAWRES,LAWRES);
+  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,lawA);
+  gl.uniform1i(LU.prevLaw,0);
+  gl.uniform2f(LU.lawRes,LAWRES,LAWRES);
+  gl.uniform1f(LU.aspect,W/H);
+  gl.uniform1f(LU.dtn,dtn);
+  gl.uniform1f(LU.wipe,wipeFlag);
+  const n=Math.min(5,fingers.size);
+  gl.uniform1i(LU.touchCount,n);
+  let i=0;
+  for(const p of fingers.values()){
+    if(i>=5)break;
+    gl.uniform4f(LUT[i],p.x*dpr/W,1.0-p.y*dpr/H,p.r*dpr/Math.min(W,H),p.spin);
+    i++;
+  }
+  for(;i<5;i++)gl.uniform4f(LUT[i],0,0,0,0);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  swapLaw();
+  wipeFlag=0;
+}
+
+function setUniforms(nowSec,loopModeV,phaseV){
+  gl.useProgram(prog);bindQuad();
+  gl.uniform2f(U.res,W,H);
+  gl.uniform1f(U.time,nowSec);
+  gl.uniform1f(U.seed,seed);
+  gl.uniform1f(U.law,law);
+  gl.uniform1f(U.energy,energy);
+  gl.uniform1f(U.chaos,chaos);
+  gl.uniform1f(U.loopMode,loopModeV);
+  gl.uniform1f(U.phase,phaseV);
+  gl.uniform1f(U.loopDur,LOOP_DUR);
+  gl.uniform1f(U.maxR,Math.hypot(W*.5,H*.5)/Math.min(W,H));
+  gl.uniform1i(U.prev,0);
+  gl.uniform1i(U.lawTex,1);
+  const n=Math.min(5,fingers.size);
+  gl.uniform1i(U.touchCount,n);
+  let i=0;
+  for(const p of fingers.values()){
+    if(i>=5)break;
+    gl.uniform4f(UT[i],p.x*dpr,H-p.y*dpr,p.r*dpr,p.spin);
+    i++;
+  }
+  for(;i<5;i++)gl.uniform4f(UT[i],0,0,0,0);
+}
+function drawMain(){
+  bindTarget(B,W,H);
+  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,A);
+  gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,lawA);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.viewport(0,0,W,H);
+  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,B);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  swap();
+}
+
+const LOOP_DUR=3.0;
+function frame(now){
+  if(exporting){requestAnimationFrame(frame);return}
+  const dt=Math.min(.04,(now-last)/1000);last=now;
+  energy*=Math.pow(.25,dt);
+  law+=(targetLaw-law)*Math.min(1,dt*.7);
+  // the original rolled a 2.5% die every 6.2s, so the world re-invented itself
+  // roughly once every four minutes; this makes it a real event on a real clock
+  if(now-lastMutate>26000){if(Math.random()<.5)mutate(.45);lastMutate=now;}
+  stepLaw(dt*60);
+  setUniforms(now*.001,0,0);
+  drawMain();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+// ---------- input ----------
+function pos(e){const r=c.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top}}
+c.addEventListener('pointerdown',e=>{
+  e.preventDefault();
+  try{c.setPointerCapture(e.pointerId)}catch(_){}
+  const p=pos(e);
+  fingers.set(e.pointerId,{x:p.x,y:p.y,r:Math.min(innerWidth,innerHeight)*.13,spin:e.shiftKey?-1:1});
+  energy=Math.min(1,energy+.3);
+  if(fingers.size===2){targetLaw+=1.7;chaos=Math.min(1,chaos+.2)}
+  document.getElementById('label').classList.add('hide');
+  bumpIdle();
+},{passive:false});
+c.addEventListener('pointermove',e=>{
+  const q=fingers.get(e.pointerId);if(!q)return;
+  const p=pos(e),dx=p.x-q.x,dy=p.y-q.y;
+  q.x=p.x;q.y=p.y;
+  q.r=Math.max(20,Math.min(Math.min(innerWidth,innerHeight)*.3,Math.hypot(dx,dy)*3+18));
+  q.spin=Math.max(-1.4,Math.min(1.4,(dx-dy)/Math.min(innerWidth,innerHeight)*9));
+  energy=Math.min(1,energy+.024);
+  targetLaw=Math.max(1,Math.min(12,targetLaw+(dx+dy)/Math.min(innerWidth,innerHeight)*.018));
+  if(fingers.size>1)chaos=Math.min(1,chaos+.008);
+},{passive:true});
+function up(e){fingers.delete(e.pointerId);if(!fingers.size)energy*=.45}
+c.addEventListener('pointerup',up);
+c.addEventListener('pointercancel',up);
+c.addEventListener('contextmenu',e=>e.preventDefault());
+
+// ---------- clock / fullscreen (v27 spec) ----------
+const clockEl=document.getElementById('clock'),clockTime=document.getElementById('clockTime'),
+      clockDate=document.getElementById('clockDate'),toastEl=document.getElementById('toast'),
+      ctrlEl=document.getElementById('controls');
+let clockOn=false,wakeLock=null,toastTimer=null,idleTimer=null;
+function toast(msg,ms){clearTimeout(toastTimer);toastEl.textContent=msg;toastEl.classList.add('on');
+  toastTimer=setTimeout(()=>toastEl.classList.remove('on'),ms||3600)}
+const WEEK=['日','月','火','水','木','金','土'],pad2=n=>String(n).padStart(2,'0');
+function tickClock(){
+  if(!clockOn)return;
+  const d=new Date();
+  clockTime.innerHTML=pad2(d.getHours())+':'+pad2(d.getMinutes())+'<i>:'+pad2(d.getSeconds())+'</i>';
+  clockDate.textContent=(d.getMonth()+1)+'月'+d.getDate()+'日 ('+WEEK[d.getDay()]+')';
+}
+// re-sync to the second boundary so the display never drifts
+function scheduleTick(){tickClock();setTimeout(scheduleTick,1000-(Date.now()%1000)+8)}
+scheduleTick();
+async function requestWake(){try{if('wakeLock' in navigator)wakeLock=await navigator.wakeLock.request('screen')}catch(_){}}
+function releaseWake(){try{wakeLock&&wakeLock.release()}catch(_){}wakeLock=null}
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='visible'&&clockOn&&!wakeLock)requestWake();});
+function showCtrl(){ctrlEl.classList.remove('idle')}
+function bumpIdle(){showCtrl();clearTimeout(idleTimer);
+  if(clockOn)idleTimer=setTimeout(()=>ctrlEl.classList.add('idle'),4000)}
+addEventListener('pointerdown',bumpIdle,{passive:true});
+
+document.getElementById('clockBtn').onclick=function(){
+  clockOn=!clockOn;clockEl.classList.toggle('on',clockOn);
+  this.classList.toggle('act',clockOn);
+  if(clockOn){tickClock();requestWake()}else{releaseWake();showCtrl()}
+  bumpIdle();
+};
+document.getElementById('mutate').onclick=()=>mutate(1);
+document.getElementById('wipe').onclick=()=>{wipeFlag=1;toast('書き込まれた法則を消しました')};
+
+const docEl=document.documentElement;
+function fsElement(){return document.fullscreenElement||document.webkitFullscreenElement}
+function fsSupported(){return !!(docEl.requestFullscreen||docEl.webkitRequestFullscreen)}
+document.getElementById('fsBtn').onclick=async()=>{
+  if(!fsSupported()){
+    if(window.navigator.standalone)toast('すでにフルスクリーンで動いています');
+    else toast('iPhoneのSafariは全画面表示に対応していません。共有ボタン → 「ホーム画面に追加」で開くと、フチなしの全画面で使えます',7000);
+    return;
+  }
+  try{
+    if(fsElement())(document.exitFullscreen||document.webkitExitFullscreen).call(document);
+    else await (docEl.requestFullscreen||docEl.webkitRequestFullscreen).call(docEl);
+  }catch(_){toast('全画面表示に切り替えられませんでした')}
+};
+['fullscreenchange','webkitfullscreenchange'].forEach(ev=>
+  addEventListener(ev,()=>setTimeout(queue,120)));
+setTimeout(()=>document.getElementById('label').classList.add('hide'),9000);
+
+// ---------- GIF ----------
+const GIF_JS='https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js';
+const GIF_WORKER='https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js';
+let workerURL=null;
+function loadScript(src){return new Promise((ok,no)=>{
+  const s=document.createElement('script');s.src=src;s.onload=()=>ok();s.onerror=()=>no(Error('x'));
+  document.head.appendChild(s)})}
+async function prep(){
+  if(!window.GIF)await loadScript(GIF_JS);
+  if(!workerURL){const r=await fetch(GIF_WORKER);if(!r.ok)throw Error('worker');
+    workerURL=URL.createObjectURL(await r.blob())}
+}
+const sheet=document.getElementById('sheet'),sTitle=document.getElementById('sheetTitle'),
+      sMsg=document.getElementById('sheetMsg'),bar=document.getElementById('bar'),
+      barWrap=document.getElementById('barWrap'),acts=document.getElementById('acts');
+function addAct(label,fn){const b=document.createElement('button');b.textContent=label;b.onclick=fn;
+  acts.appendChild(b);return b}
+// GIF delays are whole multiples of 10ms — 30fps silently became 33ms→30ms and
+// played 10% fast. These three are the rates GIF can actually hold.
+const PRESETS=[
+  {name:'SMOOTH',fps:25,delay:40,side:420},
+  {name:'BALANCED',fps:20,delay:50,side:460},
+  {name:'LIGHT',fps:12.5,delay:80,side:480}
+];
+function askPreset(){return new Promise(res=>{
+  sheet.classList.add('on');sTitle.textContent='EXPORT LOOP';
+  sMsg.textContent='なめらかさを選んでください';
+  barWrap.style.display='none';acts.innerHTML='';
+  PRESETS.forEach(p=>addAct(p.name+' · '+p.fps+'fps',()=>{barWrap.style.display='';res(p)}));
+  addAct('キャンセル',()=>{barWrap.style.display='';res(null)});
+})}
+
+async function exportGif(){
+  if(exporting)return;
+  const preset=await askPreset();
+  if(!preset){sheet.classList.remove('on');return}
+  exporting=true;
+  sTitle.textContent='RENDERING LOOP';
+  sMsg.textContent='いま書き込まれている法則のまま、3秒のループを描き出しています…';
+  bar.style.width='0%';acts.innerHTML='';
+  const savedLaw=law,savedEnergy=energy;
+  try{
+    await prep();
+    energy=0;                                   // no finger during capture
+    const side=Math.min(preset.side,Math.round(Math.min(innerWidth,innerHeight)));
+    const FRAMES=Math.round(LOOP_DUR*preset.fps);
+    const ec=document.createElement('canvas');ec.width=ec.height=side;
+    const eg=ec.getContext('2d',{alpha:false});
+    const gif=new GIF({workers:2,quality:8,dither:false,width:side,height:side,
+      workerScript:workerURL,repeat:0});
+    const crop=Math.min(c.width,c.height),sx=(c.width-crop)/2,sy=(c.height-crop)/2;
+
+    // the feedback buffer carries history, so run the loop twice before
+    // recording; by then each frame is identical to the same frame last time
+    const PRE=FRAMES*2;
+    for(let i=0;i<PRE;i++){
+      setUniforms(0,1,(i%FRAMES)/FRAMES*6.2831853);
+      drawMain();
+      if(i%6===0){bar.style.width=(i/PRE*26)+'%';await new Promise(r=>setTimeout(r,0))}
+    }
+    for(let i=0;i<FRAMES;i++){
+      setUniforms(0,1,i/FRAMES*6.2831853);
+      drawMain();
+      eg.drawImage(c,sx,sy,crop,crop,0,0,side,side);
+      gif.addFrame(eg,{copy:true,delay:preset.delay});
+      bar.style.width=(26+i/FRAMES*24)+'%';
+      await new Promise(r=>setTimeout(r,0));
+    }
+    sMsg.textContent='GIFにエンコード中…';
+    const blob=await new Promise((ok,no)=>{
+      gif.on('progress',p=>bar.style.width=(50+p*50)+'%');
+      gif.on('finished',ok);
+      gif.on('abort',()=>no(Error('abort')));
+      gif.render();
+    });
+    const url=URL.createObjectURL(blob),mb=(blob.size/1048576).toFixed(1);
+    const overWeb=blob.size>15*1048576,overApp=blob.size>5*1048576;
+    sTitle.textContent='LOOP READY';
+    sMsg.textContent=side+'×'+side+' · '+preset.fps+'fps · '+FRAMES+'コマ · '+mb+'MB'
+      +(overWeb?' — Xの上限15MB超え。LIGHTで撮り直しを'
+       :overApp?' — 5MB超えなのでSafariのx.comから投稿を'
+       :' — Xアプリからそのまま投稿できます');
+    bar.style.width='100%';
+    const img=new Image();img.src=url;
+    document.querySelector('.card').insertBefore(img,barWrap);
+    acts.innerHTML='';
+    const a=document.createElement('a');
+    a.href=url;a.download='standing-law-loop.gif';a.textContent='ダウンロード';
+    acts.appendChild(a);
+    addAct('閉じる',()=>{img.remove();URL.revokeObjectURL(url);sheet.classList.remove('on')});
+  }catch(e){
+    console.error(e);
+    sTitle.textContent='EXPORT FAILED';
+    sMsg.textContent='GIFの生成に失敗しました。通信環境を確認して再試行してください。';
+    acts.innerHTML='';addAct('閉じる',()=>sheet.classList.remove('on'));
+  }finally{
+    law=savedLaw;energy=savedEnergy;exporting=false;last=performance.now();
+  }
+}
+document.getElementById('gif').onclick=exportGif;
+</script>
+</body></html>
