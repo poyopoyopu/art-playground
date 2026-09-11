@@ -71,9 +71,19 @@ function makeVoid(x,y,repulse,force){
     born:millis(),
     fade:1
   });
-  // the field keeps its history, but not without limit: the oldest law
-  // dissolves gradually rather than blinking out
-  while(voids.length>MAX_VOIDS) voids[voids.length-MAX_VOIDS-1].dissolving=true;
+  /* The field keeps its history, but not without limit: the oldest law
+     dissolves gradually rather than blinking out.
+     This was a `while (voids.length > MAX_VOIDS)` that only set a flag — the
+     length never changed, so the nineteenth void locked the browser in an
+     endless loop. Marking is now a bounded pass, and there is a hard ceiling
+     so a fast drag can never outrun the dissolving. */
+  let active=0;
+  for(let i=voids.length-1;i>=0;i--) if(!voids[i].dissolving) active++;
+  for(let i=0;i<voids.length && active>MAX_VOIDS;i++){
+    if(!voids[i].dissolving){ voids[i].dissolving=true; active--; }
+  }
+  const HARD=MAX_VOIDS*2;
+  if(voids.length>HARD) voids.splice(0,voids.length-HARD);
 }
 
 function draw(){
@@ -83,7 +93,10 @@ function draw(){
 
   for(let i=voids.length-1;i>=0;i--){
     const v=voids[i];
-    if(v.dissolving){ v.fade-=.006; if(v.fade<=0){ voids.splice(i,1); continue; } }
+    if(v.dissolving){
+      v.fade -= .006*(1+voids.length/MAX_VOIDS);
+      if(v.fade<=0){ voids.splice(i,1); continue; }
+    }
   }
 
   const nv=voids.length;
@@ -203,7 +216,7 @@ function draw(){
   // hold to write an attractor: it deepens while the finger stays down
   if(holding && millis()-downAt>260){
     const age=(millis()-downAt-260)/1000;
-    if(frameCount%4===0) makeVoid(downX+random(-6,6),downY+random(-6,6),false,.35+Math.min(1.4,age));
+    if(frameCount%9===0) makeVoid(downX+random(-6,6),downY+random(-6,6),false,.35+Math.min(1.4,age));
   }
 
   frameCost+=performance.now()-t0; costSamples++;
@@ -241,7 +254,7 @@ function pointerDown(x,y){
 }
 function pointerMove(x,y){
   downX=x; downY=y;
-  if(millis()-downAt>120 && frameCount%3===0) makeVoid(x,y,true,.4);
+  if(millis()-downAt>120 && frameCount%7===0) makeVoid(x,y,true,.4);
 }
 function pointerUp(){ holding=null; }
 
