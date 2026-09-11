@@ -66,19 +66,8 @@ function makeVoid(x,y,repulse,force){
     x:x, y:y,
     r:16+random(10,26)*force,
     str:1.35+force*.9,
-    spin:(Math.random()<.5?-1:1)*(2.4+Math.random()*1.8),
+    spin:(Math.random()<.5?-1:1)*(1.5+Math.random()*1.4),
     repulse:repulse,
-    // The reach is modulated by angle, so the hole it clears is lobed and
-    // organic rather than a circle stamped on the field.
-    lobes:2+Math.floor(Math.random()*4),
-    lobe:.18+Math.random()*.34,
-    lphase:Math.random()*TWO_PI,
-    /* A written law is not a pinned dot: it wanders slowly and its lobes turn,
-       so the holes keep changing shape and the ribbons around them are never
-       quite the same twice. */
-    lrot:(Math.random()-.5)*.010,
-    dx:(Math.random()-.5)*.22,
-    dy:(Math.random()-.5)*.22,
     born:millis(),
     fade:1
   });
@@ -99,18 +88,11 @@ function makeVoid(x,y,repulse,force){
 
 function draw(){
   const t0=performance.now();
-  background(0,26);
+  background(0,20);
   const t=frameCount*.012;
 
   for(let i=voids.length-1;i>=0;i--){
     const v=voids[i];
-    v.lphase+=v.lrot;
-    v.x+=v.dx; v.y+=v.dy;
-    const pad=v.r*0.6;
-    if(v.x<pad||v.x>width-pad) v.dx=-v.dx;
-    if(v.y<pad||v.y>height-pad) v.dy=-v.dy;
-    v.x=Math.max(pad,Math.min(width-pad,v.x));
-    v.y=Math.max(pad,Math.min(height-pad,v.y));
     if(v.dissolving){
       v.fade -= .006*(1+voids.length/MAX_VOIDS);
       if(v.fade<=0){ voids.splice(i,1); continue; }
@@ -134,12 +116,9 @@ function draw(){
     for(let vi=0;vi<nv;vi++){
       const v=voids[vi];
       const dx=p.x-v.x, dy=p.y-v.y;
-      const Rmax=v.r*3.2*(1+v.lobe);
-      if(dx>Rmax||dx<-Rmax||dy>Rmax||dy<-Rmax) continue;
+      const R=v.r*3.2;
+      if(dx>R||dx<-R||dy>R||dy<-R) continue;
       const d=Math.sqrt(dx*dx+dy*dy)+.001;
-      if(d>=Rmax) continue;
-      const th=Math.atan2(dy,dx);
-      const R=v.r*3.2*(1+v.lobe*Math.sin(v.lobes*th+v.lphase));
       if(d>=R) continue;
       const q=(1-d/R)*(1-d/R)*v.fade;
       const s=v.repulse?1:-1;
@@ -154,9 +133,9 @@ function draw(){
 
     // Home is only a memory: where a law is strong it wins, and the field
     // recovers on its own where nothing has been written.
-    const slack=1/(1+inf*6.0);
-    ax += (p.ox-p.x)*.0011*slack;
-    ay += (p.oy-p.y)*.0011*slack;
+    const slack=1/(1+inf*3.5);
+    ax += (p.ox-p.x)*.0016*slack;
+    ay += (p.oy-p.y)*.0016*slack;
 
     for(let wi=0;wi<waves.length;wi++){
       const w=waves[wi];
@@ -168,8 +147,8 @@ function draw(){
       }
     }
 
-    p.vx=(p.vx+ax)*.945;
-    p.vy=(p.vy+ay)*.945;
+    p.vx=(p.vx+ax)*.91;
+    p.vy=(p.vy+ay)*.91;
     p.x+=p.vx;
     p.y+=p.vy;
 
@@ -199,42 +178,27 @@ function draw(){
       rr*.012 + Math.sin(ang*2+t)*2.0 - t*.7 + p.ph
     )),8);
     const ripple=.5+.5*Math.sin(rr*.035-t*4+p.ph*2);
-    const intensity=Math.min(1, .09 + structure*.85 + ripple*.18 + Math.min(1,speed*.55)*.55 + seam*1.15);
+    const intensity=Math.min(1, structure*.85 + ripple*.16 + Math.min(1,speed*.5)*.5 + seam*1.1);
 
-    /* Colour follows the direction the particle is travelling, so a ridge
-       sweeps through the whole spectrum as it curves — that is what gives the
-       streams their rainbow banding, rather than two flat territory colours.
-       Which law owns the ground still tints it, but only as an offset. */
-    const flow=Math.atan2(p.vy,p.vx);
-    let hue = flow*57.2958 + rr*.34 + t*26 + net*46 + p.ph*9;
-    let sat = .92 - .28*seam;
-    let val = .46 + .54*intensity + seam*.4;
-
-    const col=hsv(hue,Math.max(0,sat),Math.min(1,val));
-    const alpha = 26 + 229*intensity;
-
-    /* Two glyphs. Most points are small squares on the lattice, so the
-       untouched field still reads as a grid of dots; the brightest ones become
-       rings, which is what gives the dense ridges their beaded texture. */
-    // Rings are the expensive glyph — a stroked path costs several times a
-    // filled rect — so they are reserved for the brightest tenth of the field,
-    // which is exactly where the beaded ridges are.
-    if(intensity>.66){
-      const R=1.5+intensity*3.4+seam*2.4;
-      noFill();
-      stroke(col[0],col[1],col[2],alpha);
-      strokeWeight(1.15+seam*1.1);
-      circle(p.x,p.y,R*2);
-      noStroke();
-      if(intensity>.88){
-        fill(255,255,255,alpha*.5);
-        rect(p.x-.7,p.y-.7,1.4,1.4);
-      }
+    /* Colour comes from which law owns this place, not from the particle.
+       Repelled ground runs warm, attracted ground runs cold, and the seam
+       between them burns pale — so the territories read at a glance. */
+    let hue;
+    if(inf>.03){
+      const side=net/Math.max(inf,.0001);      // +1 pushed, -1 pulled
+      hue = 205 - side*168;                     // cold -> warm
+      hue += spinSum/Math.max(inf,.0001)*7;
     }else{
-      const size=1.0+intensity*2.6+seam*2.2;
-      fill(col[0],col[1],col[2],alpha);
-      rect(p.x-size/2,p.y-size/2,size,size);
+      hue = 212 + Math.sin(rr*.01+p.ph)*16;
     }
+    let sat = inf>.03 ? .80 : .34;
+    let val = .30 + .70*intensity;
+    if(seam>.25){ sat*= (1-seam*.75); val=Math.min(1,val+seam*.55); }
+
+    const col=hsv(hue,sat,val);
+    const size=.8+intensity*2.9+seam*2.6;
+    fill(col[0],col[1],col[2],40+215*intensity);
+    rect(p.x-size/2,p.y-size/2,size,size);
   }
 
   /* No black disc is drawn over the void. The hole is there because the
