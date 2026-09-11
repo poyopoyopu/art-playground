@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#020207"><meta name="color-scheme" content="dark">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Art Playground — LIVING LAW</title>
+<!-- New work: Hexeosis × Silk × Shadertoy direction. The artwork changes its law, not merely its objects. -->
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}html,body{margin:0;width:100%;height:100%;min-height:100%;overflow:hidden;background:#020207;color:#fff;font-family:system-ui,-apple-system,sans-serif}body{height:100dvh;touch-action:none}canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+.hud{position:fixed;z-index:5;left:5vw;top:max(3.2vh,env(safe-area-inset-top));pointer-events:none}.clockWrap{pointer-events:auto;padding:8px 13px 7px;border-radius:10px;background:#05050bd9;border:1px solid #ffffff24;box-shadow:0 5px 24px #0008;backdrop-filter:blur(10px);transition:.25s transform,.25s padding}.clock{font:700 22px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.055em;color:#fff;text-shadow:0 1px 12px #fff8;font-variant-numeric:tabular-nums}.clockSub{margin-top:5px;font-size:7px;line-height:1;letter-spacing:.34em;opacity:.48}.clockWrap.big{padding:14px 18px 12px;border-radius:14px;transform:scale(1.45);transform-origin:top left}.clockWrap.big .clock{font-size:30px}.clockWrap.big .clockSub{font-size:8px;margin-top:7px}
+.controls{position:fixed;z-index:6;right:4vw;bottom:max(3.5vh,env(safe-area-inset-bottom));display:flex;gap:8px}.btn{width:38px;height:38px;border-radius:50%;border:1px solid #ffffff25;background:#05050bd9;color:#fff;font-size:14px;box-shadow:0 4px 18px #0008;backdrop-filter:blur(10px)}.btn:active{transform:scale(.92)}
+.label{position:fixed;z-index:4;left:50%;bottom:max(4vh,env(safe-area-inset-bottom));transform:translateX(-50%);font-size:8px;letter-spacing:.42em;opacity:.28;pointer-events:none;white-space:nowrap}
+.flash{position:fixed;inset:0;z-index:3;background:#fff;opacity:0;pointer-events:none;mix-blend-mode:screen;transition:opacity .08s}
+.sheet{position:fixed;inset:0;z-index:20;display:none;align-items:center;justify-content:center;background:#000b;backdrop-filter:blur(18px)}.sheet.on{display:flex}.card{width:min(88vw,360px);padding:22px;border:1px solid #ffffff20;border-radius:20px;background:#080812ee;text-align:center;box-shadow:0 20px 80px #000}.card h2{margin:0 0 8px;font-size:14px;letter-spacing:.2em}.card p{font-size:10px;line-height:1.7;opacity:.55}.bar{height:3px;margin:16px 0;background:#ffffff12;border-radius:4px;overflow:hidden}.bar i{display:block;height:100%;width:0;background:#fff;transition:width .1s}.close{margin-top:15px;padding:8px 18px;border:1px solid #ffffff22;border-radius:20px;background:none;color:#fff;font-size:10px;letter-spacing:.15em}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas><div class="flash" id="flash"></div>
+<div class="hud"><div class="clockWrap" id="clockWrap"><div class="clock" id="clock">00:00:00</div><div class="clockSub">REAL TIME</div></div></div>
+<div class="label">TOUCH THE LAW</div>
+<div class="controls"><button class="btn" id="mutate">✦</button><button class="btn" id="gif">◉</button></div>
+<div class="sheet" id="sheet"><div class="card"><h2 id="sheetTitle">RENDERING LOOP</h2><p id="sheetMsg">3秒・30fps・中央トリミングで滑らかなGIFを生成しています…</p><div class="bar"><i id="bar"></i></div><button class="close" id="close">CLOSE</button></div></div>
+<script>
+const c=document.getElementById('c'),gl=c.getContext('webgl2',{antialias:false,alpha:false,preserveDrawingBuffer:true});
+if(!gl){document.body.innerHTML='<div style="padding:30px">WebGL2対応ブラウザが必要です。</div>';throw Error('WebGL2')}
+const vs=`#version 300 es\nprecision highp float;in vec2 a;out vec2 uv;void main(){uv=a*.5+.5;gl_Position=vec4(a,0.,1.);}`;
+const fs=`#version 300 es
+precision highp float;
+out vec4 o;in vec2 uv;
+uniform vec2 res;uniform float time,seed,law,energy,chaos;uniform int touchCount;uniform vec4 touch[5];uniform sampler2D prev;
+#define PI 3.14159265359
+float hash21(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
+float hash(float x){return fract(sin(x*127.1+seed*19.7)*43758.5453);}
+float n2(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash21(i),hash21(i+vec2(1,0)),f.x),mix(hash21(i+vec2(0,1)),hash21(i+1.),f.x),f.y);}
+mat2 rot(float a){float s=sin(a),c=cos(a);return mat2(c,-s,s,c);}
+vec3 pal(float t){return .5+.5*cos(6.28318*(vec3(0.02,.28,.58)+t*vec3(.98,.83,1.17)));}
+float line(vec2 p,float width){return smoothstep(width,0.,abs(p.x));}
+vec2 foldHex(vec2 p){for(int i=0;i<4;i++){p=abs(p);if(p.x<p.y)p=p.yx;p.x-=.5; p*=rot(.5235987756+law*.09);}return p;}
+float lawField(vec2 p){
+ float ang=atan(p.y,p.x),r=length(p);float rings=8.+floor(law*5.);float sectors=6.+floor(law*7.);
+ float a=ang/PI*sectors*.5 + sin(r*9.-time*.7+law)*.22;
+ float radial=sin(r*rings*PI-time*.55+sin(ang*3.+law)*1.5);
+ float spokes=sin(a*PI + sin(r*5.-time*.4)*.8);
+ vec2 h=foldHex(p* (1.1+law*.16));float lattice=sin((h.x+h.y)*12.-time*.35)*sin((h.x-h.y)*9.+time*.27);
+ return radial*.36+spokes*.28+lattice*.22;
+}
+void main(){
+ vec2 p=(gl_FragCoord.xy-.5*res)/min(res.x,res.y);float t=time*.33;
+ float L=law;vec2 q=p;
+ // A recursive field: the whole coordinate system bends before color is calculated.
+ for(int k=0;k<3;k++){
+   float s=1.45+float(k)*.62+L*.06;q=rot(sin(t*.18+float(k)*1.7)*(.18+chaos*.14))*q;
+   q=foldHex(q*s);q*=1.0/(1.0+length(q)*.12);
+ }
+ // Touch is a local law editor. Each finger changes phase, symmetry and curvature.
+ float touchEnergy=0.;float touchTwist=0.;
+ for(int i=0;i<5;i++)if(i<touchCount){vec2 tp=(touch[i].xy-.5*res)/min(res.x,res.y);float d=length(p-tp);float w=exp(-d*d/(touch[i].z*touch[i].z+.0001));touchEnergy+=w;touchTwist+=w*(touch[i].w);q=rot(w*(1.1+L*.5)*touch[i].w)*q;q+=(tp-p)*w*(.18+.28*energy);}
+ float f=lawField(q+vec2(sin(q.y*4.+t),cos(q.x*4.-t))*.025*(1.+chaos));
+ // Self-similar color bands: small structures echo the large structure.
+ float detail=n2(q*7.+f*2.)*.24+n2(q*17.-f*3.)*.12;
+ float bands=sin((f+detail)*10.+L*1.7+t)+.45*sin((f+detail)*23.-t*1.7);
+ float edge=smoothstep(.9,.02,length(p));
+ vec3 col=pal(.43+f*.22+bands*.045+L*.025);
+ float glow=.55+.45*sin(f*8.+t);col*=.72+.48*glow;col+=pal(.7+f*.4)*touchEnergy*.35;
+ // Thin stained-glass seams create a dense geometric skeleton.
+ float seam=abs(sin((q.x+q.y)*18.+f*4.)*sin((q.x-q.y)*15.-f*3.));seam=pow(seam,18.);
+ col+=vec3(.55,.9,1.)*seam*.28;
+ // Feedback keeps the work alive, but bounded; it is never an accumulating particle system.
+ vec3 old=texture(prev,uv).rgb;col=mix(col,old,.055+.045*(1.-chaos));
+ float vign=1.-smoothstep(.38,1.02,length(p));col*=.72+.28*vign;col*=edge;
+ o=vec4(pow(max(col,0.),vec3(.88)),1.);
+}`;
+function compile(type,src){let s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(s));return s}
+const prog=gl.createProgram();gl.attachShader(prog,compile(gl.VERTEX_SHADER,vs));gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,fs));gl.linkProgram(prog);if(!gl.getProgramParameter(prog,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(prog));
+const quad=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,quad);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);const loc=gl.getAttribLocation(prog,'a');
+const U={res:gl.getUniformLocation(prog,'res'),time:gl.getUniformLocation(prog,'time'),seed:gl.getUniformLocation(prog,'seed'),law:gl.getUniformLocation(prog,'law'),energy:gl.getUniformLocation(prog,'energy'),chaos:gl.getUniformLocation(prog,'chaos'),prev:gl.getUniformLocation(prog,'prev'),touchCount:gl.getUniformLocation(prog,'touchCount')};
+let W=1,H=1,dpr=1,A=null,B=null,law=3.8,targetLaw=3.8,energy=.35,chaos=.58,seed=Math.random()*1000,last=performance.now(),birth=performance.now(),exporting=false;
+const fingers=new Map();
+function tex(w,h){let x=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,x);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null);return x}
+function fb(t){let f=gl.createFramebuffer();gl.bindFramebuffer(gl.FRAMEBUFFER,f);gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,t,0);return f}
+function resize(){let r=c.getBoundingClientRect(),vw=Math.max(1,Math.round(r.width)),vh=Math.max(1,Math.round(r.height));dpr=Math.min(devicePixelRatio||1,1.65);let nw=Math.max(1,Math.floor(vw*dpr)),nh=Math.max(1,Math.floor(vh*dpr));if(nw===W&&nh===H&&A)return;W=nw;H=nh;c.width=W;c.height=H;if(A)gl.deleteTexture(A);if(B)gl.deleteTexture(B);A=tex(W,H);B=tex(W,H);for(const T of [A,B]){gl.bindFramebuffer(gl.FRAMEBUFFER,fb(T));gl.viewport(0,0,W,H);gl.clearColor(.005,.003,.012,1);gl.clear(gl.COLOR_BUFFER_BIT)}gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.viewport(0,0,W,H)}
+let rq=0;function queue(){if(rq)return;rq=1;requestAnimationFrame(()=>{rq=0;resize()})}new ResizeObserver(queue).observe(c);addEventListener('resize',queue,{passive:true});addEventListener('orientationchange',()=>setTimeout(queue,100),{passive:true});if(visualViewport)visualViewport.addEventListener('resize',queue,{passive:true});resize();
+function swap(){let x=A;A=B;B=x}
+function mutate(power=1){seed=Math.random()*1000;targetLaw=1.5+Math.random()*9.5;chaos=Math.max(.18,Math.min(1,chaos+(Math.random()-.35)*.38*power));energy=Math.min(1,energy+.55*power);let f=document.getElementById('flash');f.style.opacity=.09;setTimeout(()=>f.style.opacity=0,90)}
+function setUniforms(now,dt){gl.useProgram(prog);gl.bindBuffer(gl.ARRAY_BUFFER,quad);gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);gl.uniform2f(U.res,W,H);gl.uniform1f(U.time,now*.001);gl.uniform1f(U.seed,seed);gl.uniform1f(U.law,law);gl.uniform1f(U.energy,energy);gl.uniform1f(U.chaos,chaos);gl.uniform1i(U.touchCount,Math.min(5,fingers.size));gl.uniform1i(U.prev,0);let i=0;for(const p of fingers.values()){if(i>=5)break;gl.uniform4f(gl.getUniformLocation(prog,'touch['+i+']'),p.x*dpr,(H-p.y*dpr),p.r*dpr,p.spin);i++}}
+function frame(now){if(exporting){requestAnimationFrame(frame);return}let dt=Math.min(.04,(now-last)/1000);last=now;energy*=Math.pow(.25,dt);law+=(targetLaw-law)*Math.min(1,dt*.7);if(now-birth>6200){if(Math.random()<.025)mutate(.45);birth=now}
+ setUniforms(now,dt);gl.bindFramebuffer(gl.FRAMEBUFFER,fb(B));gl.viewport(0,0,W,H);gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,A);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.viewport(0,0,W,H);gl.bindTexture(gl.TEXTURE_2D,B);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);swap();requestAnimationFrame(frame)}requestAnimationFrame(frame);
+function pos(e){let r=c.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top}}
+c.addEventListener('pointerdown',e=>{e.preventDefault();try{c.setPointerCapture(e.pointerId)}catch(_){}let p=pos(e);fingers.set(e.pointerId,{x:p.x,y:p.y,r:Math.min(innerWidth,innerHeight)*.13,spin:e.shiftKey?-1:1});energy=Math.min(1,energy+.3);if(fingers.size===2){targetLaw+=1.7;chaos=Math.min(1,chaos+.2)}},{passive:false});
+c.addEventListener('pointermove',e=>{let q=fingers.get(e.pointerId);if(!q)return;let p=pos(e),dx=p.x-q.x,dy=p.y-q.y;q.x=p.x;q.y=p.y;q.r=Math.max(20,Math.min(Math.min(innerWidth,innerHeight)*.3,Math.hypot(dx,dy)*3+18));q.spin=Math.max(-1.4,Math.min(1.4,(dx-dy)/Math.min(innerWidth,innerHeight)*9));energy=Math.min(1,energy+.024);targetLaw=Math.max(1,Math.min(12,targetLaw+(dx+dy)/Math.min(innerWidth,innerHeight)*.018));if(fingers.size>1)chaos=Math.min(1,chaos+.008)},{passive:true});function up(e){fingers.delete(e.pointerId);if(!fingers.size)energy*=.45}c.addEventListener('pointerup',up);c.addEventListener('pointercancel',up);
+const clock=document.getElementById('clock'),cw=document.getElementById('clockWrap');function clockTick(){let d=new Date(),p=n=>String(n).padStart(2,'0');clock.textContent=p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds())}setInterval(clockTick,200);clockTick();cw.onclick=()=>cw.classList.toggle('big');document.getElementById('mutate').onclick=()=>mutate(1);
+// GIF: 3 sec / 30 fps / square center crop, matching the established Art Playground export spec.
+const GIF_JS='https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js',GIF_WORKER='https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js';let workerURL=null;function loadScript(src){return new Promise((ok,no)=>{let s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=no;document.head.appendChild(s)})}async function prep(){if(!window.GIF)await loadScript(GIF_JS);if(!workerURL){let r=await fetch(GIF_WORKER);if(!r.ok)throw Error('worker');workerURL=URL.createObjectURL(await r.blob())}}
+const sheet=document.getElementById('sheet'),title=document.getElementById('sheetTitle'),msg=document.getElementById('sheetMsg'),bar=document.getElementById('bar');document.getElementById('close').onclick=()=>sheet.classList.remove('on');
+async function exportGif(){if(exporting)return;exporting=true;sheet.classList.add('on');title.textContent='RENDERING LOOP';msg.textContent='3秒・30fps・中央トリミングで滑らかなGIFを生成しています…';bar.style.width='0%';try{await prep();const side=Math.min(520,Math.round(Math.min(innerWidth,innerHeight))),FPS=30,FRAMES=90,ec=document.createElement('canvas');ec.width=ec.height=side;const eg=ec.getContext('2d',{alpha:false}),gif=new GIF({workers:2,quality:7,dither:false,width:side,height:side,workerScript:workerURL,repeat:0});let base=performance.now();for(let i=0;i<FRAMES;i++){let ph=i/FRAMES*6.283;law=targetLaw+Math.sin(ph)*.08;setUniforms(base+i*33,.033);gl.bindFramebuffer(gl.FRAMEBUFFER,fb(B));gl.viewport(0,0,W,H);gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,A);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.viewport(0,0,W,H);gl.bindTexture(gl.TEXTURE_2D,B);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);swap();let crop=Math.min(c.width,c.height),sx=(c.width-crop)/2,sy=(c.height-crop)/2;eg.drawImage(c,sx,sy,crop,crop,0,0,side,side);gif.addFrame(eg,{copy:true,delay:1000/FPS});bar.style.width=(i/FRAMES*58)+'%';if(i%2===0)await new Promise(r=>setTimeout(r,0))}msg.textContent='GIFをエンコード中…';let blob=await new Promise((ok,no)=>{gif.on('progress',p=>bar.style.width=(58+p*42)+'%');gif.on('finished',ok);gif.on('abort',()=>no(Error('abort')));gif.render()});let url=URL.createObjectURL(blob);title.textContent='LOOP READY';msg.textContent=`${side}×${side} · 3秒 · 30fps · ${Math.round(blob.size/1024)}KB`;bar.style.width='100%';let a=document.createElement('a');a.href=url;a.download='living-law-loop.gif';a.textContent='SAVE GIF';a.style.cssText='display:inline-block;margin-top:10px;color:#fff;text-decoration:none;border:1px solid #ffffff25;border-radius:20px;padding:9px 18px;font-size:10px;letter-spacing:.16em';document.querySelector('.card').insertBefore(a,document.getElementById('close'))}catch(e){console.error(e);title.textContent='EXPORT FAILED';msg.textContent='GIFの生成に失敗しました。通信環境を確認して再試行してください。'}finally{exporting=false;last=performance.now()}}
+document.getElementById('gif').onclick=exportGif;
+</script></body></html>
