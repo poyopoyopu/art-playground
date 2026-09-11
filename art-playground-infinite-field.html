@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#020207">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>ART PLAYGROUND — INFINITE FIELD</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#020207}
+body{height:100dvh;touch-action:none;overscroll-behavior:none}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#hint{position:fixed;z-index:3;left:50%;top:50%;transform:translate(-50%,-50%);
+ color:#fff;font:8px system-ui,-apple-system,sans-serif;letter-spacing:.42em;opacity:.23;
+ pointer-events:none;white-space:nowrap;transition:opacity 1.5s}
+#hint.off{opacity:0}
+#random{position:fixed;z-index:4;right:4vw;bottom:max(3.5vh,env(safe-area-inset-bottom));
+ width:44px;height:44px;border-radius:50%;border:1px solid #ffffff28;
+ background:#05050bd8;color:#fff;font-size:17px;box-shadow:0 5px 22px #0009;
+ backdrop-filter:blur(12px);transition:.2s}
+#random:active{transform:scale(.88)}
+#toast{position:fixed;z-index:5;left:50%;bottom:calc(max(3.5vh,env(safe-area-inset-bottom)) + 58px);
+ transform:translateX(-50%);padding:9px 15px;border-radius:14px;
+ background:#080812dd;border:1px solid #ffffff18;color:#fff;
+ font:10px system-ui,-apple-system,sans-serif;opacity:0;pointer-events:none;transition:opacity .4s}
+#toast.on{opacity:.8}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">TOUCH · SHAPE THE FIELD</div>
+<button id="random" aria-label="random generation">✦</button>
+<div id="toast"></div>
+
+<script>
+'use strict';
+
+const canvas=document.getElementById('c');
+const gl=canvas.getContext('webgl2',{
+  antialias:false,alpha:false,preserveDrawingBuffer:false
+});
+if(!gl){document.body.innerHTML='<div style="padding:30px;color:white">WebGL2対応ブラウザが必要です。</div>';throw Error('WebGL2 required')}
+
+/*
+  INFINITE FIELD
+
+  The artwork has no "loop length" and no final frame.
+  A low-resolution persistent simulation is evolved on the GPU forever.
+  The visible image is a procedural domain-warped field driven by that state.
+
+  Techniques:
+  - ping-pong framebuffer simulation
+  - reaction / diffusion
+  - curl-noise advection
+  - multi-octave FBM
+  - domain warping
+  - polar / cartesian interference
+  - persistent touch field
+  - continuously evolving seed
+*/
+
+const VS=`#version 300 es
+in vec2 a;
+out vec2 uv;
+void main(){uv=a*.5+.5;gl_Position=vec4(a,0.,1.);}
+`;
+
+const SIM_FS=`#version 300 es
+precision highp float;
+out vec4 o;
+in vec2 uv;
+
+uniform sampler2D state;
+uniform vec2 texel;
+uniform float time;
+uniform float seed;
+uniform float aspect;
+uniform int touchCount;
+uniform vec4 touch[8];
+
+float hash21(vec2 p){
+  p=fract(p*vec2(127.1,311.7)+seed);
+  p+=dot(p,p+19.19);
+  return fract(p.x*p.y);
+}
+float noise(vec2 p){
+  vec2 i=floor(p),f=fract(p);
+  f=f*f*(3.-2.*f);
+  return mix(
+    mix(hash21(i),hash21(i+vec2(1,0)),f.x),
+    mix(hash21(i+vec2(0,1)),hash21(i+vec2(1)),f.x),f.y
+  );
+}
+float fbm(vec2 p){
+  float v=0.,a=.5;
+  for(int i=0;i<5;i++){
+    v+=noise(p)*a;
+    p=mat2(.82,-.57,.57,.82)*p*2.01;
+    a*=.5;
+  }
+  return v;
+}
+vec2 curl(vec2 p){
+  float e=.004;
+  float a=noise(p+vec2(0,e));
+  float b=noise(p-vec2(0,e));
+  float c=noise(p+vec2(e,0));
+  float d=noise(p-vec2(e,0));
+  return vec2(a-b,c-d)/(2.*e);
+}
+
+void main(){
+  vec4 s=texture(state,uv);
+
+  vec4 l=texture(state,uv-vec2(texel.x,0.));
+  vec4 r=texture(state,uv+vec2(texel.x,0.));
+  vec4 d=texture(state,uv-vec2(0.,texel.y));
+  vec4 u=texture(state,uv+vec2(0.,texel.y));
+  vec4 lap=(l+r+d+u)*.25-s;
+
+  // The field is continuously advected. It never reaches a designed endpoint.
+  vec2 flow=curl(uv*5.0+seed*.013+time*.012);
+  vec2 advUV=fract(uv-flow*.0025-time*.00007);
+  vec4 adv=texture(state,advUV);
+
+  float n=fbm(uv*4.0+seed*.07+time*.004);
+  float n2=fbm(uv*10.0-seed*.03-time*.002);
+
+  // Reaction-diffusion-like chemistry.
+  float a=s.r;
+  float b=s.g;
+  float reaction=a*b*(1.-a);
+  vec3 x=mix(s.rgb,adv.rgb,.16);
+  x+=lap.rgb*.20;
+  x.r+=reaction*.018+(n-.5)*.006;
+  x.g+=a*(.006+n2*.009)-b*.004;
+  x.b+=b*.007+(n2-.5)*.004;
+
+  // Persistent writing from touch.
+  for(int i=0;i<8;i++){
+    if(i<touchCount){
+      vec2 q=uv-touch[i].xy;
+      q.x*=aspect;
+      float w=exp(-dot(q,q)/(touch[i].z*touch[i].z+0.00001));
+      float sgn=touch[i].w;
+      x.r+=w*(.030+.018*abs(sgn));
+      x.g+=w*(.020+.014*sin(time*.5+sgn*2.));
+      x.b+=w*.024;
+    }
+  }
+
+  // Slow natural decay prevents saturation while retaining memory.
+  x=mix(x,vec3(.012,.018,.028),.0008);
+
+  o=vec4(clamp(x,0.,1.),1.);
+}
+`;
+
+const RENDER_FS=`#version 300 es
+precision highp float;
+out vec4 o;
+in vec2 uv;
+
+uniform sampler2D state;
+uniform vec2 res;
+uniform float time;
+uniform float seed;
+uniform float aspect;
+uniform int touchCount;
+uniform vec4 touch[8];
+
+#define PI 3.14159265359
+
+mat2 rot(float a){
+  float s=sin(a),c=cos(a);
+  return mat2(c,-s,s,c);
+}
+float hash21(vec2 p){
+  p=fract(p*vec2(127.1,311.7)+seed);
+  p+=dot(p,p+19.19);
+  return fract(p.x*p.y);
+}
+float noise(vec2 p){
+  vec2 i=floor(p),f=fract(p);
+  f=f*f*(3.-2.*f);
+  return mix(
+    mix(hash21(i),hash21(i+vec2(1,0)),f.x),
+    mix(hash21(i+vec2(0,1)),hash21(i+vec2(1)),f.x),f.y
+  );
+}
+float fbm(vec2 p){
+  float v=0.,a=.5;
+  for(int i=0;i<7;i++){
+    v+=noise(p)*a;
+    p=rot(.57)*p*2.03;
+    a*=.5;
+  }
+  return v;
+}
+vec3 palette(float t){
+  // Broad spectral palette: avoids locking the artwork into one colour family.
+  return .5+.5*cos(6.2831853*(vec3(.00,.17,.39)+t*vec3(1.0,.91,.77)));
+}
+
+void main(){
+  vec2 p=(gl_FragCoord.xy-.5*res)/min(res.x,res.y);
+  float r=length(p);
+  float ang=atan(p.y,p.x);
+
+  vec4 s=texture(state,uv);
+
+  // Multi-stage domain warping.
+  vec2 q=p;
+  float n0=fbm(q*1.7+time*.006);
+  vec2 warp=vec2(
+    fbm(q*2.8+vec2(time*.009,seed*.02)),
+    fbm(q*2.8+vec2(seed*.017,-time*.007))
+  )-.5;
+  q+=warp*(.24+.12*s.r);
+
+  float n1=fbm(q*3.4-time*.005);
+  q+=vec2(sin(n1*7.+q.y*4.),cos(n1*7.-q.x*4.))*.075;
+
+  // Several independent structures are superimposed.
+  float radial=sin(r*(18.+s.a*30.)-n1*8.-time*.09);
+  float spiral=sin(ang*(5.+floor(s.r*12.))+r*23.-n0*10.+time*.12);
+  float lattice=
+    sin((q.x+q.y)*17.+n1*9.)*
+    sin((q.x-q.y)*13.-n0*7.);
+  float cells=sin(fbm(q*8.+time*.003)*18.+r*6.);
+
+  float filament=pow(max(0.,.5+.5*sin(radial*2.4+spiral*.8+lattice)),7.0);
+  float detail=fbm(q*13.-time*.012);
+
+  float structure=
+    radial*.26+
+    spiral*.28+
+    lattice*.20+
+    cells*.12+
+    (detail-.5)*.55;
+
+  // The persistent simulation changes geometry, hue and density.
+  float memory=s.r*.72+s.g*.44+s.b*.31+s.a*.12;
+  float hue=
+    .035+
+    structure*.075+
+    memory*.62+
+    r*.22+
+    detail*.12+
+    sin(time*.017+seed)*.035;
+
+  vec3 col=palette(hue);
+
+  float light=.55+.55*(.5+.5*sin(structure*8.+detail*5.-time*.035));
+  col*=.38+.88*light;
+
+  col+=palette(hue+.11)*filament*(.45+.55*s.r);
+  col+=palette(hue+.34)*pow(max(0.,lattice),5.)*.25;
+  col+=palette(hue+.52)*s.g*.16;
+
+  // Touches temporarily bend the rendered field while permanently writing the simulation.
+  for(int i=0;i<8;i++){
+    if(i<touchCount){
+      vec2 q2=uv-touch[i].xy;
+      q2.x*=aspect;
+      float d=length(q2);
+      float w=exp(-d*d/(touch[i].z*touch[i].z+.00001));
+      q=rot(w*touch[i].w*1.25)*q;
+      col+=palette(hue+w*.23)*w*.14;
+    }
+  }
+
+  // Fine structures + very restrained vignette.
+  float fine=abs(sin(structure*31.+detail*12.));
+  col+=palette(hue+.22)*pow(fine,20.)*.20;
+
+  float vign=1.-smoothstep(.55,1.20,r);
+  col*=.80+.20*vign;
+
+  // Slight filmic compression without an external post-processing library.
+  col=col/(1.0+col*.22);
+  col=pow(max(col,0.),vec3(.90));
+
+  o=vec4(col,1.);
+}
+`;
+
+function compile(type,src){
+  const sh=gl.createShader(type);
+  gl.shaderSource(sh,src);gl.compileShader(sh);
+  if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS))
+    throw Error(gl.getShaderInfoLog(sh));
+  return sh;
+}
+function makeProgram(fs){
+  const p=gl.createProgram();
+  gl.attachShader(p,compile(gl.VERTEX_SHADER,VS));
+  gl.attachShader(p,compile(gl.FRAGMENT_SHADER,fs));
+  gl.bindAttribLocation(p,0,'a');
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS))
+    throw Error(gl.getProgramInfoLog(p));
+  return p;
+}
+const simProgram=makeProgram(SIM_FS);
+const renderProgram=makeProgram(RENDER_FS);
+
+const quad=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,quad);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([
+  -1,-1,1,-1,-1,1,1,1
+]),gl.STATIC_DRAW);
+
+function bindQuad(){
+  gl.bindBuffer(gl.ARRAY_BUFFER,quad);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+}
+
+const SU={},RU={},ST=[],RT=[];
+['state','texel','time','seed','aspect','touchCount'].forEach(k=>SU[k]=gl.getUniformLocation(simProgram,k));
+['state','res','time','seed','aspect','touchCount'].forEach(k=>RU[k]=gl.getUniformLocation(renderProgram,k));
+for(let i=0;i<8;i++){
+  ST.push(gl.getUniformLocation(simProgram,'touch['+i+']'));
+  RT.push(gl.getUniformLocation(renderProgram,'touch['+i+']'));
+}
+
+const SIM_SIZE=320;
+let simA,simB,fbo;
+let W=1,H=1,dpr=1;
+let seed=Math.random()*10000;
+let time=0,last=performance.now();
+const fingers=new Map();
+
+function makeTex(w,h){
+  const t=gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D,t);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+  return t;
+}
+function target(t,w,h){
+  gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,t,0);
+  gl.viewport(0,0,w,h);
+}
+function clearTex(t){
+  target(t,SIM_SIZE,SIM_SIZE);
+  gl.clearColor(.006,.004,.012,1);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+}
+function resetField(){
+  if(simA)gl.deleteTexture(simA);
+  if(simB)gl.deleteTexture(simB);
+  simA=makeTex(SIM_SIZE,SIM_SIZE);
+  simB=makeTex(SIM_SIZE,SIM_SIZE);
+  clearTex(simA);clearTex(simB);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+}
+fbo=gl.createFramebuffer();
+resetField();
+
+function resize(){
+  const r=canvas.getBoundingClientRect();
+  const vw=Math.max(1,Math.round(r.width));
+  const vh=Math.max(1,Math.round(r.height));
+  dpr=Math.min(devicePixelRatio||1,1.7);
+  W=Math.max(1,Math.floor(vw*dpr));
+  H=Math.max(1,Math.floor(vh*dpr));
+  if(canvas.width!==W||canvas.height!==H){
+    canvas.width=W;canvas.height=H;
+  }
+  gl.viewport(0,0,W,H);
+}
+new ResizeObserver(resize).observe(canvas);
+addEventListener('resize',resize,{passive:true});
+resize();
+
+function swap(){
+  const t=simA;simA=simB;simB=t;
+}
+
+function step(dt){
+  gl.useProgram(simProgram);bindQuad();
+  target(simB,SIM_SIZE,SIM_SIZE);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D,simA);
+  gl.uniform1i(SU.state,0);
+  gl.uniform2f(SU.texel,1/SIM_SIZE,1/SIM_SIZE);
+  gl.uniform1f(SU.time,time);
+  gl.uniform1f(SU.seed,seed);
+  gl.uniform1f(SU.aspect,W/H);
+
+  const n=Math.min(8,fingers.size);
+  gl.uniform1i(SU.touchCount,n);
+
+  let i=0;
+  for(const f of fingers.values()){
+    if(i>=8)break;
+    gl.uniform4f(
+      ST[i],
+      f.x*dpr/W,
+      1-f.y*dpr/H,
+      f.r*dpr/Math.min(W,H),
+      f.spin
+    );
+    i++;
+  }
+  for(;i<8;i++)gl.uniform4f(ST[i],0,0,0,0);
+
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  swap();
+}
+
+function render(){
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+  gl.viewport(0,0,W,H);
+  gl.useProgram(renderProgram);bindQuad();
+
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D,simA);
+  gl.uniform1i(RU.state,0);
+  gl.uniform2f(RU.res,W,H);
+  gl.uniform1f(RU.time,time);
+  gl.uniform1f(RU.seed,seed);
+  gl.uniform1f(RU.aspect,W/H);
+
+  const n=Math.min(8,fingers.size);
+  gl.uniform1i(RU.touchCount,n);
+
+  let i=0;
+  for(const f of fingers.values()){
+    if(i>=8)break;
+    gl.uniform4f(
+      RT[i],
+      f.x*dpr/W,
+      1-f.y*dpr/H,
+      f.r*dpr/Math.min(W,H),
+      f.spin
+    );
+    i++;
+  }
+  for(;i<8;i++)gl.uniform4f(RT[i],0,0,0,0);
+
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+}
+
+function frame(now){
+  const dt=Math.min(.033,(now-last)/1000);
+  last=now;
+  time+=dt;
+  // Multiple simulation ticks keep the field alive even when the display rate changes.
+  const ticks=dt>.022?2:1;
+  for(let i=0;i<ticks;i++)step(dt*60/ticks);
+  render();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+function pointerPos(e){
+  const r=canvas.getBoundingClientRect();
+  return {x:e.clientX-r.left,y:e.clientY-r.top};
+}
+canvas.addEventListener('pointerdown',e=>{
+  e.preventDefault();
+  try{canvas.setPointerCapture(e.pointerId)}catch(_){}
+  const p=pointerPos(e);
+  fingers.set(e.pointerId,{
+    x:p.x,y:p.y,
+    r:Math.min(innerWidth,innerHeight)*.075,
+    spin:e.shiftKey?-1:1
+  });
+  document.getElementById('hint').classList.add('off');
+},{passive:false});
+
+canvas.addEventListener('pointermove',e=>{
+  const f=fingers.get(e.pointerId);
+  if(!f)return;
+  const p=pointerPos(e);
+  const dx=p.x-f.x,dy=p.y-f.y;
+  f.x=p.x;f.y=p.y;
+  f.r=Math.max(12,Math.min(Math.min(innerWidth,innerHeight)*.24,
+    Math.hypot(dx,dy)*2.6+15));
+  f.spin=Math.max(-2,Math.min(2,
+    (dx-dy)/Math.min(innerWidth,innerHeight)*11));
+},{passive:true});
+
+function pointerUp(e){fingers.delete(e.pointerId)}
+canvas.addEventListener('pointerup',pointerUp);
+canvas.addEventListener('pointercancel',pointerUp);
+canvas.addEventListener('contextmenu',e=>e.preventDefault());
+
+const toast=document.getElementById('toast');
+let toastTimer=0;
+function showToast(text){
+  clearTimeout(toastTimer);
+  toast.textContent=text;
+  toast.classList.add('on');
+  toastTimer=setTimeout(()=>toast.classList.remove('on'),1700);
+}
+
+function randomGeneration(){
+  seed=Math.random()*100000;
+  time=0;
+  resetField();
+
+  // A random initial gesture seeds a different basin of attraction.
+  const x=.15+Math.random()*.70;
+  const y=.15+Math.random()*.70;
+  const r=.035+Math.random()*.16;
+  const spin=Math.random()*2-1;
+  fingers.set(-1,{
+    x:x*innerWidth,y:(1-y)*innerHeight,
+    r:r*Math.min(innerWidth,innerHeight),spin
+  });
+  setTimeout(()=>fingers.delete(-1),100);
+
+  showToast('NEW FIELD');
+}
+
+document.getElementById('random').addEventListener('click',randomGeneration);
+setTimeout(()=>document.getElementById('hint').classList.add('off'),6500);
+</script>
+</body>
+</html>
