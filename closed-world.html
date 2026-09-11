@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#05050a"><meta name="color-scheme" content="dark">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
+<title>ART PLAYGROUND — CLOSED WORLD</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#05050a;color:#fff}body{height:100dvh;touch-action:none;overscroll-behavior:none;font-family:system-ui,-apple-system,sans-serif}canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+.clock{position:fixed;z-index:5;left:50%;top:50%;transform:translate(-50%,-50%);display:none;flex-direction:column;align-items:center;gap:6px;pointer-events:none;user-select:none;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}.clock.on{display:flex}.clock .t{font-size:clamp(44px,16.5vw,132px);line-height:1;font-weight:600;letter-spacing:.01em;text-shadow:0 0 3px #000,0 0 16px #000,0 4px 34px #000}.clock .d{font-size:clamp(11px,3.3vw,17px);letter-spacing:.3em;opacity:.72;text-shadow:0 0 3px #000,0 2px 16px #000}.clock .t i{font-style:normal;opacity:.6}
+.controls{position:fixed;z-index:6;left:50%;bottom:max(20px,env(safe-area-inset-bottom));transform:translateX(-50%);display:flex;gap:9px;padding:7px;border:1px solid #ffffff1a;border-radius:28px;background:#05050bd8;backdrop-filter:blur(14px);box-shadow:0 8px 30px #0008;transition:opacity .65s,transform .65s}.controls.idle{opacity:0;pointer-events:none;transform:translate(-50%,8px)}.btn{width:42px;height:42px;border-radius:50%;border:1px solid #ffffff20;background:#ffffff09;color:#fff;font-size:15px;box-shadow:0 3px 14px #0006}.btn:active{transform:scale(.92)}.btn.act{background:#ffffff18;border-color:#ffffff55}.hint{position:fixed;z-index:4;left:50%;bottom:max(83px,calc(env(safe-area-inset-bottom) + 63px));transform:translateX(-50%);font-size:8px;letter-spacing:.34em;opacity:.22;pointer-events:none;transition:opacity 1s;white-space:nowrap}.hint.hide{opacity:0}.toast{position:fixed;z-index:30;left:50%;top:14%;transform:translateX(-50%);padding:9px 15px;border-radius:14px;background:#080811dd;border:1px solid #ffffff1b;backdrop-filter:blur(12px);font-size:11px;opacity:0;transition:opacity .3s;pointer-events:none}.toast.on{opacity:1}
+.sheet{position:fixed;inset:0;z-index:20;display:none;align-items:center;justify-content:center;background:#000b;backdrop-filter:blur(18px)}.sheet.on{display:flex}.card{width:min(88vw,370px);padding:22px;border:1px solid #ffffff20;border-radius:20px;background:#080811f2;text-align:center;box-shadow:0 20px 80px #000}.card h2{margin:0 0 8px;font-size:13px;letter-spacing:.2em}.card p{margin:0;font-size:11px;line-height:1.7;opacity:.6}.bar{height:3px;margin:16px 0;background:#ffffff12;border-radius:4px;overflow:hidden}.bar i{display:block;height:100%;width:0;background:#fff}.acts{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}.acts button,.acts a{padding:9px 18px;border:1px solid #ffffff25;border-radius:20px;background:none;color:#fff;font-size:10px;letter-spacing:.14em;text-decoration:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="clock" id="clock"><div class="t" id="clockTime">00:00<i>:00</i></div><div class="d" id="clockDate"></div></div>
+<div class="hint" id="hint">TOUCH THE WORLD · CHANGE ITS LAW</div>
+<div class="controls" id="controls">
+<button class="btn" id="random" aria-label="new universe">✦</button>
+<button class="btn" id="export" aria-label="export loop">◉</button>
+<button class="btn" id="clockBtn" aria-label="toggle clock">◷</button>
+</div>
+<div class="toast" id="toast"></div>
+<div class="sheet" id="sheet"><div class="card"><h2>EXPORT LOOP</h2><p id="sheetMsg">なめらかさを選んでください</p><div class="bar"><i id="bar"></i></div><div class="acts" id="acts"></div></div></div>
+<script>
+'use strict';
+const canvas=document.getElementById('c'),gl=canvas.getContext('webgl2',{antialias:false,alpha:false,preserveDrawingBuffer:true});
+if(!gl){document.body.innerHTML='<div style="padding:30px">WebGL2対応ブラウザが必要です。</div>';throw Error('WebGL2 required')}
+const VS=`#version 300 es\nin vec2 a;out vec2 uv;void main(){uv=a*.5+.5;gl_Position=vec4(a,0.,1.);}`;
+const FS=`#version 300 es
+precision highp float;
+out vec4 o;in vec2 uv;
+uniform vec2 res;uniform float phase,seed;uniform vec4 laws[12];uniform int lawCount;
+#define PI 3.141592653589793
+float hash21(vec2 p){p=fract(p*vec2(127.1,311.7));p+=dot(p,p+19.19);return fract(p.x*p.y);}
+float hash(float x){return fract(sin(x*127.1+seed*19.37)*43758.5453123);}
+float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);float a=hash21(i),b=hash21(i+vec2(1,0)),c=hash21(i+vec2(0,1)),d=hash21(i+vec2(1));return mix(mix(a,b,f.x),mix(c,d,f.x),f.y);}
+float fbm(vec2 p){float s=0.,a=.5;for(int i=0;i<5;i++){s+=a*noise(p);p=mat2(.7648,-.6442,.6442,.7648)*p*2.01;a*=.5;}return s;}
+mat2 R(float a){float s=sin(a),c=cos(a);return mat2(c,-s,s,c);}
+vec3 pal(float t){return .5+.5*cos(6.2831853*(vec3(.02,.25,.52)+t*vec3(1.,.87,.73))));}
+float lawField(vec2 p,float k){float v=0.;for(int i=0;i<12;i++){if(i<lawCount){vec4 L=laws[i];vec2 d=p-L.xy;float q=length(d);float w=exp(-q*q/(L.z*L.z+.00001));float a=L.w;v+=w*(sin(a*2.0+q*12.0-k*2.0)+.55*cos(a+atan(d.y,d.x)*3.0+k*3.0));}}return v;}
+void main(){
+ vec2 p=(gl_FragCoord.xy-.5*res)/min(res.x,res.y);float th=2.*PI*phase;
+ // Closed time manifold: every temporal coordinate is periodic by construction.
+ vec2 T=vec2(cos(th),sin(th));
+ vec2 T2=vec2(cos(2.*th),sin(2.*th));
+ float n=fbm(p*2.1+T*0.82+T2*0.31);
+ float n2=fbm(R(.7)*p*4.8-T*.51+T2*.22);
+ float n3=fbm(p*9.0+T2*1.2-T*.27);
+ float local=lawField(p,n2);
+ float r=length(p),a=atan(p.y,p.x);
+ float symmetry=4.+floor(5.*hash(seed+.7));
+ float topology=0.35+0.65*hash(seed+2.1);
+ float twist=(hash(seed+3.7)-.5)*2.6;
+ // Universe grammar: symmetry + curvature + topology + local laws.
+ vec2 q=p;
+ q=R(twist*n*.8+T.x*.13)*q;
+ float aa=a+sin(r*7.-T.y*3.+n2*2.)*.34+local*.16;
+ float sector=cos(aa*symmetry);
+ float shell=sin(r*(15.+topology*15.)-n*5.+T2.x*2.);
+ float weave=sin((q.x+q.y)*(10.+symmetry)+n2*4.)*cos((q.x-q.y)*(7.+topology*8.)-n3*3.);
+ float tension=sin((sector+shell*.55+weave*.28+local*.34)*5.2+T.x*1.7);
+ float filament=pow(max(0.,.5+.5*sin(tension*9.+n3*6.)),9.);
+ float order=.5+.5*cos(aa*symmetry+r*8.-n*4.+T.x*1.2);
+ float membrane=smoothstep(.72,.98,.5+.5*sin(r*18.-n2*8.+local));
+ float glow=exp(-r*r*1.9);
+ float hue=.05+n*.25+n2*.12+order*.17+local*.055+hash(seed+5.1)*.22;
+ vec3 col=pal(hue);
+ col*=.34+.74*(.5+.5*tension);
+ col+=pal(hue+.16)*filament*.72;
+ col+=pal(hue+.37)*membrane*.22;
+ col+=pal(hue+.53)*glow*.24;
+ // law territories alter the grammar, not just the pixels.
+ col*=.83+.32*clamp(.5+.5*local,-1.,1.);
+ col=pow(max(col,0.),vec3(.88));
+ float vign=1.-smoothstep(.5,1.15,r);col*=.84+.16*vign;
+ o=vec4(col,1.);
+}`;
+function shader(src){let s=gl.createShader(gl.FRAGMENT_SHADER);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(s));return s}
+const prog=gl.createProgram(),vs=gl.createShader(gl.VERTEX_SHADER);gl.shaderSource(vs,VS);gl.compileShader(vs);gl.attachShader(prog,vs);gl.attachShader(prog,shader(FS));gl.bindAttribLocation(prog,0,'a');gl.linkProgram(prog);if(!gl.getProgramParameter(prog,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(prog));gl.useProgram(prog);
+const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+const U={res:gl.getUniformLocation(prog,'res'),phase:gl.getUniformLocation(prog,'phase'),seed:gl.getUniformLocation(prog,'seed'),laws:gl.getUniformLocation(prog,'laws[0]'),lawCount:gl.getUniformLocation(prog,'lawCount')};
+let seed=Math.random()*1000,laws=[],clockOn=false,lastInput=performance.now(),running=true;
+function resize(){const d=Math.min(devicePixelRatio||1,2),w=Math.max(1,Math.floor(innerWidth*d)),h=Math.max(1,Math.floor(innerHeight*d));if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;gl.viewport(0,0,w,h)}}addEventListener('resize',resize,{passive:true});resize();
+function phaseNow(){return ((performance.now()/1000)/7)%1}
+function upload(){const a=new Float32Array(48);laws.forEach((x,i)=>{a[i*4]=x.x;a[i*4+1]=x.y;a[i*4+2]=x.r;a[i*4+3]=x.a});gl.uniform4fv(U.laws,a);gl.uniform1i(U.lawCount,laws.length)}
+function render(phase){resize();gl.useProgram(prog);gl.uniform2f(U.res,canvas.width,canvas.height);gl.uniform1f(U.phase,phase);gl.uniform1f(U.seed,seed);gl.uniform1i(U.lawCount,laws.length);if(laws.length)upload();gl.drawArrays(gl.TRIANGLE_STRIP,0,4)}
+function loop(){if(running)render(phaseNow());requestAnimationFrame(loop)}loop();
+function touch(x,y){const nx=x/innerWidth,ny=1-y/innerHeight;const r=.08+Math.random()*.09;const a=(nx+ny)*8+seed*.07; if(laws.length>=12)laws.shift();laws.push({x:(nx-.5)*innerWidth/Math.min(innerWidth,innerHeight),y:(ny-.5)*innerHeight/Math.min(innerWidth,innerHeight),r,a});upload();showControls();hint.classList.add('hide');toast('WORLD LAW CHANGED');}
+canvas.addEventListener('pointerdown',e=>{e.preventDefault();touch(e.clientX,e.clientY)},{passive:false});
+let controls=document.getElementById('controls'),hint=document.getElementById('hint'),toastEl=document.getElementById('toast');
+function showControls(){lastInput=performance.now();controls.classList.remove('idle')}
+function toast(s){toastEl.textContent=s;toastEl.classList.add('on');clearTimeout(toast.t);toast.t=setTimeout(()=>toastEl.classList.remove('on'),1000)}
+document.addEventListener('pointerdown',()=>showControls(),{passive:true});setInterval(()=>{if(performance.now()-lastInput>3500)controls.classList.add('idle')},250);
+document.getElementById('random').onclick=e=>{e.stopPropagation();seed=Math.random()*10000;laws=[];upload();showControls();toast('NEW UNIVERSE')};
+const clock=document.getElementById('clock'),clockBtn=document.getElementById('clockBtn');clockBtn.onclick=e=>{e.stopPropagation();clockOn=!clockOn;clock.classList.toggle('on',clockOn);clockBtn.classList.toggle('act',clockOn);showControls()};
+function updateClock(){if(!clockOn)return;const d=new Date(),p=n=>String(n).padStart(2,'0'),days=['SUN','MON','TUE','WED','THU','FRI','SAT'];document.getElementById('clockTime').innerHTML=`${p(d.getHours())}:${p(d.getMinutes())}<i>:${p(d.getSeconds())}</i>`;document.getElementById('clockDate').textContent=`${d.getFullYear()} ${p(d.getMonth()+1)} ${p(d.getDate())} ${days[d.getDay()]}`}setInterval(updateClock,250);updateClock();
+// Deterministic boundary test: render(0) and render(1) into the same canvas and compare pixels.
+function boundaryTest(){render(0);const a=new Uint8Array(canvas.width*canvas.height*4);gl.readPixels(0,0,canvas.width,canvas.height,gl.RGBA,gl.UNSIGNED_BYTE,a);render(1);const b=new Uint8Array(a.length);gl.readPixels(0,0,canvas.width,canvas.height,gl.RGBA,gl.UNSIGNED_BYTE,b);let max=0,sum=0;for(let i=0;i<a.length;i++){const d=Math.abs(a[i]-b[i]);if(d>max)max=d;sum+=d}return {max,mean:sum/a.length}}
+const sheet=document.getElementById('sheet'),acts=document.getElementById('acts'),bar=document.getElementById('bar'),msg=document.getElementById('sheetMsg');
+function openExport(){sheet.classList.add('on');acts.innerHTML='';bar.style.width='0';msg.textContent='なめらかさを選んでください';[['SMOOTH · 25fps',25],['BALANCED · 20fps',20],['LIGHT · 12.5fps',12.5],['キャンセル',0]].forEach(([label,fps])=>{const b=document.createElement('button');b.textContent=label;b.onclick=()=>fps?makeGif(fps):closeExport();acts.appendChild(b)});}
+function closeExport(){sheet.classList.remove('on');running=true}
+document.getElementById('export').onclick=e=>{e.stopPropagation();showControls();openExport()};
+async function makeGif(fps){
+ if(typeof GIF==='undefined'){msg.textContent='GIF encoderを読み込めませんでした。';return}
+ running=false;acts.innerHTML='';msg.textContent=`${fps}fps · LOOPを生成しています`;const duration=7,N=Math.round(duration*fps),frames=[];
+ // Same renderer, same universe, same laws. Export changes only phase sampling.
+ const diff=boundaryTest();toast(`LOOP ${diff.max===0?'EXACT':'CHECK'} · max ${diff.max}`);
+ for(let i=0;i<N;i++){const ph=i/N;render(ph);const copy=document.createElement('canvas');copy.width=canvas.width;copy.height=canvas.height;copy.getContext('2d').drawImage(canvas,0,0);frames.push(copy);bar.style.width=((i+1)/N*100)+'%';if(i%3===0)await new Promise(r=>setTimeout(r,0))}
+ const gif=new GIF({workers:2,quality:10,width:canvas.width,height:canvas.height,workerScript:'https://cdn.jsdelivr.net/npm/gif.js.optimized/dist/gif.worker.js'});
+ frames.forEach(f=>gif.addFrame(f,{delay:1000/fps,copy:true}));gif.on('progress',p=>bar.style.width=(p*100)+'%');gif.on('finished',blob=>{const url=URL.createObjectURL(blob);msg.textContent=`${fps}fps · 完成`;acts.innerHTML='';const a=document.createElement('a');a.href=url;a.download='closed-world-loop.gif';a.textContent='GIFを保存';acts.appendChild(a);const c=document.createElement('button');c.textContent='閉じる';c.onclick=closeExport;acts.appendChild(c);running=true});gif.render();
+}
+const gifScript=document.createElement('script');gifScript.src='https://cdn.jsdelivr.net/npm/gif.js.optimized/dist/gif.js';document.head.appendChild(gifScript);
+window.addEventListener('pagehide',()=>{running=false});
+</script>
+</body></html>
