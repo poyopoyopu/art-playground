@@ -1,0 +1,44 @@
+<!doctype html><html lang="ja"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#030308"><meta name="apple-mobile-web-app-capable" content="yes">
+<title>Art Playground — BACKSIDE — TOUCH THE SURFACE</title><style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#030308;color:#fff}
+body{height:100dvh;touch-action:none;overscroll-behavior:none;font-family:system-ui,-apple-system,sans-serif}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+.ui{position:fixed;z-index:9;left:50%;bottom:max(10vh,calc(env(safe-area-inset-bottom) + 62px));transform:translateX(-50%);display:flex;gap:9px}
+button{width:42px;height:42px;border-radius:50%;border:1px solid #ffffff28;background:#07070dd9;color:#fff;font-size:15px;box-shadow:0 4px 20px #0009;backdrop-filter:blur(12px)}
+button:active{transform:scale(.91)}button.on{background:#ffffff20;border-color:#ffffff65}
+.hint{position:fixed;z-index:8;left:50%;bottom:max(4vh,env(safe-area-inset-bottom));transform:translateX(-50%);font-size:8px;letter-spacing:.42em;opacity:.28;white-space:nowrap;pointer-events:none;transition:opacity 1s}
+.hint.hide{opacity:0}
+.clock{position:fixed;z-index:12;left:50%;top:50%;transform:translate(-50%,-50%);display:none;flex-direction:column;align-items:center;gap:6px;font-family:ui-monospace,"SF Mono",monospace;font-variant-numeric:tabular-nums;pointer-events:none}
+.clock.on{display:flex}.clock .t{font-size:clamp(44px,16.5vw,132px);line-height:1;font-weight:600;text-shadow:0 0 3px #000,0 0 16px #000}.clock i{font-style:normal;opacity:.62}.clock .d{font-size:clamp(11px,3.3vw,17px);letter-spacing:.3em;opacity:.62}
+</style></head><body>
+<canvas id="c"></canvas><div class="hint" id="hint">BACKSIDE — TOUCH THE SURFACE</div>
+<div class="clock" id="clock"><div class="t" id="clockTime">00:00<i>:00</i></div><div class="d" id="clockDate"></div></div>
+<div class="ui"><button id="mutate">✦</button><button id="reset">↻</button><button id="clockBtn">🕐</button><button id="fsBtn">⛶</button></div>
+<script>
+/* 2026-09-11: BACKSIDE — touch opens windows into a second coordinate system. */
+const c=document.getElementById('c'),x=c.getContext('2d',{alpha:false});let W,H,D,t=0,last=performance.now(),seed=Math.random()*9e4,holes=[],drag=null;
+function size(){const r=c.getBoundingClientRect();D=Math.min(devicePixelRatio||1,1.5);W=c.width=Math.floor(r.width*D);H=c.height=Math.floor(r.height*D)}new ResizeObserver(size).observe(c);size();
+const TAU=Math.PI*2,clampLocal=(v,a,b)=>Math.max(a,Math.min(b,v));
+function map(px,py,T,inside){let X=px,Y=py;for(let k=0;k<3;k++){let r=Math.hypot(X,Y)+.001,a=Math.atan2(Y,X);a+=Math.sin(r*8-T*.3+k)*.27;X=Math.cos(a)*r;Y=Math.sin(a)*r;X+=Math.sin(Y*8+T)*.035;Y+=Math.cos(X*7-T)*.035}for(const q of holes){let d=Math.hypot(X-q.x,Y-q.y),w=Math.exp(-d*d/(q.r*q.r));if(inside){X=-X*w+X*(1-w);Y=-Y*w+Y*(1-w)}else{X+=Math.cos(Math.atan2(Y-q.y,X-q.x))*w*q.r*1.8;Y+=Math.sin(Math.atan2(Y-q.y,X-q.x))*w*q.r*1.8}}return[X,Y]}
+function draw(now){let dt=Math.min(.03,(now-last)/1000);last=now;t+=dt;x.fillStyle='#030308';x.fillRect(0,0,W,H);let m=Math.min(W,H);for(let layer=0;layer<76;layer++){x.beginPath();for(let j=0;j<=120;j++){let a=j/120*TAU,r=.03+layer/76*1.5+.018*Math.sin(j*.7+layer-t);let p=map(Math.cos(a)*r,Math.sin(a)*r,t,false);let inside=holes.some(q=>Math.hypot(p[0]-q.x,p[1]-q.y)<q.r*(1.5+.3*Math.sin(t)));if(inside)p=map(p[0],p[1],t,true);let X=p[0]*m,Y=p[1]*m;if(j)x.lineTo(X,Y);else x.moveTo(X,Y)}x.globalAlpha=.05;x.lineWidth=.8*D;x.strokeStyle=`hsl(${250+layer*5+t*18} 100% 64%)`;x.stroke()}for(const q of holes){let age=t-q.b,life=Math.max(0,1-age/40);if(life<=0)continue;x.globalAlpha=.45*life;x.lineWidth=1.2*D;x.strokeStyle=`hsl(${q.h+t*30} 100% 72%)`;x.beginPath();x.arc(q.x*m,q.y*m,q.r*m*(1+.12*Math.sin(t*2)),0,TAU);x.stroke()}x.globalAlpha=1;requestAnimationFrame(draw)}requestAnimationFrame(draw);
+function P(e){let r=c.getBoundingClientRect(),m=Math.min(r.width,r.height);return{x:(e.clientX-r.left-r.width/2)/m,y:(e.clientY-r.top-r.height/2)/m}}
+c.onpointerdown=e=>{e.preventDefault();try{c.setPointerCapture(e.pointerId)}catch(_){}let p=P(e);drag={...p,px:p.x,py:p.y};holes.push({x:p.x,y:p.y,r:.12,h:Math.random()*360,b:t});if(holes.length>10)holes.shift()};
+c.onpointermove=e=>{if(!drag)return;let p=P(e),d=Math.hypot(p.x-drag.px,p.y-drag.py);if(d>.025){holes.push({x:p.x,y:p.y,r:.075,h:Math.random()*360,b:t});if(holes.length>10)holes.shift()}drag.px=p.x;drag.py=p.y};c.onpointerup=()=>drag=null;
+document.getElementById('mutate').onclick=()=>{for(let i=0;i<4;i++)holes.push({x:Math.random()*1.6-.8,y:Math.random()*1.8-.9,r:.08,h:Math.random()*360,b:t})};document.getElementById('reset').onclick=()=>holes=[];
+
+
+const clock=document.getElementById('clock'),ct=document.getElementById('clockTime'),cd=document.getElementById('clockDate');
+const week=['日','月','火','水','木','金','土'],pad=n=>String(n).padStart(2,'0');
+let clockOn=false,wakeLock=null;
+function tick(){if(!clockOn)return;const d=new Date();ct.innerHTML=pad(d.getHours())+':'+pad(d.getMinutes())+'<i>:'+pad(d.getSeconds())+'</i>';cd.textContent=(d.getMonth()+1)+'月'+d.getDate()+'日 ('+week[d.getDay()]+')'}
+function cl(){tick();setTimeout(cl,1000-(Date.now()%1000)+8)}cl();
+async function wake(){try{if('wakeLock'in navigator)wakeLock=await navigator.wakeLock.request('screen')}catch(_){}}
+document.getElementById('clockBtn').onclick=function(){clockOn=!clockOn;clock.classList.toggle('on',clockOn);this.classList.toggle('on',clockOn);if(clockOn)wake();else{try{wakeLock&&wakeLock.release()}catch(_){}wakeLock=null}};
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&clockOn&&!wakeLock)wake()});
+document.getElementById('fsBtn').onclick=async()=>{const d=document.documentElement,fs=document.fullscreenElement||document.webkitFullscreenElement;try{if(fs)(document.exitFullscreen||document.webkitExitFullscreen).call(document);else if(d.requestFullscreen)await d.requestFullscreen();else if(d.webkitRequestFullscreen)await d.webkitRequestFullscreen()}catch(_){}};
+
+setTimeout(()=>document.getElementById('hint').classList.add('hide'),8500);
+</script></body></html>

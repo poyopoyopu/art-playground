@@ -1,0 +1,44 @@
+<!doctype html><html lang="ja"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#030308"><meta name="apple-mobile-web-app-capable" content="yes">
+<title>Art Playground — ESCAPE — IT KNOWS WHERE YOU ARE</title><style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#030308;color:#fff}
+body{height:100dvh;touch-action:none;overscroll-behavior:none;font-family:system-ui,-apple-system,sans-serif}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+.ui{position:fixed;z-index:9;left:50%;bottom:max(10vh,calc(env(safe-area-inset-bottom) + 62px));transform:translateX(-50%);display:flex;gap:9px}
+button{width:42px;height:42px;border-radius:50%;border:1px solid #ffffff28;background:#07070dd9;color:#fff;font-size:15px;box-shadow:0 4px 20px #0009;backdrop-filter:blur(12px)}
+button:active{transform:scale(.91)}button.on{background:#ffffff20;border-color:#ffffff65}
+.hint{position:fixed;z-index:8;left:50%;bottom:max(4vh,env(safe-area-inset-bottom));transform:translateX(-50%);font-size:8px;letter-spacing:.42em;opacity:.28;white-space:nowrap;pointer-events:none;transition:opacity 1s}
+.hint.hide{opacity:0}
+.clock{position:fixed;z-index:12;left:50%;top:50%;transform:translate(-50%,-50%);display:none;flex-direction:column;align-items:center;gap:6px;font-family:ui-monospace,"SF Mono",monospace;font-variant-numeric:tabular-nums;pointer-events:none}
+.clock.on{display:flex}.clock .t{font-size:clamp(44px,16.5vw,132px);line-height:1;font-weight:600;text-shadow:0 0 3px #000,0 0 16px #000}.clock i{font-style:normal;opacity:.62}.clock .d{font-size:clamp(11px,3.3vw,17px);letter-spacing:.3em;opacity:.62}
+</style></head><body>
+<canvas id="c"></canvas><div class="hint" id="hint">ESCAPE — IT KNOWS WHERE YOU ARE</div>
+<div class="clock" id="clock"><div class="t" id="clockTime">00:00<i>:00</i></div><div class="d" id="clockDate"></div></div>
+<div class="ui"><button id="mutate">✦</button><button id="reset">↻</button><button id="clockBtn">🕐</button><button id="fsBtn">⛶</button></div>
+<script>
+/* 2026-09-11: ESCAPE — the field predicts your movement and moves away. */
+const c=document.getElementById('c'),x=c.getContext('2d',{alpha:false});let W,H,D,t=0,last=performance.now(),fingers=new Map(),fear=[];
+function size(){const r=c.getBoundingClientRect();D=Math.min(devicePixelRatio||1,1.5);W=c.width=Math.floor(r.width*D);H=c.height=Math.floor(r.height*D)}new ResizeObserver(size).observe(c);size();
+function repel(px,py){let X=px,Y=py;for(const q of fingers.values()){let dx=X-q.x,dy=Y-q.y,d=Math.hypot(dx,dy)+.001,w=Math.exp(-d*d/(q.r*q.r));X+=dx/d*w*q.force;Y+=dy/d*w*q.force}for(const q of fear){let age=t-q.b,w=Math.max(0,1-age/20),dx=X-q.x,dy=Y-q.y,d=Math.hypot(dx,dy)+.001;X+=dx/d*w*q.power*Math.exp(-d*d/(q.r*q.r));Y+=dy/d*w*q.power*Math.exp(-d*d/(q.r*q.r))}return[X,Y]}
+function draw(now){let dt=Math.min(.03,(now-last)/1000);last=now;t+=dt;x.fillStyle='#030308';x.fillRect(0,0,W,H);let m=Math.min(W,H);for(let n=0;n<135;n++){x.beginPath();for(let j=0;j<=64;j++){let a=j/64*Math.PI*2,r=.02+n/135*1.55;let X=Math.cos(a)*r+.08*Math.sin(t*.4+n*.09),Y=Math.sin(a)*r+.06*Math.cos(t*.33+n);let p=repel(X,Y);X=p[0]+.035*Math.sin(Y*10+t);Y=p[1]+.035*Math.cos(X*8-t);if(j)x.lineTo(X*m,Y*m);else x.moveTo(X*m,Y*m)}x.globalAlpha=.025+.07*(n%21===0);x.lineWidth=(.6+(n%23===0))*D;x.strokeStyle=`hsl(${105+n*3.4+t*28} 100% 60%)`;x.stroke()}fear=fear.filter(q=>t-q.b<20);x.globalAlpha=1;requestAnimationFrame(draw)}requestAnimationFrame(draw);
+function P(e){let r=c.getBoundingClientRect(),m=Math.min(r.width,r.height);return{x:(e.clientX-r.left-r.width/2)/m,y:(e.clientY-r.top-r.height/2)/m}}
+c.onpointerdown=e=>{e.preventDefault();try{c.setPointerCapture(e.pointerId)}catch(_){}let p=P(e);fingers.set(e.pointerId,{...p,px:p.x,py:p.y,r:.32,force:.9});fear.push({x:p.x,y:p.y,r:.2,power:.5,b:t})};
+c.onpointermove=e=>{let q=fingers.get(e.pointerId);if(!q)return;let p=P(e),dx=p.x-q.px,dy=p.y-q.py;q.x=p.x;q.y=p.y;q.r=Math.min(.48,.2+Math.hypot(dx,dy)*9);q.force=Math.min(1.8,.7+Math.hypot(dx,dy)*25);q.px=p.x;q.py=p.y};
+c.onpointerup=e=>{let q=fingers.get(e.pointerId);if(q)fear.push({x:q.x,y:q.y,r:.28,power:1.2,b:t});fingers.delete(e.pointerId)};c.onpointercancel=e=>fingers.delete(e.pointerId);
+document.getElementById('mutate').onclick=()=>{for(let i=0;i<7;i++)fear.push({x:Math.random()*1.8-.9,y:Math.random()*2-1,r:.18,power:1.4,b:t})};document.getElementById('reset').onclick=()=>fear=[];
+
+
+const clock=document.getElementById('clock'),ct=document.getElementById('clockTime'),cd=document.getElementById('clockDate');
+const week=['日','月','火','水','木','金','土'],pad=n=>String(n).padStart(2,'0');
+let clockOn=false,wakeLock=null;
+function tick(){if(!clockOn)return;const d=new Date();ct.innerHTML=pad(d.getHours())+':'+pad(d.getMinutes())+'<i>:'+pad(d.getSeconds())+'</i>';cd.textContent=(d.getMonth()+1)+'月'+d.getDate()+'日 ('+week[d.getDay()]+')'}
+function cl(){tick();setTimeout(cl,1000-(Date.now()%1000)+8)}cl();
+async function wake(){try{if('wakeLock'in navigator)wakeLock=await navigator.wakeLock.request('screen')}catch(_){}}
+document.getElementById('clockBtn').onclick=function(){clockOn=!clockOn;clock.classList.toggle('on',clockOn);this.classList.toggle('on',clockOn);if(clockOn)wake();else{try{wakeLock&&wakeLock.release()}catch(_){}wakeLock=null}};
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&clockOn&&!wakeLock)wake()});
+document.getElementById('fsBtn').onclick=async()=>{const d=document.documentElement,fs=document.fullscreenElement||document.webkitFullscreenElement;try{if(fs)(document.exitFullscreen||document.webkitExitFullscreen).call(document);else if(d.requestFullscreen)await d.requestFullscreen();else if(d.webkitRequestFullscreen)await d.webkitRequestFullscreen()}catch(_){}};
+
+setTimeout(()=>document.getElementById('hint').classList.add('hide'),8500);
+</script></body></html>
