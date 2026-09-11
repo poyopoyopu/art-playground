@@ -157,6 +157,7 @@ function draw(){
   if(window.APKit && APKit.isExporting())return;
   renderScene(null);
 }
+function mouseReleased(){onDock=false}
 
 // map a screen tap into the strand's own 400x400 space
 function toDesign(sx,sy){
@@ -177,13 +178,29 @@ function onUI(x,y){
   const el=document.elementFromPoint(x,y);
   return !!(el&&el.closest&&el.closest('.apk-ctrl'));
 }
-function mousePressed(){ if(!onUI(mouseX,mouseY))bend(mouseX,mouseY); return false }
+/* Returning false from a p5 handler calls preventDefault. Doing that on every
+   touch also swallowed the taps meant for the dock, so the buttons never fired.
+   Now a touch that lands on the controls is handed straight back to the DOM. */
+let onDock=false;
+function mousePressed(){
+  if(onUI(mouseX,mouseY))return true;
+  bend(mouseX,mouseY);
+  return false;
+}
 function touchStarted(){
-  if(touches.length&&!onUI(touches[0].x,touches[0].y))bend(touches[0].x,touches[0].y);
+  if(!touches.length)return true;
+  onDock=onUI(touches[0].x,touches[0].y);
+  if(onDock)return true;
+  bend(touches[0].x,touches[0].y);
   return false;
 }
 function touchMoved(){
+  if(onDock)return true;
   if(touches.length&&frameCount%6===0)bend(touches[0].x,touches[0].y);
+  return false;
+}
+function touchEnded(){
+  if(onDock){onDock=false;return true}
   return false;
 }
 function windowResized(){
