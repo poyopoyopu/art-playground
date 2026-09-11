@@ -171,6 +171,16 @@
     z-index:51;
     box-shadow:0 2px 8px rgba(0,0,0,0.35);
   }
+
+  .prevbar{display:flex;justify-content:flex-end;margin:0 0 14px}
+  #prevToggle{border:1px solid #ffffff22;background:#ffffff0d;color:#fff;border-radius:18px;
+    padding:8px 14px;font-size:9.5px;letter-spacing:.22em;font-family:inherit}
+  #prevToggle.off{opacity:.5}
+  .tile:not(.live) iframe,.feature:not(.live) iframe{visibility:hidden}
+  .tile:not(.live),.feature:not(.live){background:
+    radial-gradient(120% 90% at 50% 0%,#1b1b2a 0%,#0c0c14 70%)}
+  .tile:not(.live)::after,.feature:not(.live)::after{content:"▷";position:absolute;left:50%;top:50%;
+    transform:translate(-50%,-50%);font-size:20px;opacity:.22;pointer-events:none}
 </style>
 </head>
 <body>
@@ -180,14 +190,35 @@
     <p>ジェネラティブアートの実験場。バージョンを残しながら、遊んで、壊して、進化させる。タップすると全画面で開くよ。</p>
   </header>
 
+  <div class="prevbar"><button id="prevToggle">PREVIEW ON</button></div>
   <section class="gallery">
     <div class="feature" onclick="openArt('art-v31-divided-law.html','v31 — DIVIDED LAW')">
-      <iframe src="art-v31-divided-law.html" loading="lazy"></iframe>
+      <iframe data-src="art-v31-divided-law.html" loading="lazy"></iframe>
       <div class="cap"><div class="v">CURRENT — v31</div><div class="name">DIVIDED LAW</div></div>
     </div>
 
     <h2>LOG</h2>
     <div class="grid2">
+      <div class="tile" onclick="openArt('art-v36-art-of-becoming.html','v36 — Art of Becoming')">
+        <iframe data-src="art-v36-art-of-becoming.html" loading="lazy"></iframe>
+        <div class="cap"><div class="v">v36</div><div class="name">Art of Becoming</div></div>
+      </div>
+      <div class="tile" onclick="openArt('art-v35-one-knot.html','v35 — One Knot')">
+        <iframe data-src="art-v35-one-knot.html" loading="lazy"></iframe>
+        <div class="cap"><div class="v">v35</div><div class="name">One Knot</div></div>
+      </div>
+      <div class="tile" onclick="openArt('art-v34-paper-world.html','v34 — Paper World')">
+        <iframe data-src="art-v34-paper-world.html" loading="lazy"></iframe>
+        <div class="cap"><div class="v">v34</div><div class="name">Paper World</div></div>
+      </div>
+      <div class="tile" onclick="openArt('art-v33-eversion.html','v33 — Eversion')">
+        <iframe data-src="art-v33-eversion.html" loading="lazy"></iframe>
+        <div class="cap"><div class="v">v33</div><div class="name">Eversion</div></div>
+      </div>
+      <div class="tile" onclick="openArt('art-v32-fault-lines.html','v32 — Fault Lines')">
+        <iframe data-src="art-v32-fault-lines.html" loading="lazy"></iframe>
+        <div class="cap"><div class="v">v32</div><div class="name">Fault Lines</div></div>
+      </div>
       <div class="tile" onclick="openArt('art-v30-standing-law.html','v30 — STANDING LAW')">
         <iframe data-src="art-v30-standing-law.html" loading="lazy"></iframe>
         <div class="cap"><div class="v">v30</div><div class="name">STANDING LAW</div></div>
@@ -268,29 +299,12 @@ function openArt(url){
   var f = document.getElementById('modalFrame');
   f.src = url;
   document.getElementById('modal').classList.add('open');
-  pauseBackground();
+  schedule();
 }
 function closeArt(){
   document.getElementById('modal').classList.remove('open');
   document.getElementById('modalFrame').src = '';
-  resumeBackground();
-}
-function pauseBackground(){
-  document.querySelectorAll('.feature iframe, .tile iframe').forEach(function(f){
-    var src = f.getAttribute('src');
-    if(src){ f.dataset.savedSrc = src; f.removeAttribute('src'); }
-  });
-}
-function resumeBackground(){
-  document.querySelectorAll('.feature iframe').forEach(function(f){
-    if(f.dataset.savedSrc){ f.setAttribute('src', f.dataset.savedSrc); }
-  });
-  if(window.__tileIO){
-    document.querySelectorAll('.tile').forEach(function(t){
-      window.__tileIO.unobserve(t);
-      window.__tileIO.observe(t);
-    });
-  }
+  schedule();
 }
 document.getElementById('modalFrame').addEventListener('load', function(){
   try{
@@ -314,44 +328,69 @@ function scalePreviews(){
   document.querySelectorAll('.tile, .feature').forEach(function(box){
     var iframe = box.querySelector('iframe');
     if(!iframe) return;
-    var w = box.clientWidth;
-    var scale = w / 460;
-    iframe.style.transform = 'scale(' + scale + ')';
+    iframe.style.transform = 'scale(' + (box.clientWidth / 460) + ')';
   });
 }
-window.addEventListener('load', scalePreviews);
 window.addEventListener('resize', scalePreviews);
-document.querySelectorAll('.tile iframe, .feature iframe').forEach(function(f){
-  f.addEventListener('load', scalePreviews);
-});
-scalePreviews();
 
-// 画面に入ったタイルだけライブ読み込みし、外れたら破棄して負荷を下げる
-if('IntersectionObserver' in window){
-  var io = new IntersectionObserver(function(entries){
-    entries.forEach(function(entry){
-      var iframe = entry.target.querySelector('iframe');
-      if(!iframe) return;
-      if(entry.isIntersecting){
-        var src = iframe.getAttribute('data-src');
-        if(src && iframe.getAttribute('src') !== src){
-          iframe.setAttribute('src', src);
-        }
-      } else {
-        if(iframe.getAttribute('src')){
-          iframe.removeAttribute('src');
-        }
-      }
-    });
-  }, { rootMargin: '200px 0px' });
-  window.__tileIO = io;
-  document.querySelectorAll('.tile').forEach(function(t){ io.observe(t); });
-} else {
-  // 非対応ブラウザ向けフォールバック: 全部読み込む
-  document.querySelectorAll('.tile iframe[data-src]').forEach(function(f){
-    f.setAttribute('src', f.getAttribute('data-src'));
-  });
+/* ---------------------------------------------------------------------------
+   Preview budget.
+   Every tile is a full generative piece, so "load whatever is on screen" meant
+   five or six animations running at once and the page crawling. Only the two
+   nearest the middle of the screen are allowed to run; the rest are torn down
+   and show their card. PREVIEW OFF stops all of them.
+   --------------------------------------------------------------------------- */
+var LIVE_BUDGET = 2;
+var previewsOn = true;
+try { previewsOn = localStorage.getItem('ap-prev') !== 'off'; } catch(e){}
+
+function boxes(){ return [].slice.call(document.querySelectorAll('.feature, .tile')); }
+function loadBox(b){
+  var f = b.querySelector('iframe'); if(!f) return;
+  var src = f.getAttribute('data-src');
+  if(src && f.getAttribute('src') !== src){ f.setAttribute('src', src); f.addEventListener('load', scalePreviews); }
+  b.classList.add('live');
 }
+function unloadBox(b){
+  var f = b.querySelector('iframe'); if(!f) return;
+  if(f.getAttribute('src')){ f.removeAttribute('src'); }
+  b.classList.remove('live');
+}
+
+var pending = false;
+function apply(){
+  pending = false;
+  if(document.getElementById('modal').classList.contains('open')){
+    boxes().forEach(unloadBox);
+    return;
+  }
+  if(!previewsOn || document.hidden){ boxes().forEach(unloadBox); return; }
+  var mid = innerHeight / 2;
+  var visible = boxes().map(function(b){
+    var r = b.getBoundingClientRect();
+    return { b:b, on: r.bottom > 0 && r.top < innerHeight,
+             d: Math.abs((r.top + r.bottom) / 2 - mid) };
+  }).filter(function(o){ return o.on; }).sort(function(a,b){ return a.d - b.d; });
+
+  var keep = visible.slice(0, LIVE_BUDGET).map(function(o){ return o.b; });
+  boxes().forEach(function(b){ keep.indexOf(b) >= 0 ? loadBox(b) : unloadBox(b); });
+}
+function schedule(){ if(!pending){ pending = true; requestAnimationFrame(apply); } }
+
+addEventListener('scroll', schedule, {passive:true});
+addEventListener('resize', schedule, {passive:true});
+document.addEventListener('visibilitychange', schedule);
+
+var toggle = document.getElementById('prevToggle');
+function paintToggle(){ toggle.textContent = previewsOn ? 'PREVIEW ON' : 'PREVIEW OFF';
+  toggle.classList.toggle('off', !previewsOn); }
+toggle.addEventListener('click', function(){
+  previewsOn = !previewsOn;
+  try { localStorage.setItem('ap-prev', previewsOn ? 'on' : 'off'); } catch(e){}
+  paintToggle(); schedule();
+});
+paintToggle();
+schedule();
 </script>
 </body>
 </html>
