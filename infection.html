@@ -197,13 +197,13 @@ function touchLaw(x,y,force){
   if(h)h.style.opacity='0';
 }
 
-// the kit's buttons sit over the canvas, so taps on them must not also infect
-function insideUI(x,y){
-  const el=document.elementFromPoint(x,y);
-  return !!(el && el.closest && el.closest('.apk-ctrl'));
-}
+/* The kit's dock and export sheet sit over the canvas. Returning false from a
+   p5 handler calls preventDefault, which would swallow the taps meant for
+   them, so a touch landing on kit UI is handed straight back to the DOM. */
+function insideUI(x,y){ return window.APKit ? APKit.isUI(x,y) : false }
+let onKitUI=false;
 function mousePressed(){
-  if(insideUI(mouseX,mouseY))return;
+  if(insideUI(mouseX,mouseY))return true;
   touchLaw(mouseX,mouseY,1);
   return false;
 }
@@ -212,15 +212,20 @@ function mouseDragged(){
   return false;
 }
 function touchStarted(){
-  if(touches.length){
-    if(insideUI(touches[0].x,touches[0].y))return;
-    touchLaw(touches[0].x,touches[0].y,1);
-  }
+  if(!touches.length)return true;
+  onKitUI=insideUI(touches[0].x,touches[0].y);
+  if(onKitUI)return true;
+  touchLaw(touches[0].x,touches[0].y,1);
   return false;
 }
 function touchMoved(){
+  if(onKitUI)return true;
   if(touches.length && frameCount%3===0)
     touchLaw(touches[0].x,touches[0].y,.55);
+  return false;
+}
+function touchEnded(){
+  if(onKitUI){onKitUI=false;return true}
   return false;
 }
 function windowResized(){
