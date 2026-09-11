@@ -1,0 +1,68 @@
+<!doctype html><html><head><title>MIRROR</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#020208">
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#020208;color:#fff;font-family:-apple-system,BlinkMacSystemFont,sans-serif}
+canvas{position:fixed;inset:0;width:100%;height:100%;touch-action:none}
+#ui{position:fixed;left:50%;bottom:max(18px,env(safe-area-inset-bottom));transform:translateX(-50%);display:flex;gap:14px;z-index:5;transition:opacity .5s}
+button{width:74px;height:58px;border:1px solid #333;border-radius:30px;background:#09090eaa;color:#fff;font-size:21px;backdrop-filter:blur(10px)}
+button:active{transform:scale(.94)}
+#clock{position:fixed;inset:0;display:none;place-items:center;z-index:4;pointer-events:none;text-align:center}
+#clock .t{font-size:clamp(52px,14vw,120px);font-weight:300;letter-spacing:.04em}
+#clock i{font-style:normal;opacity:.38;font-size:.5em}.d{font-size:14px;opacity:.55;margin-top:5px}
+#hint{position:fixed;left:50%;top:12%;transform:translateX(-50%);font-size:11px;letter-spacing:.18em;opacity:.35;pointer-events:none;z-index:3}
+</style>
+</head><body>
+<canvas id="c"></canvas><div id="hint">MIRROR — THERE IS NO ORIGINAL</div>
+<div id="clock"><div><div class="t"></div><div class="d"></div></div></div>
+<div id="ui"><button id="resetBtn">↻</button><button id="clockBtn">◷</button><button id="fsBtn">⛶</button></div>
+<script>
+const c=document.querySelector('#c'),g=c.getContext('2d');let W,H,S,t=0,ang=0,arms=9,seed=0;
+function resize(){S=Math.min(devicePixelRatio,2);W=innerWidth;H=innerHeight;c.width=W*S;c.height=H*S;g.setTransform(S,0,0,S,0,0)}resize();addEventListener('resize',resize);
+let touch=null;
+c.onpointerdown=e=>{c.setPointerCapture(e.pointerId);touch={x:e.clientX,y:e.clientY};arms=5+Math.floor((e.clientX/W)*17)};
+c.onpointermove=e=>{if(touch){touch.x=e.clientX;touch.y=e.clientY}};
+c.onpointerup=c.onpointercancel=()=>touch=null;
+function blob(a,r){
+ let q=Math.sin(a*3+t)*.25+Math.sin(a*7-t*1.7)*.13+Math.cos(a*11+t*.6)*.08;
+ return r*(1+q);
+}
+function frame(){
+ t+=.009;g.fillStyle='#010108';g.fillRect(0,0,W,H);let cx=W/2,cy=H/2;
+ if(touch){let dx=touch.x-cx,dy=touch.y-cy;ang+=Math.atan2(dy,dx)*.0008;}
+ g.save();g.translate(cx,cy);g.rotate(ang);
+ for(let k=0;k<arms;k++){let A=k*Math.PI*2/arms;g.save();g.rotate(A);if(k%2)g.scale(1,-1);
+   for(let layer=0;layer<18;layer++){let r=18+layer*Math.min(W,H)*.035+Math.sin(t*2+layer)*8;
+     g.beginPath();
+     for(let j=0;j<=80;j++){let a=j/80*Math.PI*2;let rr=blob(a,r);let xx=Math.cos(a)*rr,yy=Math.sin(a)*rr;
+       if(j===0)g.moveTo(xx,yy);else g.lineTo(xx,yy)}
+     g.closePath();g.strokeStyle=`hsla(${(layer*19+t*35+k*9)%360},95%,${48+layer*2}%,.18)`;g.lineWidth=1.2;g.stroke();
+   }g.restore();
+ }
+ // nested center makes a genuine self-similar object
+ g.globalCompositeOperation='screen';for(let z=0;z<7;z++){
+   g.beginPath();let rr=26+z*19+Math.sin(t*1.4+z)*5;g.arc(0,0,rr,0,Math.PI*2);
+   g.strokeStyle=`hsla(${(280+z*27+t*20)%360},100%,65%,.25)`;g.lineWidth=3;g.stroke()
+ }g.restore();requestAnimationFrame(frame)
+}frame();
+</script><script>
+const clock=document.querySelector('#clock'), ui=document.querySelector('#ui');
+let clockOn=false, wake=null;
+function tick(){
+ const d=new Date(), p=n=>String(n).padStart(2,'0');
+ clock.querySelector('.t').innerHTML=`${p(d.getHours())}:${p(d.getMinutes())}:<i>${p(d.getSeconds())}</i>`;
+ clock.querySelector('.d').textContent=`${d.getFullYear()}.${p(d.getMonth()+1)}.${p(d.getDate())}`;
+}
+document.querySelector('#clockBtn').onclick=async()=>{
+ clockOn=!clockOn; clock.style.display=clockOn?'grid':'none'; document.querySelector('#clockBtn').style.background=clockOn?'#fff':'#09090eaa'; document.querySelector('#clockBtn').style.color=clockOn?'#000':'#fff';
+ if(clockOn && 'wakeLock' in navigator){try{wake=await navigator.wakeLock.request('screen')}catch(e){}}
+ else if(wake){try{await wake.release()}catch(e){} wake=null}
+ tick();
+};
+setInterval(tick,250);
+document.querySelector('#fsBtn').onclick=()=>document.documentElement.requestFullscreen?.();
+let idle;
+function showUI(){ui.style.opacity=1;clearTimeout(idle);idle=setTimeout(()=>{if(clockOn)ui.style.opacity=.18},4000)}
+addEventListener('pointermove',showUI); addEventListener('pointerdown',showUI);
+document.querySelector('#resetBtn').onclick=()=>location.reload();
+</script></body></html>

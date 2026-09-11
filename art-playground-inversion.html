@@ -1,0 +1,63 @@
+<!doctype html><html><head><title>INVERSION</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#020208">
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#020208;color:#fff;font-family:-apple-system,BlinkMacSystemFont,sans-serif}
+canvas{position:fixed;inset:0;width:100%;height:100%;touch-action:none}
+#ui{position:fixed;left:50%;bottom:max(18px,env(safe-area-inset-bottom));transform:translateX(-50%);display:flex;gap:14px;z-index:5;transition:opacity .5s}
+button{width:74px;height:58px;border:1px solid #333;border-radius:30px;background:#09090eaa;color:#fff;font-size:21px;backdrop-filter:blur(10px)}
+button:active{transform:scale(.94)}
+#clock{position:fixed;inset:0;display:none;place-items:center;z-index:4;pointer-events:none;text-align:center}
+#clock .t{font-size:clamp(52px,14vw,120px);font-weight:300;letter-spacing:.04em}
+#clock i{font-style:normal;opacity:.38;font-size:.5em}.d{font-size:14px;opacity:.55;margin-top:5px}
+#hint{position:fixed;left:50%;top:12%;transform:translateX(-50%);font-size:11px;letter-spacing:.18em;opacity:.35;pointer-events:none;z-index:3}
+</style>
+</head><body>
+<canvas id="c"></canvas><div id="hint">INVERSION — TOUCH FLIPS INSIDE AND OUT</div>
+<div id="clock"><div><div class="t"></div><div class="d"></div></div></div>
+<div id="ui"><button id="resetBtn">↻</button><button id="clockBtn">◷</button><button id="fsBtn">⛶</button></div>
+<script>
+const c=document.querySelector('#c'),g=c.getContext('2d');let W,H,D,t=0,flip=[];
+function resize(){D=Math.min(devicePixelRatio,2);W=innerWidth;H=innerHeight;c.width=W*D;c.height=H*D;g.setTransform(D,0,0,D,0,0)}resize();addEventListener('resize',resize);
+c.onpointerdown=e=>{flip.push({x:e.clientX,y:e.clientY,r:90,life:1});if(flip.length>8)flip.shift();c.setPointerCapture(e.pointerId)};
+c.onpointermove=e=>{if(e.buttons){let q=flip[flip.length-1];q.x=e.clientX;q.y=e.clientY;q.r=Math.min(180,q.r+1)}};
+function signed(x,y){
+ let d=Math.hypot(x-W*.5,y-H*.5);
+ for(let q of flip){let rr=Math.hypot(x-q.x,y-q.y);if(rr<q.r)d=-d*.72}
+ return d;
+}
+function frame(){
+ t+=.012;g.fillStyle='#010107';g.fillRect(0,0,W,H);
+ let M=Math.min(W,H),cx=W/2,cy=H/2;
+ for(let n=0;n<28;n++){let off=n*9+Math.sin(t*1.5+n)*5;
+   g.beginPath();
+   for(let j=0;j<=240;j++){let a=j/240*Math.PI*2;let wob=Math.sin(a*3+t+n*.3)*10+Math.sin(a*7-t*1.4)*4;
+     let rr=M*.08+off+wob;let xx=cx+Math.cos(a)*rr,yy=cy+Math.sin(a)*rr;
+     if(j===0)g.moveTo(xx,yy);else g.lineTo(xx,yy)}
+   g.closePath();g.strokeStyle=`hsla(${(n*13+t*42)%360},100%,65%,.22)`;g.lineWidth=1.5;g.stroke();
+ }
+ // inversion zones redraw as nested contours, so a touch changes topology instead of pushing particles
+ for(let q of flip){for(let n=0;n<11;n++){let rr=q.r*(.12+n*.09)+Math.sin(t*2+n)*3;g.beginPath();g.arc(q.x,q.y,rr,0,Math.PI*2);
+   g.strokeStyle=`hsla(${(280+n*23+t*35)%360},100%,65%,${.12+n*.018})`;g.lineWidth=2;g.stroke()}}
+ requestAnimationFrame(frame)}frame();
+</script><script>
+const clock=document.querySelector('#clock'), ui=document.querySelector('#ui');
+let clockOn=false, wake=null;
+function tick(){
+ const d=new Date(), p=n=>String(n).padStart(2,'0');
+ clock.querySelector('.t').innerHTML=`${p(d.getHours())}:${p(d.getMinutes())}:<i>${p(d.getSeconds())}</i>`;
+ clock.querySelector('.d').textContent=`${d.getFullYear()}.${p(d.getMonth()+1)}.${p(d.getDate())}`;
+}
+document.querySelector('#clockBtn').onclick=async()=>{
+ clockOn=!clockOn; clock.style.display=clockOn?'grid':'none'; document.querySelector('#clockBtn').style.background=clockOn?'#fff':'#09090eaa'; document.querySelector('#clockBtn').style.color=clockOn?'#000':'#fff';
+ if(clockOn && 'wakeLock' in navigator){try{wake=await navigator.wakeLock.request('screen')}catch(e){}}
+ else if(wake){try{await wake.release()}catch(e){} wake=null}
+ tick();
+};
+setInterval(tick,250);
+document.querySelector('#fsBtn').onclick=()=>document.documentElement.requestFullscreen?.();
+let idle;
+function showUI(){ui.style.opacity=1;clearTimeout(idle);idle=setTimeout(()=>{if(clockOn)ui.style.opacity=.18},4000)}
+addEventListener('pointermove',showUI); addEventListener('pointerdown',showUI);
+document.querySelector('#resetBtn').onclick=()=>location.reload();
+</script></body></html>
