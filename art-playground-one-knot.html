@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#020207">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Art Playground — ONE KNOT</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#020207;color:#fff}
+body{height:100dvh;touch-action:none;overscroll-behavior:none;font-family:system-ui,-apple-system,sans-serif}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+.controls{position:fixed;z-index:8;right:4vw;bottom:max(3.5vh,env(safe-area-inset-bottom));display:flex;gap:8px;transition:opacity .6s}
+.controls.idle{opacity:0;pointer-events:none}
+.btn{width:40px;height:40px;border-radius:50%;border:1px solid #ffffff25;background:#05050bd9;color:#fff;font-size:14px;box-shadow:0 4px 18px #0008;backdrop-filter:blur(10px)}
+.btn:active{transform:scale(.92)}
+.btn.act{border-color:#ffffff60;background:#ffffff1e}
+.label{position:fixed;z-index:7;left:50%;bottom:max(4vh,env(safe-area-inset-bottom));transform:translateX(-50%);font-size:8px;letter-spacing:.42em;opacity:.3;pointer-events:none;white-space:nowrap;transition:opacity 1.2s}
+.label.hide{opacity:0}
+.clock{position:fixed;z-index:9;left:50%;top:50%;transform:translate(-50%,-50%);display:none;flex-direction:column;align-items:center;gap:6px;font-family:ui-monospace,"SF Mono",monospace;font-variant-numeric:tabular-nums;pointer-events:none}
+.clock.on{display:flex}
+.clock .t{font-size:clamp(44px,16.5vw,132px);line-height:1;font-weight:600;color:#fff;text-shadow:0 0 3px #000,0 0 16px #000,0 4px 34px #000}
+.clock .t i{font-style:normal;opacity:.62}
+.clock .d{font-size:clamp(11px,3.3vw,17px);letter-spacing:.3em;opacity:.62;text-shadow:0 0 4px #000}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="clock" id="clock"><div class="t" id="clockTime">00:00<i>:00</i></div><div class="d" id="clockDate"></div></div>
+<div class="label" id="label">ONE KNOT · TOUCH TO CUT THE WORLD</div>
+<div class="controls" id="controls">
+<button class="btn" id="mutate">✦</button>
+<button class="btn" id="wipe">↻</button>
+<button class="btn" id="clockBtn">🕐</button>
+<button class="btn" id="fsBtn">⛶</button>
+</div>
+
+<script>
+/*
+2026-09-11: ONE KNOT — built from zero.
+A single continuous world is folded into itself. The visible "objects" are not
+objects: they are cross-sections of one impossible surface. Touching cuts the
+surface and exposes the wrong side. The cuts remain and become new geometry.
+*/
+
+const c=document.getElementById('c');
+const ctx=c.getContext('2d',{alpha:false});
+let W=1,H=1,D=1,t=0,last=performance.now(),seed=Math.random()*99999;
+let mutation=0,shock=0,clockOn=false,wakeLock=null,idleTimer=null;
+let cuts=[],fingers=new Map();
+
+function resize(){
+  const r=c.getBoundingClientRect();
+  D=Math.min(devicePixelRatio||1,1.55);
+  W=Math.max(1,Math.floor(r.width*D));
+  H=Math.max(1,Math.floor(r.height*D));
+  c.width=W;c.height=H;
+}
+new ResizeObserver(resize).observe(c);
+addEventListener('resize',resize,{passive:true});
+resize();
+
+const TAU=Math.PI*2;
+function hash(n){n=Math.sin(n*127.1+seed*311.7)*43758.5453123;return n-Math.floor(n)}
+function clamp(x,a,b){return Math.max(a,Math.min(b,x))}
+function rgb(h,s,l){
+  return `hsl(${((h%360)+360)%360} ${s}% ${l}%)`;
+}
+
+/* The "surface": every sample is repeatedly folded through the same equation. */
+function surface(x,y,time,depth=4){
+  let X=x,Y=y;
+  let twist=0;
+  for(let k=0;k<depth;k++){
+    const r=Math.hypot(X,Y)+.0001;
+    const a=Math.atan2(Y,X);
+    const w=Math.sin(r*8.0-time*.72+k*1.37+Math.sin(a*5.0+time*.31)*2.0);
+    const ca=Math.cos(a+w*.34),sa=Math.sin(a+w*.34);
+    X=ca*r;Y=sa*r;
+    const fold=Math.sin((X-Y)*(5.2+k*.9)+time*.13);
+    X=Math.abs(X+fold*.055)-.11-k*.006;
+    Y=Math.abs(Y-fold*.055)-.11+k*.004;
+    const rr=Math.hypot(X,Y);
+    X*=1.12/(1.0+rr*.26);
+    Y*=1.12/(1.0+rr*.26);
+    twist+=w*.13;
+  }
+  return [X,Y,twist];
+}
+
+function draw(now){
+  const dt=Math.min(.035,(now-last)/1000);last=now;
+  t+=dt;
+  mutation*=Math.pow(.12,dt);
+  shock*=Math.pow(.18,dt);
+
+  ctx.fillStyle='#020207';
+  ctx.fillRect(0,0,W,H);
+
+  const min=Math.min(W,H),cx=W*.5,cy=H*.5;
+  const time=t+mutation*.9;
+
+  ctx.save();
+  ctx.translate(cx,cy);
+
+  /*
+    Instead of particles, draw hundreds of cross-sections of the same surface.
+    Adjacent contours share the same equation, so they visually join into one
+    continuous organism.
+  */
+  const rings=58;
+  for(let band=0;band<rings;band++){
+    const base=.045+band/rings*1.20;
+    const pts=54;
+    ctx.beginPath();
+    for(let j=0;j<=pts;j++){
+      const a=j/pts*TAU;
+      let r=base;
+      r += .032*Math.sin(a*7+band*.73-time*.38);
+      r += .018*Math.sin(a*17-band*.21+time*.52);
+      r += .010*Math.sin(a*31+band*1.7-time);
+      let x=Math.cos(a)*r,y=Math.sin(a)*r;
+
+      const s=surface(x,y,time,4);
+      x=s[0];y=s[1];
+
+      /* persistent cuts bend the whole surface around the wound */
+      for(const q of cuts){
+        const dx=x-q.x,dy=y-q.y,d=Math.hypot(dx,dy);
+        if(d<q.r*3.8){
+          const w=Math.exp(-(d*d)/(q.r*q.r));
+          const ang=Math.atan2(dy,dx)+q.twist*w;
+          x+=Math.cos(ang)*w*q.r*2.7*q.power;
+          y+=Math.sin(ang)*w*q.r*2.7*q.power;
+          const rr=Math.hypot(x,y)+.001;
+          x+=(-y/rr)*w*q.r*1.8;
+          y+=( x/rr)*w*q.r*1.8;
+        }
+      }
+
+      const px=x*min,py=y*min;
+      if(j===0)ctx.moveTo(px,py);else ctx.lineTo(px,py);
+    }
+    const hue=155+band*4.7+Math.sin(time*.25+band*.13)*65+mutation*50;
+    ctx.lineWidth=(.65+D*.34)*(1+band/rings*1.7);
+    ctx.globalAlpha=.14+.62*(1-band/rings);
+    ctx.strokeStyle=rgb(hue,96,55+20*Math.sin(band*.31));
+    ctx.stroke();
+  }
+
+  /* Second reading of the same surface, offset and inverted: the "wrong side". */
+  ctx.globalCompositeOperation='screen';
+  for(let layer=0;layer<17;layer++){
+    const off=(layer-8)*.009;
+    ctx.beginPath();
+    const pts=110;
+    for(let j=0;j<=pts;j++){
+      const a=j/pts*TAU;
+      const r=.12+layer*.057+.022*Math.sin(a*11+layer+time*.7);
+      const s=surface(Math.cos(a)*r+off,Math.sin(a)*r-off,time+1.7,5);
+      let x=-s[1]*min*.82,y=s[0]*min*.82;
+      ctx.lineTo(x,y);
+    }
+    ctx.globalAlpha=.045+.025*Math.sin(layer+time);
+    ctx.lineWidth=1.0*D;
+    ctx.strokeStyle=rgb(300+layer*11+time*20,100,68);
+    ctx.stroke();
+  }
+
+  /* Cuts are not circles: they are small topological seams that open and close. */
+  for(const q of cuts){
+    const age=t-q.birth;
+    const alive=Math.max(0,1-age/55);
+    if(alive<=0)continue;
+    const rr=q.r*min*(1.0+.22*Math.sin(age*1.7));
+    ctx.globalAlpha=.45*alive;
+    ctx.lineWidth=1.2*D;
+    ctx.strokeStyle=rgb(q.hue+time*35,100,72);
+    ctx.beginPath();
+    for(let j=0;j<=80;j++){
+      const a=j/80*TAU;
+      const wob=1+.25*Math.sin(a*7-age*2.2)+.12*Math.sin(a*13+age);
+      const x=Math.cos(a+q.twist*.4)*rr*wob+q.x*min;
+      const y=Math.sin(a+q.twist*.4)*rr*wob+q.y*min;
+      if(j===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+
+    /* black aperture */
+    ctx.globalAlpha=.18*alive;
+    ctx.fillStyle='#020207';
+    ctx.beginPath();ctx.arc(q.x*min,q.y*min,rr*.38,0,TAU);ctx.fill();
+  }
+
+  ctx.restore();
+
+  /* A rare global event: the entire coordinate system snaps to a new fold. */
+  if(Math.floor(t/13)!==Math.floor((t-dt)/13) && Math.random()<.62){
+    mutation+=(hash(Math.floor(t))*2-1)*4.5;
+    shock=1;
+  }
+
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+
+/* Touch creates a persistent cut in the surface. */
+function pos(e){
+  const r=c.getBoundingClientRect(),m=Math.min(r.width,r.height);
+  return {x:(e.clientX-r.left-r.width/2)/m,y:(e.clientY-r.top-r.height/2)/m};
+}
+function cutAt(p,boost=1){
+  cuts.push({
+    x:p.x,y:p.y,
+    r:(.018+.028*Math.random())*boost,
+    twist:(Math.random()-.5)*4.8,
+    power:.7+Math.random()*1.5,
+    hue:Math.random()*360,
+    birth:t
+  });
+  if(cuts.length>24)cuts.shift();
+  mutation+=(Math.random()-.5)*1.2*boost;
+  shock=1;
+}
+c.addEventListener('pointerdown',e=>{
+  e.preventDefault();try{c.setPointerCapture(e.pointerId)}catch(_){}
+  const p=pos(e);fingers.set(e.pointerId,p);cutAt(p,1.25);
+  document.getElementById('label').classList.add('hide');bumpIdle();
+},{passive:false});
+c.addEventListener('pointermove',e=>{
+  if(!fingers.has(e.pointerId))return;
+  const p=pos(e),q=fingers.get(e.pointerId);
+  if(Math.hypot(p.x-q.x,p.y-q.y)>.012)cutAt(p,.62);
+  fingers.set(e.pointerId,p);
+},{passive:true});
+function up(e){fingers.delete(e.pointerId)}
+c.addEventListener('pointerup',up);c.addEventListener('pointercancel',up);
+c.addEventListener('contextmenu',e=>e.preventDefault());
+
+document.getElementById('mutate').onclick=()=>{
+  seed=Math.random()*99999;
+  mutation+=(Math.random()-.5)*8;
+  shock=1;
+  for(let i=0;i<4;i++)cutAt({x:(Math.random()-.5)*.9,y:(Math.random()-.5)*1.2},.8);
+};
+document.getElementById('wipe').onclick=()=>{
+  cuts=[];
+  mutation+=5;
+  shock=1;
+};
+
+/* Clock / fullscreen */
+const ctrl=document.getElementById('controls');
+function bumpIdle(){
+  ctrl.classList.remove('idle');clearTimeout(idleTimer);
+  if(clockOn)idleTimer=setTimeout(()=>ctrl.classList.add('idle'),4000);
+}
+addEventListener('pointerdown',bumpIdle,{passive:true});
+
+const clock=document.getElementById('clock'),ct=document.getElementById('clockTime'),cd=document.getElementById('clockDate');
+const week=['日','月','火','水','木','金','土'],pad=n=>String(n).padStart(2,'0');
+function tick(){
+  if(!clockOn)return;
+  const d=new Date();
+  ct.innerHTML=pad(d.getHours())+':'+pad(d.getMinutes())+'<i>:'+pad(d.getSeconds())+'</i>';
+  cd.textContent=(d.getMonth()+1)+'月'+d.getDate()+'日 ('+week[d.getDay()]+')';
+}
+function clockLoop(){tick();setTimeout(clockLoop,1000-(Date.now()%1000)+8)}clockLoop();
+async function wake(){try{if('wakeLock'in navigator)wakeLock=await navigator.wakeLock.request('screen')}catch(_){}}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&clockOn&&!wakeLock)wake()});
+document.getElementById('clockBtn').onclick=function(){
+  clockOn=!clockOn;clock.classList.toggle('on',clockOn);this.classList.toggle('act',clockOn);
+  if(clockOn)wake();else{try{wakeLock&&wakeLock.release()}catch(_){}wakeLock=null;ctrl.classList.remove('idle')}
+  bumpIdle();
+};
+document.getElementById('fsBtn').onclick=async()=>{
+  const d=document.documentElement,fs=document.fullscreenElement||document.webkitFullscreenElement;
+  try{
+    if(fs)(document.exitFullscreen||document.webkitExitFullscreen).call(document);
+    else if(d.requestFullscreen)await d.requestFullscreen();
+    else if(d.webkitRequestFullscreen)await d.webkitRequestFullscreen();
+    else alert('Safariでは「ホーム画面に追加」でフチなし表示にできます');
+  }catch(_){}
+};
+setTimeout(()=>document.getElementById('label').classList.add('hide'),9000);
+</script>
+</body>
+</html>
