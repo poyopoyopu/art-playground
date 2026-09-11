@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>FIELD</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#050505}
+body{touch-action:none}
+canvas{display:block}
+</style>
+</head>
+<body>
+<script src="https://cdn.jsdelivr.net/npm/p5@1.11.10/lib/p5.min.js"></script>
+<script>
+/*
+  FIELD — a new generative-art experiment.
+
+  Concept:
+  The canvas is not a picture. It is a physical field.
+  Thousands of invisible paths are continuously calculated.
+  Touch does not paint anything.
+  It creates a "rule" in space. Existing paths bend around that rule.
+  Rules can intersect, resonate and eventually create large-scale forms.
+
+  No text. No UI. No decorative effects.
+*/
+
+const COUNT = 14500;
+let particles = [];
+let laws = [];
+let ripples = [];
+let t = 0;
+let entropy = 0;
+
+function setup(){
+  createCanvas(windowWidth, windowHeight);
+  pixelDensity(Math.min(2, window.devicePixelRatio || 1));
+  initField();
+}
+
+function initField(){
+  particles = [];
+  laws = [];
+  ripples = [];
+  entropy = 0;
+  background(5);
+
+  const step = Math.max(5.5, Math.min(9, width / 125));
+
+  for(let x = -step; x < width + step && particles.length < COUNT; x += step){
+    for(let y = -step; y < height + step && particles.length < COUNT; y += step){
+      const nx = x / Math.max(width,height);
+      const ny = y / Math.max(width,height);
+
+      particles.push({
+        x:x + random(-.8,.8),
+        y:y + random(-.8,.8),
+        ox:x, oy:y,
+        vx:0, vy:0,
+        phase:random(TWO_PI),
+        seed:random(1000),
+        age:random(100)
+      });
+    }
+  }
+}
+
+function draw(){
+  // Slow accumulation turns motion into structure.
+  background(5, 15);
+
+  t += 0.006;
+  entropy *= 0.998;
+
+  for(const p of particles){
+
+    let fx = 0;
+    let fy = 0;
+
+    // A mathematical base field.
+    const cx = p.x - width*.5;
+    const cy = p.y - height*.5;
+    const rr = Math.hypot(cx,cy) + 1;
+    const aa = Math.atan2(cy,cx);
+
+    const n =
+      Math.sin(cx*.009 + Math.sin(cy*.006 + t)*2.0) +
+      Math.sin(cy*.011 - t*1.7) * .7 +
+      Math.sin(rr*.018 - t*2.3) * .45;
+
+    // Flow is neither radial nor purely circular.
+    fx += Math.cos(aa + n*.7) * .055;
+    fy += Math.sin(aa + n*.7) * .055;
+
+    fx += -Math.sin(aa) * n * .035;
+    fy +=  Math.cos(aa) * n * .035;
+
+    // Every touch adds a new local law.
+    for(const l of laws){
+      const dx = p.x-l.x;
+      const dy = p.y-l.y;
+      const d = Math.hypot(dx,dy) + .001;
+
+      if(d < l.radius){
+        const q = 1-d/l.radius;
+        const fall = q*q;
+
+        // The important part:
+        // a law changes direction, not merely position.
+        const tangent = l.spin * (0.7 + q*1.8);
+        fx += (-dy/d) * tangent * fall;
+        fy += ( dx/d) * tangent * fall;
+
+        // Attraction/repulsion oscillates over time.
+        const pulse = Math.sin(t*l.rate + l.phase);
+        const force = pulse * l.pull * fall;
+
+        fx += (dx/d) * force;
+        fy += (dy/d) * force;
+
+        // Near the center the field becomes unstable.
+        if(d < l.radius*.22){
+          const chaos = Math.sin(t*9 + l.phase) * fall;
+          fx += (-dy/d) * chaos*.9;
+          fy += ( dx/d) * chaos*.9;
+        }
+      }
+    }
+
+    // Ripples are global disturbances.
+    for(const r of ripples){
+      const dx=p.x-r.x, dy=p.y-r.y;
+      const d=Math.hypot(dx,dy)+.001;
+      const ring=Math.exp(-Math.pow((d-r.radius)/28,2))*r.power;
+
+      fx += dx/d * ring*.45;
+      fy += dy/d * ring*.45;
+    }
+
+    // Weak memory of the original grid.
+    fx += (p.ox-p.x)*.0009;
+    fy += (p.oy-p.y)*.0009;
+
+    p.vx = (p.vx + fx) * .935;
+    p.vy = (p.vy + fy) * .935;
+    p.x += p.vx;
+    p.y += p.vy;
+
+    if(p.x < -20) p.x = width+20;
+    if(p.x > width+20) p.x = -20;
+    if(p.y < -20) p.y = height+20;
+    if(p.y > height+20) p.y = -20;
+
+    p.age++;
+
+    // Measure local complexity.
+    let influence=0;
+    let nearLaw=null;
+
+    for(const l of laws){
+      const d=Math.hypot(p.x-l.x,p.y-l.y);
+      if(d<l.radius){
+        const q=1-d/l.radius;
+        if(q>influence){
+          influence=q;
+          nearLaw=l;
+        }
+      }
+    }
+
+    const structure =
+      Math.pow(Math.max(0,
+        Math.sin(
+          rr*.014 +
+          Math.sin(aa*3+t)*1.5 +
+          n*.65 -
+          t*.8 +
+          p.phase
+        )
+      ), 9);
+
+    const filament =
+      Math.pow(Math.max(0,
+        Math.cos(rr*.026 - t*2.2 + p.seed)
+      ), 14);
+
+    const intensity = Math.min(1,
+      structure*.72 +
+      filament*.18 +
+      influence*1.35
+    );
+
+    // Almost-black centers emerge naturally.
+    if(influence > .82) continue;
+
+    const hue =
+      (p.seed*.003 +
+       t*.12 +
+       influence*2.8 +
+       structure*.8) % TWO_PI;
+
+    // Narrow spectral palette, mostly dark with occasional bright color.
+    const r1 = 90 + 165*(.5+.5*Math.sin(hue));
+    const g1 = 55 + 190*(.5+.5*Math.sin(hue+2.094));
+    const b1 = 110 + 145*(.5+.5*Math.sin(hue+4.188));
+
+    const size =
+      .45 +
+      intensity*2.8 +
+      influence*2.2;
+
+    noStroke();
+    fill(r1,g1,b1,20+220*intensity);
+
+    rect(
+      p.x-size*.5,
+      p.y-size*.5,
+      size,
+      size
+    );
+  }
+
+  // Laws slowly evolve instead of simply disappearing.
+  for(let i=laws.length-1;i>=0;i--){
+    const l=laws[i];
+
+    l.radius += .018 + entropy*.015;
+    l.phase += .004*l.rate;
+    l.pull += Math.sin(t*.7+l.phase)*.0008;
+    l.spin += Math.cos(t*.5+l.phase)*.0005;
+    l.life--;
+
+    // Intersecting laws exchange energy.
+    for(let j=i-1;j>=0;j--){
+      const q=laws[j];
+      const d=Math.hypot(l.x-q.x,l.y-q.y);
+
+      if(d < (l.radius+q.radius)*.34){
+        const transfer=.003;
+        l.spin += q.spin*transfer;
+        q.spin += l.spin*transfer;
+        l.pull += q.pull*transfer;
+        q.pull += l.pull*transfer;
+      }
+    }
+
+    if(l.life<=0) laws.splice(i,1);
+  }
+
+  for(let i=ripples.length-1;i>=0;i--){
+    ripples[i].radius += 6;
+    ripples[i].power *= .975;
+    if(ripples[i].power < .02) ripples.splice(i,1);
+  }
+
+  // Once the system has enough energy, it occasionally creates
+  // a tiny autonomous disturbance from an existing law.
+  if(entropy>.55 && frameCount%180===0 && laws.length){
+    const l=random(laws);
+    ripples.push({
+      x:l.x+random(-30,30),
+      y:l.y+random(-30,30),
+      radius:2,
+      power:.35
+    });
+  }
+}
+
+function createLaw(x,y,strength=1){
+  laws.push({
+    x:x,
+    y:y,
+    radius:45+random(35,75)*strength,
+    phase:random(TWO_PI),
+    spin:random(-1.4,1.4),
+    pull:random(-1.1,1.1),
+    rate:random(.5,1.8),
+    life:900+random(500)*strength
+  });
+
+  ripples.push({
+    x:x,y:y,radius:2,power:.8*strength
+  });
+
+  entropy=Math.min(1,entropy+.18*strength);
+
+  if(laws.length>13) laws.shift();
+}
+
+function globalDisturbance(x,y){
+  ripples.push({x,y,radius:2,power:1.8});
+
+  for(const l of laws){
+    l.spin *= -1.15;
+    l.pull *= -1.25;
+    l.radius *= 1.06;
+  }
+
+  entropy=1;
+}
+
+let downTime=0;
+let downX=0, downY=0;
+let lastTap=0;
+
+function press(x,y){
+  const now=millis();
+
+  if(now-lastTap<330){
+    globalDisturbance(x,y);
+  }else{
+    createLaw(x,y,1);
+  }
+
+  lastTap=now;
+  downTime=now;
+  downX=x;
+  downY=y;
+}
+
+function move(x,y){
+  if(Math.hypot(x-downX,y-downY)>9){
+    createLaw(x,y,.22);
+    downX=x;
+    downY=y;
+  }
+}
+
+function release(){
+  if(millis()-downTime>650){
+    // Long press reverses every existing law.
+    for(const l of laws){
+      l.spin*=-1;
+      l.pull*=-1;
+    }
+    entropy=Math.min(1,entropy+.3);
+  }
+}
+
+function mousePressed(){press(mouseX,mouseY);return false}
+function mouseDragged(){move(mouseX,mouseY);return false}
+function mouseReleased(){release();return false}
+
+function touchStarted(){
+  if(touches.length) press(touches[0].x,touches[0].y);
+  return false;
+}
+function touchMoved(){
+  if(touches.length) move(touches[0].x,touches[0].y);
+  return false;
+}
+function touchEnded(){release();return false}
+
+function keyPressed(){
+  if(key==='r'||key==='R') initField();
+  if(key==='s'||key==='S') saveCanvas('field-'+Date.now(),'png');
+}
+
+function windowResized(){
+  resizeCanvas(windowWidth,windowHeight);
+  initField();
+}
+</script>
+</body>
+</html>
