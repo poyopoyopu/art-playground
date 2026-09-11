@@ -311,7 +311,18 @@ function T(k,phase,time){
   return cycles*phase;
 }
 
+/* Whether a screen point belongs to the kit's own UI — the dock, the export
+   sheet, or a toast. Pieces that swallow touches (p5 returns false to
+   preventDefault) must ask this first, or they kill the taps meant for these
+   controls. Checking only the dock was not enough: the export sheet is a
+   separate layer. */
+function isUI(x,y){
+  const el=document.elementFromPoint(x,y);
+  return !!(el && el.closest && el.closest('.apk-ctrl,.apk-sheet,.apk-toast'));
+}
+
 window.APKit={
+  isUI:isUI,
   init(o){
     opts=o||{};
     if(document.readyState==='loading')
