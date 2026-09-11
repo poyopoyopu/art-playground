@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>VOID FIELD v32</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}
+body{touch-action:none;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#fff}
+canvas{display:block}
+.hud{position:fixed;z-index:3;pointer-events:none}
+.title{left:22px;top:18px;font-size:18px;letter-spacing:.32em}
+.sub{left:24px;top:48px;font-size:9px;letter-spacing:.28em;opacity:.65}
+.desc{left:24px;top:78px;font-size:10px;line-height:1.8;letter-spacing:.08em;opacity:.78}
+.help{right:18px;top:18px;width:210px;padding:15px 16px;border:1px solid rgba(255,255,255,.22);border-radius:14px;background:rgba(0,0,0,.42);backdrop-filter:blur(8px);font-size:9px;line-height:2;letter-spacing:.08em}
+.help b{font-weight:500;display:inline-block;width:72px;opacity:.7}
+.badge{left:24px;bottom:18px;font-size:8px;letter-spacing:.22em;opacity:.55}
+.buttons{right:18px;bottom:17px;display:flex;gap:8px;pointer-events:auto}
+button{color:#fff;background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.24);border-radius:10px;padding:9px 13px;font:9px ui-monospace,SFMono-Regular,monospace;letter-spacing:.14em}
+@media(max-width:600px){
+ .title{font-size:15px}.desc{font-size:9px}.help{display:none}
+ .desc{top:72px}.badge{bottom:14px}.buttons{bottom:13px}
+}
+</style>
+</head>
+<body>
+<div class="hud title">VOID FIELD</div>
+<div class="hud sub">TOUCH THE LAW</div>
+<div class="hud desc">触れた場所にVOIDが生まれ<br>粒子が逃げ、集まり、世界の構造が変わる</div>
+<div class="hud help">
+ <div><b>TAP</b>VOIDを生成</div>
+ <div><b>DRAG</b>連続して生成</div>
+ <div><b>HOLD</b>引力／斥力を切替</div>
+ <div><b>DOUBLE</b>全体に波を発生</div>
+ <div><b>R</b>リセット</div>
+ <div><b>S</b>画像保存</div>
+</div>
+<div class="hud badge">GENERATIVE ART EXPERIMENT / HUMAN × AI × CODE</div>
+<div class="hud buttons"><button id="reset">RESET&nbsp; R</button><button id="save">SAVE&nbsp; S</button></div>
+
+<script src="https://cdn.jsdelivr.net/npm/p5@1.11.10/lib/p5.min.js"></script>
+<script>
+let particles=[], voids=[], waves=[];
+let seed=0, mode=1, lastTap=0, downAt=0, downX=0, downY=0;
+const N=11000;
+
+function setup(){
+  createCanvas(windowWidth,windowHeight);
+  pixelDensity(Math.min(2,window.devicePixelRatio||1));
+  resetWorld();
+}
+
+function resetWorld(){
+  seed=floor(random(999999));
+  randomSeed(seed);
+  particles=[];
+  voids=[];
+  waves=[];
+  const gap=Math.max(7, Math.min(12, width/95));
+  for(let x=gap/2;x<width;x+=gap){
+    for(let y=gap/2;y<height;y+=gap){
+      particles.push({
+        x:x+random(-.7,.7), y:y+random(-.7,.7),
+        ox:x,oy:y, ph:random(TWO_PI), hue:random(TWO_PI),
+        vx:0,vy:0
+      });
+      if(particles.length>=N) break;
+    }
+    if(particles.length>=N) break;
+  }
+  background(0);
+}
+
+function draw(){
+  background(0,22);
+  const t=frameCount*.012;
+
+  // Ambient vector field: a slow mathematical flow.
+  for(const p of particles){
+    let ax=0,ay=0;
+
+    const cx=p.x-width*.5, cy=p.y-height*.5;
+    const rr=sqrt(cx*cx+cy*cy)+1;
+    const ang=atan2(cy,cx);
+    const field=sin(rr*.016-t*2+p.ph)+.55*sin(ang*3+t);
+
+    ax += -sin(ang)*field*.075;
+    ay +=  cos(ang)*field*.075;
+
+    // Every VOID rewrites the local law.
+    for(const v of voids){
+      const dx=p.x-v.x, dy=p.y-v.y;
+      const d2=dx*dx+dy*dy, d=sqrt(d2)+.001;
+      if(d<v.r*2.4){
+        const q=1-Math.min(1,d/(v.r*2.4));
+        const sign=v.repulse?1:-1;
+        // tangential component makes the particle stream around the void
+        ax += dx/d * sign*q*1.8;
+        ay += dy/d * sign*q*1.8;
+        ax += -dy/d*q*2.2;
+        ay +=  dx/d*q*2.2;
+      }
+    }
+
+    // Restore slowly so the field remains recognizable.
+    ax += (p.ox-p.x)*.0015;
+    ay += (p.oy-p.y)*.0015;
+
+    p.vx=(p.vx+ax)*.91;
+    p.vy=(p.vy+ay)*.91;
+    p.x+=p.vx;
+    p.y+=p.vy;
+
+    if(p.x<-20)p.x=width+20;
+    if(p.x>width+20)p.x=-20;
+    if(p.y<-20)p.y=height+20;
+    if(p.y>height+20)p.y=-20;
+
+    let near=0;
+    for(const v of voids){
+      const d=dist(p.x,p.y,v.x,v.y);
+      if(d<v.r*2.1) near=Math.max(near,1-d/(v.r*2.1));
+    }
+
+    // Organic/fractal-like brightness field.
+    const wave=0.5+0.5*sin(rr*.035-t*4+p.ph*2);
+    const structure=Math.pow(Math.max(0,Math.sin(
+      rr*.012 + Math.sin(ang*2+t)*2.0 - t*.7 + p.ph
+    )),8);
+    const intensity=Math.min(1,near*1.2+structure*.9+wave*.18);
+    const size=.8+intensity*3.0+near*1.7;
+
+    const h=(p.hue + t*.08 + near*1.8)%(TWO_PI);
+    const c=color(255);
+    // HSB-style color without global mode changes.
+    const rrgb=120+135*(.5+.5*sin(h));
+    const grgb=80+175*(.5+.5*sin(h+2.1));
+    const brgb=150+105*(.5+.5*sin(h+4.2));
+
+    noStroke();
+    fill(rrgb,grgb,brgb,45+205*intensity);
+    rect(p.x-size/2,p.y-size/2,size,size);
+  }
+
+  // Void cores are intentionally almost empty: the absence is the subject.
+  for(let i=voids.length-1;i>=0;i--){
+    const v=voids[i];
+    v.r += .10;
+    v.life -= 1;
+    noStroke(); fill(0,90); circle(v.x,v.y,v.r*2.15);
+    noFill(); stroke(255,255,255,10); circle(v.x,v.y,v.r*2.02);
+    if(v.life<0) voids.splice(i,1);
+  }
+
+  // Waves propagate through the entire field.
+  for(let i=waves.length-1;i>=0;i--){
+    const w=waves[i];
+    w.r += 5;
+    w.life -= 2;
+    noFill(); stroke(120,190,255,Math.max(0,w.life)*.16);
+    circle(w.x,w.y,w.r*2);
+    if(w.life<=0) waves.splice(i,1);
+  }
+}
+
+function spawnVoid(x,y,force=1){
+  voids.push({
+    x,y,r:18+random(12,30)*force,
+    life:500+random(180),
+    repulse: mode>0
+  });
+  if(voids.length>9) voids.shift();
+}
+
+function globalWave(x,y){
+  waves.push({x,y,r:2,life:120});
+  mode*=-1;
+  for(const v of voids) v.repulse=mode>0;
+}
+
+function pointerDown(x,y){
+  downAt=millis(); downX=x; downY=y;
+  const now=millis();
+  if(now-lastTap<320) globalWave(x,y);
+  lastTap=now;
+  spawnVoid(x,y,1);
+}
+
+function pointerMove(x,y){
+  if(millis()-downAt>120) spawnVoid(x,y,.42);
+}
+
+function pointerUp(){
+  // Long press changes the force law.
+  if(millis()-downAt>650){
+    mode*=-1;
+    for(const v of voids) v.repulse=mode>0;
+  }
+}
+
+function mousePressed(){pointerDown(mouseX,mouseY);return false}
+function mouseDragged(){pointerMove(mouseX,mouseY);return false}
+function mouseReleased(){pointerUp();return false}
+
+function touchStarted(){
+  if(touches.length) pointerDown(touches[0].x,touches[0].y);
+  return false;
+}
+function touchMoved(){
+  if(touches.length) pointerMove(touches[0].x,touches[0].y);
+  return false;
+}
+function touchEnded(){pointerUp();return false}
+
+function keyPressed(){
+  if(key==='r'||key==='R') resetWorld();
+  if(key==='s'||key==='S') saveCanvas('void-field-'+Date.now(),'png');
+}
+
+document.getElementById('reset').onclick=resetWorld;
+document.getElementById('save').onclick=()=>saveCanvas('void-field-'+Date.now(),'png');
+
+function windowResized(){
+  resizeCanvas(windowWidth,windowHeight);
+  resetWorld();
+}
+</script>
+</body>
+</html>
