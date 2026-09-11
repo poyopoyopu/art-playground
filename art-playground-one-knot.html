@@ -51,6 +51,7 @@ const ctx=c.getContext('2d',{alpha:false});
 let W=1,H=1,D=1,t=0,last=performance.now(),seed=Math.random()*99999;
 let mutation=0,shock=0,clockOn=false,wakeLock=null,idleTimer=null;
 let cuts=[],fingers=new Map();
+let touchRipples=[];
 
 function resize(){
   const r=c.getBoundingClientRect();
@@ -126,6 +127,28 @@ function draw(now){
 
       const s=surface(x,y,time,4);
       x=s[0];y=s[1];
+
+      /* LIVE TOUCH: the finger grabs the fabric itself. It bends the coordinate
+         field before the persistent cuts are applied, so the response is immediate
+         and visibly affects a broad region rather than making a tiny mark. */
+      for(const f of fingers.values()){
+        const dx=x-f.x,dy=y-f.y,d=Math.hypot(dx,dy)+.0001;
+        const reach=.34;
+        const w=Math.exp(-(d*d)/(reach*reach));
+        const ang=Math.atan2(dy,dx);
+        const grab=w*(.34+f.force*.34);
+        const twist=w*(f.spin*2.8+Math.sin(t*2.1)*.45);
+        const nx=Math.cos(ang+twist),ny=Math.sin(ang+twist);
+        x += (nx-dx/d)*grab*.28;
+        y += (ny-dy/d)*grab*.28;
+        const rr=Math.hypot(x,y)+.001;
+        x += (-y/rr)*w*f.spin*.12;
+        y += ( x/rr)*w*f.spin*.12;
+        // ripple rings radiate from the finger while it is held
+        const ripple=Math.sin(d*38-t*4.8-f.phase)*w;
+        x += (dx/d)*ripple*.025;
+        y += (dy/d)*ripple*.025;
+      }
 
       /* persistent cuts bend the whole surface around the wound */
       for(const q of cuts){
@@ -217,27 +240,44 @@ function cutAt(p,boost=1){
     x:p.x,y:p.y,
     r:(.018+.028*Math.random())*boost,
     twist:(Math.random()-.5)*4.8,
-    power:.7+Math.random()*1.5,
+    power:1.0+Math.random()*2.0,
     hue:Math.random()*360,
-    birth:t
+    birth:t,
+    phase:Math.random()*TAU
   });
   if(cuts.length>24)cuts.shift();
   mutation+=(Math.random()-.5)*1.2*boost;
   shock=1;
 }
 c.addEventListener('pointerdown',e=>{
-  e.preventDefault();try{c.setPointerCapture(e.pointerId)}catch(_){}
-  const p=pos(e);fingers.set(e.pointerId,p);cutAt(p,1.25);
+  e.preventDefault();try{c.setPointerCapture(e.pointerId)}catch(_){ }
+  const p=pos(e);
+  fingers.set(e.pointerId,{x:p.x,y:p.y,lastX:p.x,lastY:p.y,force:1,spin:(Math.random()-.5)*2,phase:Math.random()*TAU});
+  cutAt(p,1.65);
+  mutation+=(Math.random()-.5)*1.8;shock=1;
   document.getElementById('label').classList.add('hide');bumpIdle();
 },{passive:false});
+
 c.addEventListener('pointermove',e=>{
-  if(!fingers.has(e.pointerId))return;
-  const p=pos(e),q=fingers.get(e.pointerId);
-  if(Math.hypot(p.x-q.x,p.y-q.y)>.012)cutAt(p,.62);
-  fingers.set(e.pointerId,p);
+  const q=fingers.get(e.pointerId);if(!q)return;
+  const p=pos(e),dx=p.x-q.x,dy=p.y-q.y,dist=Math.hypot(dx,dy);
+  q.x=p.x;q.y=p.y;
+  q.force=clamp(q.force+dist*18,.7,2.8);
+  if(dist>.006){
+    q.spin=clamp((dx-dy)*28,-2.4,2.4);
+    // drag leaves a connected wound trail
+    cutAt(p,.78+Math.min(1,dist*18));
+    mutation+=(dx-dy)*7;
+  }
+  energy=1;shock=1;
 },{passive:true});
-function up(e){fingers.delete(e.pointerId)}
-c.addEventListener('pointerup',up);c.addEventListener('pointercancel',up);
+
+c.addEventListener('pointerup',e=>{
+  const q=fingers.get(e.pointerId);if(q)q.force=2.4;
+  fingers.delete(e.pointerId);
+});
+c.addEventListener('pointercancel',e=>fingers.delete(e.pointerId));
+c.addEventListener('pointerout',e=>{if(e.pointerType==='mouse')fingers.delete(e.pointerId)});
 c.addEventListener('contextmenu',e=>e.preventDefault());
 
 document.getElementById('mutate').onclick=()=>{
