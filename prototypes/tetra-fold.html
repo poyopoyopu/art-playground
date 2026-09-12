@@ -1,60 +1,107 @@
 <!doctype html>
-<!-- AXIS WEAVE — ChatGPT作。WebGL描画不能端末向けに2D Canvasへ再構成。添付GLSLのpairwise fold / p=2p-1を多階層で使用。ap-kit.js統合。 -->
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><title>AXIS WEAVE</title><script src="../ap-kit.js"></script><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}body{touch-action:none}canvas{position:fixed;inset:0;width:100%;height:100%;display:block}</style></head><body><canvas id="c"></canvas><script>
+<!-- VEIN — ChatGPT作。添付のProcessing式を核に、数式から生まれる細い羽状の流線を再構成。ap-kit.js統合。 -->
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><title>VEIN</title><script src="../ap-kit.js"></script><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}body{touch-action:none}canvas{position:fixed;inset:0;width:100%;height:100%;display:block}</style></head><body><canvas id="c"></canvas><script>
 const c=document.getElementById('c'),g=c.getContext('2d',{alpha:false});
-let W=0,H=0,D=1,seed=Math.random()*100,down=false,lastX=0,lastY=0,marks=[],lastDraw=0;
+let W=0,H=0,D=1,seed=Math.random()*100,down=false,lastX=0,lastY=0,touchX=-999,touchY=-999,touchAt=-999,lastDraw=0;
 const TAU=Math.PI*2;
 function resize(){W=innerWidth;H=innerHeight;D=Math.min(2,devicePixelRatio||1);c.width=Math.floor(W*D);c.height=Math.floor(H*D);g.setTransform(D,0,0,D,0,0)}addEventListener('resize',resize);
 function P(e){const r=c.getBoundingClientRect();return{x:(e.clientX-r.left)/r.width*W,y:(e.clientY-r.top)/r.height*H}}
-function fold2(x,y){
-  // 2D projection of the supplied three pairwise folds.
-  for(let k=0;k<7;k++){
-    x=Math.abs(x);y=Math.abs(y);
-    if(x+y>1){const a=x;x=1-y;y=1-a}
-    x=x*2-1;y=y*2-1;
-    // alternating shear preserves the irregular, non-Sierpinski character.
-    const a=x; x=Math.abs(a+y*.37); y=Math.abs(y-a*.19);
-    x=x*2-1;y=y*2-1;
-  }
-  return [x,y];
+function hsv(h,s=.9,v=1){h=((h%360)+360)%360;let k=n=>(n+h/60)%6, f=n=>v-v*s*Math.max(Math.min(k(n),4-k(n),1),0);return `rgb(${(f(5)*255)|0},${(f(3)*255)|0},${(f(1)*255)|0})`}
+
+// Direct translation of the mathematical core visible in the supplied reference.
+function eq(x,y,t){
+  const k=5*Math.cos((x+seed*1.7)/14)*Math.cos((y-seed*.8)/30);
+  const e=y/8-13;
+  const d=(k*k+e*e)/59+4;
+  const a=Math.atan2(k,e);
+  const q=60-3*Math.sin(a)+k*(3+4/d*Math.sin(d*d-2*t));
+  const cc=d/2+e/99-t/18;
+  return {u:3*q*Math.sin(cc),v:3*(q+9*d)*Math.cos(cc),k,e,d};
 }
-function touchField(x,y,t){let sx=0,sy=0,w=0;for(const m of marks){let dx=x-m.x,dy=y-m.y,d=Math.hypot(dx,dy),age=(t-m.t)/1000;if(age>3.8)continue;let q=Math.exp(-d*d/(m.r*m.r))*Math.max(0,1-age/3.8);let a=Math.atan2(dy,dx)+m.spin*q; sx+=Math.cos(a)*q*m.power;sy+=Math.sin(a)*q*m.power;w+=q}return [sx,sy,w]}
-function palette(h){let x=(h%360+360)%360;let s=1,v=.95;let C=v*s,X=C*(1-Math.abs((x/60)%2-1)),m=.06,r=0,gg=0,b=0;if(x<60){r=C;gg=X}else if(x<120){r=X;gg=C}else if(x<180){gg=C;b=X}else if(x<240){gg=X;b=C}else if(x<300){r=X;b=C}else{r=C;b=X}return `rgb(${((r+m)*255)|0},${((gg+m)*255)|0},${((b+m)*255)|0})`}
-function draw(t,phase=null){if(phase===null&&t-lastDraw<30)return;lastDraw=t;const tt=phase===null?t/1000:phase;
+
+function touchWarp(x,y,t){
+  if(touchAt<0)return [0,0,0];
+  const age=(t-touchAt)/1000;if(age>4.5)return [0,0,0];
+  const dx=x-touchX,dy=y-touchY,r=Math.hypot(dx,dy),life=Math.exp(-age*.22),front=Math.sin(Math.min(age,1.8)*Math.PI);
+  const q=Math.exp(-r*r/.095)*life*front;
+  return [(-dy/(r+.001))*q*.55,(dx/(r+.001))*q*.55,q];
+}
+
+function strand(t,side,phase){
+  // Long centerline: two drifting mathematical bodies, not radial symmetry.
+  const baseX=W*.5 + side*(W*.22 + Math.sin(t*.9+phase)*W*.025);
+  const baseY=H*.5 + t*H*.31;
+  const bend=Math.sin(t*3.1+phase)*W*.075 + Math.sin(t*7.7-phase)*W*.022;
+  return [baseX+bend,baseY];
+}
+
+function draw(now,phase=null){
+  if(phase===null&&now-lastDraw<30)return;lastDraw=now;
+  const T=phase===null?now/1000:phase*1.0;
   g.fillStyle='#000';g.fillRect(0,0,W,H);
-  const s=Math.max(5.2,Math.min(7.2,Math.min(W,H)/92));
-  const nx=Math.ceil(W/s)+1,ny=Math.ceil(H/s)+1;
-  for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){
-    let x=(i+.5)*s,y=(j+.5)*s;
-    let u=x/W*2-1,v=1-y/H*2;
-    const tf=touchField(u,v,t);u+=tf[0]*.22;v+=tf[1]*.22;
-    // Multiple scales: same fold law repeated at 1x, 2x, 4x.
-    let a=fold2(u*.88+Math.sin(tt*.18)*.025,v*.88);
-    let b=fold2(u*1.82+seed*.003,v*1.82-.13);
-    let z=fold2(u*3.64-.17,v*3.64+.09);
-    let phase0=i*.173+j*.287+seed*.071+tt*.045;
-    let q=Math.sin((a[0]+a[1])*5.7+phase0)+.7*Math.sin((b[0]-b[1])*9.3)+.42*Math.sin((z[0]+z[1])*15.7);
-    let on=q>.28;
-    if(!on)continue;
-    let px=x+a[0]*s*.72,py=y-a[1]*s*.72;
-    let size=s*(.38+.18*(.5+.5*Math.sin(phase0*2+z[0]*4)))*(1+tf[2]*.65);
-    let ang=phase0*.7+a[0]*1.2+tf[2]*.9;
-    let hue=seed*37+i*2.7-j*1.9+q*48+z[0]*85+tt*7;
-    g.fillStyle=palette(hue);
-    g.save();g.translate(px,py);g.rotate(ang);g.beginPath();
-    // Interlocking micro-shards, not triangles-only and not radial.
-    if(((i+j)&3)===0){g.rect(-size,-size*.28,size*2,size*.56)}
-    else if(((i+j)&3)===1){g.moveTo(0,-size);g.lineTo(size*.82,size*.55);g.lineTo(-size*.82,size*.55);g.closePath()}
-    else {g.moveTo(-size*.7,-size*.7);g.lineTo(size*.7,-size*.35);g.lineTo(size*.35,size*.7);g.lineTo(-size*.7,size*.35);g.closePath()}
-    g.fill();g.restore();
+
+  // Fine mathematical particles form many nested, self-similar chevrons.
+  const rows=side=>{
+    for(let layer=0;layer<17;layer++){
+      const offset=(layer-8)*.012;
+      for(let n=0;n<105;n++){
+        const tt=n/104*2-1;
+        const [cx,cy]=strand(tt+offset*.18,side,layer*.47+seed*.03);
+        const x0=(tt*34+layer*1.7+seed*.9);
+        const y0=(tt*38-layer*2.3);
+        const z=eq(x0,y0,T*.72+layer*.035);
+        const scale=.62+layer*.026;
+        let x=cx + z.u*scale;
+        let y=cy + z.v*scale;
+        const tw=touchWarp(x/W*2-1,y/H*2-1,T);
+        x+=tw[0]*W*.25;y+=tw[1]*H*.25;
+        const alpha=.18+.78*Math.max(0,1-Math.abs(tt)*.52);
+        const hue=(seed*41+layer*18+n*.57+z.k*42+T*11+side*42+360)%360;
+        g.strokeStyle=hsv(hue,.88,.98);g.globalAlpha=alpha;
+        g.lineWidth=0.8+tw[2]*2.2;
+
+        const ang=Math.atan2(z.v,z.u)+side*.18;
+        const len=3.5+Math.min(9,Math.abs(z.d-4)*.32);
+        const ax=Math.cos(ang),ay=Math.sin(ang);
+        // V-shaped micro-feather: each level contains smaller repeated marks.
+        g.beginPath();g.moveTo(x-len*ax,y-len*ay);g.lineTo(x,y);g.lineTo(x-len*ax+len*.52*(-ay),y-len*ay+len*.52*ax);g.stroke();
+
+        // Two smaller descendants = explicit recursive hierarchy.
+        if((n+layer)%3===0){
+          const ss=len*.42, aa=ang+side*.58;
+          g.beginPath();g.moveTo(x-ss*Math.cos(aa),y-ss*Math.sin(aa));g.lineTo(x,y);g.lineTo(x-ss*Math.cos(aa+side*.72),y-ss*Math.sin(aa+side*.72));g.stroke();
+        }
+      }
+    }
+  };
+  rows(-1);rows(1);
+
+  // Two compact equation singularities near the waist, like the reference's colorful knots.
+  for(let side of [-1,1]){
+    const ox=W*.5+side*W*.155,oy=H*.51+Math.sin(T*.45+side)*H*.025;
+    for(let j=0;j<720;j++){
+      const a=j/720*TAU;
+      const rr=.02+.12*(j/720);
+      const ex=5*Math.cos((a*36+seed)/14)*Math.cos((rr*300-seed)/30);
+      const ey=rr*210-13;
+      const d=(ex*ex+ey*ey)/59+4;
+      const q=60-3*Math.sin(Math.atan2(ex,ey))+ex*(3+4/d*Math.sin(d*d-T*2));
+      const cc=d/2+ey/99-T/18;
+      let x=ox+3*q*Math.sin(cc)*.055*W/100;
+      let y=oy+3*(q+9*d)*Math.cos(cc)*.055*H/100;
+      const tw=touchWarp(x/W*2-1,y/H*2-1,T);x+=tw[0]*W*.18;y+=tw[1]*H*.18;
+      g.globalAlpha=.3+.7*(j/720);g.strokeStyle=hsv(seed*37+j*.58+side*55+T*20,.96,1);g.lineWidth=1.05;
+      g.beginPath();g.arc(x,y,.65+(j%7)*.12,0,TAU);g.stroke();
+    }
   }
-  // A very faint breathing veil keeps the field alive without washing out the structure.
-  g.globalAlpha=.08;g.fillStyle='#ffffff';g.fillRect(0,0,W,H);g.globalAlpha=1;
+  g.globalAlpha=1;
 }
-function hit(x,y,tap){if(window.APKit&&APKit.isUI(x,y))return true;const q={x:x/W*2-1,y:1-y/H*2,r:tap?.22:.13,power:tap?1.8:.9,spin:(Math.random()-.5)*4.5,t:performance.now()};marks.push(q);if(marks.length>18)marks.shift();return false}
-function dn(e){if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;down=true;c.setPointerCapture?.(e.pointerId);const q=P(e);lastX=q.x;lastY=q.y;hit(q.x,q.y,true)}
-function mv(e){if(!down)return;if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;const q=P(e);if(Math.hypot(q.x-lastX,q.y-lastY)>5){hit(q.x,q.y,false);lastX=q.x;lastY=q.y}}
-function up(){down=false}c.addEventListener('pointerdown',dn,{passive:false});c.addEventListener('pointermove',mv,{passive:false});c.addEventListener('pointerup',up);c.addEventListener('pointercancel',up);
-APKit.init({canvas:c,gifName:'axis-weave-loop',clockFormat:'spec',loopFrame:p=>draw(performance.now(),p*TAU),buttons:[{label:'✦',name:'mutate',onClick:()=>{seed=Math.random()*100;draw(performance.now())}},{label:'↻',name:'reset',onClick:()=>{marks=[];draw(performance.now())}}]});
+
+function hit(x,y){if(window.APKit&&APKit.isUI(x,y))return true;touchX=x/W*2-1;touchY=1-y/H*2;touchAt=performance.now();return false}
+function dn(e){if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;down=true;c.setPointerCapture?.(e.pointerId);const q=P(e);lastX=q.x;lastY=q.y;hit(q.x,q.y)}
+function mv(e){if(!down)return;if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;const q=P(e);if(Math.hypot(q.x-lastX,q.y-lastY)>4){hit(q.x,q.y);lastX=q.x;lastY=q.y}}
+function up(){down=false}
+c.addEventListener('pointerdown',dn,{passive:false});c.addEventListener('pointermove',mv,{passive:false});c.addEventListener('pointerup',up);c.addEventListener('pointercancel',up);
+APKit.init({canvas:c,gifName:'vein-loop',clockFormat:'spec',loopFrame:p=>draw(performance.now(),p*TAU),buttons:[{label:'✦',name:'mutate',onClick:()=>{seed=Math.random()*100;draw(performance.now())}},{label:'↻',name:'reset',onClick:()=>{touchAt=-999;draw(performance.now())}}]});
 resize();requestAnimationFrame(function loop(t){if(!APKit.isExporting())draw(t);requestAnimationFrame(loop)});
 </script></body></html>
