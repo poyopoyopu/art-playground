@@ -1,70 +1,77 @@
 <!doctype html>
-<!-- AFTERIMAGE — ChatGPT作。四角いドットの残像が、触れるたび世界の流れを変える。 -->
+<!-- AFTERIMAGE — ChatGPT作。四角いドットの残像が流れ、触れた場所だけ世界の法則が変わる。 -->
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no"><meta name="theme-color" content="#020308"><title>AFTERIMAGE — ART PLAYGROUND</title><script src="../ap-kit.js"></script><style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#020308}canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}</style></head><body><canvas id="c"></canvas><script>
 const canvas=document.getElementById('c');
 const gl=canvas.getContext('webgl2',{antialias:false,alpha:false,preserveDrawingBuffer:true});
-if(!gl){document.body.innerHTML='<div style="color:white;padding:30px">WebGL2 is required.</div>';throw Error('WebGL2');}
+let W=1,H=1,dpr=1,seed=Math.random()*1000,marks=[];
+function resize(){dpr=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;canvas.width=Math.max(1,Math.floor(W*dpr));canvas.height=Math.max(1,Math.floor(H*dpr));if(gl)gl.viewport(0,0,canvas.width,canvas.height)}addEventListener('resize',resize);resize();
+
+let render;
+if(gl){
 const VS=`#version 300 es
 in vec2 p;out vec2 uv;void main(){uv=p*.5+.5;gl_Position=vec4(p,0.,1.);}`;
 const FS=`#version 300 es
-precision highp float;in vec2 uv;out vec4 outColor;
-uniform vec2 R;uniform float phase,seed;uniform vec4 marks[18];
-#define PI 3.14159265359
-float hash21(vec2 p){p=fract(p*vec2(127.1,311.7));p+=dot(p,p+34.5);return fract(p.x*p.y);}
-vec2 rot(vec2 p,float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c)*p;}
-float squareDot(vec2 p,float size){vec2 d=abs(fract(p)-.5);return 1.-smoothstep(size,size+.035,max(d.x,d.y));}
-float markField(vec2 q,out float twist,out float memory){twist=0.;memory=0.;float f=0.;for(int i=0;i<18;i++){vec4 m=marks[i];float age=m.w;if(age<=0.)continue;vec2 d=q-m.xy;float rr=length(d);float a=age*exp(-rr*rr/(m.z*m.z*.45+.00001));f+=a/(1.+rr*16.);twist+=a*sin(m.x*31.+m.y*17.+rr*38.);memory+=a;}return f;}
+precision highp float;in vec2 uv;out vec4 o;uniform vec2 R;uniform float T,S;uniform vec4 M[18];
+float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+vec2 rr(vec2 p,float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c)*p;}
+float sq(vec2 p,float w){vec2 q=abs(fract(p)-.5);return 1.-smoothstep(w,w+.035,max(q.x,q.y));}
 void main(){
- vec2 q=(gl_FragCoord.xy-.5*R)/min(R.x,R.y);float t=phase*2.*PI;
- float twist,memory;float law=markField(q,twist,memory);
- vec2 z=q;
- float field=0.;
- // Same deformation is repeated through six scales: large form -> smaller echoes.
+ vec2 q=(gl_FragCoord.xy-.5*R)/min(R.x,R.y);
+ float law=0.,memory=0.;vec2 force=vec2(0.);
+ for(int i=0;i<18;i++){
+  vec4 m=M[i];if(m.w<=0.)continue;vec2 d=q-m.xy;float r=length(d);float a=m.w*exp(-r*r/(m.z*m.z+.0001));
+  law+=a/(1.+r*10.);memory+=a;force+=d*a/(.03+r*r*12.);
+ }
+ vec2 p=q+force*.012;
+ // The same bend is repeated six times: large stream -> smaller self-similar echoes.
+ float echo=0.;
  for(int i=0;i<6;i++){
-   float k=float(i);float sc=1.55+0.17*k;
-   z=rot(z,0.16*sin(t*(1.+mod(k,3.))*.5)+twist*.018/(k+1.));
-   z+=vec2(sin(z.y*5.3+t*.7+k),cos(z.x*4.7-t*.55-k))*.008/(k+1.);
-   z*=sc;
-   field+=sin(z.x*7.0+z.y*3.0+t*.35+k*.71)*(.58/(k+1.));
+  float k=float(i);p=rr(p,.10*sin(T*(.55+mod(k,3.)*.16))+law*.055/(k+1.));
+  p+=.018*vec2(sin(p.y*5.0+T*.55+k),cos(p.x*4.2-T*.43-k))/(k+1.);
+  p*=1.47+0.035*sin(S+k);
+  echo+=sin(p.x*6.0+p.y*3.0+k*.9)*(.6/(k+1.));
  }
- float drift=0.025*sin(q.y*8.-t*.55)+0.018*cos(q.x*11.+t*.4);
- vec2 g=q+vec2(drift,drift*.7)+rot(q,law*.012);
- float cellScale=15.0+4.0*sin(seed*.013);
- float dots=0.;float glow=0.;
- for(int s=0;s<4;s++){
-   float k=float(s);vec2 p=g*cellScale*(1.+k*.72)+vec2(field*.035*(k+1.));
-   float sz=.16+.065*sin(field*1.7+k*.9)+law*.035;
-   float d=squareDot(p,sz);
-   dots=max(dots,d*(.74/(k+1.)));
-   glow+=d*(.22/(k+1.));
+ float flow=.028*sin(q.y*9.-T*.7)+.018*cos(q.x*13.+T*.43);
+ p=q+vec2(flow,flow*.55)+rr(q,law*.045);
+ float scale=17.0+3.0*sin(S*.017);
+ float dots=0.,ghost=0.;
+ for(int i=0;i<4;i++){
+  float k=float(i);vec2 a=p*scale*(1.+k*.66)+echo*.055*(k+1.);
+  float size=.105+.018*sin(echo*2.0+k)+law*.025;
+  float d=sq(a,size);dots=max(dots,d*(1.0/(1.+k*.55)));
  }
- // Each memory leaves a family of square afterimages at three smaller scales.
- float ghosts=0.;
- for(int i=0;i<18;i++){vec4 m=marks[i];if(m.w<=0.)continue;vec2 d=q-m.xy;float a=m.w;float rr=length(d);float pulse=.55+.45*sin(t*.65+i*1.37);for(int s=0;s<3;s++){float k=float(s);vec2 pp=d*(20.-k*5.)+vec2(sin(i*2.1+k),cos(i*1.7-k))*0.03;float gd=squareDot(pp,.17+.035*pulse);ghosts+=gd*a*(.55/(k+1.));}}
- float filament=.5+.5*sin(field*3.4+law*5.0+q.x*8.-q.y*5.);
- float v=max(dots,ghosts*.72)+glow*.18+filament*.045;
- float h=fract(seed*.031+field*.045+law*.055+memory*.035);
- vec3 col=.5+.5*cos(6.28318*(h+vec3(.0,.16,.33)));
- col*=pow(max(v,0.),.72)*(.72+memory*.16);
- col+=vec3(.10,.34,.72)*ghosts*.42;
- col+=vec3(.20,.55,.32)*dots*.18;
- float vignette=1.-smoothstep(.55,1.0,length(q));col*=.48+.52*vignette;
- outColor=vec4(col,1.);
+ // Touch memories become smaller square afterimages around their original position.
+ for(int i=0;i<18;i++){
+  vec4 m=M[i];if(m.w<=0.)continue;vec2 d=q-m.xy;
+  for(int j=0;j<3;j++){
+   float k=float(j);vec2 a=d*(23.-k*5.)+vec2(sin(float(i)*2.17+k),cos(float(i)*1.71-k))*.025;
+   ghost+=sq(a,.13+k*.018)*m.w*(.42/(k+1.));
+  }
+ }
+ float v=max(dots,ghost*.9);
+ float h=fract(S*.001+echo*.035+law*.08+memory*.015);
+ vec3 col=.5+.5*cos(6.283185*(h+vec3(.00,.16,.34)));
+ col*=pow(max(v,0.),.78)*(.9+memory*.08);
+ col+=vec3(.16,.48,.95)*ghost*.55;
+ col+=vec3(.25,.82,.42)*dots*.16;
+ col*=.58+.42*(1.-smoothstep(.58,1.05,length(q)));
+ o=vec4(col,1.);
 }`;
-function shader(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(s));return s;}
-const prog=gl.createProgram();gl.attachShader(prog,shader(gl.VERTEX_SHADER,VS));gl.attachShader(prog,shader(gl.FRAGMENT_SHADER,FS));gl.linkProgram(prog);if(!gl.getProgramParameter(prog,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(prog));gl.useProgram(prog);
-const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);const al=gl.getAttribLocation(prog,'p');gl.enableVertexAttribArray(al);gl.vertexAttribPointer(al,2,gl.FLOAT,false,0,0);
-const U={R:gl.getUniformLocation(prog,'R'),phase:gl.getUniformLocation(prog,'phase'),seed:gl.getUniformLocation(prog,'seed'),marks:gl.getUniformLocation(prog,'marks[0]')};
-let W=1,H=1,dpr=1,seed=Math.random()*9999,marks=[];
-function resize(){dpr=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;canvas.width=Math.floor(W*dpr);canvas.height=Math.floor(H*dpr);gl.viewport(0,0,canvas.width,canvas.height)}addEventListener('resize',resize);resize();
-function addMark(x,y,str=1){marks.push({x:x,y:y,z:.055+Math.random()*.055,w:str});if(marks.length>18)marks.shift();}
-let drawing=false,lastTouch=0;
-function point(e){if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return true;const x=e.clientX/W,y=1-e.clientY/H;addMark(x-.5,y-.5,1);return false;}
+function sh(t,s){const x=gl.createShader(t);gl.shaderSource(x,s);gl.compileShader(x);if(!gl.getShaderParameter(x,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(x));return x}
+const pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,VS));gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,FS));gl.linkProgram(pr);if(!gl.getProgramParameter(pr,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(pr));gl.useProgram(pr);
+const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);const loc=gl.getAttribLocation(pr,'p');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+const UR=gl.getUniformLocation(pr,'R'),UT=gl.getUniformLocation(pr,'T'),US=gl.getUniformLocation(pr,'S'),UM=gl.getUniformLocation(pr,'M[0]');
+render=ph=>{const a=new Float32Array(72);for(let i=0;i<marks.length;i++){const m=marks[i];a[i*4]=m.x;a[i*4+1]=m.y;a[i*4+2]=m.r;a[i*4+3]=m.w}gl.useProgram(pr);gl.uniform2f(UR,canvas.width,canvas.height);gl.uniform1f(UT,ph*6.283185);gl.uniform1f(US,seed);gl.uniform4fv(UM,a);gl.drawArrays(gl.TRIANGLE_STRIP,0,4)};
+}else{
+// Safe 2D fallback for browsers where WebGL2 is unavailable.
+const ctx=canvas.getContext('2d');render=ph=>{ctx.fillStyle='#020308';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.save();ctx.translate(canvas.width/2,canvas.height/2);let sc=Math.min(canvas.width,canvas.height),t=ph*6.283185;for(let i=0;i<180;i++){let a=i*.37+t*.12,r=(i%12)*sc*.025,sz=2+(i%5);for(let j=0;j<marks.length;j++){let m=marks[j],d=Math.hypot(a%1-(m.x+.5),r/sc-(m.y+.5));r+=Math.exp(-d*80)*sc*.025}ctx.fillStyle=`hsl(${(i*19+seed)%360} 90% 65%)`;ctx.fillRect(Math.cos(a)*r,Math.sin(a)*r,sz,sz)}ctx.restore()}
+}
+function addMark(x,y,w=1){marks.push({x:x/W-.5,y:.5-y/H,r:.045+Math.random()*.05,w});if(marks.length>18)marks.shift()}
+let drawing=false,last=0;
+function point(e){if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return true;addMark(e.clientX,e.clientY);return false}
 canvas.addEventListener('pointerdown',e=>{if(point(e))return;drawing=true;canvas.setPointerCapture?.(e.pointerId)});
-canvas.addEventListener('pointermove',e=>{if(!drawing)return;if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;if(performance.now()-lastTouch<34)return;lastTouch=performance.now();point(e)});
-canvas.addEventListener('pointerup',e=>{drawing=false;});canvas.addEventListener('pointercancel',e=>{drawing=false;});
-function uploadMarks(){const a=new Float32Array(72);for(let i=0;i<18;i++){const m=marks[i];if(m){a[i*4]=m.x;a[i*4+1]=m.y;a[i*4+2]=m.z;a[i*4+3]=m.w;}}gl.uniform4fv(U.marks,a);}
-function render(ph){gl.useProgram(prog);gl.uniform2f(U.R,canvas.width,canvas.height);gl.uniform1f(U.phase,ph);gl.uniform1f(U.seed,seed);uploadMarks();gl.drawArrays(gl.TRIANGLE_STRIP,0,4);}
-let start=performance.now(),period=8.0;function frame(now){if(!APKit.isExporting()){const ph=((now-start)/1000%period)/period;render(ph)}requestAnimationFrame(frame)}requestAnimationFrame(frame);
-APKit.init({canvas:canvas,gifName:'afterimage-grid-loop',clockFormat:'spec',loopFrame:(ph)=>render(ph),buttons:[{label:'✦',name:'mutate',onClick:function(){seed=Math.random()*9999;marks=[];}},{label:'↻',name:'reset',onClick:function(){marks=[];}}]});
+canvas.addEventListener('pointermove',e=>{if(!drawing||performance.now()-last<38)return;if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;last=performance.now();point(e)});
+canvas.addEventListener('pointerup',()=>drawing=false);canvas.addEventListener('pointercancel',()=>drawing=false);
+let start=performance.now(),period=8;function frame(now){if(!APKit.isExporting())render(((now-start)/1000%period)/period);requestAnimationFrame(frame)}
+APKit.init({canvas:canvas,gifName:'afterimage-grid-loop',clockFormat:'spec',loopFrame:ph=>render(ph),buttons:[{label:'✦',name:'mutate',onClick:()=>{seed=Math.random()*1000;marks=[]}},{label:'↻',name:'reset',onClick:()=>{marks=[]}}]});requestAnimationFrame(frame);
 </script></body></html>
