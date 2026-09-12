@@ -1,24 +1,13 @@
 <!doctype html>
-<!-- RUPTURE GRID — ChatGPT作。完全フラットなスクエア格子。通常時は静止、触れた場所だけ反応。ap-kit.js統合 -->
+<!-- RUPTURE GRID — ChatGPT作。完全フラットなトライアングル格子。通常時は静止、触れた場所だけ反応。ap-kit.js統合 -->
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><title>RUPTURE GRID — ART PLAYGROUND</title><script src="../ap-kit.js"></script><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}body{touch-action:none}canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}</style></head><body><canvas id="c"></canvas><script>
 const c=document.getElementById('c'),g=c.getContext('2d',{alpha:false});let W=0,H=0,D=1,seed=Math.random()*99999,marks=[],down=false,lastX=0,lastY=0,lastT=0;const TAU=Math.PI*2;
 function resize(){D=Math.min(2,devicePixelRatio||1);W=innerWidth;H=innerHeight;c.width=W*D;c.height=H*D;g.setTransform(D,0,0,D,0,0)}addEventListener('resize',resize);resize();
 function hsv(h,s,v){h=((h%360)+360)%360/60;const i=h|0,f=h-i,p=v*(1-s),q=v*(1-f*s),u=v*(1-(1-f)*s);let r,g,b;switch(i%6){case 0:r=v;g=u;b=p;break;case 1:r=q;g=v;b=p;break;case 2:r=p;g=v;b=u;break;case 3:r=p;g=q;b=v;break;case 4:r=u;g=p;b=v;break;default:r=v;g=p;b=q}return[r*255,g*255,b*255]}
 function point(e){const r=c.getBoundingClientRect();return{x:(e.clientX-r.left)*(W/r.width),y:(e.clientY-r.top)*(H/r.height)}}
-function displacement(x,y,now){let dx=0,dy=0,chrom=0,warp=0;for(const m of marks){const ox=x-m.x,oy=y-m.y,d2=ox*ox+oy*oy,s=m.r*m.r;const a=Math.exp(-d2/s);const age=Math.max(0,(now-m.t)/1000);const decay=Math.exp(-age*.48);if(decay<.003)continue;
-  const wave=Math.sin(Math.sqrt(d2)*38-m.phase)*a*decay;
-  const pinch=(1-Math.min(1,Math.sqrt(d2)/m.r))*decay;
-  dx+=ox*a*m.push*(.55+.45*wave);dy+=oy*a*m.push*(.55+.45*wave);
-  dx+=-oy*wave*m.twist;dy+=ox*wave*m.twist;
-  chrom+=a*decay*m.chroma*(1+.55*Math.sin(d2*92+m.phase));
-  warp+=a*decay*(.5+.5*Math.sin((ox-oy)*24+m.phase));
-  if(m.drag){dx+=m.vx*a*decay*m.drag;dy+=m.vy*a*decay*m.drag;}
- }
- return[dx,dy,chrom,warp]}
-function scene(now){g.fillStyle='#000';g.fillRect(0,0,W,H);const gap=Math.max(9,Math.min(14,W/62)),cols=Math.ceil(W/gap)+2,rows=Math.ceil(H/gap)+2;
- for(let iy=-1;iy<rows;iy++)for(let ix=-1;ix<cols;ix++){const x=(ix+.5)*gap,y=(iy+.5)*gap,nx=x/W*2-1,ny=1-y/H*2;const z=displacement(nx,ny,now);const x2=x+z[0]*gap*3.4,y2=y-z[1]*gap*3.4;
-  const base=seed*.021+ix*.73+iy*.47;const hue=base+z[2]*115+z[3]*42+Math.sin(ix*.17+iy*.23+z[2]*7)*32;const sat=1;const val=.9;const col=hsv(hue,sat,val);const size=gap*.72;g.fillStyle=`rgb(${col[0]},${col[1]},${col[2]})`;g.fillRect(x2-size/2,y2-size/2,size,size)}
-}
+function displacement(x,y,now){let dx=0,dy=0,chrom=0,warp=0;for(const m of marks){const ox=x-m.x,oy=y-m.y,d2=ox*ox+oy*oy,s=m.r*m.r;const a=Math.exp(-d2/s);const age=Math.max(0,(now-m.t)/1000);const decay=Math.exp(-age*.48);if(decay<.003)continue;const wave=Math.sin(Math.sqrt(d2)*38-m.phase)*a*decay;dx+=ox*a*m.push*(.55+.45*wave);dy+=oy*a*m.push*(.55+.45*wave);dx+=-oy*wave*m.twist;dy+=ox*wave*m.twist;chrom+=a*decay*m.chroma*(1+.55*Math.sin(d2*92+m.phase));warp+=a*decay*(.5+.5*Math.sin((ox-oy)*24+m.phase));if(m.drag){dx+=m.vx*a*decay*m.drag;dy+=m.vy*a*decay*m.drag}}return[dx,dy,chrom,warp]}
+function triangle(cx,cy,size,flip){const h=size*.92;g.beginPath();if(flip){g.moveTo(cx-size*.5,cy-h*.42);g.lineTo(cx+size*.5,cy-h*.42);g.lineTo(cx,cy+h*.58)}else{g.moveTo(cx,cy-h*.58);g.lineTo(cx-size*.5,cy+h*.42);g.lineTo(cx+size*.5,cy+h*.42)}g.closePath();g.fill()}
+function scene(now){g.fillStyle='#000';g.fillRect(0,0,W,H);const gap=Math.max(9,Math.min(14,W/62)),cols=Math.ceil(W/gap)+2,rows=Math.ceil(H/gap)+2;for(let iy=-1;iy<rows;iy++)for(let ix=-1;ix<cols;ix++){const x=(ix+.5)*gap,y=(iy+.5)*gap,nx=x/W*2-1,ny=1-y/H*2;const z=displacement(nx,ny,now);const x2=x+z[0]*gap*3.4,y2=y-z[1]*gap*3.4;const base=seed*.021+ix*.73+iy*.47;const hue=base+z[2]*115+z[3]*42+Math.sin(ix*.17+iy*.23+z[2]*7)*32;const col=hsv(hue,1,.9);const size=gap*.78;g.fillStyle=`rgb(${col[0]},${col[1]},${col[2]})`;triangle(x2,y2,size,((ix+iy)&1)!==0)}}
 function addTouch(x,y,vx,vy,tap){if(window.APKit&&APKit.isUI(x,y))return true;marks.push({x:x/W*2-1,y:1-y/H*2,r:tap?.19:.105,push:tap?1.55:.8,vx:vx/W*2,vy:-vy/H*2,drag:tap?0:1.35,twist:tap?.22:.12,chroma:tap?1.8:1.15,phase:Math.random()*TAU,t:performance.now()});if(marks.length>24)marks.shift();return false}
 function handleDown(e){if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;const p=point(e);lastX=p.x;lastY=p.y;lastT=performance.now();down=true;c.setPointerCapture?.(e.pointerId);addTouch(p.x,p.y,0,0,true);scene(performance.now())}
 function handleMove(e){if(!down)return;if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;const p=point(e),now=performance.now(),dt=Math.max(16,now-lastT);if(now-lastT<45)return;addTouch(p.x,p.y,(p.x-lastX)/dt*900,(p.y-lastY)/dt*900,false);lastX=p.x;lastY=p.y;lastT=now}
