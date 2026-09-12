@@ -1,69 +1,74 @@
 <!doctype html>
-<!-- TETRA FOLD — ChatGPT作。添付されたGLSLの反復foldを採用した3Dフラクタル試作。ap-kit.js統合。 -->
+<!-- TETRA FOLD — ChatGPT作。添付GLSLの反復foldを採用した3Dフラクタル試作。描画不能だった距離関数を修正。ap-kit.js統合。 -->
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><title>TETRA FOLD</title><script src="../ap-kit.js"></script><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}body{touch-action:none}canvas{position:fixed;inset:0;width:100%;height:100%;display:block}</style></head><body><canvas id="c"></canvas><script>
 const c=document.getElementById('c');const gl=c.getContext('webgl2',{antialias:false,alpha:false,preserveDrawingBuffer:true});
 if(!gl){document.body.innerHTML='<div style="color:white;font:16px sans-serif;padding:30px">WebGL2 required</div>';throw new Error('WebGL2 required');}
-const VS=`#version 300 es\nprecision highp float;\nin vec2 p;out vec2 uv;\nvoid main(){uv=p*.5+.5;gl_Position=vec4(p,0.,1.);}`;
-const FS=`#version 300 es\nprecision highp float;\nout vec4 O;\nin vec2 uv;\nuniform vec2 res;uniform float time;uniform vec2 touch;uniform float touchAge;uniform float seed;\nmat2 rot(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}\n\n// Core idea from the supplied GLSL: repeated pairwise folds create a tetrahedral/fractal void.
-float fold(vec3 p,out float scale){
-  float R=1.;float g=0.;
-  for(int i=0;i<11;i++){
-    p.xy=min(p.x+p.y,0.)-p.xy*.0;
-    p.xz=min(p.x+p.z,0.)-p.xz*.0;
-    p.yz=min(p.y+p.z,0.)-p.yz*.0;
+const VS=`#version 300 es
+precision highp float;in vec2 p;out vec2 uv;void main(){uv=p*.5+.5;gl_Position=vec4(p,0.,1.);}`;
+const FS=`#version 300 es
+precision highp float;out vec4 O;in vec2 uv;
+uniform vec2 res;uniform float time;uniform vec2 touch;uniform float touchAge;uniform float seed;
+mat2 rot(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}
+
+// The supplied GLSL's core law: pairwise tetrahedral folds followed by p=2p-1.
+// This version uses the fold as a volumetric fractal field, so it remains visible
+// instead of relying on a non-SDF hit test.
+float field(vec3 p,out float trap,out float sc){
+  float glow=0.;float R=1.;
+  for(int i=0;i<12;i++){
+    p.xy=min(p.x+p.y,0.)-p.xy;
+    p.xz=min(p.x+p.z,0.)-p.xz;
+    p.yz=min(p.y+p.z,0.)-p.yz;
     p=p*2.-1.;
     R*=2.;
-    float e=max(length(p)-.72,0.)/R;
-    g+=e;
+    float e=length(p)/R-0.0005;
+    glow+=exp(-float(i)*.055)*exp(-abs(e)*900.);
+    if(e<.0005)break;
   }
-  scale=R;
-  return g;
-}
-float map(vec3 p){
-  // very slow breathing keeps the world alive without turning it into a spinner
-  p.xy*=rot(.16*sin(time*.38));
-  p.xz*=rot(.12*cos(time*.31));
-  // Touch bends the coordinate field instead of painting an overlay.
-  vec3 q=p;
-  vec2 td=q.xy-touch;
-  float d=length(td);
-  float a=exp(-d*d/0.18)*smoothstep(5.5,0.,touchAge);
-  q.xy+=td*(sin(min(touchAge,1.8)*3.14159)*.42*a);
-  q.z+=sin(d*10.-touchAge*3.)*.16*a;
-  float sc;float v=fold(q,sc);
-  return v*1.65;
+  trap=glow;sc=R;
+  return length(p)/R-0.002;
 }
 vec3 palette(float x){
-  vec3 a=vec3(.5,.5,.5),b=vec3(.5,.5,.5),cc=vec3(.9,.7,.35),d=vec3(.15,.33,.55);
-  return a+b*cos(6.28318*(cc*x+d+seed));
+  vec3 a=vec3(.5),b=vec3(.5),cc=vec3(.92,.67,.37),d=vec3(.08,.29,.61);
+  return a+b*cos(6.283185*(cc*x+d+seed));
 }
 void main(){
-  vec2 p=(uv*2.-1.);p.x*=res.x/res.y;
-  // subtle breathing camera, deliberately not radial/kaleidoscopic
-  vec3 ro=vec3(0.,0.,4.1);vec3 rd=normalize(vec3(p,-2.65));
-  ro.xz*=rot(.10*sin(time*.23));rd.xz*=rot(.10*sin(time*.23));
-  float t=0.;float hit=0.;float trap=0.;
-  for(int i=0;i<58;i++){
-    vec3 pos=ro+rd*t;float d=map(pos);trap+=exp(-abs(d)*34.);
-    if(d<.003){hit=1.;break;}t+=clamp(d*.72,.012,.18);if(t>8.)break;
+  vec2 p=uv*2.-1.;p.x*=res.x/res.y;
+  float breath=sin(time*.42)*.08;
+  vec3 ro=vec3(0.,0.,3.15+breath);
+  vec3 rd=normalize(vec3(p,-2.25));
+  ro.xy*=rot(sin(time*.21)*.045);rd.xy*=rot(sin(time*.21)*.045);
+  float tt=0.;float acc=0.;float depth=0.;
+  for(int i=0;i<72;i++){
+    vec3 pos=ro+rd*tt;
+    // Local touch bends the fractal coordinate itself.
+    vec3 q=pos;
+    vec3 td=q-ro;
+    td.xy-=touch;
+    float d=length(td.xy);
+    float ta=exp(-d*d/.20)*exp(-max(touchAge,0.)*.55);
+    q.xy+=td.xy*(sin(min(touchAge,1.6)*3.1415926)*.32*ta);
+    q.z+=sin(d*13.-touchAge*3.2)*.11*ta;
+    q.xy*=rot(.13*sin(time*.31)+ta*.42);
+    float trap,sc;float de=field(q,trap,sc);
+    float local=trap*exp(-tt*.075);
+    acc+=local*.052;
+    depth+=local;
+    tt+=clamp(abs(de)*.42+.018,.018,.13);
+    if(tt>7.)break;
   }
-  float glow=trap*.022;
-  if(hit<.5){O=vec4(palette(trap*.018+seed*.2)*glow*.35,1.);return;}
-  vec3 pos=ro+rd*t;float e=.0025;
-  vec3 n=normalize(vec3(map(pos+vec3(e,0,0))-map(pos-vec3(e,0,0)),map(pos+vec3(0,e,0))-map(pos-vec3(0,e,0)),map(pos+vec3(0,0,e))-map(pos-vec3(0,0,e))));
-  vec3 l=normalize(vec3(-.4,.7,1.2));float diff=max(dot(n,l),0.);
-  float edge=pow(1.-max(dot(n,-rd),0.),2.2);
-  float bands=fract(t*.72+trap*.7+seed*.4);
-  vec3 col=palette(bands+diff*.12);
-  // flat graphic treatment: lighting only modulates saturation/value, no realistic shading.
-  col*=.68+.72*diff;col+=palette(bands+.31)*edge*.52;col+=glow*2.2;
+  float v=1.-exp(-acc*2.8);
+  vec3 col=palette(v*1.8+depth*.025+time*.012);
+  col*=.30+v*1.65;
+  col+=palette(v*.7+.33)*pow(v,2.4)*.48;
+  // Keep the graphic character: no conventional 3D lighting or shadows.
   O=vec4(col,1.);
 }`;
 function shader(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));return s}
-const pr=gl.createProgram();gl.attachShader(pr,shader(gl.VERTEX_SHADER,VS));gl.attachShader(pr,shader(gl.FRAGMENT_SHADER,FS));gl.linkProgram(pr);if(!gl.getProgramParameter(pr,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(pr));gl.useProgram(pr);
+const pr=gl.createProgram();gl.attachShader(pr,shader(gl.VERTEX_SHADER,VS));gl.attachShader(pr,shader(gl.FRAGMENT_SHADER,FS));gl.linkProgram(pr);if(!gl.getProgramParameter(pr,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(pr));
 const vao=gl.createVertexArray(),buf=gl.createBuffer();gl.bindVertexArray(vao);gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);const loc=gl.getAttribLocation(pr,'p');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
 const U={res:gl.getUniformLocation(pr,'res'),time:gl.getUniformLocation(pr,'time'),touch:gl.getUniformLocation(pr,'touch'),touchAge:gl.getUniformLocation(pr,'touchAge'),seed:gl.getUniformLocation(pr,'seed')};
-let W=0,H=0,D=1,seed=Math.random(),tx=99,ty=99,t0=performance.now(),touchStart=-99,dirty=true,lastDraw=0,down=false;
+let W=0,H=0,D=1,seed=Math.random(),tx=99,ty=99,touchStart=-99,dirty=true,lastDraw=0,down=false;
 function resize(){W=innerWidth;H=innerHeight;D=Math.min(1.15,devicePixelRatio||1);c.width=Math.floor(W*D);c.height=Math.floor(H*D);gl.viewport(0,0,c.width,c.height);dirty=true}addEventListener('resize',resize);
 function P(e){const r=c.getBoundingClientRect();return{x:(e.clientX-r.left)/r.width*2-1,y:1-(e.clientY-r.top)/r.height*2}}
 function touch(x,y){if(window.APKit&&APKit.isUI(x,y))return true;tx=x/W*2-1;ty=1-y/H*2;touchStart=performance.now();dirty=true;return false}
@@ -71,7 +76,7 @@ function dn(e){if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;down=true
 function mv(e){if(!down)return;if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;const q=P(e);touch((q.x+1)*W*.5,(1-q.y)*H*.5)}
 function up(){down=false}
 c.addEventListener('pointerdown',dn,{passive:false});c.addEventListener('pointermove',mv,{passive:false});c.addEventListener('pointerup',up);c.addEventListener('pointercancel',up);
-function draw(t,phase=null){if(phase===null&&t-lastDraw<30&&!dirty)return;lastDraw=t;dirty=false;let tt=phase===null?(t-t0)/1000:phase*1.0;gl.useProgram(pr);gl.uniform2f(U.res,c.width,c.height);gl.uniform1f(U.time,tt);gl.uniform2f(U.touch,tx,ty);gl.uniform1f(U.touchAge,Math.max(0,(t-touchStart)/1000));gl.uniform1f(U.seed,seed);gl.bindVertexArray(vao);gl.drawArrays(gl.TRIANGLES,0,6)}
+function draw(t,phase=null){if(phase===null&&t-lastDraw<30&&!dirty)return;lastDraw=t;dirty=false;const tt=phase===null?(t-touchStart<0?t: t)/1000:phase;gl.useProgram(pr);gl.uniform2f(U.res,c.width,c.height);gl.uniform1f(U.time,tt);gl.uniform2f(U.touch,tx,ty);gl.uniform1f(U.touchAge,Math.max(0,(t-touchStart)/1000));gl.uniform1f(U.seed,seed);gl.bindVertexArray(vao);gl.drawArrays(gl.TRIANGLES,0,6)}
 APKit.init({canvas:c,gifName:'tetra-fold-loop',clockFormat:'spec',loopFrame:p=>draw(performance.now(),p*6.283185307),buttons:[{label:'✦',name:'mutate',onClick:()=>{seed=Math.random();tx=99;ty=99;touchStart=-99;dirty=true;draw(performance.now())}},{label:'↻',name:'reset',onClick:()=>{tx=99;ty=99;touchStart=-99;dirty=true;draw(performance.now())}}]});
 resize();requestAnimationFrame(function loop(t){if(!APKit.isExporting())draw(t);requestAnimationFrame(loop)});
 </script></body></html>
