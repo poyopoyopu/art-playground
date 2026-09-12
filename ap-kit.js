@@ -20,6 +20,13 @@ let opts=null, clockOn=false, wakeLock=null, toastTimer=null, idleTimer=null,
     barWrap=null, barFill=null, acts=null;
 
 const CSS=`
+/* Long presses are core to how many of these pieces work (hold to pull,
+   hold to grow a law), and on iOS Safari a hold anywhere without this
+   triggers the text-selection callout (Copy / Look Up) instead of reaching
+   the canvas's own touch handler. This has to be global, not scoped to the
+   kit's own elements, or every piece has to remember to add it itself. */
+html,body{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+canvas{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 .apk-ctrl{position:fixed;z-index:60;right:4vw;bottom:max(3.4vh,env(safe-area-inset-bottom));
  display:flex;gap:8px;transition:opacity .7s,transform .7s}
 .apk-ctrl.apk-idle{opacity:0;transform:translateY(10px);pointer-events:none}
