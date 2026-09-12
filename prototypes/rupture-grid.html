@@ -1,23 +1,18 @@
 <!doctype html>
-<!-- RUPTURE GRID — ChatGPT作。花や放射対称を捨て、格子そのものが裂けて再構成される世界。ap-kit.js統合 -->
+<!-- RUPTURE GRID — ChatGPT作。格子の自己相似変形。タッチ痕の線は使わず、接触点だけで場を変える。ap-kit.js統合 -->
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><title>RUPTURE GRID — ART PLAYGROUND</title><script src="../ap-kit.js"></script><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}body{touch-action:none}canvas{position:fixed;inset:0;width:100%;height:100%;display:block}</style></head><body><canvas id="c"></canvas><script>
 const c=document.getElementById('c'),g=c.getContext('2d',{alpha:false});let W=0,H=0,D=1,seed=Math.random()*99999,marks=[];const TAU=Math.PI*2;
 function resize(){D=Math.min(2,devicePixelRatio||1);W=innerWidth;H=innerHeight;c.width=W*D;c.height=H*D;g.setTransform(D,0,0,D,0,0)}addEventListener('resize',resize);resize();
-function hash(x,y){return Math.sin(x*127.1+y*311.7+seed*1.73)*43758.5453%1}
 function law(x,y,t){let X=x,Y=y,vx=0,vy=0;
-  // The same shear/scale law is recursively reapplied at five spatial scales.
   for(let k=0;k<5;k++){const s=1.25+k*.52,sh=.22*Math.sin(t*.35+k*.8);const qx=X*s+sh,qy=Y*s-.17*Math.cos(t*.27+k);const h=Math.sin(qx*2.9+Math.sin(qy*2.1))+Math.cos(qy*3.3-qx*1.7);vx+=Math.cos(h+qy)*.52/(k+1);vy+=Math.sin(h-qx)*.52/(k+1);X=(qx*.83-qy*.19)*.58;Y=(qx*.19+qy*.83)*.58}
   for(const m of marks){const dx=x-m.x,dy=y-m.y,d=Math.hypot(dx,dy)+.001,q=Math.exp(-d*d/(m.r*m.r));vx+=dx/d*q*m.power;vy+=dy/d*q*m.power;vx+=-dy/d*q*m.spin;vy+=dx/d*q*m.spin}
   return[vx,vy]}
 function hsv(h,s,v){h=((h%360)+360)%360/60;const i=h|0,f=h-i,p=v*(1-s),q=v*(1-f*s),u=v*(1-(1-f)*s);let r,g,b;switch(i%6){case 0:r=v;g=u;b=p;break;case 1:r=q;g=v;b=p;break;case 2:r=p;g=v;b=u;break;case 3:r=p;g=q;b=v;break;case 4:r=u;g=p;b=v;break;default:r=v;g=p;b=q}return[r*255,g*255,b*255]}
-function scene(ph,live){const t=ph*TAU,S=Math.min(W,H)*.92;g.fillStyle=live?'rgba(0,0,0,.20)':'#000';g.fillRect(0,0,W,H);
-  // A square lattice, deliberately non-radial. Each cell is displaced by the same
-  // recursive law. The visible object is the deformation, not an ornamental shape.
+function scene(ph,live){const t=ph*TAU;g.fillStyle=live?'rgba(0,0,0,.20)':'#000';g.fillRect(0,0,W,H);
   const gap=Math.max(9,Math.min(15,W/62)),cols=Math.ceil(W/gap)+2,rows=Math.ceil(H/gap)+2;
   for(let iy=-1;iy<rows;iy++)for(let ix=-1;ix<cols;ix++){
     let x=(ix+.5)*gap,y=(iy+.5)*gap;let nx=x/W*2-1,ny=y/H*2-1;
     let q=law(nx,ny,t);let x2=x+q[0]*gap*1.8,y2=y+q[1]*gap*1.8;
-    // Three nested displacement reads: the smaller copy inherits the larger shear.
     let q2=law(nx*2.15,ny*2.15,t*.72);x2+=q2[0]*gap*.72;y2+=q2[1]*gap*.72;
     let q3=law(nx*4.4,ny*4.4,t*1.13);x2+=q3[0]*gap*.28;y2+=q3[1]*gap*.28;
     const e=Math.min(1,Math.hypot(q[0],q[1])*.72+Math.hypot(q2[0],q2[1])*.28);
@@ -28,11 +23,11 @@ function scene(ph,live){const t=ph*TAU,S=Math.min(W,H)*.92;g.fillStyle=live?'rgb
     if(size<gap*.31 && ((ix+iy)&3)!==0)continue;
     g.fillStyle=`rgba(${col[0]},${col[1]},${col[2]},${.18+.72*sx})`;g.fillRect(x2-size/2,y2-size/2,size,size);
   }
-  // Touch laws appear as fractures: not circles, but anisotropic cuts that bend the lattice.
-  for(const m of marks){const mx=(m.x*.5+.5)*W,my=(.5-m.y*.5)*H;g.strokeStyle=`hsla(${m.power>0?185:320},100%,72%,.42)`;g.lineWidth=1.1;g.beginPath();let px=mx,py=my;for(let j=0;j<34;j++){const a=m.angle+.65*Math.sin(j*.72+t+m.phase);const len=5+j*1.7;px+=Math.cos(a)*len;py+=Math.sin(a)*len;if(j===0)g.moveTo(px,py);else g.lineTo(px,py)}g.stroke()}
 }
-function addMark(x,y,drag){if(window.APKit&&APKit.isUI(x,y))return true;const m={x:x/W*2-1,y:1-y/H*2,r:.14+Math.random()*.1,power:(drag?.62:1),spin:(Math.random()<.5?-1:1)*(.7+Math.random()*.8),angle:Math.random()*TAU,phase:Math.random()*TAU};marks.push(m);if(marks.length>11)marks.shift();return false}
-let down=false,last=0,start=performance.now();c.addEventListener('pointerdown',e=>{if(addMark(e.clientX,e.clientY,false))return;down=true;c.setPointerCapture?.(e.pointerId)});c.addEventListener('pointermove',e=>{if(!down||performance.now()-last<100)return;if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;last=performance.now();addMark(e.clientX,e.clientY,true)});c.addEventListener('pointerup',()=>down=false);c.addEventListener('pointercancel',()=>down=false);
-function loop(now){if(!APKit.isExporting())scene((((now-start)/1000)%11)/11,true);requestAnimationFrame(loop)}
+function point(e){const r=c.getBoundingClientRect();return{x:(e.clientX-r.left)*W/r.width,y:(e.clientY-r.top)*H/r.height}}
+function addMark(x,y,drag){if(window.APKit&&APKit.isUI(x,y))return true;const m={x:x/W*2-1,y:1-y/H*2,r:.14+Math.random()*.1,power:(drag?.62:1),spin:(Math.random()<.5?-1:1)*(.7+Math.random()*.8)};marks.push(m);if(marks.length>11)marks.shift();return false}
+let down=false,last=0;function handleDown(e){const p=point(e);if(addMark(p.x,p.y,false))return;down=true;c.setPointerCapture?.(e.pointerId)}function handleMove(e){if(!down||performance.now()-last<100)return;const p=point(e);if(window.APKit&&APKit.isUI(p.x,p.y))return;last=performance.now();addMark(p.x,p.y,true)}
+c.addEventListener('pointerdown',handleDown);c.addEventListener('pointermove',handleMove);c.addEventListener('pointerup',()=>down=false);c.addEventListener('pointercancel',()=>down=false);
+let start=performance.now();function loop(now){if(!APKit.isExporting())scene((((now-start)/1000)%11)/11,true);requestAnimationFrame(loop)}
 APKit.init({canvas:c,gifName:'rupture-grid-loop',clockFormat:'spec',loopFrame:p=>scene(p,false),buttons:[{label:'✦',name:'mutate',onClick:()=>{seed=Math.random()*99999;marks=[];g.fillStyle='#000';g.fillRect(0,0,W,H)}},{label:'↻',name:'reset',onClick:()=>{marks=[];g.fillStyle='#000';g.fillRect(0,0,W,H)}}]});requestAnimationFrame(loop);
 </script></body></html>
