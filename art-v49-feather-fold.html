@@ -23,15 +23,10 @@
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#03030a}
 body{touch-action:none;overscroll-behavior:none}
 canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
-#hint{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 78px);
- transform:translateX(-50%);color:#fff;font:10px ui-monospace,SFMono-Regular,Menlo,monospace;
- letter-spacing:.3em;opacity:.34;pointer-events:none;white-space:nowrap;
- text-shadow:0 1px 8px #000;transition:opacity 1.2s}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hint">PUSH · HOLD TO PULL · DOUBLE REVERSE</div>
 
 <script>
 const canvas=document.getElementById('c');
@@ -86,8 +81,12 @@ void main(){
        normalised by width/height — NOT by min(R.x,R.y) the way p is. It has
        to go through the same 0.5-then-aspect conversion p did, or a portrait
        screen's taller axis puts it far from where you actually touched. */
+    /* No extra flip here: norm() in JS already puts L.y in the same
+       bottom-origin convention gl_FragCoord uses, so flipping again mirrored
+       every touch vertically — the top of the screen behaved like the
+       bottom. That was the second position bug, separate from the aspect
+       one fixed earlier. */
     vec2 lp=(L.xy-0.5)*aspect;
-    lp.y=-lp.y;
     vec2 dv=wp-lp;
     float dist=length(dv)+0.0001;
     float infl=smoothstep(L.w,0.0,dist);
@@ -227,7 +226,6 @@ canvas.addEventListener('pointerdown',e=>{
     const law=addLaw(x,y,1,0.35,0.16);
     activeLaw={law,downAt:now,id:e.pointerId};
   }
-  document.getElementById('hint').style.opacity='0';
 },{passive:true});
 
 function endTouch(e){
@@ -250,7 +248,6 @@ APKit.init({
     {label:'\u21bb',name:'reset', onClick:function(){ laws=[]; }}
   ]
 });
-setTimeout(()=>{ const h=document.getElementById('hint'); if(h) h.style.opacity='0'; },9000);
 </script>
 </body>
 </html>
