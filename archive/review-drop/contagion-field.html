@@ -1,0 +1,198 @@
+<!doctype html>
+<!-- CONTAGION FIELD — ChatGPT作。INFECTIONの「法則を書き換える傷」とVOID FIELD IIの「押す/引く領域」を、四角い粒子の流体フィールドとして再構成。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>ART PLAYGROUND — CONTAGION FIELD</title>
+<script src="../ap-kit.js"></script>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}
+body{touch-action:none}
+canvas{display:block;position:fixed;inset:0;touch-action:none}
+.label{position:fixed;z-index:2;left:20px;top:calc(env(safe-area-inset-top) + 14px);color:#fff;pointer-events:none;font:10px system-ui,sans-serif;letter-spacing:.28em;opacity:.42}
+</style>
+</head>
+<body>
+<div class="label">CONTAGION FIELD</div>
+<script src="https://cdn.jsdelivr.net/npm/p5@1.11.10/lib/p5.min.js"></script>
+<script>
+const TAU=Math.PI*2;
+let seed=1, laws=[], dots=[], palette;
+const MAX=1050, MAX_LAWS=10;
+
+function setup(){
+  createCanvas(windowWidth,windowHeight);
+  pixelDensity(Math.min(2,devicePixelRatio||1));
+  seed=floor(random(999999));
+  randomSeed(seed);
+  palette=makePalette();
+  buildDots();
+  APKit.init({
+    canvas:document.querySelector('canvas'),
+    gifName:'contagion-field-loop',
+    clockFormat:'spec',
+    loopFrame:render,
+    buttons:[
+      {label:'✦',name:'mutate',onClick:()=>{seed=floor(random(999999));randomSeed(seed);palette=makePalette();laws=[]}},
+      {label:'↻',name:'reset',onClick:()=>{laws=[]}}
+    ]
+  });
+}
+
+function makePalette(){
+  const h=random(360);
+  return {a:h,b:(h+random(70,145))%360,c:(h+random(185,270))%360};
+}
+function buildDots(){
+  dots=[];
+  for(let i=0;i<MAX;i++){
+    dots.push({
+      x:random(-1,1),y:random(-1,1),
+      s:random(.7,2.8),
+      phase:random(TAU),
+      hue:random(),
+      layer:floor(random(3))
+    });
+  }
+}
+
+// One field is sampled recursively at four scales. Small structures inherit
+// the direction of the larger field instead of being a separate texture.
+function baseField(x,y,t){
+  let vx=0,vy=0,px=x,py=y;
+  for(let k=0;k<4;k++){
+    const sc=1.35+k*.82;
+    const qx=px*sc + sin(t*(.19+k*.025)+k*1.7)*.18;
+    const qy=py*sc + cos(t*(.16+k*.021)-k*1.2)*.16;
+    const a=sin(qx*2.35+sin(qy*3.1+t*.11+k)) + cos(qy*2.7-qx*1.45-t*.09);
+    vx+=cos(a+qx*.42)*(.8/(k+1));
+    vy+=sin(a+qy*.36)*(.8/(k+1));
+    const ca=cos(.37+k*.29),sa=sin(.37+k*.29);
+    const nx=(qx*ca-qy*sa)*.61;
+    const ny=(qx*sa+qy*ca)*.61;
+    px=nx;py=ny;
+  }
+  return [vx,vy];
+}
+
+function fieldAt(x,y,t){
+  let f=baseField(x,y,t),vx=f[0],vy=f[1];
+  let influence=0, balance=0, infection=0;
+  for(const l of laws){
+    const dx=x-l.x,dy=y-l.y;
+    const d=sqrt(dx*dx+dy*dy)+.0005;
+    const q=exp(-(d*d)/(l.r*l.r));
+    if(q<.002)continue;
+    influence+=q;
+    // VOID behavior: polarity creates push/pull territories.
+    const sign=l.pull?-1:1;
+    vx += dx/d*sign*q*l.force*.55;
+    vy += dy/d*sign*q*l.force*.55;
+    vx += -dy/d*q*l.spin;
+    vy +=  dx/d*q*l.spin;
+    // INFECTION behavior: the same law also twists local coordinates.
+    infection += q*l.infect;
+    const tw=q*l.infect*.42;
+    vx += (cos(tw)-1)*dx - sin(tw)*dy;
+    vy += sin(tw)*dx + (cos(tw)-1)*dy;
+    balance += q*(l.pull?-1:1);
+  }
+  return {vx,vy,influence,balance,infection};
+}
+
+function warp(x,y,t){
+  let px=x,py=y;
+  // Eight small integration steps make the particle path visibly belong to
+  // the field. The same transform is repeated across the hierarchy.
+  for(let j=0;j<8;j++){
+    const f=fieldAt(px,py,t+j*.025);
+    const len=sqrt(f.vx*f.vx+f.vy*f.vy)+.001;
+    const step=.0105/(1+j*.035);
+    px += f.vx/len*step;
+    py += f.vy/len*step;
+    if(px>1.08)px-=2.16;if(px<-1.08)px+=2.16;
+    if(py>1.08)py-=2.16;if(py<-1.08)py+=2.16;
+  }
+  return [px,py];
+}
+
+function hsv(h,s,v){
+  h=((h%360)+360)%360/60;
+  const i=floor(h),f=h-i,p=v*(1-s),q=v*(1-f*s),u=v*(1-(1-f)*s);
+  let r,g,b;
+  switch(i%6){case 0:r=v;g=u;b=p;break;case 1:r=q;g=v;b=p;break;case 2:r=p;g=v;b=u;break;case 3:r=p;g=q;b=v;break;case 4:r=u;g=p;b=v;break;default:r=v;g=p;b=q}
+  return [r*255,g*255,b*255];
+}
+
+function render(phase){
+  background(0);
+  const t=phase;
+  const side=min(width,height),cx=width*.5,cy=height*.5;
+  noStroke();
+  for(let i=0;i<dots.length;i++){
+    const d=dots[i];
+    const p=warp(d.x,d.y,t+d.phase*.018);
+    const x=cx+p[0]*side*.49;
+    const y=cy-p[1]*side*.49;
+    const f=fieldAt(p[0],p[1],t);
+    const sideLaw=f.balance/Math.max(f.influence,.0001);
+    const seam=(f.influence>.035)?max(0,1-abs(sideLaw)*1.45):0;
+    const pulse=.5+.5*sin(t*1.35+d.phase);
+    const local=f.infection;
+    let hue;
+    if(local>.06) hue=palette.c+sin(local*2+t)*32;
+    else if(seam>.08) hue=(palette.a+palette.c)*.5+sin(i)*12;
+    else hue=palette.a+(palette.b-palette.a)*(.5+.5*sin(d.hue*TAU+t*.42+f.influence));
+    let val=.22+.72*(.45+.55*pulse);
+    val+=min(1,f.influence)*.32+seam*.42;
+    const sat=.78+min(.2,local*.06);
+    const col=hsv(hue,sat,min(1,val));
+    const size=(1.0+d.s)*(1+min(1,f.influence)*1.15+seam*1.4);
+    // Each particle leaves a family of smaller square residues.
+    const n=d.layer===0?2:1;
+    for(let k=0;k<n;k++){
+      const rr=(k+1)*(.006+f.influence*.012);
+      const xx=x+sin(d.phase+k*2.4+t*.12)*side*rr;
+      const yy=y+cos(d.phase*1.31+k*1.8-t*.1)*side*rr;
+      fill(col[0],col[1],col[2],k?55:185);
+      rect(xx-size*.5,yy-size*.5,size*(k? .52:.9),size*(k?.52:.9));
+    }
+  }
+  // The void is visible because particles abandon the territory. Only the
+  // boundary is hinted, never a painted black disc.
+  for(const l of laws){
+    const rr=l.r*side*.49;
+    const col=hsv(palette.c, .8, 1);
+    noFill();stroke(col[0],col[1],col[2],18);
+    circle(cx+l.x*side*.49,cy-l.y*side*.49,rr*2);
+  }
+  noStroke();
+}
+
+function writeLaw(x,y,drag){
+  if(window.APKit&&APKit.isUI(x,y))return true;
+  const nx=x/width*2-1,ny=1-y/height*2;
+  const last=laws[laws.length-1];
+  const pull=(last && dist(nx,ny,last.x,last.y)<.07)? !last.pull : random()<.5;
+  laws.push({x:nx,y:ny,r:drag?.13:.19,force:drag?.95:1.55,spin:random(-1,1)*.9,infect:drag?.8:1.35,pull});
+  if(laws.length>MAX_LAWS)laws.shift();
+  return false;
+}
+let drawing=false;
+canvas.addEventListener('pointerdown',e=>{
+  if(writeLaw(e.clientX,e.clientY,false))return;
+  drawing=true;canvas.setPointerCapture?.(e.pointerId);
+});
+canvas.addEventListener('pointermove',e=>{
+  if(!drawing)return;
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  if(frameCount%3===0)writeLaw(e.clientX,e.clientY,true);
+});
+canvas.addEventListener('pointerup',()=>drawing=false);
+canvas.addEventListener('pointercancel',()=>drawing=false);
+function windowResized(){resizeCanvas(windowWidth,windowHeight);buildDots()}
+</script>
+</body>
+</html>
