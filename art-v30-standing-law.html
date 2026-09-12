@@ -20,19 +20,20 @@
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;width:100%;height:100%;min-height:100%;overflow:hidden;background:#020207;color:#fff;
  font-family:system-ui,-apple-system,sans-serif}
-body{height:100dvh;touch-action:none;overscroll-behavior:none}
+body{height:100dvh;touch-action:none;overscroll-behavior:none;
+ -webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
 
-.controls{position:fixed;z-index:6;right:4vw;bottom:max(3.5vh,env(safe-area-inset-bottom));
- display:flex;gap:8px;transition:opacity .6s}
-.controls.idle{opacity:0;pointer-events:none}
-.btn{width:40px;height:40px;border-radius:50%;border:1px solid #ffffff25;background:#05050bd9;color:#fff;
- font-size:14px;box-shadow:0 4px 18px #0008;backdrop-filter:blur(10px)}
+.controls{position:fixed;z-index:6;left:50%;bottom:max(3.5vh,env(safe-area-inset-bottom));
+ transform:translateX(-50%);display:flex;gap:2px;padding:6px;border-radius:30px;
+ background:rgba(8,8,14,.5);border:1px solid rgba(255,255,255,.14);
+ backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:0 6px 30px #0009;
+ transition:opacity .7s,transform .7s}
+.controls.idle{opacity:0;transform:translateX(-50%) translateY(10px);pointer-events:none}
+.btn{width:46px;height:46px;border-radius:50%;border:none;background:transparent;color:#fff;
+ font-size:16px;box-shadow:none;backdrop-filter:none}
 .btn:active{transform:scale(.92)}
-.btn.act{border-color:#ffffff60;background:#ffffff1e}
-.label{position:fixed;z-index:4;left:50%;bottom:max(4vh,env(safe-area-inset-bottom));transform:translateX(-50%);
- font-size:8px;letter-spacing:.42em;opacity:.28;pointer-events:none;white-space:nowrap;transition:opacity 1.2s}
-.label.hide{opacity:0}
+.btn.act{background:rgba(255,255,255,.92);color:#07070e}
 .flash{position:fixed;inset:0;z-index:3;background:#fff;opacity:0;pointer-events:none;mix-blend-mode:screen;
  transition:opacity .08s}
 
@@ -80,14 +81,11 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:
   <div class="d" id="clockDate"></div>
 </div>
 
-<div class="label" id="label">TOUCH THE LAW · HOLD TO WRITE IT</div>
-
 <div class="controls" id="controls">
   <button class="btn" id="mutate" aria-label="mutate">✦</button>
   <button class="btn" id="wipe" aria-label="wipe law">↻</button>
   <button class="btn" id="gif" aria-label="export gif">◉</button>
   <button class="btn" id="clockBtn" aria-label="clock">🕐</button>
-  <button class="btn" id="fsBtn" aria-label="fullscreen">⛶</button>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -440,7 +438,7 @@ c.addEventListener('pointerdown',e=>{
   fingers.set(e.pointerId,{x:p.x,y:p.y,r:Math.min(innerWidth,innerHeight)*.13,spin:e.shiftKey?-1:1});
   energy=Math.min(1,energy+.3);
   if(fingers.size===2){targetLaw+=1.7;chaos=Math.min(1,chaos+.2)}
-  document.getElementById('label').classList.add('hide');
+  document.getElementById('label')?.classList.add('hide');
   bumpIdle();
 },{passive:false});
 c.addEventListener('pointermove',e=>{
@@ -481,7 +479,7 @@ document.addEventListener('visibilitychange',()=>{
   if(document.visibilityState==='visible'&&clockOn&&!wakeLock)requestWake();});
 function showCtrl(){ctrlEl.classList.remove('idle')}
 function bumpIdle(){showCtrl();clearTimeout(idleTimer);
-  if(clockOn)idleTimer=setTimeout(()=>ctrlEl.classList.add('idle'),4000)}
+  idleTimer=setTimeout(()=>ctrlEl.classList.add('idle'),4000)}
 addEventListener('pointerdown',bumpIdle,{passive:true});
 
 document.getElementById('clockBtn').onclick=function(){
@@ -493,23 +491,7 @@ document.getElementById('clockBtn').onclick=function(){
 document.getElementById('mutate').onclick=()=>mutate(1);
 document.getElementById('wipe').onclick=()=>{wipeFlag=1;toast('書き込まれた法則を消しました')};
 
-const docEl=document.documentElement;
-function fsElement(){return document.fullscreenElement||document.webkitFullscreenElement}
-function fsSupported(){return !!(docEl.requestFullscreen||docEl.webkitRequestFullscreen)}
-document.getElementById('fsBtn').onclick=async()=>{
-  if(!fsSupported()){
-    if(window.navigator.standalone)toast('すでにフルスクリーンで動いています');
-    else toast('iPhoneのSafariは全画面表示に対応していません。共有ボタン → 「ホーム画面に追加」で開くと、フチなしの全画面で使えます',7000);
-    return;
-  }
-  try{
-    if(fsElement())(document.exitFullscreen||document.webkitExitFullscreen).call(document);
-    else await (docEl.requestFullscreen||docEl.webkitRequestFullscreen).call(docEl);
-  }catch(_){toast('全画面表示に切り替えられませんでした')}
-};
-['fullscreenchange','webkitfullscreenchange'].forEach(ev=>
-  addEventListener(ev,()=>setTimeout(queue,120)));
-setTimeout(()=>document.getElementById('label').classList.add('hide'),9000);
+// fullscreen is left to the browser / home-screen app, per v49's convention
 
 // ---------- GIF ----------
 const GIF_JS='https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js';
