@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Log Field">
+<title>Art Playground — LOG FIELD</title>
+<!-- LOG FIELD — ChatGPT作。ap-kit.js統合: ChatGPT
+     Based on the attached compact Processing/p5.js formula.
+     The important idea is preserved: a logarithmic field is sampled on a grid,
+     converted to polar coordinates, then emitted as tiny colored strokes.
+     This version is deliberately stabilized for a phone canvas and given
+     coherent motion + touch-controlled deformation instead of random particles.
+-->
+<script src="../ap-kit.js"></script>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#050608}
+body{touch-action:none;overscroll-behavior:none;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+const canvas=document.getElementById('c');
+const ctx=canvas.getContext('2d',{alpha:false});
+let W=1,H=1,DPR=1, seed=Math.random()*1000;
+let last=performance.now();
+let targetPulse=0, pulse=0;
+let touch=null;
+
+function resize(){
+  DPR=Math.min(devicePixelRatio||1,1.5);
+  W=innerWidth; H=innerHeight;
+  canvas.width=Math.round(W*DPR); canvas.height=Math.round(H*DPR);
+  canvas.style.width=W+'px'; canvas.style.height=H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+}
+addEventListener('resize',resize); resize();
+
+function field(x,t,axis){
+  // The attached sketch's L(x), made safe around the singularity U=0.
+  const w=Math.min(W,H)*0.42;
+  const U=x-w;
+  const side=U<0?-1:1;
+  const ratio=Math.abs(w/(Math.abs(U)+0.75));
+  const wave=99*Math.pow(Math.sin(t/(Math.min(W,H)*0.82)+axis*0.7),2);
+  const inside=Math.max(1.001,wave+0.9-ratio*0.72);
+  return side*Math.log(inside);
+}
+
+function render(phaseOverride=null){
+  const now=performance.now();
+  const live=(now-last)*0.001;
+  last=now;
+  if(phaseOverride!==null){
+    pulse=phaseOverride;
+  }else{
+    pulse+=live*0.12;
+    pulse+=(targetPulse-pulse)*0.035;
+  }
+
+  const t=phaseOverride!==null ? phaseOverride*6.2831853 : pulse;
+  const minS=Math.min(W,H);
+  const cx=W*0.5, cy=H*0.5;
+  const scale=Math.min(1,W/H,H/W);
+  const spacing=Math.max(5,Math.min(7,minS/105));
+  const touchX=touch?touch.x-cx:0;
+  const touchY=touch?touch.y-cy:0;
+  const touchStrength=touch?touch.force:0;
+
+  ctx.fillStyle='#050608';
+  ctx.fillRect(0,0,W,H);
+  ctx.lineCap='round';
+  ctx.lineWidth=Math.max(1.25,spacing*0.58);
+
+  // A small set of deterministic phase offsets gives the field depth without noise.
+  const phaseA=seed*0.0017;
+  const phaseB=seed*0.0031;
+
+  for(let y=0;y<H;y+=spacing){
+    const ly=field(y,t,1);
+    for(let x=0;x<W;x+=spacing){
+      const lx=field(x,t,0);
+      let X=lx*minS*0.105;
+      let Y=ly*minS*0.105;
+
+      // The p5 sketch converts magnitude to an angle/radius. Here we add
+      // one controlled recursive fold so nearby grid cells form continuous
+      // bands rather than isolated specks.
+      let qx=X, qy=Y;
+      for(let k=0;k<3;k++){
+        const d=1.18+k*0.73;
+        const a=Math.atan2(qy,qx);
+        const r=Math.hypot(qx,qy);
+        qx=Math.cos(a*d+t*0.025*(k+1))*r;
+        qy=Math.sin(a*d+t*0.025*(k+1))*r;
+        qx=Math.abs(qx)-minS*(0.012+k*0.006);
+        qy=Math.abs(qy)-minS*(0.010+k*0.005);
+      }
+      X=qx*0.34+X*0.66;
+      Y=qy*0.34+Y*0.66;
+
+      const dx=x-cx, dy=y-cy;
+      const dist=Math.hypot(dx,dy)+0.001;
+      if(touch){
+        const tx=x-(touch.x), ty=y-(touch.y);
+        const td=Math.hypot(tx,ty);
+        const inf=Math.max(0,1-td/(minS*0.28))*touchStrength;
+        const ang=Math.atan2(ty,tx)+inf*1.9;
+        const rr=td*(1-inf*0.62);
+        X += Math.cos(ang)*rr*0.055*inf;
+        Y += Math.sin(ang)*rr*0.055*inf;
+      }
+
+      const M=Math.hypot(X,Y)*0.72+1;
+      let T=Math.atan2(Y,X)+minS/M*0.55;
+      // This is the visual heart of the reference: a point plus a short
+      // tangent stroke, generated from the transformed polar field.
+      const px=cx+M*Math.sin(T)+X*0.16;
+      const py=cy+M*Math.cos(T)+Y*0.16;
+
+      const bend=Math.sin(T*2.0-t*0.12+phaseA)*0.5+0.5;
+      const len=spacing*(1.25+2.8*bend);
+      const wobble=Math.sin(M*0.028+t*0.23+phaseB)*0.42;
+      const ang=T+Math.PI*0.5+wobble;
+      const x1=px-Math.cos(ang)*len*0.5;
+      const y1=py-Math.sin(ang)*len*0.5;
+      const x2=px+Math.cos(ang)*len*0.5;
+      const y2=py+Math.sin(ang)*len*0.5;
+
+      const hue=(205 + M*0.62 + T*48 + x*0.035 + y*0.018 + t*5)%360;
+      const sat=92;
+      const light=54+22*bend;
+      ctx.strokeStyle=`hsl(${hue} ${sat}% ${light}%)`;
+      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+    }
+  }
+
+  // Three faint nested copies reinforce the self-similar field at a much
+  // smaller scale; they are sparse, not a separate decorative layer.
+  ctx.globalAlpha=0.72;
+  for(let level=1;level<=2;level++){
+    const s=1/(level+1.7);
+    const ox=cx*(1-s), oy=cy*(1-s);
+    ctx.save();
+    ctx.translate(ox,oy);
+    ctx.scale(s,s);
+    ctx.translate(-ox,-oy);
+    ctx.lineWidth=Math.max(0.7,spacing*0.32);
+    for(let y=0;y<H;y+=spacing*2.2){
+      const ly=field(y,t+level*0.7,level+2);
+      for(let x=0;x<W;x+=spacing*2.2){
+        const lx=field(x,t+level*0.7,level+3);
+        const X=lx*minS*0.11, Y=ly*minS*0.11;
+        const M=Math.hypot(X,Y)*0.66+1;
+        const T=Math.atan2(Y,X)+minS/M*0.47;
+        const px=cx+M*Math.sin(T), py=cy+M*Math.cos(T);
+        const len=spacing*(1.5+Math.sin(T*3+t)*1.5);
+        const hue=(250+level*72+M*.8+t*8)%360;
+        ctx.strokeStyle=`hsl(${hue} 95% 62%)`;
+        ctx.beginPath();
+        ctx.moveTo(px-Math.cos(T)*len,py-Math.sin(T)*len);
+        ctx.lineTo(px+Math.cos(T)*len,py+Math.sin(T)*len);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+  ctx.globalAlpha=1;
+}
+
+function loop(){
+  if(!APKit.isExporting()) render();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+function pointerPos(e){
+  const r=canvas.getBoundingClientRect();
+  return [e.clientX-r.left,e.clientY-r.top];
+}
+canvas.addEventListener('pointerdown',e=>{
+  const [x,y]=pointerPos(e);
+  if(window.APKit && APKit.isUI(x,y)) return true;
+  touch={x,y,force:1};
+  targetPulse+=0.18;
+},{passive:true});
+canvas.addEventListener('pointermove',e=>{
+  if(!touch)return;
+  const [x,y]=pointerPos(e);
+  if(window.APKit && APKit.isUI(x,y)) return true;
+  touch.x=x; touch.y=y; touch.force=Math.min(1.35,touch.force+0.018);
+},{passive:true});
+function endTouch(){touch=null}
+canvas.addEventListener('pointerup',endTouch,{passive:true});
+canvas.addEventListener('pointercancel',endTouch,{passive:true});
+
+APKit.init({
+  canvas:canvas,
+  gifName:'log-field-loop',
+  clockFormat:'spec',
+  dock:true,
+  autoHide:true,
+  fullscreenButton:false,
+  loopFrame:function(phase){render(phase);},
+  buttons:[
+    {label:'✦',name:'mutate',onClick:function(){seed=Math.random()*1000;targetPulse+=0.5;}},
+    {label:'↻',name:'reset',onClick:function(){seed=Math.random()*1000;targetPulse=0;touch=null;}}
+  ]
+});
+</script>
+</body>
+</html>
