@@ -1,68 +1,23 @@
 <!doctype html>
-<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no"><title>TOPOLOGY — ART PLAYGROUND</title><script src="../ap-kit.js"></script><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}</style></head><body><canvas id="c"></canvas><script>
-const c=document.getElementById('c'),g=c.getContext('2d',{alpha:false});let W,H,D,seed=Math.random()*10000,marks=[];const TAU=Math.PI*2,N=920,pts=[];
+<!-- VEIN VOID — ChatGPT作。再帰分岐する「生きた骨格」と、触れた場所から増殖する流路。 -->
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no"><title>VEIN — ART PLAYGROUND</title><script src="../ap-kit.js"></script><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}body{touch-action:none}canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}</style></head><body><canvas id="c"></canvas><script>
+const c=document.getElementById('c'),g=c.getContext('2d',{alpha:false});let W,H,D,seed=17,laws=[],branches=[],pts=[];const TAU=Math.PI*2,N=1200;
+function rnd(n){const x=Math.sin(n*127.17+seed*17.31)*43758.5453;return x-Math.floor(x)}
 function resize(){D=Math.min(2,devicePixelRatio||1);W=innerWidth;H=innerHeight;c.width=W*D;c.height=H*D;g.setTransform(D,0,0,D,0,0)}addEventListener('resize',resize);resize();
-for(let i=0;i<N;i++){const a=Math.random()*TAU,r=Math.pow(Math.random(),.62);pts.push({x:Math.cos(a)*r,y:Math.sin(a)*r,px:0,py:0,a,r,s:.7+Math.random()*2.4})}
-function F(x,y,t){let vx=0,vy=0,X=x,Y=y;
-  // Three nested laws. Each level transforms the previous coordinate, so the
-  // same geometry survives at different scales instead of becoming noise.
-  for(let k=0;k<5;k++){
-    const q=1.05+k*.58, a=.34+k*.27;
-    const xx=X*q+Math.sin(t*.22+k)*.09, yy=Y*q+Math.cos(t*.18-k)*.09;
-    const z=Math.sin(xx*3.1+Math.cos(yy*2.4+t*.12))+Math.cos(yy*3.7-xx*1.8-t*.08);
-    vx+=Math.cos(z+yy*.9)*(.72/(k+1));
-    vy+=Math.sin(z-xx*.7)*(.72/(k+1));
-    const ca=Math.cos(a),sa=Math.sin(a);X=(xx*ca-yy*sa)*.57;Y=(xx*sa+yy*ca)*.57;
-  }
-  // Marks are not particles or paint. They are local changes to the topology.
-  for(const m of marks){
-    const dx=x-m.x,dy=y-m.y,d=Math.hypot(dx,dy)+.002,q=Math.exp(-d*d/(m.r*m.r));
-    const s=m.mode;
-    vx+=(-dy/d)*q*.75*s+dx*q*.24*s;
-    vy+=( dx/d)*q*.75*s+dy*q*.24*s;
-  }
-  return [vx,vy];
-}
+function build(){branches=[];function grow(x,y,a,len,d,parent){if(d<0)return;const id=branches.length;branches.push({x,y,a,len,d,parent});if(!d)return;const ex=x+Math.cos(a)*len,ey=y+Math.sin(a)*len;const bend=.16+(rnd(id*3.7)-.5)*.30;const sh=.55+rnd(id*9.1)*.13;grow(ex,ey,a+bend,len*sh,d-1,id);grow(ex,ey,a-bend*.78,len*sh*.92,d-1,id)}grow(-.02,.02,-.42,1.02,8,-1)}
+function seed(){pts=[];for(let i=0;i<N;i++){let a=rnd(i*2.1)*TAU,r=.03+Math.pow(rnd(i*4.7),.72)*1.28;pts.push({x:Math.cos(a)*r,y:Math.sin(a)*r,life:rnd(i*8.3),size:.45+rnd(i*5.8)*2.2})}}
+seed();build();
+function near(x,y){let bx=0,by=0,best=99;for(const b of branches){const dx=Math.cos(b.a)*b.len,dy=Math.sin(b.a)*b.len,den=b.len*b.len+.0001,u=Math.max(0,Math.min(1,((x-b.x)*dx+(y-b.y)*dy)/den)),px=b.x+dx*u,py=b.y+dy*u,rx=x-px,ry=y-py,d=Math.hypot(rx,ry);if(d<best){best=d;bx=dx/(b.len||1);by=dy/(b.len||1)}}return[bx,by,best]}
+function field(x,y,t){let vx=0,vy=0,X=x,Y=y;for(let k=0;k<4;k++){const q=near(X,Y),gain=.95/(k+1);vx+=q[0]*gain;vy+=q[1]*gain;const ca=Math.cos(.31+k*.67),sa=Math.sin(.31+k*.67),nx=(X*ca-Y*sa)*.61,ny=(X*sa+Y*ca)*.61;X=nx+Math.sin(Y*3.1+t*.11+k)*.035;Y=ny+Math.cos(X*2.7-t*.09-k)*.035}for(const L of laws){const dx=x-L.x,dy=y-L.y,d=Math.hypot(dx,dy)+.001,q=Math.exp(-d*d/(L.r*L.r));vx+=dx/d*q*L.pull-dy/d*q*L.spin;vy+=dy/d*q*L.pull+dx/d*q*L.spin}return[vx,vy]}
 function hsv(h,s,v){h=((h%360)+360)%360/60;const i=Math.floor(h),f=h-i,p=v*(1-s),q=v*(1-f*s),u=v*(1-(1-f)*s);let r,g,b;switch(i%6){case 0:r=v;g=u;b=p;break;case 1:r=q;g=v;b=p;break;case 2:r=p;g=v;b=u;break;case 3:r=p;g=q;b=v;break;case 4:r=u;g=p;b=v;break;default:r=v;g=p;b=q}return[r*255,g*255,b*255]}
-function scene(ph,live){const t=ph*TAU,S=Math.min(W,H)*.52,ox=W/2,oy=H/2;
-  g.fillStyle=live?'rgba(0,0,0,.13)':'#000';g.fillRect(0,0,W,H);
-  // The world is drawn as streamlines first. Particles only reveal selected
-  // sections of those lines, producing a field with visible depth and flow.
-  g.lineWidth=.65;
-  for(let seedLine=0;seedLine<46;seedLine++){
-    let a=seedLine/46*TAU+seed*.0007, r=.08+(seedLine%9)*.055;
-    let x=Math.cos(a)*r,y=Math.sin(a)*r;
-    const col=hsv(seed*.03+seedLine*8+t*16, .92, .72);
-    g.strokeStyle=`rgba(${col[0]},${col[1]},${col[2]},.11)`;g.beginPath();
-    for(let j=0;j<95;j++){
-      const sx=ox+x*S,sy=oy+y*S;if(j===0)g.moveTo(sx,sy);else g.lineTo(sx,sy);
-      const f=F(x,y,t);x+=f[0]*.008;y+=f[1]*.008;
-      const rr=Math.hypot(x,y);if(rr>1.18){x*=.985;y*=.985}
-    }g.stroke();
-  }
-  // Reveal the law with particles at four hierarchical scales.
-  for(const p of pts){let x=p.x,y=p.y;
-    for(let k=0;k<4;k++){const f=F(x,y,t+k*.13);x+=f[0]*(.0105/(1+k*.18));y+=f[1]*(.0105/(1+k*.18));}
-    const rr=Math.hypot(x,y),aa=Math.atan2(y,x),fold=Math.sin(rr*15-t*.35+Math.sin(aa*3+t)*2.2),grain=Math.sin(x*31+y*19+t*.25+p.a);
-    const energy=Math.max(0,fold)*.55+.45*(.5+.5*grain);if(energy<.31)continue;
-    const h=seed*.04+p.a*55+rr*180+t*24, col=hsv(h,1,.55+.45*energy),sz=p.s*(.55+energy*1.8);
-    const sx=ox+x*S,sy=oy+y*S;g.fillStyle=`rgba(${col[0]},${col[1]},${col[2]},${.25+.65*energy})`;
-    g.fillRect(sx-sz/2,sy-sz/2,sz,sz);
-    if(energy>.82){g.fillRect(sx-sz*.12,sy-sz*.12,sz*.24,sz*.24)}
-  }
-  // Voids are actual exclusions in the field, with a luminous boundary created
-  // from the same vector law. No decorative circle is painted over them.
-  for(const m of marks){const x=ox+m.x*S,y=oy+m.y*S,rad=m.r*S*.72;
-    const c1=hsv(m.mode>0?180:315,1,.95);g.strokeStyle=`rgba(${c1[0]},${c1[1]},${c1[2]},.22)`;g.lineWidth=1;
-    g.beginPath();for(let j=0;j<=72;j++){const a=j/72*TAU;const wob=1+.12*Math.sin(a*5+t*.6+m.phase)+.06*Math.sin(a*9-t);const px=x+Math.cos(a)*rad*wob,py=y+Math.sin(a)*rad*wob;j?g.lineTo(px,py):g.moveTo(px,py)}g.stroke();
-    g.fillStyle='rgba(0,0,0,.34)';g.beginPath();g.arc(x,y,rad*.72,0,TAU);g.fill();
-  }
-}
-function addMark(x,y,mode){if(window.APKit&&APKit.isUI(x,y))return true;marks.push({x:x/W*2-1,y:1-y/H*2,r:.07+Math.random()*.11,mode,phase:Math.random()*TAU});if(marks.length>9)marks.shift();return false}
-let down=false,last=0,start=performance.now();
-c.addEventListener('pointerdown',e=>{if(addMark(e.clientX,e.clientY,1))return;down=true;c.setPointerCapture?.(e.pointerId)});
-c.addEventListener('pointermove',e=>{if(!down||performance.now()-last<85)return;if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;last=performance.now();addMark(e.clientX,e.clientY,.72)});
-c.addEventListener('pointerup',()=>down=false);c.addEventListener('pointercancel',()=>down=false);
-function loop(now){if(!APKit.isExporting()){scene((((now-start)/1000)%12)/12,true)}requestAnimationFrame(loop)}
-APKit.init({canvas:c,gifName:'topology-loop',clockFormat:'spec',loopFrame:p=>scene(p,false),buttons:[{label:'✦',name:'mutate',onClick:()=>{seed=Math.random()*10000;marks=[];g.fillStyle='#000';g.fillRect(0,0,W,H)}},{label:'↻',name:'reset',onClick:()=>{marks=[];g.fillStyle='#000';g.fillRect(0,0,W,H)}}]});requestAnimationFrame(loop);
+function scene(ph,live){const t=ph*TAU,S=Math.min(W,H)*.47,ox=W/2,oy=H/2;g.fillStyle=live?'rgba(0,0,0,.15)':'#000';g.fillRect(0,0,W,H);
+// The recursive skeleton is visible, but incomplete: particles continuously reveal and hide it.
+g.lineCap='round';for(let pass=0;pass<3;pass++)for(let i=0;i<branches.length;i++){const b=branches[i];if(b.d<pass*2)continue;const pulse=.5+.5*Math.sin(t*.55-b.d*.7+i*.17);const col=hsv(seed*.08+i*7+pass*80+t*5,.95,.45+.4*pulse);g.strokeStyle=`rgba(${col[0]},${col[1]},${col[2]},${.035+.025*pulse})`;g.lineWidth=(pass+1)*.7;g.beginPath();g.moveTo(ox+b.x*S,oy+b.y*S);g.lineTo(ox+(b.x+Math.cos(b.a)*b.len)*S,oy+(b.y+Math.sin(b.a)*b.len)*S);g.stroke()}
+for(let i=0;i<pts.length;i++){const p=pts[i];let x=p.x,y=p.y;for(let k=0;k<6;k++){const f=field(x,y,t+k*.08);x+=f[0]*.009;y+=f[1]*.009}let q=near(x,y),edge=Math.exp(-q[2]*q[2]/.018),grain=.5+.5*Math.sin(x*29+y*17+t*.13+p.life*9);if(edge<.16&&grain<.45)continue;const sx=ox+x*S,sy=oy+y*S;if(sx<-10||sx>W+10||sy<-10||sy>H+10)continue;const h=(seed*.11+i*.41+q[2]*120+t*9)%360,col=hsv(h,1,.38+.58*edge),sz=p.size*(.55+1.55*edge);g.fillStyle=`rgba(${col[0]},${col[1]},${col[2]},${.14+.75*edge})`;g.fillRect(sx-sz/2,sy-sz/2,sz,sz)}
+for(const L of laws){const x=ox+L.x*S,y=oy+L.y*S,r=L.r*S*(.75+.25*Math.sin(t*.5+L.phase));const col=hsv(L.pull>0?185:320,1,.9);g.strokeStyle=`rgba(${col[0]},${col[1]},${col[2]},.28)`;g.lineWidth=1.2;g.beginPath();for(let j=0;j<=80;j++){const a=j/80*TAU,w=1+.13*Math.sin(a*5+t*.6+L.phase)+.05*Math.sin(a*9-t);const xx=x+Math.cos(a)*r*w,yy=y+Math.sin(a)*r*w;j?g.lineTo(xx,yy):g.moveTo(xx,yy)}g.stroke()}}
+function add(x,y){if(window.APKit&&APKit.isUI(x,y))return true;const nx=x/W*2-1,ny=1-y/H*2;laws.push({x:nx,y:ny,r:.055+Math.random()*.075,pull:Math.random()<.5?-.75:.75,spin:(Math.random()<.5?-1:1)*(.5+Math.random()*1.5),phase:Math.random()*TAU});if(laws.length>11)laws.shift();return false}
+let down=false;c.addEventListener('pointerdown',e=>{if(add(e.clientX,e.clientY))return;down=true;c.setPointerCapture?.(e.pointerId)});c.addEventListener('pointermove',e=>{if(!down)return;if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;add(e.clientX,e.clientY)});c.addEventListener('pointerup',()=>down=false);c.addEventListener('pointercancel',()=>down=false);
+let start=performance.now();function loop(now){if(!APKit.isExporting())scene(((now-start)/10000%1),true);requestAnimationFrame(loop)}
+function mutate(){seed=Math.floor(Math.random()*100000);laws=[];seed();build();g.fillStyle='#000';g.fillRect(0,0,W,H)}
+APKit.init({canvas:c,gifName:'vein-loop',clockFormat:'spec',loopFrame:p=>scene(p,false),buttons:[{label:'✦',name:'mutate',onClick:mutate},{label:'↻',name:'reset',onClick:()=>{laws=[];seed();g.fillStyle='#000';g.fillRect(0,0,W,H)}}]});requestAnimationFrame(loop);
 </script></body></html>
