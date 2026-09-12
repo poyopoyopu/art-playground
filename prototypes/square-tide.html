@@ -1,0 +1,77 @@
+<!doctype html>
+<!-- SQUARE TIDE — ChatGPT作。四角い粒子が自己相似の潮流をつくり、触れた場所に流れの癖が残る。 -->
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no"><meta name="theme-color" content="#03030a"><title>SQUARE TIDE — ART PLAYGROUND</title><script src="../ap-kit.js"></script><style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#03030a}canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}</style></head><body><canvas id="c"></canvas><script>
+const canvas=document.getElementById('c'),ctx=canvas.getContext('2d',{alpha:false});
+let W=1,H=1,D=1,seed=Math.random()*10000,marks=[];
+function resize(){D=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;canvas.width=Math.floor(W*D);canvas.height=Math.floor(H*D);ctx.setTransform(D,0,0,D,0,0)}addEventListener('resize',resize);resize();
+
+const N=720;
+const pts=Array.from({length:N},(_,i)=>({x:Math.random()*2-1,y:Math.random()*2-1,s:Math.random()*9+3,a:Math.random()*6.283+i*.17}));
+function rnd(i){let x=Math.sin(i*127.1+seed*.731)*43758.5453;return x-Math.floor(x)}
+function field(x,y,t){
+  // One law, recursively sampled at four scales. The small flow is a child of the large flow.
+  let vx=0,vy=0,px=x,py=y;
+  for(let k=0;k<4;k++){
+    const sc=1.25+k*.73, qx=px*sc+Math.sin(t*.32+k)*.18, qy=py*sc+Math.cos(t*.27-k)*.15;
+    const ang=Math.sin(qy*3.1+Math.sin(qx*1.7+t*.19+k)) + Math.cos(qx*2.4-qy*1.3-t*.13);
+    vx+=Math.cos(ang+qx*.35)*(.72/(k+1));
+    vy+=Math.sin(ang+qy*.28)*(.72/(k+1));
+    const c=Math.cos(.47+k*.21),s=Math.sin(.47+k*.21);px=(qx*c-qy*s)*.58;py=(qx*s+qy*c)*.58;
+  }
+  // Touch marks bend the same law rather than painting a separate blob.
+  for(let i=0;i<marks.length;i++){
+    const m=marks[i],dx=x-m.x,dy=y-m.y,r2=dx*dx+dy*dy+.0025,g=Math.exp(-r2/(m.r*m.r));
+    vx+=(-dy/r2)*g*m.p*0.055;
+    vy+=( dx/r2)*g*m.p*0.055;
+    vx+=dx*g*m.p*0.018;vy+=dy*g*m.p*0.018;
+  }
+  const l=Math.hypot(vx,vy)||1;return [vx/l,vy/l];
+}
+function wrap(v){return v>1.12?v-2.24:v<-1.12?v+2.24:v}
+function pos(p,t,echo){
+  let x=p.x,y=p.y,tt=t-echo*.105;
+  for(let j=0;j<8;j++){
+    const f=field(x,y,tt+j*.035);x+=f[0]*.0125;y+=f[1]*.0125;
+    const c=Math.cos(.045+Math.sin(tt*.12)*.012),s=Math.sin(.045+Math.sin(tt*.12)*.012);
+    x=x*c-y*s;y=x*s+y*c;x=wrap(x);y=wrap(y);
+  }
+  return [x,y];
+}
+function paint(phase){
+  const t=phase*6.2831853;
+  ctx.fillStyle='#03030a';ctx.fillRect(0,0,W,H);
+  const side=Math.min(W,H),ox=W/2,oy=H/2;
+  // Ghost layers create actual square residue: older positions remain smaller and dimmer.
+  for(let i=0;i<N;i++){
+    const p=pts[i];
+    for(let e=3;e>=0;e--){
+      const z=pos(p,t,e),x=ox+z[0]*side*.48,y=oy-z[1]*side*.48;
+      const scale=(1-e*.11)*(0.72+0.28*Math.sin(i*1.73+seed));
+      const size=(p.s*scale)*(D>1?1:1);
+      const hue=(seed*.037+i*1.91+z[0]*110+z[1]*55+t*2.5+e*17)%360;
+      const alpha=(e===0?.78:.14/(e+1));
+      ctx.fillStyle=`hsla(${hue},100%,${58+e*6}%,${alpha})`;
+      ctx.fillRect(x-size*.5,y-size*.5,size,size);
+    }
+  }
+  // A sparse second generation: each large square occasionally births three smaller squares.
+  for(let i=0;i<120;i++){
+    const p=pts[(i*7+Math.floor(seed))%N],z=pos(p,t,0),x=ox+z[0]*side*.48,y=oy-z[1]*side*.48;
+    const base=1.8+(i%4)*.7;
+    for(let k=0;k<3;k++){
+      const a=p.a+k*2.094+t*.08,rr=7+k*4;
+      const xx=x+Math.cos(a)*rr,yy=y+Math.sin(a)*rr;
+      ctx.fillStyle=`hsla(${(seed+i*13+k*37)%360},100%,72%,.28)`;
+      ctx.fillRect(xx-base*.5,yy-base*.5,base,base);
+    }
+  }
+}
+function touch(x,y){if(window.APKit&&APKit.isUI(x,y))return true;marks.push({x:x/W*2-1,y:1-y/H*2,r:.10+Math.random()*.09,p:Math.random()<.5?-1:1});if(marks.length>12)marks.shift();return false}
+let drawing=false,last=0;
+canvas.addEventListener('pointerdown',e=>{if(touch(e.clientX,e.clientY))return;drawing=true;canvas.setPointerCapture?.(e.pointerId)});
+canvas.addEventListener('pointermove',e=>{if(!drawing||performance.now()-last<45)return;if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;last=performance.now();touch(e.clientX,e.clientY)});
+canvas.addEventListener('pointerup',()=>drawing=false);canvas.addEventListener('pointercancel',()=>drawing=false);
+
+let start=performance.now();function frame(now){if(!APKit.isExporting()){const ph=((now-start)/1000%9)/9;paint(ph)}requestAnimationFrame(frame)}
+APKit.init({canvas:canvas,gifName:'square-tide-loop',clockFormat:'spec',loopFrame:paint,buttons:[{label:'✦',name:'mutate',onClick:()=>{seed=Math.random()*10000;marks=[]}},{label:'↻',name:'reset',onClick:()=>{marks=[]}}]});requestAnimationFrame(frame);
+</script></body></html>
