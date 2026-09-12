@@ -1,0 +1,19 @@
+<!doctype html>
+<!-- VEIN VOID — ChatGPT作。感染と空洞の境界が、四角い粒子の血管になる。 -->
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no"><title>VEIN VOID — ART PLAYGROUND</title><script src="../ap-kit.js"></script><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}</style></head><body><canvas id="c"></canvas><script>
+const c=document.getElementById('c'),g=c.getContext('2d',{alpha:false});let W,H,D,seed=Math.random()*9999,laws=[];const N=1150,pts=[];
+function resize(){D=Math.min(2,devicePixelRatio||1);W=innerWidth;H=innerHeight;c.width=W*D;c.height=H*D;g.setTransform(D,0,0,D,0,0)}addEventListener('resize',resize);resize();
+for(let i=0;i<N;i++)pts.push({x:Math.random()*2-1,y:Math.random()*2-1,px:0,py:0,a:Math.random()*6.28,s:1+Math.random()*2.5});
+function rnd(x){return Math.sin(x*91.73+seed)*43758.5453%1}
+function field(x,y,t){let vx=0,vy=0,X=x,Y=y;for(let k=0;k<5;k++){let sc=1.15+k*.53;let qx=X*sc+Math.sin(t*.35+k)*.17,qy=Y*sc+Math.cos(t*.29-k)*.13;let a=Math.sin(qx*3.4+Math.sin(qy*2.1+t*.17))+Math.cos(qy*2.7-qx*1.4-t*.11);vx+=Math.cos(a+qy)*(.8/(k+1));vy+=Math.sin(a-qx)*(.8/(k+1));let ca=Math.cos(.37+k*.19),sa=Math.sin(.37+k*.19);X=(qx*ca-qy*sa)*.61;Y=(qx*sa+qy*ca)*.61}
+for(const L of laws){let dx=x-L.x,dy=y-L.y,d=Math.hypot(dx,dy)+.002,q=Math.exp(-d*d/(L.r*L.r));let s=L.sign;q*=s;vx+=(-dy/d)*q*.34+dx*q*.12;vy+=(dx/d)*q*.34+dy*q*.12}
+return [vx,vy]}
+function paint(ph,live){let t=ph*6.283;g.fillStyle='rgba(0,0,0,.18)';g.fillRect(0,0,W,H);let S=Math.min(W,H),ox=W/2,oy=H/2;
+for(let i=0;i<N;i++){let p=pts[i],x=p.x,y=p.y;for(let j=0;j<4;j++){let f=field(x,y,t+j*.17);x+=f[0]*.012;y+=f[1]*.012;let a=Math.atan2(y,x),r=Math.hypot(x,y);let bend=.012*Math.sin(r*8-t*.35+j)+.006*Math.cos(a*5+t*.2);x+=-y*bend;y+=x*bend}
+let sx=ox+x*S*.48,sy=oy+y*S*.48;let residue=Math.sin(x*19+y*13+t*.12+p.a);let size=p.s*(.65+.35*(.5+.5*residue));let hue=(seed*.04+i*.71+x*120+y*80+t*8)%360;g.fillStyle=`hsla(${hue},100%,${62+22*(.5+.5*residue)}%,${.18+.7*(.5+.5*residue)})`;g.fillRect(sx-size/2,sy-size/2,size,size)}
+for(let i=0;i<laws.length;i++){let L=laws[i];let age=live?Math.min(1,(performance.now()-L.born)/12000):.5;let rr=L.r*(.65+.35*Math.sin(t*.5+i));g.strokeStyle=`hsla(${L.sign>0?170:310},100%,70%,.16)`;g.beginPath();g.arc(ox+L.x*S*.48,oy+L.y*S*.48,rr*S*.35,0,6.283);g.stroke()}}
+function add(x,y,sign=1){if(APKit&&APKit.isUI(x,y))return true;laws.push({x:x/W*2-1,y:1-y/H*2,r:.08+Math.random()*.1,sign,born:performance.now()});if(laws.length>14)laws.shift();return false}
+let down=false,last=0; c.addEventListener('pointerdown',e=>{if(add(e.clientX,e.clientY,1))return;down=true;c.setPointerCapture?.(e.pointerId)});c.addEventListener('pointermove',e=>{if(!down||performance.now()-last<70)return;if(APKit&&APKit.isUI(e.clientX,e.clientY))return;last=performance.now();add(e.clientX,e.clientY,1)});c.addEventListener('pointerup',()=>down=false);c.addEventListener('pointercancel',()=>down=false);
+let start=performance.now();function loop(now){if(!APKit.isExporting())paint((((now-start)/1000)%10)/10,true);requestAnimationFrame(loop)}
+APKit.init({canvas:c,gifName:'vein-void-loop',clockFormat:'spec',loopFrame:p=>{g.fillStyle='#000';g.fillRect(0,0,W,H);paint(p,false)},buttons:[{label:'✦',name:'mutate',onClick:()=>{seed=Math.random()*9999;laws=[];g.fillStyle='#000';g.fillRect(0,0,W,H)}},{label:'↻',name:'reset',onClick:()=>{laws=[];g.fillStyle='#000';g.fillRect(0,0,W,H)}}]});requestAnimationFrame(loop);
+</script></body></html>
