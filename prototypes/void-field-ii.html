@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>VOID FIELD II</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}
+body{touch-action:none;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+canvas{display:block}
+</style>
+<script src="../ap-kit.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/p5@1.11.10/lib/p5.min.js"></script>
+</head>
+<body>
+<script>
+/* VOID FIELD II — ChatGPT改。VOID FIELD v33系をAPKit統合。時計/GIF/フルスクリーン/操作UI対応。 */
+let P=[],V=[],W=[];
+let seed=0,energy=0,lastTouch=0,gestureDown=0,lastX=0,lastY=0;
+const COUNT=10500;
+function setup(){createCanvas(windowWidth,windowHeight);pixelDensity(Math.min(2,window.devicePixelRatio||1));init();APKit.init({canvas:canvas,gifName:'void-field-ii-loop',clockFormat:'spec',loopFrame:function(phase){render(phase);},buttons:[{label:'✦',name:'mutate',onClick:mutate},{label:'↻',name:'reset',onClick:init}]});}
+function init(){seed=floor(random(999999));randomSeed(seed);P=[];V=[];W=[];energy=0;const step=Math.max(7,Math.min(10,width/108));for(let x=step*.5;x<width;x+=step){for(let y=step*.5;y<height;y+=step){P.push({x:x+random(-.7,.7),y:y+random(-.7,.7),ox:x,oy:y,vx:0,vy:0,ph:random(TWO_PI),hue:random(TWO_PI)});if(P.length>=COUNT)break;}if(P.length>=COUNT)break;}background(0);}
+function mutate(){seed=floor(random(999999));randomSeed(seed);energy=.25;V=[];W=[];const n=2+floor(random(3));for(let i=0;i<n;i++)makeVoid(random(width*.18,width*.82),random(height*.18,height*.82),random(.65,1.15));}
+function render(t){background(0,17);for(const p of P){let near=0,core=0;for(const v of V){const d=Math.hypot(p.x-v.x,p.y-v.y);near=Math.max(near,Math.max(0,1-d/(v.r*2.1)));core=Math.max(core,Math.max(0,1-d/(v.r*.98)));}const dx=p.x-width*.5,dy=p.y-height*.5,r=Math.hypot(dx,dy)+1,a=Math.atan2(dy,dx);const wave=.5+.5*Math.sin(r*.025-t*3+p.ph);const organic=Math.pow(Math.max(0,Math.sin(r*.010+Math.sin(a*2+t)*1.7-t*.55+p.ph)),7);let intensity=Math.min(1,organic*.72+near*1.25+wave*.12);intensity*=1-core*.98;const h=p.hue+t*.11+near*2.4+organic*.8;const rr=105+150*(.5+.5*Math.sin(h)),gg=65+190*(.5+.5*Math.sin(h+2.094)),bb=130+125*(.5+.5*Math.sin(h+4.188)),size=.55+intensity*3.2+near*1.8;noStroke();fill(rr,gg,bb,28+220*intensity);rect(p.x-size*.5,p.y-size*.5,size,size);}for(const v of V){noStroke();fill(0,100);circle(v.x,v.y,v.r*2.1);noFill();stroke(255,255,255,10);circle(v.x,v.y,v.r*2.02);}}
+function draw(){const t=frameCount*.008;energy*=.992;for(const p of P){let ax=0,ay=0;const dx=p.x-width*.5,dy=p.y-height*.5,r=Math.hypot(dx,dy)+1,a=Math.atan2(dy,dx),f1=Math.sin(r*.012-t*2.1+p.ph),f2=Math.sin(a*4+r*.004+t*.7),f3=Math.sin((dx+dy)*.009-t),turn=f1*.75+f2*.35+f3*.25;ax+=-Math.sin(a+turn)*.11;ay+=Math.cos(a+turn)*.11;for(const v of V){const vx=p.x-v.x,vy=p.y-v.y,d=Math.hypot(vx,vy)+.001,reach=v.r*2.8;if(d<reach){const q=1-d/reach,fall=q*q;ax+=-vy/d*fall*v.spin*1.65;ay+=vx/d*fall*v.spin*1.65;const force=v.force*fall*1.35;ax+=vx/d*force;ay+=vy/d*force;if(d<v.r*.92){const q2=1-d/(v.r*.92);ax-=vx/d*q2*3.2;ay-=vy/d*q2*3.2;}}}for(const w of W){const wx=p.x-w.x,wy=p.y-w.y,d=Math.hypot(wx,wy)+1,ring=Math.exp(-Math.pow((d-w.r)/34,2))*w.power;ax+=wx/d*ring*.9;ay+=wy/d*ring*.9;}ax+=(p.ox-p.x)*.0011;ay+=(p.oy-p.y)*.0011;p.vx=(p.vx+ax)*.925;p.vy=(p.vy+ay)*.925;p.x+=p.vx;p.y+=p.vy;if(p.x<-8)p.x=width+8;if(p.x>width+8)p.x=-8;if(p.y<-8)p.y=height+8;if(p.y>height+8)p.y=-8;}for(let i=V.length-1;i>=0;i--){const v=V[i];v.r+=.045+energy*.04;v.phase+=.012;v.x+=Math.cos(v.phase)*.18;v.y+=Math.sin(v.phase*1.13)*.18;v.life--;for(let j=i-1;j>=0;j--){const u=V[j],d=Math.hypot(v.x-u.x,v.y-u.y);if(d<(v.r+u.r)*.72){const total=v.r+u.r;u.x=(u.x*u.r+v.x*v.r)/total;u.y=(u.y*u.r+v.y*v.r)/total;u.r=Math.min(170,Math.sqrt(v.r*v.r+u.r*u.r)*1.08);u.spin=(u.spin+v.spin)*.62;u.force=(u.force+v.force)*.5;v.life=0;break;}}if(v.life>90&&v.r>105&&random()<.0007){const ang=random(TWO_PI);V.push({x:v.x+Math.cos(ang)*v.r*.65,y:v.y+Math.sin(ang)*v.r*.65,r:v.r*.43,life:260+random(180),phase:random(TWO_PI),spin:-v.spin*.9,force:-v.force});v.r*=.72;}if(v.life<=0)V.splice(i,1);}for(let i=W.length-1;i>=0;i--){W[i].r+=7;W[i].power*=.975;if(W[i].power<.035)W.splice(i,1)}if(energy>.35&&frameCount%90===0&&V.length){const v=random(V);W.push({x:v.x,y:v.y,r:10,power:.55})}render(t);}
+function makeVoid(x,y,strength=1){V.push({x,y,r:18+random(10,34)*strength,life:430+random(220)*strength,phase:random(TWO_PI),spin:random(-1,1),force:random(-1,1)});energy=Math.min(1,energy+.22*strength);W.push({x,y,r:2,power:.9*strength});if(V.length>11)V.shift();if(W.length>8)W.shift();}
+function pointerDown(x,y){if(window.APKit&&APKit.isUI(x,y))return true;gestureDown=millis();lastX=x;lastY=y;if(millis()-lastTouch<330)globalPulse(x,y);else makeVoid(x,y,1);lastTouch=millis();return true;}
+function pointerMove(x,y){if(window.APKit&&APKit.isUI(x,y))return true;const d=Math.hypot(x-lastX,y-lastY);if(d>7){makeVoid(x,y,.28);lastX=x;lastY=y}return true;}
+function pointerUp(){const held=millis()-gestureDown;if(held>600){for(const v of V){v.force*=-1;v.spin*=-1}energy=Math.min(1,energy+.35);}}
+function globalPulse(x,y){W.push({x,y,r:3,power:1.8});for(const v of V){v.force*=-1.15;v.spin*=1.25}energy=1;if(W.length>8)W.shift();}
+function mousePressed(){return pointerDown(mouseX,mouseY)}function mouseDragged(){return pointerMove(mouseX,mouseY)}function mouseReleased(){pointerUp();return true}function touchStarted(){if(touches.length)return pointerDown(touches[0].x,touches[0].y);return true}function touchMoved(){if(touches.length)return pointerMove(touches[0].x,touches[0].y);return true}function touchEnded(){pointerUp();return true}function keyPressed(){if(key==='r'||key==='R')init();if(key==='s'||key==='S')saveCanvas('void-field-ii','png')}function windowResized(){resizeCanvas(windowWidth,windowHeight);init()}
+</script>
+</body>
+</html>
