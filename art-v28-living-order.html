@@ -10,11 +10,11 @@
 <title>Art Playground — LIVING ORDER</title>
 <style>
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#020207}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#020207;
+ -webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 canvas{display:block;width:100%;height:100%;touch-action:none}
 .ui{position:fixed;inset:0;pointer-events:none;color:#fff;font-family:system-ui,-apple-system,sans-serif}
 .title{position:absolute;left:5vw;top:max(4vh,env(safe-area-inset-top));font-size:9px;letter-spacing:.34em;opacity:.38}
-.hint{position:absolute;left:50%;bottom:max(4vh,env(safe-area-inset-bottom));transform:translateX(-50%);font-size:9px;letter-spacing:.28em;opacity:.32;white-space:nowrap}
 button{pointer-events:auto;border:1px solid #ffffff18;background:#08081288;color:#fff}
 .clock{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
  display:none;flex-direction:column;align-items:center;gap:6px;
@@ -27,15 +27,15 @@ button{pointer-events:auto;border:1px solid #ffffff18;background:#08081288;color
 .clock .t i{font-style:normal;opacity:.62}
 .clock .d{font-size:clamp(11px,3.3vw,17px);letter-spacing:.30em;color:#fff;opacity:.62;
  text-shadow:0 0 3px rgba(0,0,0,.95),0 2px 16px rgba(0,0,0,.9)}
-.ctrl{transition:opacity .6s}
-.ctrl.idle{opacity:0;pointer-events:none}
+.ctrl{transition:opacity .7s,transform .7s}
+.ctrl.idle{opacity:0;transform:translateX(-50%) translateY(10px);pointer-events:none}
 .toast{position:absolute;left:50%;bottom:calc(max(4vh,env(safe-area-inset-bottom)) + 54px);
  transform:translateX(-50%);max-width:78vw;padding:11px 18px;border-radius:14px;
  background:#0a0a16d8;border:1px solid #ffffff1f;backdrop-filter:blur(10px);
  font-size:12px;line-height:1.6;text-align:center;opacity:0;transition:opacity .35s;pointer-events:none}
 .toast.on{opacity:1}
-.ctrl{position:absolute;right:5vw;top:max(3.2vh,env(safe-area-inset-top));display:flex;gap:8px}
-.btn{width:42px;height:42px;border-radius:50%;font-size:15px;backdrop-filter:blur(10px)}
+.ctrl{position:fixed;left:50%;bottom:max(3.5vh,env(safe-area-inset-bottom));transform:translateX(-50%);display:flex;gap:2px;padding:6px;border-radius:30px;background:rgba(8,8,14,.5);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:0 6px 30px #0009}
+.btn{width:46px;height:46px;border-radius:50%;border:none;background:transparent;color:#fff;font-size:16px;backdrop-filter:none}
 .btn:disabled{opacity:.35}
 .flash{position:absolute;inset:0;background:white;opacity:0;transition:opacity .12s}
 .exportSheet{position:fixed;inset:0;display:none;place-items:center;background:#020207e8;backdrop-filter:blur(14px);z-index:20;pointer-events:auto}
@@ -60,10 +60,8 @@ button{pointer-events:auto;border:1px solid #ffffff18;background:#08081288;color
     <button class="btn" id="reset" aria-label="reset">↻</button>
     <button class="btn" id="gif" aria-label="export gif">◉</button>
     <button class="btn" id="clockBtn" aria-label="clock">🕐</button>
-    <button class="btn" id="fsBtn" aria-label="fullscreen">⛶</button>
   </div>
   <div class="toast" id="toast"></div>
-  <div class="hint">TOUCH THE WORLD · DRAG · TWO FINGERS</div>
   <div class="flash" id="flash"></div>
 </div>
 <div class="exportSheet" id="exportSheet">
@@ -307,7 +305,7 @@ function showCtrl(){ctrlEl.classList.remove("idle")}
 function bumpIdle(){
   showCtrl();
   clearTimeout(idleTimer);
-  if(clockOn)idleTimer=setTimeout(()=>ctrlEl.classList.add("idle"),4000);
+  idleTimer=setTimeout(()=>ctrlEl.classList.add("idle"),4000);
 }
 addEventListener("pointerdown",bumpIdle,{passive:true});
 
@@ -318,22 +316,7 @@ document.getElementById("clockBtn").onclick=()=>{
   bumpIdle();
 };
 
-const docEl=document.documentElement;
-function fsElement(){return document.fullscreenElement||document.webkitFullscreenElement}
-function fsSupported(){return !!(docEl.requestFullscreen||docEl.webkitRequestFullscreen)}
-document.getElementById("fsBtn").onclick=async()=>{
-  // iPhone Safari has no Fullscreen API at all — only the standalone home-screen
-  // app runs without browser chrome, so point there instead of failing silently.
-  if(!fsSupported()){
-    if(window.navigator.standalone)toast("すでにフルスクリーンで動いています");
-    else toast("iPhoneのSafariは全画面表示に対応していません。共有ボタン → 「ホーム画面に追加」で開くと、フチなしの全画面で使えます",7000);
-    return;
-  }
-  try{
-    if(fsElement()){(document.exitFullscreen||document.webkitExitFullscreen).call(document);}
-    else{await (docEl.requestFullscreen||docEl.webkitRequestFullscreen).call(docEl);}
-  }catch(_){ toast("全画面表示に切り替えられませんでした"); }
-};
+// fullscreen is left to the browser / home-screen app, per v49's convention
 ["fullscreenchange","webkitfullscreenchange","orientationchange"].forEach(ev=>
   addEventListener(ev,()=>setTimeout(resize,120)));
 
