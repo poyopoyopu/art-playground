@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Feather Fold">
+<title>Art Playground — FEATHER FOLD</title>
+<!--
+  FEATHER FOLD
+  Two sources combined, not just placed side by side:
+    - the raymarch reference's recursive fold  p += cos(p.yzx*d - T*5.)/d ; d*=.8
+      run in 2D as a 5-level self-similar domain warp
+    - the parametric-plotter reference's feather formula (k,e,d,q,c -> u,v)
+      evaluated AT the folded coordinate, so the feather shape recurs inside
+      every fold scale instead of sitting flat on top of it
+-->
+<script src="ap-kit.js"></script>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#03030a}
+body{touch-action:none;overscroll-behavior:none}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+#hint{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 78px);
+ transform:translateX(-50%);color:#fff;font:10px ui-monospace,SFMono-Regular,Menlo,monospace;
+ letter-spacing:.3em;opacity:.34;pointer-events:none;white-space:nowrap;
+ text-shadow:0 1px 8px #000;transition:opacity 1.2s}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">TAP FOLD · HOLD UNFOLD · DOUBLE REVERSE</div>
+
+<script>
+const canvas=document.getElementById('c');
+const gl=canvas.getContext('webgl2',{antialias:false,preserveDrawingBuffer:true});
+if(!gl){document.body.innerHTML='<div style="color:#fff;padding:30px;font:13px system-ui">WebGL2 is required.</div>';throw Error('WebGL2');}
+
+const VS=`#version 300 es
+in vec2 a;
+void main(){ gl_Position=vec4(a,0.,1.); }`;
+
+const FS=`#version 300 es
+precision highp float;
+out vec4 o;
+uniform vec2 R;
+uniform float time, seed, loopMode, phase, loopDur, maxR;
+uniform vec4 laws[10];
+#define PI 3.14159265359
+#define TAU 6.2831853
+
+/* Every animated term goes through T(). Live, it's just time*k. Exporting a
+   loop, k becomes a whole number of turns over the loop length, so the last
+   frame lands exactly on the first — verified for every k this shader uses. */
+float T(float k){
+  if(loopMode<0.5) return time*k;
+  float cycles=max(1.0, floor(k*loopDur/TAU+0.5));
+  return cycles*phase;
+}
+
+vec3 pal(float t){
+  return 0.5+0.5*cos(TAU*(t+vec3(0.0,0.33,0.67)));
+}
+
+void main(){
+  vec2 uv=gl_FragCoord.xy/min(R.x,R.y);
+  vec2 center=0.5*R/min(R.x,R.y);
+  vec2 p=uv-center;
+
+  /* --- self-similar recursive fold ---
+     The same warp, cos(q.yx*d - T*5d)/d, is applied five times as d shrinks
+     (2.0 -> 0.328), so each pass is a smaller echo of the one before it —
+     the fractal structure is this repetition, not decoration on top of it.
+     A touch writes a bend into the fold. It persists (capped at 10, oldest
+     evicted) rather than fading, so the shape it leaves actually stays. */
+  vec2 q=p*3.0;
+  float d=2.0;
+  float lawBend=0.0;
+  for(int j=0;j<5;j++){
+    d*=0.8;
+    vec2 w=cos(q.yx*d - T(5.0*d) + seed*0.7);
+    for(int i=0;i<10;i++){
+      vec4 L=laws[i];
+      if(L.w<=0.0) continue;
+      vec2 lp=(L.xy-0.5)*vec2(R.x/min(R.x,R.y), R.y/min(R.x,R.y));
+      lp.y=-lp.y;
+      float dist=length(q - lp*3.0);
+      float infl=exp(-dist*dist/(L.w*L.w*40.0+0.001));
+      w+=infl*L.z*vec2(-w.y,w.x);
+      lawBend+=infl*abs(L.z)*0.14;
+    }
+    q+=w/d;
+  }
+
+  /* --- feather formula, evaluated at the folded coordinate ---
+     k,e,d,q,c are the reference plotter's own names. There the grid (x,y)
+     is scattered to a plotted point (u,v); here the same relationship is
+     read as a distortion field: bands appear where a pixel's folded
+     position and its mapped (u,v) nearly coincide. */
+  vec2 P=q*70.0;
+  float k=5.0*cos(P.x/14.0)*cos(P.y/30.0);
+  float e=P.y/8.0-13.0;
+  float dd=(k*k+e*e)/59.0+4.0;
+  float qq=60.0-3.0*sin(atan(k,e))+k*(3.0+4.0/dd*sin(dd*dd-T(2.0)));
+  float c=dd/2.0+e/99.0-T(1.0/18.0);
+  float u=3.0*qq*sin(c);
+  float v=3.0*(qq+9.0*dd)*cos(c);
+
+  float feather=sin((u-P.x)*0.05)*sin((v-P.y)*0.05);
+  float bands=0.5+0.5*sin(dd*0.6-T(1.4));
+
+  float density=pow(max(0.0, feather*0.5+0.5), 3.0)*0.85 + bands*0.22 + lawBend;
+
+  float hue=atan(k,e)/TAU + dd*0.012 + T(0.02) + lawBend*0.4 + seed*0.15;
+  vec3 col=pal(hue)*min(1.4,density);
+
+  /* A gentle vignette scaled to the real corner distance, not a hard circle
+     that clips a portrait screen — the pattern still reaches every edge. */
+  float r=length(p)/max(maxR,0.001);
+  col*=mix(1.0, 0.72, smoothstep(0.32,1.05,r));
+
+  o=vec4(pow(max(col,0.0),vec3(0.9)),1.0);
+}`;
+
+function sh(type,src){
+  const x=gl.createShader(type); gl.shaderSource(x,src); gl.compileShader(x);
+  if(!gl.getShaderParameter(x,gl.COMPILE_STATUS)) throw Error(gl.getShaderInfoLog(x));
+  return x;
+}
+const prog=gl.createProgram();
+gl.attachShader(prog,sh(gl.VERTEX_SHADER,VS));
+gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,FS));
+gl.linkProgram(prog);
+if(!gl.getProgramParameter(prog,gl.LINK_STATUS)) throw Error(gl.getProgramInfoLog(prog));
+gl.useProgram(prog);
+
+const buf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+const loc=gl.getAttribLocation(prog,'a');
+gl.enableVertexAttribArray(loc);
+gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+
+const U={};
+['R','time','seed','loopMode','phase','loopDur','maxR','laws'].forEach(k=>U[k]=gl.getUniformLocation(prog,k));
+
+let seed=Math.random()*1000, laws=[];
+let W=1,H=1,DPR=1,startTime=performance.now();
+
+function resize(){
+  DPR=Math.min(devicePixelRatio||1,2);
+  W=innerWidth; H=innerHeight;
+  canvas.width=Math.round(W*DPR); canvas.height=Math.round(H*DPR);
+  gl.viewport(0,0,canvas.width,canvas.height);
+}
+addEventListener('resize',resize); resize();
+
+function renderGL(loopModeV, phaseV){
+  gl.uniform2f(U.R,canvas.width,canvas.height);
+  gl.uniform1f(U.time,(performance.now()-startTime)*0.001);
+  gl.uniform1f(U.seed,seed);
+  gl.uniform1f(U.loopMode,loopModeV);
+  gl.uniform1f(U.phase,phaseV);
+  gl.uniform1f(U.loopDur,APKit.LOOP_DUR);
+  gl.uniform1f(U.maxR,Math.hypot(canvas.width*.5,canvas.height*.5)/Math.min(canvas.width,canvas.height));
+  const arr=new Float32Array(40);
+  laws.forEach((L,i)=>{ if(i<10) arr.set(L,i*4); });
+  gl.uniform4fv(U.laws,arr);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+}
+
+function addLaw(x,y,sign,strength){
+  laws.push([x,y,sign*strength,0.05+strength*0.05]);
+  if(laws.length>10) laws.shift();
+}
+
+function loop(){
+  if(!APKit.isExporting()) renderGL(0,0);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// ---------- input: tap folds one way, a hold folds the other and grows ----------
+let downAt=0, downX=0, downY=0, lastTap=0;
+function norm(clientX,clientY){ return [clientX/W, 1-clientY/H]; }
+
+canvas.addEventListener('pointerdown',e=>{
+  const now=performance.now();
+  const [x,y]=norm(e.clientX,e.clientY);
+  if(now-lastTap<300){
+    for(const L of laws) L[2]*=-1;      // double-tap reverses every fold at once
+  }
+  lastTap=now; downAt=now; downX=x; downY=y;
+  document.getElementById('hint').style.opacity='0';
+},{passive:true});
+
+canvas.addEventListener('pointerup',e=>{
+  const [x,y]=norm(e.clientX,e.clientY);
+  const held=performance.now()-downAt;
+  const sign = held>320 ? -1 : 1;
+  const strength = Math.min(1.6, 0.5+held/700);
+  addLaw(x,y,sign,strength);
+},{passive:true});
+
+canvas.addEventListener('pointercancel',()=>{ downAt=0; });
+
+// ---------- shared kit: clock, fullscreen, GIF ----------
+APKit.init({
+  canvas:canvas,
+  gifName:'feather-fold-loop',
+  clockFormat:'spec',
+  dock:true,
+  autoHide:true,
+  fullscreenButton:false,
+  loopFrame:function(phase){ renderGL(1,phase); },
+  buttons:[
+    {label:'\u2726',name:'mutate',onClick:function(){ seed=Math.random()*1000; laws=[]; }},
+    {label:'\u21bb',name:'reset', onClick:function(){ laws=[]; }}
+  ]
+});
+setTimeout(()=>{ const h=document.getElementById('hint'); if(h) h.style.opacity='0'; },9000);
+</script>
+</body>
+</html>
