@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ART PLAYGROUND — SELECTION</title>
+<style>
+:root{color-scheme:dark;--bg:#07080b;--panel:#101217;--line:#252933;--text:#f3f5f7;--muted:#8d94a0;--keep:#62e6a4;--drop:#ff6377;--maybe:#ffc85a}
+*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}body{padding:18px 14px 70px}
+header{max-width:1200px;margin:0 auto 18px;position:sticky;top:0;z-index:10;background:rgba(7,8,11,.94);backdrop-filter:blur(14px);padding:10px 0 12px;border-bottom:1px solid var(--line)}
+h1{font-size:20px;letter-spacing:.08em;margin:0 0 5px}.sub{font-size:12px;color:var(--muted)}
+.toolbar{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}.toolbar button,.filter button{border:1px solid var(--line);background:#15181f;color:#dfe3e8;border-radius:8px;padding:8px 11px;font-size:12px;font-weight:700}.toolbar button:active,.filter button:active{transform:translateY(1px)}
+.stats{font-size:12px;color:#cbd0d8;margin-top:10px}.stats b{color:#fff}.filter{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}.filter button.active{border-color:#fff;color:#fff}
+section{max-width:1200px;margin:28px auto 0}h2{font-size:15px;letter-spacing:.08em;margin:0 0 10px}.section-note{color:var(--muted);font-size:11px;margin:-4px 0 12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;transition:.15s}.card.hidden{display:none}.card.keep{border-color:rgba(98,230,164,.8)}.card.drop{border-color:rgba(255,99,119,.75);opacity:.72}.card.maybe{border-color:rgba(255,200,90,.7)}
+.preview{height:145px;background:#050608;position:relative;cursor:pointer}.preview iframe{width:100%;height:100%;border:0;display:block}.preview .load{position:absolute;inset:0;display:grid;place-items:center;color:#9299a5;font-size:11px;letter-spacing:.08em;background:linear-gradient(135deg,#0b0d12,#07080b)}.preview.loaded .load{display:none}
+.info{padding:9px 10px 10px}.name{font-size:12px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.path{font-size:9px;color:#737b88;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px}.actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;margin-top:8px}.actions button{border:1px solid var(--line);background:#171a20;color:#b9bec7;border-radius:7px;padding:7px 2px;font-size:10px;font-weight:800}.actions button.keep{color:var(--keep);border-color:rgba(98,230,164,.45)}.actions button.drop{color:var(--drop);border-color:rgba(255,99,119,.45)}.actions button.maybe{color:var(--maybe);border-color:rgba(255,200,90,.45)}.open{display:block;text-align:center;margin-top:6px;color:#8f98a6;text-decoration:none;font-size:10px;padding:3px}.open:hover{color:#fff}
+#toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#fff;color:#08090b;border-radius:999px;padding:9px 14px;font-size:12px;font-weight:800;opacity:0;pointer-events:none;transition:.2s;z-index:30}#toast.show{opacity:1}
+@media(max-width:600px){body{padding:10px 9px 60px}.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.preview{height:115px}.info{padding:8px}.name{font-size:11px}.actions button{padding:6px 1px;font-size:9px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>ART PLAYGROUND / SELECTION</h1>
+  <div class="sub">作品を見て「残す / いらない / 保留」を押す。削除はこのページでは実行しません。</div>
+  <div class="stats" id="stats"></div>
+  <div class="toolbar">
+    <button onclick="copyResult()">選別結果をコピー</button>
+    <button onclick="clearResult()">判定を全部リセット</button>
+  </div>
+  <div class="filter" id="filters">
+    <button data-filter="all" class="active">全部</button>
+    <button data-filter="unreviewed">未判定</button>
+    <button data-filter="keep">残す</button>
+    <button data-filter="drop">いらない</button>
+    <button data-filter="maybe">保留</button>
+  </div>
+</header>
+
+<section>
+<h2>ROOT / 45 WORKS</h2>
+<div class="section-note">現在ルートに残っている作品。archive は含めない。</div>
+<div class="grid" id="root"></div>
+</section>
+
+<section>
+<h2>MAYBE / 75 WORKS</h2>
+<div class="section-note">前回のレビューで MAYBE になった75作品。A/B/C は元の優先度。</div>
+<div class="grid" id="maybe"></div>
+</section>
+
+<div id="toast"></div>
+<script>
+const BASE='https://art-playground.sotanshu.workers.dev/';
+const rootNames=[
+'art-v1.html','art-v2.html','art-v3.html','art-v4.html','art-v5.html','art-v6.html','art-v7.html','art-v8.html','art-v9.html',
+'art-v10.html','art-v11.html','art-v12.html','art-v13.html','art-v14.html','art-v15.html','art-v16.html','art-v17.html','art-v18.html',
+'art-v20.html','art-v21.html','art-v22.html','art-v23.html','art-v27.html','art-v28-living-order.html','art-v30-standing-law.html','art-v31-divided-law.html','art-v32-fault-lines.html',
+'art-v33-eversion.html','art-v34-paper-world.html','art-v35-one-knot.html','art-v36-art-of-becoming.html','art-v37-world-of-cells.html','art-v38-law-gravity.html','art-v39-time-fold.html','art-v40-symmetry-eater.html','art-v41-last-geometry.html','art-v42-axiom-field.html','art-v43-folded-time.html','art-v44-broken-symmetry.html','art-v45-liminal-boundary.html','art-v46-quiet-catastrophe.html','art-v47-infection.html','art-v48-wave.html',
+'void-field-ii.html'
+];
+const groups={
+A:['FIELD','FRACTAL04-FRACTURE','FRACTAL05-FERN','FRACTAL07-LIGHTNING','REBOOT03-SHEAR','REBOOT06-FOLD','REBOOT11-THREAD','REBOOT20-FAULT','SPECTRA03-JULIA','SPECTRA06-DRAGON','SPECTRA10-HILBERT','SPECTRA17-FLAME','SPECTRA18-MIRROR'],
+B:['DOT07-FOLD','DOT10-KNOT','DOT13-PRISM','DOT14-BURST','FOLD','FRACTAL08-NEST','FRACTAL15-SNOW','LATTICE','LIGHT03-GRIDWARP','LIGHT07-TUNNEL','LIGHT10-WAVE','LIGHT13-COMET','REBOOT01-PRESS','REBOOT02-BREATH','REBOOT07-TRACE','REBOOT10-FIELD','REBOOT14-SCAR','REBOOT18-GATE','RIFT','SHATTER','SPECTRA15-CORAL'],
+C:['DOT01-TUNNEL','DOT03-VORTEX','DOT04-WAVE','DOT05-RIPPLE','DOT06-PINWHEEL','FRACTAL09-RINGS','LIGHT01-RIBBON','LIGHT02-STREAM','LIGHT05-BURST','LIGHT06-REFLECT','LIGHT08-RAIN','LIGHT12-CELL','LIGHT16-VORTEX','LIGHT17-DRIFT','REBOOT04-GRAVITY','REBOOT05-DRIFT','REBOOT08-MIRROR','REBOOT09-SPLIT','REBOOT12-GRAIN','REBOOT13-RING','REBOOT15-TIDE','REBOOT16-ORBIT','REBOOT17-VOID','REBOOT19-SWARM','REBOOT20','SPECTRA01-BRANCH','SPECTRA02-CHAOS','SPECTRA04-MANDELBROT','SPECTRA05-KOCH','SPECTRA07-SIERPINSKI','SPECTRA08-CIRCLES','SPECTRA09-APOLLONIAN','SPECTRA11-CARPET','SPECTRA12-NEWTON','SPECTRA13-BURN','SPECTRA14-ORBIT','SPECTRA16-LACE','SPECTRA19-GROW','SPECTRA20-VOID','SPECTRA20','SPECTRA5']
+};
+const protoToFile={
+'FIELD':'field.html','FRACTAL04-FRACTURE':'fractal04-fracture.html','FRACTAL05-FERN':'fractal05-fern.html','FRACTAL07-LIGHTNING':'fractal07-lightning.html','REBOOT03-SHEAR':'reboot03-shear.html','REBOOT06-FOLD':'reboot06-fold.html','REBOOT11-THREAD':'reboot11-thread.html','REBOOT20-FAULT':'reboot20-fault.html','SPECTRA03-JULIA':'spectra03-julia.html','SPECTRA06-DRAGON':'spectra06-dragon.html','SPECTRA10-HILBERT':'spectra10-hilbert.html','SPECTRA17-FLAME':'spectra17-flame.html','SPECTRA18-MIRROR':'spectra18-mirror.html',
+'DOT07-FOLD':'dot07-fold.html','DOT10-KNOT':'dot10-knot.html','DOT13-PRISM':'dot13-prism.html','DOT14-BURST':'dot14-burst.html','FOLD':'fold.html','FRACTAL08-NEST':'fractal08-nest.html','FRACTAL15-SNOW':'fractal15-snow.html','LATTICE':'lattice.html','LIGHT03-GRIDWARP':'light03-gridwarp.html','LIGHT07-TUNNEL':'light07-tunnel.html','LIGHT10-WAVE':'light10-wave.html','LIGHT13-COMET':'light13-comet.html','REBOOT01-PRESS':'reboot01-press.html','REBOOT02-BREATH':'reboot02-breath.html','REBOOT07-TRACE':'reboot07-trace.html','REBOOT10-FIELD':'reboot10-field.html','REBOOT14-SCAR':'reboot14-scar.html','REBOOT18-GATE':'reboot18-gate.html','RIFT':'rift.html','SHATTER':'shatter.html','SPECTRA15-CORAL':'spectra15-coral.html',
+'DOT01-TUNNEL':'dot01-tunnel.html','DOT03-VORTEX':'dot03-vortex.html','DOT04-WAVE':'dot04-wave.html','DOT05-RIPPLE':'dot05-ripple.html','DOT06-PINWHEEL':'dot06-pinwheel.html','FRACTAL09-RINGS':'fractal09-rings.html','LIGHT01-RIBBON':'light01-ribbon.html','LIGHT02-STREAM':'light02-stream.html','LIGHT05-BURST':'light05-burst.html','LIGHT06-REFLECT':'light06-reflect.html','LIGHT08-RAIN':'light08-rain.html','LIGHT12-CELL':'light12-cell.html','LIGHT16-VORTEX':'light16-vortex.html','LIGHT17-DRIFT':'light17-drift.html','REBOOT04-GRAVITY':'reboot04-gravity.html','REBOOT05-DRIFT':'reboot05-drift.html','REBOOT08-MIRROR':'reboot08-mirror.html','REBOOT09-SPLIT':'reboot09-split.html','REBOOT12-GRAIN':'reboot12-grain.html','REBOOT13-RING':'reboot13-ring.html','REBOOT15-TIDE':'reboot15-tide.html','REBOOT16-ORBIT':'reboot16-orbit.html','REBOOT17-VOID':'reboot17-void.html','REBOOT19-SWARM':'reboot19-swarm.html','REBOOT20':'reboot20.html','SPECTRA01-BRANCH':'spectra01-branch.html','SPECTRA02-CHAOS':'spectra02-chaos.html','SPECTRA04-MANDELBROT':'spectra04-mandelbrot.html','SPECTRA05-KOCH':'spectra05-koch.html','SPECTRA07-SIERPINSKI':'spectra07-sierpinski.html','SPECTRA08-CIRCLES':'spectra08-circles.html','SPECTRA09-APOLLONIAN':'spectra09-apollonian.html','SPECTRA11-CARPET':'spectra11-carpet.html','SPECTRA12-NEWTON':'spectra12-newton.html','SPECTRA13-BURN':'spectra13-burn.html','SPECTRA14-ORBIT':'spectra14-orbit.html','SPECTRA16-LACE':'spectra16-lace.html','SPECTRA19-GROW':'spectra19-grow.html','SPECTRA20-VOID':'spectra20-void.html','SPECTRA20':'spectra20.html','SPECTRA5':'spectra5.html'
+};
+const key='art-playground-selection-20260912';
+let state=JSON.parse(localStorage.getItem(key)||'{}');
+let currentFilter='all';
+function labelFor(path){return path.replace(/\.html$/,'').replace(/^art-v/,'V').replace(/-/g,' ').toUpperCase()}
+function makeCard(id,name,path,group){
+ const card=document.createElement('article');card.className='card';card.dataset.id=id;card.dataset.status=state[id]||'';
+ card.innerHTML=`<div class="preview" data-preview="${path}"><div class="load">TAP TO PREVIEW</div></div><div class="info"><div class="name">${name}</div><div class="path">${group?group+' / ':''}${path}</div><div class="actions"><button class="keep" data-set="keep">残す</button><button class="drop" data-set="drop">いらない</button><button class="maybe" data-set="maybe">保留</button></div><a class="open" href="${BASE}${path}" target="_blank" rel="noopener">別ページで開く ↗</a></div>`;
+ card.querySelector('.preview').addEventListener('click',()=>loadPreview(card,path));
+ card.querySelectorAll('[data-set]').forEach(b=>b.addEventListener('click',()=>setStatus(id,b.dataset.set,card)));
+ return card;
+}
+function loadPreview(card,path){
+ const box=card.querySelector('.preview'); if(box.querySelector('iframe')) return;
+ const iframe=document.createElement('iframe');iframe.loading='lazy';iframe.src=BASE+path;iframe.title=card.querySelector('.name').textContent;box.prepend(iframe);box.classList.add('loaded');
+}
+function setStatus(id,status,card){state[id]=status;localStorage.setItem(key,JSON.stringify(state));card.dataset.status=status;card.classList.remove('keep','drop','maybe');if(status)card.classList.add(status);applyFilter();updateStats();toast(status==='keep'?'残す':status==='drop'?'いらない':'保留');}
+function applyFilter(){document.querySelectorAll('.card').forEach(c=>{const s=c.dataset.status||'';let show=currentFilter==='all'||(currentFilter==='unreviewed'&&!s)||(currentFilter===s);c.classList.toggle('hidden',!show)});}
+function updateStats(){const vals=Object.values(state);const total=120;const keep=vals.filter(x=>x==='keep').length,drop=vals.filter(x=>x==='drop').length,maybe=vals.filter(x=>x==='maybe').length;document.getElementById('stats').innerHTML=`全120作品　｜　判定 <b>${keep+drop+maybe}</b>　｜　残す <b>${keep}</b>　｜　いらない <b>${drop}</b>　｜　保留 <b>${maybe}</b>　｜　未判定 <b>${total-(keep+drop+maybe)}</b>`}
+function copyResult(){const root=[],A=[],B=[],C=[];document.querySelectorAll('#root .card').forEach(c=>{if(state[c.dataset.id])root.push(`${state[c.dataset.id].toUpperCase()} ${c.dataset.id}`)});document.querySelectorAll('#maybe .card').forEach(c=>{if(state[c.dataset.id]){const s=state[c.dataset.id].toUpperCase();(groups.A.includes(c.dataset.id)?A:groups.B.includes(c.dataset.id)?B:C).push(`${s} ${c.dataset.id}`)}});const text=['ROOT',...root,'','MAYBE A',...A,'','MAYBE B',...B,'','MAYBE C',...C].join('\n');navigator.clipboard?.writeText(text).then(()=>toast('選別結果をコピーしました')).catch(()=>prompt('コピーしてください',text));}
+function clearResult(){if(!confirm('判定を全部リセットしますか？'))return;state={};localStorage.removeItem(key);location.reload()}
+function toast(t){const e=document.getElementById('toast');e.textContent=t;e.classList.add('show');clearTimeout(window._toast);window._toast=setTimeout(()=>e.classList.remove('show'),900)}
+const root=document.getElementById('root');rootNames.forEach((p,i)=>root.appendChild(makeCard('ROOT:'+p,labelFor(p),p,'ROOT')));
+const maybe=document.getElementById('maybe');['A','B','C'].forEach(g=>groups[g].forEach((n,i)=>{const p=protoToFile[n];maybe.appendChild(makeCard('MAYBE:'+n,n,p,g))}));
+document.querySelectorAll('#filters button').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('#filters button').forEach(x=>x.classList.remove('active'));b.classList.add('active');currentFilter=b.dataset.filter;applyFilter()}));
+updateStats();applyFilter();
+</script>
+</body>
+</html>
