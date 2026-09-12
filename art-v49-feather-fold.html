@@ -76,12 +76,17 @@ void main(){
      scrambled coordinate, so the effect could show up nowhere near your
      finger. Doing it here means what you touch is where it happens.
      Each law persists (capped at 10, oldest evicted) rather than fading. */
+  vec2 aspect=R/min(R.x,R.y);
   vec2 wp=p;
   float lawBend=0.0;
   for(int i=0;i<10;i++){
     vec4 L=laws[i];
     if(L.w<=0.0) continue;
-    vec2 lp=(L.xy-center);
+    /* L.xy arrives as a 0..1 fraction of the screen, same as gl_FragCoord
+       normalised by width/height — NOT by min(R.x,R.y) the way p is. It has
+       to go through the same 0.5-then-aspect conversion p did, or a portrait
+       screen's taller axis puts it far from where you actually touched. */
+    vec2 lp=(L.xy-0.5)*aspect;
     lp.y=-lp.y;
     vec2 dv=wp-lp;
     float dist=length(dv)+0.0001;
@@ -102,7 +107,7 @@ void main(){
   float d=2.0;
   for(int j=0;j<5;j++){
     d*=0.8;
-    vec2 w=cos(q.yx*d - T(0.35*d) + seed*0.7);
+    vec2 w=cos(q.yx*d - T(0.18*d) + seed*0.7);
     q+=w/d;
   }
 
@@ -115,13 +120,13 @@ void main(){
   float k=5.0*cos(P.x/14.0)*cos(P.y/30.0);
   float e=P.y/8.0-13.0;
   float dd=(k*k+e*e)/59.0+4.0;
-  float qq=60.0-3.0*sin(atan(k,e))+k*(3.0+4.0/dd*sin(dd*dd-T(0.4)));
+  float qq=60.0-3.0*sin(atan(k,e))+k*(3.0+4.0/dd*sin(dd*dd-T(0.2)));
   float c=dd/2.0+e/99.0-T(1.0/18.0);
   float u=3.0*qq*sin(c);
   float v=3.0*(qq+9.0*dd)*cos(c);
 
   float feather=sin((u-P.x)*0.05)*sin((v-P.y)*0.05);
-  float bands=0.5+0.5*sin(dd*0.6-T(0.3));
+  float bands=0.5+0.5*sin(dd*0.6-T(0.15));
 
   float density=pow(max(0.0, feather*0.5+0.5), 3.0)*0.85 + bands*0.22 + lawBend;
 
