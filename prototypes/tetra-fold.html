@@ -1,117 +1,122 @@
 <!doctype html>
-<!-- TETRA FOLD — ChatGPT作。添付GLSLのpairwise foldとp=2p-1を2D自己相似フラクタルへ変換した試作。ap-kit.js統合。 -->
+<!-- TETRA FOLD — ChatGPT作。添付GLSLのpairwise foldとp=2p-1を、明確な三角形自己相似構造として再構成。ap-kit.js統合。 -->
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><title>TETRA FOLD</title><script src="../ap-kit.js"></script><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}body{touch-action:none}canvas{position:fixed;inset:0;width:100%;height:100%;display:block}</style></head><body><canvas id="c"></canvas><script>
 const c=document.getElementById('c');
 const gl=c.getContext('webgl2',{antialias:false,alpha:false,preserveDrawingBuffer:true});
 if(!gl){document.body.innerHTML='<div style="color:white;font:16px sans-serif;padding:30px">WebGL2 required</div>';throw new Error('WebGL2 required');}
-
 const VS=`#version 300 es
-precision highp float;
-in vec2 p;out vec2 uv;
-void main(){uv=p*.5+.5;gl_Position=vec4(p,0.,1.);}`;
-
+precision highp float;in vec2 p;out vec2 uv;void main(){uv=p*.5+.5;gl_Position=vec4(p,0.,1.);}`;
 const FS=`#version 300 es
-precision highp float;
-out vec4 O;in vec2 uv;
+precision highp float;out vec4 O;in vec2 uv;
 uniform vec2 res;uniform float time;uniform vec2 touch;uniform float touchAge;uniform float seed;
 
 mat2 rot(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}
 
-// The supplied GLSL translated to a visible 2D law:
-// pairwise folds -> p = p*2-1, repeated at multiple scales.
-// Instead of ray-marching a fragile SDF, we accumulate the fold boundaries directly.
-float fractal(vec2 p,out float detail,out float depth){
-  float line=0.;
-  float solid=0.;
-  float scale=1.;
-  vec2 z=p;
-  for(int i=0;i<11;i++){
-    // triangular/tetrahedral-style pairwise fold
-    z=abs(z);
-    if(z.x+z.y>1.0) z=vec2(1.0-z.y,1.0-z.x);
-    z=z*2.0-1.0;
+// Exact recursive triangular construction, with the supplied GLSL fold law
+// used as the coordinate mixer at every level: abs -> pairwise fold -> 2p-1.
+vec4 tetra(vec2 p){
+  // Equilateral-triangle coordinates.
+  p.y+=.43;
+  p.x*=1.0;
+  vec2 a=vec2(0.,.0),b=vec2(1.,0.),cc=vec2(.5,.8660254);
+  vec2 q=p+vec2(.5,.02);
+  // Convert into barycentric coordinates.
+  float by=q.y/.8660254;
+  float bx=q.x-.5*by;
+  float bz=1.0-bx-by;
+  float inside=step(0.,min(bx,min(by,bz)));
 
-    float edge=min(abs(z.x+z.y),min(abs(z.x-z.y),min(abs(z.x),abs(z.y))));
-    line+=exp(-edge*edge*1200.0)*(.55+float(i)*.065);
-    float hole=smoothstep(.015,.0,abs(z.x+z.y-.72));
-    solid+=hole*(.15+float(i)*.035);
+  float edge=0.;float holes=0.;float id=0.;float scale=1.;
+  vec3 bary=vec3(bx,by,bz);
+  for(int i=0;i<8;i++){
+    // Pairwise fold, equivalent in spirit to the supplied x+y/x+z/y+z minima.
+    vec2 foldp=vec2(bary.x-bary.y,bary.y-bary.z);
+    foldp=abs(foldp);
+    if(foldp.x+foldp.y>1.0) foldp=vec2(1.0-foldp.y,1.0-foldp.x);
+    foldp=foldp*2.0-1.0;
+
+    float mn=min(bary.x,min(bary.y,bary.z));
+    float central=step(.0, .5-max(bary.x,max(bary.y,bary.z)));
+    float nearEdge=smoothstep(.018,0.0,mn);
+    edge+=nearEdge*(1.0-float(i)*.065);
+    holes=max(holes,central*(.96-float(i)*.035));
+
+    // Choose the child triangle and renormalize barycentric coordinates.
+    if(bary.x>=bary.y && bary.x>=bary.z) bary=vec3(bary.x*2.-1.,bary.y*2.,bary.z*2.);
+    else if(bary.y>=bary.z) bary=vec3(bary.x*2.,bary.y*2.-1.,bary.z*2.);
+    else bary=vec3(bary.x*2.,bary.y*2.,bary.z*2.-1.);
     scale*=2.0;
+    id+=float(i)*nearEdge;
+
+    // Feed the GLSL fold back into the local coordinates without destroying topology.
+    bary+=vec3(foldp.x,foldp.y,-foldp.x-foldp.y)*.0035;
+    bary=max(bary,vec3(0.));
+    bary/=max(dot(bary,vec3(1.)),.0001);
   }
-  detail=line;
-  depth=solid;
-  return line+solid*.11;
+  return vec4(edge,holes,id,inside);
 }
 
 vec3 palette(float x){
-  vec3 a=vec3(.50,.50,.50);
-  vec3 b=vec3(.50,.50,.50);
-  vec3 cc=vec3(.92,.68,.36);
-  vec3 d=vec3(.07,.24,.57)+vec3(seed*.07,seed*.11,seed*.03);
-  return a+b*cos(6.2831853*(cc*x+d));
+  vec3 a=vec3(.52,.50,.48),b=vec3(.48,.50,.52);
+  vec3 c=vec3(.93,.62,.20),d=vec3(.02,.22,.57)+vec3(seed*.09,seed*.05,seed*.03);
+  return a+b*cos(6.2831853*(c*x+d));
 }
 
 void main(){
-  vec2 p=uv*2.0-1.0;
-  p.x*=res.x/res.y;
-
-  // Slow breathing: the structure lives, but never becomes a spinner.
+  vec2 p=uv*2.-1.;p.x*=res.x/res.y;
   float t=time;
-  p*=1.02+.055*sin(t*.34);
-  p.y+=.025*sin(t*.23);
-  p=rot(.055*sin(t*.19))*p;
+  // Slow breathing only; no continuous spinning.
+  p*=1.0+.045*sin(t*.32);
 
-  // Touch is a continuous deformation of the coordinate field.
-  vec2 q=p;
-  vec2 d=q-touch;
+  // Touch creates a smooth moving crease in the coordinate field.
+  vec2 d=p-touch;
   float r=length(d);
   float age=max(touchAge,0.0);
-  float touchField=exp(-r*r/.115)*exp(-age*.34);
-  float flow=sin(min(age,2.2)*3.1415926);
-  vec2 tangent=vec2(-d.y,d.x)/max(r,.0001);
-  q+=d*(flow*.46*touchField);
-  q+=tangent*(flow*.18*touchField);
+  float life=exp(-age*.42);
+  float field=exp(-r*r/.13)*life;
+  float wave=sin(min(age,1.9)*3.1415926);
+  p+=d*(wave*.24*field);
+  p+=vec2(-d.y,d.x)*(wave*.10*field);
+  p*=rot(wave*.045*field);
 
-  // Two scales of the same law create the sense of a living hierarchy.
-  float detail1,depth1,detail2,depth2;
-  float f1=fractal(q*.92,detail1,depth1);
-  float f2=fractal(q*2.07+vec2(.17,-.11),detail2,depth2);
+  vec4 f=tetra(p);
+  float inside=f.w;
+  float edge=f.x;
+  float hole=f.y;
+  float id=f.z;
 
-  // Mask the result into a large triangular world instead of filling the canvas.
-  float tri=max(abs(q.x)*.88+q.y*.42-.72,-q.y-.73);
-  float inside=1.0-smoothstep(.0,.035,tri);
+  // A second, finer hierarchy is layered in, giving visible self-similarity.
+  vec4 fine=tetra(p*1.95+vec2(.18,-.08));
+  float fineEdge=fine.x*fine.w*.34;
 
-  float detail=detail1*.95+detail2*.34;
-  float structure=detail*inside;
-  float breathing=.5+.5*sin(t*.34+detail2*2.0);
-  float value=structure*(.72+.42*breathing)+depth1*.06;
+  float structure=(edge*.95+fineEdge);
+  structure*=inside;
+  structure*=1.0-smoothstep(.04,.32,hole);
+  float pulse=.5+.5*sin(t*.32+id*.19);
+  float bands=fract(id*.071+fine.x*.043+seed*.71);
+  vec3 col=palette(bands+structure*.045);
+  col*=structure*(.72+.34*pulse);
+  col+=palette(bands+.23)*pow(clamp(structure,0.,1.),1.8)*.62;
+  col+=palette(.1+bands)*field*wave*.32;
 
-  // Thin dark separations keep the recursive levels legible.
-  float bands=fract(detail1*.092+detail2*.037+seed*.71+t*.008);
-  vec3 col=palette(bands+value*.16);
-  col*=inside*(.18+min(value*1.45,1.65));
-  col+=palette(bands+.27)*pow(clamp(structure,0.,1.),1.7)*.55;
-
-  // A soft touch wake makes the interaction visible without adding a trail layer.
-  col+=palette(.12+bands)*touchField*flow*.22;
-  O=vec4(col,1.0);
+  // Hard black gaps make the recursive law unmistakable.
+  float gap=smoothstep(.12,.32,hole);
+  col*=1.0-gap;
+  O=vec4(col,1.);
 }`;
-
-function shader(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));return s;}
+function shader(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));return s}
 const pr=gl.createProgram();gl.attachShader(pr,shader(gl.VERTEX_SHADER,VS));gl.attachShader(pr,shader(gl.FRAGMENT_SHADER,FS));gl.linkProgram(pr);if(!gl.getProgramParameter(pr,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(pr));
 const vao=gl.createVertexArray(),buf=gl.createBuffer();gl.bindVertexArray(vao);gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);const loc=gl.getAttribLocation(pr,'p');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
 const U={res:gl.getUniformLocation(pr,'res'),time:gl.getUniformLocation(pr,'time'),touch:gl.getUniformLocation(pr,'touch'),touchAge:gl.getUniformLocation(pr,'touchAge'),seed:gl.getUniformLocation(pr,'seed')};
-
 let W=0,H=0,D=1,seed=Math.random(),tx=99,ty=99,touchStart=-99,lastDraw=0,down=false;
-function resize(){W=innerWidth;H=innerHeight;D=Math.min(1.35,devicePixelRatio||1);c.width=Math.floor(W*D);c.height=Math.floor(H*D);gl.viewport(0,0,c.width,c.height);}addEventListener('resize',resize);
+function resize(){W=innerWidth;H=innerHeight;D=Math.min(1.25,devicePixelRatio||1);c.width=Math.floor(W*D);c.height=Math.floor(H*D);gl.viewport(0,0,c.width,c.height);}addEventListener('resize',resize);
 function P(e){const r=c.getBoundingClientRect();return{x:(e.clientX-r.left)/r.width*2-1,y:1-(e.clientY-r.top)/r.height*2};}
 function touch(x,y,now){if(window.APKit&&APKit.isUI(x,y))return true;tx=x/W*2-1;ty=1-y/H*2;touchStart=now;return false;}
 function dn(e){if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;down=true;c.setPointerCapture?.(e.pointerId);const q=P(e);touch((q.x+1)*W*.5,(1-q.y)*H*.5,performance.now());}
 function mv(e){if(!down)return;if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;const q=P(e);touch((q.x+1)*W*.5,(1-q.y)*H*.5,performance.now());}
 function up(){down=false;}
 c.addEventListener('pointerdown',dn,{passive:false});c.addEventListener('pointermove',mv,{passive:false});c.addEventListener('pointerup',up);c.addEventListener('pointercancel',up);
-
-function draw(now,phase=null){if(phase===null&&now-lastDraw<30)return;lastDraw=now;const tt=phase===null?now/1000:phase*1.0;const age=touchStart<0?99:Math.max(0,(now-touchStart)/1000);gl.useProgram(pr);gl.uniform2f(U.res,c.width,c.height);gl.uniform1f(U.time,tt);gl.uniform2f(U.touch,tx,ty);gl.uniform1f(U.touchAge,age);gl.uniform1f(U.seed,seed);gl.bindVertexArray(vao);gl.drawArrays(gl.TRIANGLES,0,6);}
-
+function draw(now,phase=null){if(phase===null&&now-lastDraw<30)return;lastDraw=now;const tt=phase===null?now/1000:phase;const age=touchStart<0?99:Math.max(0,(now-touchStart)/1000);gl.useProgram(pr);gl.uniform2f(U.res,c.width,c.height);gl.uniform1f(U.time,tt);gl.uniform2f(U.touch,tx,ty);gl.uniform1f(U.touchAge,age);gl.uniform1f(U.seed,seed);gl.bindVertexArray(vao);gl.drawArrays(gl.TRIANGLES,0,6);}
 APKit.init({canvas:c,gifName:'tetra-fold-loop',clockFormat:'spec',loopFrame:p=>draw(performance.now(),p*6.283185307),buttons:[{label:'✦',name:'mutate',onClick:()=>{seed=Math.random();draw(performance.now());}},{label:'↻',name:'reset',onClick:()=>{tx=99;ty=99;touchStart=-99;draw(performance.now());}}]});
 resize();requestAnimationFrame(function loop(t){if(!APKit.isExporting())draw(t);requestAnimationFrame(loop);});
 </script></body></html>
