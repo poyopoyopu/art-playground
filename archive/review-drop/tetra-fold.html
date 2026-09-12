@@ -1,0 +1,107 @@
+<!doctype html>
+<!-- VEIN — ChatGPT作。添付のProcessing式を核に、数式から生まれる細い羽状の流線を再構成。ap-kit.js統合。 -->
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><title>VEIN</title><script src="../ap-kit.js"></script><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}body{touch-action:none}canvas{position:fixed;inset:0;width:100%;height:100%;display:block}</style></head><body><canvas id="c"></canvas><script>
+const c=document.getElementById('c'),g=c.getContext('2d',{alpha:false});
+let W=0,H=0,D=1,seed=Math.random()*100,down=false,lastX=0,lastY=0,touchX=-999,touchY=-999,touchAt=-999,lastDraw=0;
+const TAU=Math.PI*2;
+function resize(){W=innerWidth;H=innerHeight;D=Math.min(2,devicePixelRatio||1);c.width=Math.floor(W*D);c.height=Math.floor(H*D);g.setTransform(D,0,0,D,0,0)}addEventListener('resize',resize);
+function P(e){const r=c.getBoundingClientRect();return{x:(e.clientX-r.left)/r.width*W,y:(e.clientY-r.top)/r.height*H}}
+function hsv(h,s=.9,v=1){h=((h%360)+360)%360;let k=n=>(n+h/60)%6, f=n=>v-v*s*Math.max(Math.min(k(n),4-k(n),1),0);return `rgb(${(f(5)*255)|0},${(f(3)*255)|0},${(f(1)*255)|0})`}
+
+// Direct translation of the mathematical core visible in the supplied reference.
+function eq(x,y,t){
+  const k=5*Math.cos((x+seed*1.7)/14)*Math.cos((y-seed*.8)/30);
+  const e=y/8-13;
+  const d=(k*k+e*e)/59+4;
+  const a=Math.atan2(k,e);
+  const q=60-3*Math.sin(a)+k*(3+4/d*Math.sin(d*d-2*t));
+  const cc=d/2+e/99-t/18;
+  return {u:3*q*Math.sin(cc),v:3*(q+9*d)*Math.cos(cc),k,e,d};
+}
+
+function touchWarp(x,y,t){
+  if(touchAt<0)return [0,0,0];
+  const age=(t-touchAt)/1000;if(age>4.5)return [0,0,0];
+  const dx=x-touchX,dy=y-touchY,r=Math.hypot(dx,dy),life=Math.exp(-age*.22),front=Math.sin(Math.min(age,1.8)*Math.PI);
+  const q=Math.exp(-r*r/.095)*life*front;
+  return [(-dy/(r+.001))*q*.55,(dx/(r+.001))*q*.55,q];
+}
+
+function strand(t,side,phase){
+  // Long centerline: two drifting mathematical bodies, not radial symmetry.
+  const baseX=W*.5 + side*(W*.22 + Math.sin(t*.9+phase)*W*.025);
+  const baseY=H*.5 + t*H*.31;
+  const bend=Math.sin(t*3.1+phase)*W*.075 + Math.sin(t*7.7-phase)*W*.022;
+  return [baseX+bend,baseY];
+}
+
+function draw(now,phase=null){
+  if(phase===null&&now-lastDraw<30)return;lastDraw=now;
+  const T=phase===null?now/1000:phase*1.0;
+  g.fillStyle='#000';g.fillRect(0,0,W,H);
+
+  // Fine mathematical particles form many nested, self-similar chevrons.
+  const rows=side=>{
+    for(let layer=0;layer<17;layer++){
+      const offset=(layer-8)*.012;
+      for(let n=0;n<105;n++){
+        const tt=n/104*2-1;
+        const [cx,cy]=strand(tt+offset*.18,side,layer*.47+seed*.03);
+        const x0=(tt*34+layer*1.7+seed*.9);
+        const y0=(tt*38-layer*2.3);
+        const z=eq(x0,y0,T*.72+layer*.035);
+        const scale=.62+layer*.026;
+        let x=cx + z.u*scale;
+        let y=cy + z.v*scale;
+        const tw=touchWarp(x/W*2-1,y/H*2-1,T);
+        x+=tw[0]*W*.25;y+=tw[1]*H*.25;
+        const alpha=.18+.78*Math.max(0,1-Math.abs(tt)*.52);
+        const hue=(seed*41+layer*18+n*.57+z.k*42+T*11+side*42+360)%360;
+        g.strokeStyle=hsv(hue,.88,.98);g.globalAlpha=alpha;
+        g.lineWidth=0.8+tw[2]*2.2;
+
+        const ang=Math.atan2(z.v,z.u)+side*.18;
+        const len=3.5+Math.min(9,Math.abs(z.d-4)*.32);
+        const ax=Math.cos(ang),ay=Math.sin(ang);
+        // V-shaped micro-feather: each level contains smaller repeated marks.
+        g.beginPath();g.moveTo(x-len*ax,y-len*ay);g.lineTo(x,y);g.lineTo(x-len*ax+len*.52*(-ay),y-len*ay+len*.52*ax);g.stroke();
+
+        // Two smaller descendants = explicit recursive hierarchy.
+        if((n+layer)%3===0){
+          const ss=len*.42, aa=ang+side*.58;
+          g.beginPath();g.moveTo(x-ss*Math.cos(aa),y-ss*Math.sin(aa));g.lineTo(x,y);g.lineTo(x-ss*Math.cos(aa+side*.72),y-ss*Math.sin(aa+side*.72));g.stroke();
+        }
+      }
+    }
+  };
+  rows(-1);rows(1);
+
+  // Two compact equation singularities near the waist, like the reference's colorful knots.
+  for(let side of [-1,1]){
+    const ox=W*.5+side*W*.155,oy=H*.51+Math.sin(T*.45+side)*H*.025;
+    for(let j=0;j<720;j++){
+      const a=j/720*TAU;
+      const rr=.02+.12*(j/720);
+      const ex=5*Math.cos((a*36+seed)/14)*Math.cos((rr*300-seed)/30);
+      const ey=rr*210-13;
+      const d=(ex*ex+ey*ey)/59+4;
+      const q=60-3*Math.sin(Math.atan2(ex,ey))+ex*(3+4/d*Math.sin(d*d-T*2));
+      const cc=d/2+ey/99-T/18;
+      let x=ox+3*q*Math.sin(cc)*.055*W/100;
+      let y=oy+3*(q+9*d)*Math.cos(cc)*.055*H/100;
+      const tw=touchWarp(x/W*2-1,y/H*2-1,T);x+=tw[0]*W*.18;y+=tw[1]*H*.18;
+      g.globalAlpha=.3+.7*(j/720);g.strokeStyle=hsv(seed*37+j*.58+side*55+T*20,.96,1);g.lineWidth=1.05;
+      g.beginPath();g.arc(x,y,.65+(j%7)*.12,0,TAU);g.stroke();
+    }
+  }
+  g.globalAlpha=1;
+}
+
+function hit(x,y){if(window.APKit&&APKit.isUI(x,y))return true;touchX=x/W*2-1;touchY=1-y/H*2;touchAt=performance.now();return false}
+function dn(e){if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;down=true;c.setPointerCapture?.(e.pointerId);const q=P(e);lastX=q.x;lastY=q.y;hit(q.x,q.y)}
+function mv(e){if(!down)return;if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;const q=P(e);if(Math.hypot(q.x-lastX,q.y-lastY)>4){hit(q.x,q.y);lastX=q.x;lastY=q.y}}
+function up(){down=false}
+c.addEventListener('pointerdown',dn,{passive:false});c.addEventListener('pointermove',mv,{passive:false});c.addEventListener('pointerup',up);c.addEventListener('pointercancel',up);
+APKit.init({canvas:c,gifName:'vein-loop',clockFormat:'spec',loopFrame:p=>draw(performance.now(),p*TAU),buttons:[{label:'✦',name:'mutate',onClick:()=>{seed=Math.random()*100;draw(performance.now())}},{label:'↻',name:'reset',onClick:()=>{touchAt=-999;draw(performance.now())}}]});
+resize();requestAnimationFrame(function loop(t){if(!APKit.isExporting())draw(t);requestAnimationFrame(loop)});
+</script></body></html>
