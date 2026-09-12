@@ -1,22 +1,33 @@
 <!doctype html>
-<!-- RUPTURE GRID — ChatGPT作。格子を「触った場所の記憶」が流れ続ける場として再設計。ap-kit.js統合 -->
+<!-- RUPTURE GRID — ChatGPT作。格子の自己相似変形。タッチ痕の線は使わず、接触点だけで場を変える。ap-kit.js統合 -->
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><title>RUPTURE GRID — ART PLAYGROUND</title><script src="../ap-kit.js"></script><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}body{touch-action:none}canvas{position:fixed;inset:0;width:100%;height:100%;display:block}</style></head><body><canvas id="c"></canvas><script>
 const c=document.getElementById('c'),g=c.getContext('2d',{alpha:false});let W=0,H=0,D=1,seed=Math.random()*99999,marks=[];const TAU=Math.PI*2;
 function resize(){D=Math.min(2,devicePixelRatio||1);W=innerWidth;H=innerHeight;c.width=W*D;c.height=H*D;g.setTransform(D,0,0,D,0,0)}addEventListener('resize',resize);resize();
-function baseLaw(x,y,t){let X=x,Y=y,vx=0,vy=0;for(let k=0;k<5;k++){const s=1.16+k*.48,qx=X*s+.32*Math.sin(t*.20+k*.71),qy=Y*s-.20*Math.cos(t*.16+k*.57),h=Math.sin(qx*2.4+Math.sin(qy*1.6))+Math.cos(qy*3-qx*1.35),w=1/(k+1);vx+=Math.cos(h+qy*.7)*w*.64;vy+=Math.sin(h-qx*.55)*w*.64;X=(qx*.88-qy*.12)*.60;Y=(qx*.20+qy*.88)*.60}return[vx,vy]}
-function field(x,y,t){let q=baseLaw(x,y,t),vx=q[0],vy=q[1];for(const m of marks){const dx=x-m.x,dy=y-m.y,d2=dx*dx+dy*dy+1e-5,r=m.r,mq=Math.exp(-d2/(r*r));const far=Math.exp(-d2/(r*r*5.5));
-  // Near the touch: push the lattice away. Around it: rotate the flow. Farther out: carry a faint wake.
-  vx+=dx*m.force*mq+(-dy)*m.spin*mq;vy+=dy*m.force*mq+dx*m.spin*mq;
-  vx+=m.dirX*far*m.wake;vy+=m.dirY*far*m.wake;
- }return[vx,vy]}
+function law(x,y,t){let X=x,Y=y,vx=0,vy=0;
+  for(let k=0;k<5;k++){const s=1.25+k*.52,sh=.22*Math.sin(t*.35+k*.8);const qx=X*s+sh,qy=Y*s-.17*Math.cos(t*.27+k);const h=Math.sin(qx*2.9+Math.sin(qy*2.1))+Math.cos(qy*3.3-qx*1.7);vx+=Math.cos(h+qy)*.52/(k+1);vy+=Math.sin(h-qx)*.52/(k+1);X=(qx*.83-qy*.19)*.58;Y=(qx*.19+qy*.83)*.58}
+  for(const m of marks){const dx=x-m.x,dy=y-m.y,d=Math.hypot(dx,dy)+.001,q=Math.exp(-d*d/(m.r*m.r));vx+=dx/d*q*m.power;vy+=dy/d*q*m.power;vx+=-dy/d*q*m.spin;vy+=dx/d*q*m.spin}
+  return[vx,vy]}
 function hsv(h,s,v){h=((h%360)+360)%360/60;const i=h|0,f=h-i,p=v*(1-s),q=v*(1-f*s),u=v*(1-(1-f)*s);let r,g,b;switch(i%6){case 0:r=v;g=u;b=p;break;case 1:r=q;g=v;b=p;break;case 2:r=p;g=v;b=u;break;case 3:r=p;g=q;b=v;break;case 4:r=u;g=p;b=v;break;default:r=v;g=p;b=q}return[r*255,g*255,b*255]}
-function scene(ph,live){const t=ph*TAU;g.fillStyle=live?'rgba(0,0,0,.18)':'#000';g.fillRect(0,0,W,H);const gap=Math.max(9,Math.min(15,W/62)),cols=Math.ceil(W/gap)+2,rows=Math.ceil(H/gap)+2;
- for(let iy=-1;iy<rows;iy++)for(let ix=-1;ix<cols;ix++){const x=(ix+.5)*gap,y=(iy+.5)*gap,nx=x/W*2-1,ny=y/H*2-1,q=field(nx,ny,t);let x2=x+q[0]*gap*1.85,y2=y+q[1]*gap*1.85;
-  const q2=field(nx*2.1+.10*Math.sin(ny*2.7+t*.28),ny*2.1,t*.73);x2+=q2[0]*gap*.68;y2+=q2[1]*gap*.68;const q3=field(nx*4.3+.06*Math.sin(ny*4-t*.21),ny*4.3,t*1.11);x2+=q3[0]*gap*.25;y2+=q3[1]*gap*.25;
-  const e=Math.min(1,Math.hypot(q[0],q[1])*.70+Math.hypot(q2[0],q2[1])*.30),sx=.5+.5*Math.sin(x2*.055-y2*.037+t*.48+seed*.01),col=hsv(seed*.018+ix*.83+iy*.41+e*165+t*15,1,.26+.74*Math.pow(sx,.7)),size=gap*(.24+.76*e);if(size<gap*.30&&((ix+iy)&3)!==0)continue;g.fillStyle=`rgba(${col[0]},${col[1]},${col[2]},${.18+.74*sx})`;g.fillRect(x2-size/2,y2-size/2,size,size)}
+function scene(ph,live){const t=ph*TAU;g.fillStyle=live?'rgba(0,0,0,.20)':'#000';g.fillRect(0,0,W,H);
+  const gap=Math.max(9,Math.min(15,W/62)),cols=Math.ceil(W/gap)+2,rows=Math.ceil(H/gap)+2;
+  for(let iy=-1;iy<rows;iy++)for(let ix=-1;ix<cols;ix++){
+    let x=(ix+.5)*gap,y=(iy+.5)*gap;let nx=x/W*2-1,ny=y/H*2-1;
+    let q=law(nx,ny,t);let x2=x+q[0]*gap*1.8,y2=y+q[1]*gap*1.8;
+    let q2=law(nx*2.15,ny*2.15,t*.72);x2+=q2[0]*gap*.72;y2+=q2[1]*gap*.72;
+    let q3=law(nx*4.4,ny*4.4,t*1.13);x2+=q3[0]*gap*.28;y2+=q3[1]*gap*.28;
+    const e=Math.min(1,Math.hypot(q[0],q[1])*.72+Math.hypot(q2[0],q2[1])*.28);
+    const sx=.5+.5*Math.sin(x2*.055-y2*.037+t*.55+seed*.01);
+    const hue=seed*.018+ix*.83+iy*.41+e*170+t*18;
+    const col=hsv(hue,1,.28+.72*Math.pow(sx,.65));
+    const size=gap*(.25+.7*e);
+    if(size<gap*.31 && ((ix+iy)&3)!==0)continue;
+    g.fillStyle=`rgba(${col[0]},${col[1]},${col[2]},${.18+.72*sx})`;g.fillRect(x2-size/2,y2-size/2,size,size);
+  }
 }
 function point(e){const r=c.getBoundingClientRect();return{x:(e.clientX-r.left)*W/r.width,y:(e.clientY-r.top)*H/r.height}}
-function addMark(x,y,drag){if(window.APKit&&APKit.isUI(x,y))return true;const nx=x/W*2-1,ny=1-y/H*2;marks.push({x:nx,y:ny,r:(drag?.11:.22)+Math.random()*.06,force:drag?.62:1.15,spin:(Math.random()<.5?-1:1)*(.48+Math.random()*.45),dirX:(Math.random()-.5),dirY:(Math.random()-.5),wake:drag?.16:.32});if(marks.length>14)marks.shift();return false}
-let down=false,last=0;function handleDown(e){const p=point(e);if(addMark(p.x,p.y,false))return;down=true;c.setPointerCapture?.(e.pointerId)}function handleMove(e){if(!down||performance.now()-last<100)return;const p=point(e);if(window.APKit&&APKit.isUI(p.x,p.y))return;last=performance.now();addMark(p.x,p.y,true)}c.addEventListener('pointerdown',handleDown);c.addEventListener('pointermove',handleMove);c.addEventListener('pointerup',()=>down=false);c.addEventListener('pointercancel',()=>down=false);
-let start=performance.now();function loop(now){if(!APKit.isExporting())scene((((now-start)/1000)%11)/11,true);requestAnimationFrame(loop)}APKit.init({canvas:c,gifName:'rupture-grid-loop',clockFormat:'spec',loopFrame:p=>scene(p,false),buttons:[{label:'✦',name:'mutate',onClick:()=>{seed=Math.random()*99999;marks=[];g.fillStyle='#000';g.fillRect(0,0,W,H)}},{label:'↻',name:'reset',onClick:()=>{marks=[];g.fillStyle='#000';g.fillRect(0,0,W,H)}}]});requestAnimationFrame(loop);
+function addMark(x,y,drag){const m={x:x/W*2-1,y:1-y/H*2,r:.14+Math.random()*.1,power:(drag?.62:1),spin:(Math.random()<.5?-1:1)*(.7+Math.random()*.8)};marks.push(m);if(marks.length>11)marks.shift();return false}
+let down=false,last=0;function handleDown(e){if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;const p=point(e);addMark(p.x,p.y,false);down=true;c.setPointerCapture?.(e.pointerId)}function handleMove(e){if(!down||performance.now()-last<100)return;if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;const p=point(e);last=performance.now();addMark(p.x,p.y,true)}
+c.addEventListener('pointerdown',handleDown);c.addEventListener('pointermove',handleMove);c.addEventListener('pointerup',()=>down=false);c.addEventListener('pointercancel',()=>down=false);
+let start=performance.now();function loop(now){if(!APKit.isExporting())scene((((now-start)/1000)%11)/11,true);requestAnimationFrame(loop)}
+APKit.init({canvas:c,gifName:'rupture-grid-loop',clockFormat:'spec',loopFrame:p=>scene(p,false),buttons:[{label:'✦',name:'mutate',onClick:()=>{seed=Math.random()*99999;marks=[];g.fillStyle='#000';g.fillRect(0,0,W,H)}},{label:'↻',name:'reset',onClick:()=>{marks=[];g.fillStyle='#000';g.fillRect(0,0,W,H)}}]});requestAnimationFrame(loop);
 </script></body></html>
