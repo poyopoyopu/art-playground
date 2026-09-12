@@ -1,0 +1,87 @@
+<!doctype html><html lang="ja"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#030308"><meta name="apple-mobile-web-app-capable" content="yes">
+<title>Art Playground — PAPER WORLD</title><style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#030308;color:#fff}
+body{height:100dvh;touch-action:none;overscroll-behavior:none;font-family:system-ui,-apple-system,sans-serif}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+.ui{position:fixed;z-index:9;left:50%;bottom:max(10vh,calc(env(safe-area-inset-bottom) + 62px));transform:translateX(-50%);display:flex;gap:9px}
+button{width:42px;height:42px;border-radius:50%;border:1px solid #ffffff28;background:#07070dd9;color:#fff;font-size:15px;box-shadow:0 4px 20px #0009;backdrop-filter:blur(12px)}
+button:active{transform:scale(.91)}button.on{background:#ffffff20;border-color:#ffffff65}
+.hint{position:fixed;z-index:8;left:50%;bottom:max(4vh,env(safe-area-inset-bottom));transform:translateX(-50%);font-size:8px;letter-spacing:.42em;opacity:.28;white-space:nowrap;pointer-events:none;transition:opacity 1s}
+.hint.hide{opacity:0}
+.clock{position:fixed;z-index:12;left:50%;top:50%;transform:translate(-50%,-50%);display:none;flex-direction:column;align-items:center;gap:6px;font-family:ui-monospace,"SF Mono",monospace;font-variant-numeric:tabular-nums;pointer-events:none}
+.clock.on{display:flex}.clock .t{font-size:clamp(44px,16.5vw,132px);line-height:1;font-weight:600;text-shadow:0 0 3px #000,0 0 16px #000}.clock i{font-style:normal;opacity:.62}.clock .d{font-size:clamp(11px,3.3vw,17px);letter-spacing:.3em;opacity:.62}
+</style><meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Paper World">
+<script src="ap-kit.js"></script>
+</head><body>
+<canvas id="c"></canvas><div class="hint" id="hint">FOLD — WORLD IS PAPER</div>
+<script>
+/* 2026-09-11: FOLD — a continuous sheet that can be folded by touch. */
+const c=document.getElementById('c'),x=c.getContext('2d',{alpha:false});let W,H,D,t=0,last=performance.now(),seed=Math.random()*9e4,folds=[],drag=null;
+function size(){const r=c.getBoundingClientRect();D=Math.min(devicePixelRatio||1,1.5);W=c.width=Math.floor(r.width*D);H=c.height=Math.floor(r.height*D)}new ResizeObserver(size).observe(c);size();
+const TAU=Math.PI*2,clampLocal=(v,a,b)=>Math.max(a,Math.min(b,v));
+function paint(T,P){
+ // T = the sheet's time. P = loop phase while exporting, null while live.
+ const K=(k)=>APKit.T(k,P,T);
+ x.fillStyle='#030308';x.fillRect(0,0,W,H);
+ let m=Math.min(W,H),cx=W/2,cy=H/2;
+ x.save();x.translate(cx,cy);
+ for(let n=0;n<105;n++){
+  x.beginPath();
+  for(let j=0;j<=95;j++){
+   let a=j/95*TAU,r=.02+n/105*1.35+.025*Math.sin(a*9+n*.37-K(.5));
+   let p=fieldP(Math.cos(a)*r,Math.sin(a)*r,T,P);
+   let X=p[0]*m,Y=p[1]*m;
+   if(j)x.lineTo(X,Y);else x.moveTo(X,Y)
+  }
+  x.globalAlpha=.035+.006*(n%8);x.lineWidth=(.7+(n%5)*.2)*D;
+  x.strokeStyle=`hsl(${145+n*3.1+K(24)*(P==null?1:57.29577951308232)} 100% ${52+n%4*7}%)`;
+  x.stroke()
+ }
+ x.restore();x.globalAlpha=1;
+}
+function fieldP(px,py,T,P){
+ const K=(k)=>APKit.T(k,P,T);
+ let X=px,Y=py;
+ for(let k=0;k<4;k++){
+  let r=Math.hypot(X,Y)+.001,a=Math.atan2(Y,X);
+  a+=Math.sin(r*7-K(.35)+k)*.35;
+  X=Math.cos(a)*r;Y=Math.sin(a)*r;
+  let f=Math.sin((X-Y)*7+K(.18));
+  X=Math.abs(X+f*.045)-.055;Y=Math.abs(Y-f*.045)-.055
+ }
+ for(const q of folds){
+  let dx=X-q.x,dy=Y-q.y,d=Math.hypot(dx,dy)+.001,w=Math.exp(-d*d/(q.r*q.r));
+  let a=Math.atan2(dy,dx)+q.turn*w*4;
+  X+=Math.cos(a)*w*q.r*1.7;Y+=Math.sin(a)*w*q.r*1.7
+ }
+ return[X,Y]
+}
+function draw(now){
+ let dt=Math.min(.03,(now-last)/1000);last=now;
+ if(!APKit.isExporting()){t+=dt;paint(t,null)}
+ requestAnimationFrame(draw)
+}requestAnimationFrame(draw);
+APKit.init({
+ canvas:c, gifName:'paper-world-loop',
+ loopFrame:(phase)=>paint(t,phase),
+ buttons:[
+  {label:'✦',name:'mutate',onClick:()=>{seed=Math.random()*9e4;
+    for(let i=0;i<5;i++)folds.push({x:Math.random()*1.8-.9,y:Math.random()*2.1-1.05,r:.1,turn:Math.random()*5-2.5})}},
+  {label:'↻',name:'reset',onClick:()=>{folds=[]}}
+ ]
+});
+function P(e){let r=c.getBoundingClientRect(),m=Math.min(r.width,r.height);return{x:(e.clientX-r.left-r.width/2)/m,y:(e.clientY-r.top-r.height/2)/m}}
+c.onpointerdown=e=>{e.preventDefault();try{c.setPointerCapture(e.pointerId)}catch(_){}let p=P(e);drag={...p,px:p.x,py:p.y};folds.push({x:p.x,y:p.y,r:.17,turn:(Math.random()-.5)*2.8});if(folds.length>14)folds.shift();document.getElementById('hint').classList.add('hide')};
+c.onpointermove=e=>{if(!drag)return;let p=P(e),dx=p.x-drag.px,dy=p.y-drag.py;if(Math.hypot(dx,dy)>.012){folds.push({x:p.x,y:p.y,r:.11,turn:(dx-dy)*22});if(folds.length>14)folds.shift()}drag.px=p.x;drag.py=p.y};
+c.onpointerup=()=>drag=null;c.onpointercancel=()=>drag=null;
+
+
+
+setTimeout(()=>document.getElementById('hint').classList.add('hide'),8500);
+</script></body></html>
