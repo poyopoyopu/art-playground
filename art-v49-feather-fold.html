@@ -31,7 +31,7 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hint">TAP FOLD · HOLD UNFOLD · DOUBLE REVERSE</div>
+<div id="hint">PUSH · HOLD TO PULL · DOUBLE REVERSE</div>
 
 <script>
 const canvas=document.getElementById('c');
@@ -69,28 +69,40 @@ void main(){
   vec2 center=0.5*R/min(R.x,R.y);
   vec2 p=uv-center;
 
-  /* --- self-similar recursive fold ---
-     The same warp, cos(q.yx*d - T*5d)/d, is applied five times as d shrinks
-     (2.0 -> 0.328), so each pass is a smaller echo of the one before it —
-     the fractal structure is this repetition, not decoration on top of it.
-     A touch writes a bend into the fold. It persists (capped at 10, oldest
-     evicted) rather than fading, so the shape it leaves actually stays. */
-  vec2 q=p*3.0;
-  float d=2.0;
+  /* --- touch, applied directly to the screen you're looking at ---
+     A tap pushes space outward from where you touched; holding pulls it in,
+     and grows stronger the longer you hold. This runs on the RAW coordinate,
+     before any folding — the earlier version bent an already-folded, already
+     scrambled coordinate, so the effect could show up nowhere near your
+     finger. Doing it here means what you touch is where it happens.
+     Each law persists (capped at 10, oldest evicted) rather than fading. */
+  vec2 wp=p;
   float lawBend=0.0;
+  for(int i=0;i<10;i++){
+    vec4 L=laws[i];
+    if(L.w<=0.0) continue;
+    vec2 lp=(L.xy-center);
+    lp.y=-lp.y;
+    vec2 dv=wp-lp;
+    float dist=length(dv)+0.0001;
+    float infl=smoothstep(L.w,0.0,dist);
+    infl*=infl;
+    float ang=atan(dv.y,dv.x) + infl*L.z*2.6;
+    float rr=dist*(1.0 - infl*0.55*sign(L.z));
+    wp=lp+vec2(cos(ang),sin(ang))*rr;
+    lawBend+=infl*abs(L.z)*0.5;
+  }
+
+  /* --- self-similar recursive fold, on top of the touch-warped point ---
+     The same warp, cos(q.yx*d - T*0.35d)/d, is applied five times as d
+     shrinks (2.0 -> 0.328) — each pass a smaller echo of the one before it.
+     Because it now runs on wp, the fractal ripples radiate outward from
+     wherever a touch has bent the space, instead of everywhere at once. */
+  vec2 q=wp*3.0;
+  float d=2.0;
   for(int j=0;j<5;j++){
     d*=0.8;
-    vec2 w=cos(q.yx*d - T(5.0*d) + seed*0.7);
-    for(int i=0;i<10;i++){
-      vec4 L=laws[i];
-      if(L.w<=0.0) continue;
-      vec2 lp=(L.xy-0.5)*vec2(R.x/min(R.x,R.y), R.y/min(R.x,R.y));
-      lp.y=-lp.y;
-      float dist=length(q - lp*3.0);
-      float infl=exp(-dist*dist/(L.w*L.w*40.0+0.001));
-      w+=infl*L.z*vec2(-w.y,w.x);
-      lawBend+=infl*abs(L.z)*0.14;
-    }
+    vec2 w=cos(q.yx*d - T(0.35*d) + seed*0.7);
     q+=w/d;
   }
 
@@ -103,13 +115,13 @@ void main(){
   float k=5.0*cos(P.x/14.0)*cos(P.y/30.0);
   float e=P.y/8.0-13.0;
   float dd=(k*k+e*e)/59.0+4.0;
-  float qq=60.0-3.0*sin(atan(k,e))+k*(3.0+4.0/dd*sin(dd*dd-T(2.0)));
+  float qq=60.0-3.0*sin(atan(k,e))+k*(3.0+4.0/dd*sin(dd*dd-T(0.4)));
   float c=dd/2.0+e/99.0-T(1.0/18.0);
   float u=3.0*qq*sin(c);
   float v=3.0*(qq+9.0*dd)*cos(c);
 
   float feather=sin((u-P.x)*0.05)*sin((v-P.y)*0.05);
-  float bands=0.5+0.5*sin(dd*0.6-T(1.4));
+  float bands=0.5+0.5*sin(dd*0.6-T(0.3));
 
   float density=pow(max(0.0, feather*0.5+0.5), 3.0)*0.85 + bands*0.22 + lawBend;
 
@@ -171,40 +183,53 @@ function renderGL(loopModeV, phaseV){
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
 }
 
-function addLaw(x,y,sign,strength){
-  laws.push([x,y,sign*strength,0.05+strength*0.05]);
+function addLaw(x,y,sign,strength,radius){
+  const L=[x,y,sign*strength,radius];
+  laws.push(L);
   if(laws.length>10) laws.shift();
+  return L;
 }
 
+let activeLaw=null;
 function loop(){
-  if(!APKit.isExporting()) renderGL(0,0);
+  if(!APKit.isExporting()){
+    if(activeLaw){
+      // grows the whole time it's held, so the effect is visible immediately
+      // and keeps building — release only decides which way it ends up
+      const held=performance.now()-activeLaw.downAt;
+      const pulling = held>280;
+      activeLaw.law[2]=(pulling?-1:1)*Math.min(1.7,0.35+held/650);
+      activeLaw.law[3]=Math.min(0.55,0.16+held/2600);
+    }
+    renderGL(0,0);
+  }
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
 
-// ---------- input: tap folds one way, a hold folds the other and grows ----------
-let downAt=0, downX=0, downY=0, lastTap=0;
+// ---------- input: push on tap, pull if you hold, grows while held ----------
+let lastTap=0;
 function norm(clientX,clientY){ return [clientX/W, 1-clientY/H]; }
 
 canvas.addEventListener('pointerdown',e=>{
   const now=performance.now();
   const [x,y]=norm(e.clientX,e.clientY);
   if(now-lastTap<300){
-    for(const L of laws) L[2]*=-1;      // double-tap reverses every fold at once
+    for(const L of laws) L[2]*=-1;      // double-tap reverses every law at once
+    lastTap=0;
+  }else{
+    lastTap=now;
+    const law=addLaw(x,y,1,0.35,0.16);
+    activeLaw={law,downAt:now,id:e.pointerId};
   }
-  lastTap=now; downAt=now; downX=x; downY=y;
   document.getElementById('hint').style.opacity='0';
 },{passive:true});
 
-canvas.addEventListener('pointerup',e=>{
-  const [x,y]=norm(e.clientX,e.clientY);
-  const held=performance.now()-downAt;
-  const sign = held>320 ? -1 : 1;
-  const strength = Math.min(1.6, 0.5+held/700);
-  addLaw(x,y,sign,strength);
-},{passive:true});
-
-canvas.addEventListener('pointercancel',()=>{ downAt=0; });
+function endTouch(e){
+  if(activeLaw && activeLaw.id===e.pointerId) activeLaw=null;
+}
+canvas.addEventListener('pointerup',endTouch,{passive:true});
+canvas.addEventListener('pointercancel',endTouch,{passive:true});
 
 // ---------- shared kit: clock, fullscreen, GIF ----------
 APKit.init({
