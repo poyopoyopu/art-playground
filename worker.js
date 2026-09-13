@@ -1,6 +1,7 @@
 import { onRequestPost } from './functions/api/vote.js';
 import { onRequestGet } from './functions/api/results.js';
 
+// SOCIAL_LINKS_DEPLOY_CHECK: 2026-09-14
 const SOCIAL_CSS = `
   /* ---------- social ---------- */
   .social{
