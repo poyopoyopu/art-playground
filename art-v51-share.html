@@ -25,6 +25,12 @@
   厳密さ(0とTAUで完全一致)は崩れない。ダブルタップの画面フラッシュだけは
   実時間で減衰する演出なので、ライブ表示のみで発生しGIF書き出しには
   一切影響しない。
+
+  → 実機/GIFで見ると「速すぎて何が起きたか分からない」状態だったため
+  (4回目・Claude): 分裂の瞬間の弾け(BIRTH_DURATION)を0.11→0.42に伸ばして
+  ちゃんと目で追える長さにし、タップ1回で進む量も大幅に減らした(以前は
+  タップ数回でアニメーションを飛び越えてしまっていた)。分裂の間隔自体は
+  ほぼ維持し、テンポの速さと「見える」ことを両立させた。
 -->
 <script src="ap-kit.js"></script>
 <style>
@@ -70,7 +76,7 @@ function mulberry32(a){
 
 // ---------- each cluster: a fixed tree where every node knows WHEN (in clock
 // units 0..PI) it finishes splitting into its two children ----------
-const BIRTH_DURATION=0.11;
+const BIRTH_DURATION=0.42;
 const CLOCK_LIMIT=Math.PI-0.05;
 
 function buildTree(seed){
@@ -81,7 +87,7 @@ function buildTree(seed){
     const node={id,parentId,tau,x,y,r,hue,children:[]};
     list.push(node);
     if(parentId>=0) list[parentId].children.push(id);
-    const childTau=tau+0.22+rng()*0.34;
+    const childTau=tau+0.30+rng()*0.34;
     if(childTau<CLOCK_LIMIT && list.length<140){
       const newR=r/Math.SQRT2;
       const angle=rng()*TAU;
@@ -231,12 +237,12 @@ canvas.addEventListener('pointerdown',e=>{
   const now=performance.now();
   const idx=nearestCluster(e.clientX,e.clientY);
   if(now-lastTap<300){
-    for(let i=0;i<3;i++) livePhases[i]=(livePhases[i]+TAU*0.32)%TAU; // double tap: kick everyone
+    for(let i=0;i<3;i++) livePhases[i]=(livePhases[i]+TAU*0.16)%TAU; // double tap: kick everyone
     dtFlashAt=now;
     lastTap=0;
   }else{
     lastTap=now;
-    livePhases[idx]=(livePhases[idx]+TAU*0.16)%TAU; // tap: kick the nearest cluster
+    livePhases[idx]=(livePhases[idx]+TAU*0.06)%TAU; // tap: kick the nearest cluster
   }
   heldCluster=idx;
 },{passive:true});

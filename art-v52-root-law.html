@@ -16,13 +16,16 @@
   クリアするので本体のcanvasを汚さない)。長押しで加速中の先端にも同じ
   #fx に白い光点を重ねている。これらは全部ライブ限定の演出で、位相だけで
   再現するGIF書き出し側のロジックには一切影響しない。
-  GIFループ(Claude・再設計): 前回は木全体を1つの指標で開閉していたため
-  継ぎ目が不自然だった。今回は枝ごとに「いつ生まれ、いつ伸び終わるか」を
-  あらかじめ決めておき、位相0→πでその通りに1本ずつ伸びていき、π→2πでは
-  新しく生まれた枝から順に(幹は最後に)消えていく — 不可逆というテーマ上
-  「巻き戻す」のではなく「記憶が先端から薄れていく」フェードとして設計した。
-  位相だけの純粋な関数なので0とTAUが完全に一致する。ライブ側の成長ルールは
-  変えていない。
+  GIFループ(Claude・再設計 → 5回目で再修正): 前回は「枝ごとに生まれた順に
+  消える」設計にしたが、実機で確認すると若い枝(大多数を占める細い先端)が
+  π→2πに入った直後の0.1秒程度でほぼ全部消えてしまい、残り1.4秒近くが
+  ほぼ真っ黒のまま幹だけがゆっくり消えていく画になっていた — 体感的には
+  「育ったのに急に壊れて長い間何も無い」というループしていない印象だった。
+  5回目でここを単純化: 個々の枝ごとの消えるタイミングをずらすのをやめ、
+  木全体を1つの共通アルファ値で一様に、π→2πの間ずっと少しずつ均等に
+  暗くしていく方式にした。全体が最後まで薄く見え続けたまま2πでちょうど
+  真っ黒(=0の状態と一致)になる。位相だけの純粋な関数なのは変わらない。
+  ライブ側の成長ルールは変えていない。
 --><script src="ap-kit.js"></script><style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#04030a}body{touch-action:none;overscroll-behavior:none;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}canvas{position:fixed;inset:0;width:100%;height:100%;display:block}#fx{pointer-events:none}</style></head>
 <body><canvas id="c"></canvas><canvas id="fx"></canvas><script>
 const canvas=document.getElementById('c'),ctx=canvas.getContext('2d',{alpha:false}),fx=document.getElementById('fx'),fctx=fx.getContext('2d'),TAU=Math.PI*2,CELL=22,MAXDEPTH=8,MAXBRANCHES=900,BASE_THICK=3.2,MINTHICK=.5;
@@ -50,7 +53,7 @@ function plantCluster(x,y,n){for(let k=0;k<n;k++){const a=Math.random()*TAU,d=20
 // rule), just fading from view, tip-first, like memory eroding backwards.
 function mulberry32(a){return function(){a|=0;a=(a+0x6D2B79F5)|0;let t=Math.imul(a^a>>>15,1|a);t=(t+Math.imul(t^t>>>7,61|t))^t;return((t^t>>>14)>>>0)/4294967296}}
 const LOOP_SEEDS=[[.38,.5],[.62,.46],[.5,.68]];
-const CLOCK_LIMIT=Math.PI-0.1, FADE=0.22;
+const CLOCK_LIMIT=Math.PI-0.1;
 function buildLoopDemo(seed){
   const rng=mulberry32(seed);
   let queue=LOOP_SEEDS.map(s=>({fx:s[0],fy:s[1],ux:0,uy:0,angle:rng()*TAU,depth:0,hue:rng(),tau:0}));
@@ -86,18 +89,19 @@ let loopDemoSeed=(Math.random()*1e9)|0, loopDemo=null;
 function renderLoopDemo(phase){
   if(!loopDemo) loopDemo=buildLoopDemo(loopDemoSeed);
   const growing=phase<Math.PI;
-  const c=growing?phase:Math.PI, s=growing?0:phase-Math.PI;
+  const c=growing?phase:Math.PI;
+  // uniform fade for the whole tree at once (was: per-branch staggered fade,
+  // which made the many young/deep twigs vanish within ~0.1s of the erosion
+  // half starting, leaving a mostly-black screen for most of the loop — read
+  // as "broken" rather than looping). A single global fade stays visible,
+  // gradually dimming, across the entire second half instead.
+  const globalAlpha = growing ? 1 : Math.max(0, 1-(phase-Math.PI)/Math.PI);
   const m=Math.min(W,H);
   ctx.fillStyle='#04030a'; ctx.fillRect(0,0,W,H);
   for(const br of loopDemo){
     if(c<=br.tauStart) continue;
     const growE=Math.min(1,(c-br.tauStart)/(br.tauEnd-br.tauStart));
-    let alpha=growE;
-    if(!growing){
-      const frac=Math.min(1,br.tauStart/CLOCK_LIMIT);
-      const threshold=(Math.PI-FADE)*(1-frac);
-      alpha = s>threshold ? Math.max(0,1-(s-threshold)/FADE) : 1;
-    }
+    const alpha=growE*globalAlpha;
     if(alpha<=0.01) continue;
     const ox=br.fx*W, oy=br.fy*H;
     const nPts=Math.max(2,Math.round(br.points.length*growE));
