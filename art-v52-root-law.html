@@ -1,9 +1,12 @@
 <!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="Root Law"><title>Art Playground — 根の掟 ROOT LAW</title>
-<!-- 根の掟 ROOT LAW (v52) — Claude作。改良: ChatGPT
+<!-- 根の掟 ROOT LAW (v52) — Claude作。改良: ChatGPT, Claude
   世界のルール: 根は止まらない。触らなくても世界は自律的に種を生み、自己相似の分岐を続ける。
   土地は有限で早い者勝ち。他の根の縄張りに触れた枝は即死。
   タッチは「新しい法則を介入させる」ためのもので、成長の開始条件ではない。
+  追加改良(Claude): 分岐できなくなった先端がそのまま消滅していたため、
+  個々の根がしばらくすると完全に静止して見えるバグを修正。分岐に失敗した
+  先端は消えず、極細の根毛としてtraveledをリセットして這い続ける。
 --><script src="ap-kit.js"></script><style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#04030a}body{touch-action:none;overscroll-behavior:none;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}canvas{position:fixed;inset:0;width:100%;height:100%;display:block}</style></head>
 <body><canvas id="c"></canvas><script>
 const canvas=document.getElementById('c'),ctx=canvas.getContext('2d',{alpha:false}),TAU=Math.PI*2,CELL=22,MAXDEPTH=8,MAXBRANCHES=900,BASE_THICK=3.2,MINTHICK=.5;
@@ -15,7 +18,7 @@ function redrawAll(){ctx.fillStyle='#04030a';ctx.fillRect(0,0,W,H);for(const br 
 function resize(){DPR=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;canvas.width=Math.round(W*DPR);canvas.height=Math.round(H*DPR);ctx.setTransform(DPR,0,0,DPR,0,0);rebuildTerritory();redrawAll()}addEventListener('resize',resize);
 function claim(x,y,seedId){const gx=Math.floor(x/CELL),gy=Math.floor(y/CELL);if(gx<0||gy<0||gx>=gridW||gy>=gridH)return false;const gi=gy*gridW+gx,owner=territory[gi];if(owner!==-1&&owner!==seedId)return false;territory[gi]=seedId;return true}
 function spawnChildren(tip){const angleOff=branchAngle*(.75+Math.random()*.5),childThick=tip.branch.thickness*decayRatio;for(const sign of [1,-1]){const childAngle=tip.angle+sign*angleOff*(.85+Math.random()*.3),branch={id:nextBranchId++,seedId:tip.seedId,depth:tip.depth+1,thickness:childThick,hue:tip.branch.hue,points:[[tip.x,tip.y]]};branches.push(branch);tips.push({branch,seedId:tip.seedId,depth:branch.depth,x:tip.x,y:tip.y,angle:childAngle,traveled:0})}}
-function stepGrowth(mult){for(let i=tips.length-1;i>=0;i--){const tip=tips[i],speed=Math.max(.18,.85*Math.pow(.88,tip.depth))*mult;tip.angle+=(Math.random()-.5)*(.035+tip.depth*.01);const nx=tip.x+Math.cos(tip.angle)*speed,ny=tip.y+Math.sin(tip.angle)*speed;if(nx<-40||nx>W+40||ny<-40||ny>H+40){tips.splice(i,1);continue}if(!claim(nx,ny,tip.seedId)){tips.splice(i,1);continue}strokeBranchSegment(tip.branch,tip.x,tip.y,nx,ny);tip.branch.points.push([nx,ny]);tip.x=nx;tip.y=ny;tip.traveled+=speed;const interval=Math.max(6,34*Math.pow(.80,tip.depth));if(tip.traveled>=interval){tips.splice(i,1);if(tip.depth<MAXDEPTH&&tip.branch.thickness>MINTHICK&&branches.length<MAXBRANCHES-2)spawnChildren(tip)}}}
+function stepGrowth(mult){for(let i=tips.length-1;i>=0;i--){const tip=tips[i],speed=Math.max(.18,.85*Math.pow(.88,tip.depth))*mult;tip.angle+=(Math.random()-.5)*(.035+tip.depth*.01);const nx=tip.x+Math.cos(tip.angle)*speed,ny=tip.y+Math.sin(tip.angle)*speed;if(nx<-40||nx>W+40||ny<-40||ny>H+40){tips.splice(i,1);continue}if(!claim(nx,ny,tip.seedId)){tips.splice(i,1);continue}strokeBranchSegment(tip.branch,tip.x,tip.y,nx,ny);tip.branch.points.push([nx,ny]);tip.x=nx;tip.y=ny;tip.traveled+=speed;const interval=Math.max(6,34*Math.pow(.80,tip.depth));if(tip.traveled>=interval){const forkChance=Math.max(.06,.9*Math.pow(.82,tip.depth)),canFork=tip.depth<MAXDEPTH&&tip.branch.thickness>MINTHICK&&branches.length<MAXBRANCHES-2&&Math.random()<forkChance;if(canFork){tips.splice(i,1);spawnChildren(tip)}else{tip.traveled=0}}}}
 function plantSeed(x,y){if(branches.length>=MAXBRANCHES)return;const seedId=nextSeedId++,hue=Math.random(),branch={id:nextBranchId++,seedId,depth:0,thickness:BASE_THICK,hue,points:[[x,y]]};branches.push(branch);tips.push({branch,seedId,depth:0,x,y,angle:Math.random()*TAU,traveled:0});claim(x,y,seedId)}
 function plantCluster(x,y,n){for(let k=0;k<n;k++){const a=Math.random()*TAU,d=20+Math.random()*40;plantSeed(x+Math.cos(a)*d,y+Math.sin(a)*d)}}
 function resetWorld(){branches=[];tips=[];rebuildTerritory();redrawAll();plantSeed(W*.38,H*.5);plantSeed(W*.62,H*.46);plantSeed(W*.5,H*.68)}

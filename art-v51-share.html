@@ -1,9 +1,11 @@
 <!doctype html>
 <html lang="ja">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="Share"><title>Art Playground — 分与 SHARE</title>
-<!-- 分与 SHARE (v51) — Claude作。改良: ChatGPT
+<!-- 分与 SHARE (v51) — Claude作。改良: ChatGPT, Claude
   世界のルール: 総質量は一定。分裂は足し算ではなく既存の質量の再配分。
   改良点: 操作しなくても一定間隔で自律分裂し続ける。タッチは世界への介入であり、世界を動かすための必須条件ではない。
+  追加改良(Claude): 分裂だけだとMAXCELLSに張り付いて静止して見えるため、
+  兄弟ペアの自律融合も確率で起こし、常に増減しながら呼吸するようにした。
 --><script src="ap-kit.js"></script><style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#040308}body{touch-action:none;overscroll-behavior:none;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}canvas{position:fixed;inset:0;width:100%;height:100%;display:block}</style></head>
 <body><canvas id="c"></canvas><script>
 const canvas=document.getElementById('c'),ctx=canvas.getContext('2d',{alpha:false});let W=1,H=1,DPR=1;
@@ -17,14 +19,17 @@ function findCell(id){return cells.find(c=>c.id===id)}
 function doSplit(id){const idx=cells.findIndex(c=>c.id===id);if(idx<0||cells.length+1>MAXCELLS)return;const[a,b]=splitOne(cells[idx]);cells.splice(idx,1,a,b)}
 function doMerge(id){const cell=findCell(id);if(!cell||cell.sibling==null)return;const sib=findCell(cell.sibling);if(!sib)return;const newR=Math.sqrt(cell.r*cell.r+sib.r*sib.r),merged={id:nextId++,x:(cell.x+sib.x)/2,y:(cell.y+sib.y)/2,r:newR,depth:Math.max(0,cell.depth-1),vx:0,vy:0,hue:(cell.hue+sib.hue)/2,sibling:null,alive:true};cells=cells.filter(c=>c.id!==cell.id&&c.id!==sib.id);cells.push(merged)}
 function cascadeSplit(){const snapshot=cells.slice();for(const c of snapshot){if(cells.length>=MAXCELLS)break;doSplit(c.id)}}
+// 分裂だけだと個体は増える一方でMAXCELLSに張り付いて止まって見えるので、
+// 兄弟ペアが揃っている個体を確率で自動融合し、常に呼吸させ続ける
+function ambientMerge(){const pairs=cells.filter(c=>c.sibling!=null&&c.id<c.sibling&&findCell(c.sibling));if(!pairs.length)return;const c=pairs[Math.floor(Math.random()*pairs.length)];doMerge(c.id)}
 function physics(){for(let i=0;i<cells.length;i++){const ci=cells[i];for(let j=i+1;j<cells.length;j++){const cj=cells[j],dx=cj.x-ci.x,dy=cj.y-ci.y,dist=Math.hypot(dx,dy)||.001,minDist=ci.r+cj.r;if(dist<minDist){const overlap=(minDist-dist)/dist*.5,px=dx*overlap,py=dy*overlap;ci.vx-=px*.06;ci.vy-=py*.06;cj.vx+=px*.06;cj.vy+=py*.06}}ci.vx+=(W/2-ci.x)*.00035;ci.vy+=(H/2-ci.y)*.00035;ci.vx+=(Math.random()-.5)*.02;ci.vy+=(Math.random()-.5)*.02;ci.vx*=.9;ci.vy*=.9;ci.x+=ci.vx;ci.y+=ci.vy}}
 function draw(tGlow){ctx.fillStyle='rgba(4,4,9,.22)';ctx.fillRect(0,0,W,H);for(const c of cells)if(c.sibling!=null){const s=findCell(c.sibling);if(s&&s.id>c.id){const[r,g,b]=pal(c.hue+.5);ctx.strokeStyle=`rgba(${r},${g},${b},.35)`;ctx.beginPath();ctx.moveTo(c.x,c.y);ctx.lineTo(s.x,s.y);ctx.stroke()}}for(const c of cells){const[r,g,b]=pal(c.hue+.06*Math.sin(tGlow+c.depth)),grad=ctx.createRadialGradient(c.x,c.y,0,c.x,c.y,c.r);grad.addColorStop(0,`rgba(${r},${g},${b},.95)`);grad.addColorStop(1,`rgba(${r},${g},${b},.05)`);ctx.fillStyle=grad;ctx.beginPath();ctx.arc(c.x,c.y,c.r,0,TAU);ctx.fill();ctx.strokeStyle=`rgba(${r},${g},${b},.7)`;ctx.lineWidth=1.2;ctx.beginPath();ctx.arc(c.x,c.y,c.r,0,TAU);ctx.stroke()}}
-resetWorld();let startTime=performance.now(),lastAuto=performance.now(),autoInterval=1200;
-function loop(){if(!APKit.isExporting()){const now=performance.now();if(now-lastAuto>autoInterval){const target=cells[Math.floor(Math.random()*cells.length)];if(target)doSplit(target.id);lastAuto=now;autoInterval=850+Math.random()*700}physics();draw((now-startTime)*.0006)}requestAnimationFrame(loop)}requestAnimationFrame(loop);
+resetWorld();let startTime=performance.now(),lastAuto=performance.now(),autoInterval=1200,lastAutoMerge=performance.now(),autoMergeInterval=2600;
+function loop(){if(!APKit.isExporting()){const now=performance.now();if(now-lastAuto>autoInterval){const target=cells[Math.floor(Math.random()*cells.length)];if(target)doSplit(target.id);lastAuto=now;autoInterval=850+Math.random()*700}if(now-lastAutoMerge>autoMergeInterval){if(Math.random()<.6)ambientMerge();lastAutoMerge=now;autoMergeInterval=2000+Math.random()*2400}physics();draw((now-startTime)*.0006)}requestAnimationFrame(loop)}requestAnimationFrame(loop);
 const LONG_PRESS_MS=430;let down=null,lastTap=0;function nearestCell(x,y){let best=null,bestD=Infinity;for(const c of cells){const d=Math.hypot(c.x-x,c.y-y),hit=c.r*2.4+22;if(d<hit&&d<bestD){best=c;bestD=d}}return best}
 canvas.addEventListener('pointerdown',e=>{const now=performance.now(),x=e.clientX,y=e.clientY;if(now-lastTap<300){cascadeSplit();lastTap=0;down=null;return}lastTap=now;const target=nearestCell(x,y);down=target?{id:target.id,at:now,pointerId:e.pointerId,longFired:false}:null},{passive:true});
 function checkHold(){if(down&&!down.longFired&&performance.now()-down.at>LONG_PRESS_MS){down.longFired=true;doMerge(down.id)}}
 canvas.addEventListener('pointerup',e=>{if(down&&down.pointerId===e.pointerId&&!down.longFired)doSplit(down.id);down=null},{passive:true});canvas.addEventListener('pointercancel',()=>{down=null},{passive:true});
 function holdLoop(){if(!APKit.isExporting())checkHold();requestAnimationFrame(holdLoop)}requestAnimationFrame(holdLoop);
-APKit.init({canvas:canvas,gifName:'share-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:function(phase){physics();draw(phase)},buttons:[{label:'\u2726',name:'mutate',onClick:function(){hueBias=Math.random();angleJitter=.4+Math.random()*1.4}},{label:'\u21bb',name:'reset',onClick:function(){resetWorld();lastAuto=performance.now()}}]});
+APKit.init({canvas:canvas,gifName:'share-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:function(phase){physics();draw(phase)},buttons:[{label:'\u2726',name:'mutate',onClick:function(){hueBias=Math.random();angleJitter=.4+Math.random()*1.4}},{label:'\u21bb',name:'reset',onClick:function(){resetWorld();lastAuto=performance.now();lastAutoMerge=performance.now()}}]});
 </script></body></html>
