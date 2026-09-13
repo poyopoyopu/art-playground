@@ -1,253 +1,30 @@
 <!doctype html>
 <html lang="ja">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Share">
-<title>Art Playground — 分与 SHARE</title>
-<!--
-  分与 SHARE (v51) — Claude作。ap-kit.js統合: Claude
-  世界のルール: この世界の総質量(半径の二乗の合計)は最初から最後まで一定。
-  タップした個体は必ず「同じ質量を分け合う」2つの子に分裂する — 個体は増えるほど、
-  一つ一つは確実に小さくなる。長押しは逆に、まだ生きている「もう半分」(実の兄弟)
-  を見つけて元の質量に戻す — 兄弟以外とは絶対に融合できない。ダブルタップは
-  今生きている全個体に同時に分裂を強制する世代交代。増やすことは足し算ではなく、
-  常に既にある質量の配分をやり直すことでしかない。
--->
-<script src="ap-kit.js"></script>
-<style>
-*{box-sizing:border-box}
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#040308}
-body{touch-action:none;overscroll-behavior:none;
- -webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
-canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
-</style>
-</head>
-<body>
-<canvas id="c"></canvas>
-
-<script>
-const canvas=document.getElementById('c');
-const ctx=canvas.getContext('2d',{alpha:false});
-
-let W=1,H=1,DPR=1;
-function resize(){
-  DPR=Math.min(devicePixelRatio||1,2);
-  W=innerWidth; H=innerHeight;
-  canvas.width=Math.round(W*DPR); canvas.height=Math.round(H*DPR);
-  ctx.setTransform(DPR,0,0,DPR,0,0);
-}
-addEventListener('resize',resize); resize();
-
-const TAU=Math.PI*2;
-function pal(t){
-  return [
-    Math.round(255*(0.5+0.5*Math.cos(TAU*(t))))
-    ,Math.round(255*(0.5+0.5*Math.cos(TAU*(t+0.33))))
-    ,Math.round(255*(0.5+0.5*Math.cos(TAU*(t+0.67))))
-  ];
-}
-
-let nextId=1;
-let cells=[];
-let hueBias=Math.random();
-let angleJitter=0.9; // mutate() varies how scattered a split's angle is
-
-function rootCell(){
-  const r=Math.min(W,H)*0.17;
-  return {id:nextId++, x:W/2, y:H/2, r, depth:0, vx:0, vy:0,
-          hue:hueBias, sibling:null, alive:true};
-}
-function resetWorld(){ cells=[rootCell()]; }
-resetWorld();
-
-const MAXCELLS=340;
-
-function splitOne(cell){
-  const newR=cell.r/Math.SQRT2;
-  const angle=Math.random()*TAU;
-  const push=newR*(0.75+Math.random()*angleJitter*0.4);
-  const dx=push*Math.cos(angle), dy=push*Math.sin(angle);
-  const idA=nextId++, idB=nextId++;
-  const hueShift=(Math.random()*0.05-0.025);
-  const a={id:idA, x:cell.x-dx, y:cell.y-dy, r:newR, depth:cell.depth+1,
-           vx:-dx*0.22, vy:-dy*0.22, hue:cell.hue+hueShift, sibling:idB, alive:true};
-  const b={id:idB, x:cell.x+dx, y:cell.y+dy, r:newR, depth:cell.depth+1,
-           vx:dx*0.22, vy:dy*0.22, hue:cell.hue-hueShift, sibling:idA, alive:true};
-  return [a,b];
-}
-
-function findCell(id){ return cells.find(c=>c.id===id); }
-
-function doSplit(id){
-  const idx=cells.findIndex(c=>c.id===id);
-  if(idx<0) return;
-  if(cells.length+1>MAXCELLS) return; // world is full — this cell holds its ground
-  const [a,b]=splitOne(cells[idx]);
-  cells.splice(idx,1,a,b);
-}
-
-function doMerge(id){
-  const cell=findCell(id);
-  if(!cell || cell.sibling==null) return;
-  const sib=findCell(cell.sibling);
-  if(!sib) return; // the other half is already gone — no merge possible
-  const newR=Math.sqrt(cell.r*cell.r+sib.r*sib.r);
-  const merged={id:nextId++, x:(cell.x+sib.x)/2, y:(cell.y+sib.y)/2, r:newR,
-                depth:Math.max(0,cell.depth-1), vx:0, vy:0,
-                hue:(cell.hue+sib.hue)/2, sibling:null, alive:true};
-  cells=cells.filter(c=>c.id!==cell.id && c.id!==sib.id);
-  cells.push(merged);
-}
-
-function cascadeSplit(){
-  const room=MAXCELLS-cells.length;
-  if(room<2) return;
-  const snapshot=cells;
-  const next=[];
-  let budget=room;
-  for(const c of snapshot){
-    if(budget>=1){
-      const [a,b]=splitOne(c);
-      next.push(a,b);
-      budget-=1;
-    }else next.push(c);
-  }
-  cells=next;
-}
-
-function physics(dt){
-  const n=cells.length;
-  for(let i=0;i<n;i++){
-    const ci=cells[i];
-    for(let j=i+1;j<n;j++){
-      const cj=cells[j];
-      let dx=cj.x-ci.x, dy=cj.y-ci.y;
-      let dist=Math.hypot(dx,dy)||0.001;
-      const minDist=ci.r+cj.r;
-      if(dist<minDist){
-        const overlap=(minDist-dist)/dist*0.5;
-        const px=dx*overlap, py=dy*overlap;
-        ci.vx-=px*0.06; ci.vy-=py*0.06;
-        cj.vx+=px*0.06; cj.vy+=py*0.06;
-      }
-    }
-    ci.vx+=(W/2-ci.x)*0.00035;
-    ci.vy+=(H/2-ci.y)*0.00035;
-    ci.vx+=(Math.random()-0.5)*0.02;
-    ci.vy+=(Math.random()-0.5)*0.02;
-    ci.vx*=0.9; ci.vy*=0.9;
-    ci.x+=ci.vx; ci.y+=ci.vy;
-  }
-}
-
-function draw(tGlow){
-  ctx.fillStyle='rgba(4,4,9,0.22)';
-  ctx.fillRect(0,0,W,H);
-
-  ctx.lineWidth=1;
-  for(const c of cells){
-    if(c.sibling!=null){
-      const s=findCell(c.sibling);
-      if(s && s.id>c.id){
-        const [r,g,b]=pal(c.hue+0.5);
-        ctx.strokeStyle=`rgba(${r},${g},${b},0.35)`;
-        ctx.beginPath(); ctx.moveTo(c.x,c.y); ctx.lineTo(s.x,s.y); ctx.stroke();
-      }
-    }
-  }
-
-  for(const c of cells){
-    const [r,g,b]=pal(c.hue+0.06*Math.sin(tGlow+c.depth));
-    const grad=ctx.createRadialGradient(c.x,c.y,0,c.x,c.y,c.r);
-    grad.addColorStop(0,`rgba(${r},${g},${b},0.95)`);
-    grad.addColorStop(1,`rgba(${r},${g},${b},0.05)`);
-    ctx.fillStyle=grad;
-    ctx.beginPath(); ctx.arc(c.x,c.y,c.r,0,TAU); ctx.fill();
-    ctx.strokeStyle=`rgba(${r},${g},${b},0.7)`;
-    ctx.lineWidth=1.2;
-    ctx.beginPath(); ctx.arc(c.x,c.y,c.r,0,TAU); ctx.stroke();
-  }
-}
-
-let startTime=performance.now();
-function loop(){
-  if(!APKit.isExporting()){
-    checkHold();
-    physics(1);
-    draw((performance.now()-startTime)*0.0006);
-  }
-  requestAnimationFrame(loop);
-}
-requestAnimationFrame(loop);
-
-// ---------- input: tap = split, hold = merge with sibling, double-tap = cascade ----------
-const LONG_PRESS_MS=430;
-let down=null; // {id, at, pointerId, longFired}
-let lastTap=0;
-
-function nearestCell(x,y){
-  let best=null, bestD=Infinity;
-  for(const c of cells){
-    const d=Math.hypot(c.x-x,c.y-y);
-    const hit=c.r*2.4+22;
-    if(d<hit && d<bestD){ best=c; bestD=d; }
-  }
-  return best;
-}
-
-canvas.addEventListener('pointerdown',e=>{
-  const now=performance.now();
-  const x=e.clientX, y=e.clientY;
-  if(now-lastTap<300){
-    cascadeSplit();
-    lastTap=0;
-    down=null;
-    return;
-  }
-  lastTap=now;
-  const target=nearestCell(x,y);
-  down=target?{id:target.id, at:now, pointerId:e.pointerId, longFired:false}:null;
-},{passive:true});
-
-function checkHold(){
-  if(down && !down.longFired && performance.now()-down.at>LONG_PRESS_MS){
-    down.longFired=true;
-    doMerge(down.id);
-  }
-}
-
-canvas.addEventListener('pointerup',e=>{
-  if(down && down.pointerId===e.pointerId && !down.longFired){
-    doSplit(down.id);
-  }
-  down=null;
-},{passive:true});
-canvas.addEventListener('pointercancel',()=>{ down=null; },{passive:true});
-
-// ---------- shared kit: clock, fullscreen, GIF ----------
-// NOTE: this world's growth is stateful/accumulative (splits persist), so a
-// perfectly seamless GIF loop isn't attempted here — loopFrame keeps the real
-// physics running instead, per AGENTS.md §8's note on trace-like pieces.
-APKit.init({
-  canvas:canvas,
-  gifName:'share-loop',
-  clockFormat:'spec',
-  dock:true,
-  autoHide:true,
-  fullscreenButton:false,
-  loopFrame:function(phase){ physics(1); draw(phase); },
-  buttons:[
-    {label:'\u2726',name:'mutate',onClick:function(){
-      hueBias=Math.random();
-      angleJitter=0.4+Math.random()*1.4;
-    }},
-    {label:'\u21bb',name:'reset',onClick:function(){ resetWorld(); }}
-  ]
-});
-</script>
-</body>
-</html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="Share"><title>Art Playground — 分与 SHARE</title>
+<!-- 分与 SHARE (v51) — Claude作。改良: ChatGPT
+  世界のルール: 総質量は一定。分裂は足し算ではなく既存の質量の再配分。
+  改良点: 操作しなくても一定間隔で自律分裂し続ける。タッチは世界への介入であり、世界を動かすための必須条件ではない。
+--><script src="ap-kit.js"></script><style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#040308}body{touch-action:none;overscroll-behavior:none;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}canvas{position:fixed;inset:0;width:100%;height:100%;display:block}</style></head>
+<body><canvas id="c"></canvas><script>
+const canvas=document.getElementById('c'),ctx=canvas.getContext('2d',{alpha:false});let W=1,H=1,DPR=1;
+function resize(){DPR=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;canvas.width=Math.round(W*DPR);canvas.height=Math.round(H*DPR);ctx.setTransform(DPR,0,0,DPR,0,0)}addEventListener('resize',resize);resize();
+const TAU=Math.PI*2;function pal(t){return[Math.round(255*(.5+.5*Math.cos(TAU*t))),Math.round(255*(.5+.5*Math.cos(TAU*(t+.33)))),Math.round(255*(.5+.5*Math.cos(TAU*(t+.67))))]}
+let nextId=1,cells=[],hueBias=Math.random(),angleJitter=.9;const MAXCELLS=340;
+function rootCell(){const r=Math.min(W,H)*.17;return{id:nextId++,x:W/2,y:H/2,r,depth:0,vx:0,vy:0,hue:hueBias,sibling:null,alive:true}}
+function resetWorld(){cells=[rootCell()]}
+function splitOne(cell){const newR=cell.r/Math.SQRT2,angle=Math.random()*TAU,push=newR*(.75+Math.random()*angleJitter*.4),dx=push*Math.cos(angle),dy=push*Math.sin(angle),idA=nextId++,idB=nextId++,hueShift=Math.random()*.05-.025;return[{id:idA,x:cell.x-dx,y:cell.y-dy,r:newR,depth:cell.depth+1,vx:-dx*.22,vy:-dy*.22,hue:cell.hue+hueShift,sibling:idB,alive:true},{id:idB,x:cell.x+dx,y:cell.y+dy,r:newR,depth:cell.depth+1,vx:dx*.22,vy:dy*.22,hue:cell.hue-hueShift,sibling:idA,alive:true}]}
+function findCell(id){return cells.find(c=>c.id===id)}
+function doSplit(id){const idx=cells.findIndex(c=>c.id===id);if(idx<0||cells.length+1>MAXCELLS)return;const[a,b]=splitOne(cells[idx]);cells.splice(idx,1,a,b)}
+function doMerge(id){const cell=findCell(id);if(!cell||cell.sibling==null)return;const sib=findCell(cell.sibling);if(!sib)return;const newR=Math.sqrt(cell.r*cell.r+sib.r*sib.r),merged={id:nextId++,x:(cell.x+sib.x)/2,y:(cell.y+sib.y)/2,r:newR,depth:Math.max(0,cell.depth-1),vx:0,vy:0,hue:(cell.hue+sib.hue)/2,sibling:null,alive:true};cells=cells.filter(c=>c.id!==cell.id&&c.id!==sib.id);cells.push(merged)}
+function cascadeSplit(){const snapshot=cells.slice();for(const c of snapshot){if(cells.length>=MAXCELLS)break;doSplit(c.id)}}
+function physics(){for(let i=0;i<cells.length;i++){const ci=cells[i];for(let j=i+1;j<cells.length;j++){const cj=cells[j],dx=cj.x-ci.x,dy=cj.y-ci.y,dist=Math.hypot(dx,dy)||.001,minDist=ci.r+cj.r;if(dist<minDist){const overlap=(minDist-dist)/dist*.5,px=dx*overlap,py=dy*overlap;ci.vx-=px*.06;ci.vy-=py*.06;cj.vx+=px*.06;cj.vy+=py*.06}}ci.vx+=(W/2-ci.x)*.00035;ci.vy+=(H/2-ci.y)*.00035;ci.vx+=(Math.random()-.5)*.02;ci.vy+=(Math.random()-.5)*.02;ci.vx*=.9;ci.vy*=.9;ci.x+=ci.vx;ci.y+=ci.vy}}
+function draw(tGlow){ctx.fillStyle='rgba(4,4,9,.22)';ctx.fillRect(0,0,W,H);for(const c of cells)if(c.sibling!=null){const s=findCell(c.sibling);if(s&&s.id>c.id){const[r,g,b]=pal(c.hue+.5);ctx.strokeStyle=`rgba(${r},${g},${b},.35)`;ctx.beginPath();ctx.moveTo(c.x,c.y);ctx.lineTo(s.x,s.y);ctx.stroke()}}for(const c of cells){const[r,g,b]=pal(c.hue+.06*Math.sin(tGlow+c.depth)),grad=ctx.createRadialGradient(c.x,c.y,0,c.x,c.y,c.r);grad.addColorStop(0,`rgba(${r},${g},${b},.95)`);grad.addColorStop(1,`rgba(${r},${g},${b},.05)`);ctx.fillStyle=grad;ctx.beginPath();ctx.arc(c.x,c.y,c.r,0,TAU);ctx.fill();ctx.strokeStyle=`rgba(${r},${g},${b},.7)`;ctx.lineWidth=1.2;ctx.beginPath();ctx.arc(c.x,c.y,c.r,0,TAU);ctx.stroke()}}
+resetWorld();let startTime=performance.now(),lastAuto=performance.now(),autoInterval=1200;
+function loop(){if(!APKit.isExporting()){const now=performance.now();if(now-lastAuto>autoInterval){const target=cells[Math.floor(Math.random()*cells.length)];if(target)doSplit(target.id);lastAuto=now;autoInterval=850+Math.random()*700}physics();draw((now-startTime)*.0006)}requestAnimationFrame(loop)}requestAnimationFrame(loop);
+const LONG_PRESS_MS=430;let down=null,lastTap=0;function nearestCell(x,y){let best=null,bestD=Infinity;for(const c of cells){const d=Math.hypot(c.x-x,c.y-y),hit=c.r*2.4+22;if(d<hit&&d<bestD){best=c;bestD=d}}return best}
+canvas.addEventListener('pointerdown',e=>{const now=performance.now(),x=e.clientX,y=e.clientY;if(now-lastTap<300){cascadeSplit();lastTap=0;down=null;return}lastTap=now;const target=nearestCell(x,y);down=target?{id:target.id,at:now,pointerId:e.pointerId,longFired:false}:null},{passive:true});
+function checkHold(){if(down&&!down.longFired&&performance.now()-down.at>LONG_PRESS_MS){down.longFired=true;doMerge(down.id)}}
+canvas.addEventListener('pointerup',e=>{if(down&&down.pointerId===e.pointerId&&!down.longFired)doSplit(down.id);down=null},{passive:true});canvas.addEventListener('pointercancel',()=>{down=null},{passive:true});
+function holdLoop(){if(!APKit.isExporting())checkHold();requestAnimationFrame(holdLoop)}requestAnimationFrame(holdLoop);
+APKit.init({canvas:canvas,gifName:'share-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:function(phase){physics();draw(phase)},buttons:[{label:'\u2726',name:'mutate',onClick:function(){hueBias=Math.random();angleJitter=.4+Math.random()*1.4}},{label:'\u21bb',name:'reset',onClick:function(){resetWorld();lastAuto=performance.now()}}]});
+</script></body></html>
