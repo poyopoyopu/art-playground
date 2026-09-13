@@ -6,36 +6,37 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Share">
-<title>Art Playground — 分与 SHARE</title>
+<meta name="apple-mobile-web-app-title" content="Sanctuary">
+<title>Art Playground — 聖域 SANCTUARY</title>
 <!--
-  分与 SHARE (v51) — Claude作 / 改良: ChatGPT / 再設計: Claude(3回目)
-  世界のルール: 総質量(半径の二乗の合計)は常に一定。分裂は足し算ではなく
-  既存の質量の再配分でしかない。
+  聖域 SANCTUARY (v51・旧「分与 SHARE」を全面作り直し) — Claude作
 
-  1回目は全員同時にパッと分裂する同期モデルで地味だった。2回目は3クラスタ
-  +非同期の分裂スケジュールにして常に色々な深さが同時に見えるようにした。
-  今回(3回目)は「もっと面白く」というリクエストを受けて、地味さの残る
-  部分を派手さで補強:
-  - 分裂の瞬間、その場所から白い衝撃波リング(ポン、という視覚的な破裂)
-  - まだ再分裂していない兄弟同士を、細い光の糸でつなぐ(血縁が見える)
-  - 分裂の間隔を詰めて全体のテンポを速めた
-  - ダブルタップは全クラスタを蹴るだけでなく、画面全体が一瞬明るく光る
-  衝撃波リングと兄弟の糸は位相だけで決まる純関数なので、GIFループの
-  厳密さ(0とTAUで完全一致)は崩れない。ダブルタップの画面フラッシュだけは
-  実時間で減衰する演出なので、ライブ表示のみで発生しGIF書き出しには
-  一切影響しない。
+  旧v51(分与 SHARE)は「総質量は常に一定、分裂は再配分でしかない」という
+  質量保存の法則だったが、「もっと面白く」ではなく「全部気に入らないので
+  一から新しい法則で」という要望を受け、コンセプトから作り直した。
 
-  → 実機/GIFで見ると「速すぎて何が起きたか分からない」状態だったため
-  (4回目・Claude): 分裂の瞬間の弾け(BIRTH_DURATION)を0.11→0.42に伸ばして
-  ちゃんと目で追える長さにし、タップ1回で進む量も大幅に減らした(以前は
-  タップ数回でアニメーションを飛び越えてしまっていた)。分裂の間隔自体は
-  ほぼ維持し、テンポの速さと「見える」ことを両立させた。
+  世界のルール: この世界のものは本来すべて儚い。淡く明滅する入れ子の
+  正方形(1つの図形の中に、少し回転して縮んだ相似形が入れ子になっている)
+  が、あちこちで浅く呼吸するように現れては沈む——それが既定の法則。
+
+  しかしタップした場所だけは法則が変わる。そこに「聖域」が生まれ、
+  もう呼吸(明滅)はしない代わりに、心拍のたびに入れ子の階層が
+  1段ずつ後戻りなく深くなっていく。一度壊れた儚さの法則は、その場所では
+  二度と元に戻らない。指を触れたまま(ホールド)でいると、近くの聖域の
+  心拍が速まり成長を早める。離れたところをダブルタップすると、
+  存在するすべての聖域に同時に鼓動が走り、一斉に一段深くなる。
+
+  ホールド中の加速、聖域の永続成長、ダブルタップの全体鼓動と画面フラッシュは
+  すべて実時間駆動のライブ専用演出。GIFループ側は位相のみの純関数として
+  別に再構成しており(呼吸する背景はそのまま、聖域は位相0→πで象徴的に
+  芽生えて深くなり、π→2πでアルファだけを0まで落として2πでちょうど
+  非表示=位相0の状態と一致させる)、ライブの「永続成長」というルール自体は
+  ループの都合で変更していない。
 -->
 <script src="ap-kit.js"></script>
 <style>
 *{box-sizing:border-box}
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#040308}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#050308}
 body{touch-action:none;overscroll-behavior:none;
  -webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
@@ -58,6 +59,7 @@ function resize(){
 addEventListener('resize',resize); resize();
 
 const TAU=Math.PI*2;
+const BG='#050308';
 function pal(t){
   return [
     Math.round(255*(0.5+0.5*Math.cos(TAU*t))),
@@ -74,203 +76,179 @@ function mulberry32(a){
   };
 }
 
-// ---------- each cluster: a fixed tree where every node knows WHEN (in clock
-// units 0..PI) it finishes splitting into its two children ----------
-const BIRTH_DURATION=0.42;
-const CLOCK_LIMIT=Math.PI-0.05;
-
-function buildTree(seed){
-  const rng=mulberry32(seed);
-  const list=[];
-  function make(parentId,tau,x,y,r,hue){
-    const id=list.length;
-    const node={id,parentId,tau,x,y,r,hue,children:[]};
-    list.push(node);
-    if(parentId>=0) list[parentId].children.push(id);
-    const childTau=tau+0.30+rng()*0.34;
-    if(childTau<CLOCK_LIMIT && list.length<140){
-      const newR=r/Math.SQRT2;
-      const angle=rng()*TAU;
-      const push=newR*(0.75+rng()*0.36);
-      const dx=push*Math.cos(angle), dy=push*Math.sin(angle);
-      make(id,childTau,x-dx,y-dy,newR,hue+(rng()*0.05-0.025));
-      make(id,childTau,x+dx,y+dy,newR,hue-(rng()*0.05-0.025));
-    }
-  }
-  make(-1,0,0,0,1,rng());
-  return list;
-}
-
-// three independent clusters, scattered like the rest of the gallery's pieces
-const CLUSTERS=[
-  {fx:0.32,fy:0.42},
-  {fx:0.68,fy:0.36},
-  {fx:0.5,fy:0.7}
-];
-let baseSeed=(Math.random()*1e9)|0;
-function buildAllTrees(){
-  return CLUSTERS.map((c,i)=>({ ...c, nodes:buildTree(baseSeed+i*97) }));
-}
-let clusters=buildAllTrees();
-
-function drawCell(x,y,r,hue,alpha){
-  if(alpha<=0.01||r<=0.2) return;
-  const [r8,g8,b8]=pal(hue);
-  const grad=ctx.createRadialGradient(x,y,0,x,y,r);
-  grad.addColorStop(0,`rgba(${r8},${g8},${b8},${0.95*alpha})`);
-  grad.addColorStop(1,`rgba(${r8},${g8},${b8},${0.05*alpha})`);
-  ctx.fillStyle=grad;
-  ctx.beginPath(); ctx.arc(x,y,r,0,TAU); ctx.fill();
-  ctx.strokeStyle=`rgba(${r8},${g8},${b8},${0.7*alpha})`;
-  ctx.lineWidth=1.2;
-  ctx.beginPath(); ctx.arc(x,y,r,0,TAU); ctx.stroke();
-}
-function drawFlash(x,y,r,e){
-  const inten=4*e*(1-e); // 0 at e=0 and e=1, peak at e=0.5 — a pure function of e
-  if(inten<=0.02) return;
-  ctx.strokeStyle=`rgba(255,255,255,${0.6*inten})`;
-  ctx.lineWidth=Math.max(0.5,2.4*inten);
-  ctx.beginPath(); ctx.arc(x,y,r*(1+e*2.0),0,TAU); ctx.stroke();
-}
-
-// recursive: renders whatever this node's lineage looks like at clock time c.
-// also records currently-resting leaves into `leaves` so siblings still both
-// whole can be connected with a thread afterward.
-function drawNode(nodes,node,c,cx,cy,scalePx,wob,leaves){
-  const hasKids=node.children.length>0;
-  const kidsTau=hasKids?nodes[node.children[0]].tau:Infinity;
-  if(!hasKids||c<kidsTau){
-    const w=wob(node.id);
-    const px=cx+node.x*scalePx+w[0], py=cy+node.y*scalePx+w[1];
-    drawCell(px,py,Math.max(0.6,node.r*scalePx), node.hue, 1);
-    leaves.push({x:px,y:py,parentId:node.parentId,hue:node.hue});
-    return;
-  }
-  const e=Math.min(1,(c-kidsTau)/BIRTH_DURATION);
-  const w0=wob(node.id);
-  drawFlash(cx+node.x*scalePx+w0[0], cy+node.y*scalePx+w0[1], Math.max(0.6,node.r*scalePx), e);
-  for(const cid of node.children){
-    const child=nodes[cid];
-    if(e<1){
-      const w=wob(child.id);
-      const ix=node.x+(child.x-node.x)*e, iy=node.y+(child.y-node.y)*e, ir=node.r+(child.r-node.r)*e;
-      const px=cx+ix*scalePx+w[0], py=cy+iy*scalePx+w[1];
-      drawCell(px,py,Math.max(0.6,ir*scalePx), child.hue, e);
-      if(e>0.7) leaves.push({x:px,y:py,parentId:node.id,hue:child.hue});
+// ---------- the one recursive motif every seed is built from: a square,
+// rotated a little and shrunk, nested inside itself `depth` times. cheap
+// (depth+1 draws, no branching) and unambiguously self-similar. ----------
+function drawNested(x,y,size,depth,hue,rot,shrink,alphaScale){
+  if(depth<0||alphaScale<=0.01) return;
+  ctx.save();
+  ctx.translate(x,y);
+  let s=size;
+  for(let i=0;i<=depth;i++){
+    const a=alphaScale*(1-(i/(depth+2))*0.42);
+    if(a>0.01){
+      const [r,g,b]=pal(hue+i*0.05);
+      ctx.rotate(rot);
+      ctx.strokeStyle=`rgba(${r},${g},${b},${a})`;
+      ctx.lineWidth=Math.max(0.6,s*0.03);
+      ctx.strokeRect(-s/2,-s/2,s,s);
+      if(i===depth){
+        ctx.fillStyle=`rgba(${r},${g},${b},${a*0.16})`;
+        ctx.fillRect(-s/2,-s/2,s,s);
+      }
     }else{
-      drawNode(nodes,child,c,cx,cy,scalePx,wob,leaves);
+      ctx.rotate(rot);
     }
+    s*=shrink;
+  }
+  ctx.restore();
+}
+
+// ---------- default law: shallow, breathing, never accumulates ----------
+const AMBIENT_COUNT=13;
+let ambient=[];
+function initAmbient(seed){
+  const rng=mulberry32(seed);
+  ambient=[];
+  for(let i=0;i<AMBIENT_COUNT;i++){
+    ambient.push({
+      fx:0.08+rng()*0.84, fy:0.08+rng()*0.84,
+      phase:rng()*TAU, hue:rng(), sizeF:0.045+rng()*0.05
+    });
   }
 }
 
-function drawSiblingThreads(leaves){
-  const byParent=new Map();
-  for(const lf of leaves){
-    if(lf.parentId<0) continue;
-    (byParent.get(lf.parentId)||byParent.set(lf.parentId,[]).get(lf.parentId)).push(lf);
-  }
-  for(const pair of byParent.values()){
-    if(pair.length!==2) continue;
-    const [a,b]=pair;
-    const [r,g,b8]=pal((a.hue+b.hue)/2+0.5);
-    ctx.strokeStyle=`rgba(${r},${g},${b8},0.3)`;
-    ctx.lineWidth=1;
-    ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+// ---------- broken law: born from touch, only ever deepens ----------
+const MAX_SANCTUARY=44;
+const MAX_DEPTH=9;
+const BEAT_SEC=2.15; // one heartbeat = one step deeper, at rest
+let sanctuary=[]; // {x,y,hue,depth,prog}
+let gShrink=0.72, gRot=0.34, gHueShift=0;
+
+function addSanctuary(x,y){
+  if(sanctuary.length>=MAX_SANCTUARY) sanctuary.shift();
+  sanctuary.push({x,y,hue:Math.random(),depth:0,prog:0});
+}
+function resetWorld(){
+  sanctuary=[];
+  initAmbient((Math.random()*1e9)|0);
+}
+resetWorld();
+
+// ---------- live: real time drives breathing, heartbeats, and input ----------
+let holding=false, holdX=0, holdY=0, lastTap=0, flashAt=-999;
+let lastFrameTime=performance.now();
+
+function updateGrowth(dt){
+  const baseRate=1/BEAT_SEC;
+  for(const s of sanctuary){
+    if(s.depth>=MAX_DEPTH){ s.prog=0; continue; }
+    let rate=baseRate;
+    if(holding){
+      const d=Math.hypot(s.x-holdX,s.y-holdY);
+      if(d<130) rate+=baseRate*3.4*Math.exp(-d/85);
+    }
+    s.prog+=dt*rate;
+    while(s.prog>=1 && s.depth<MAX_DEPTH){ s.depth++; s.prog-=1; }
   }
 }
-
-function triangleWave(ph){ return 1-Math.abs((ph/Math.PI)-1); } // 0 at 0 & TAU, 1 at PI
-
-function renderClusters(phases){
-  ctx.fillStyle='#040308';
-  ctx.fillRect(0,0,W,H);
+function renderLive(now){
+  ctx.fillStyle=BG; ctx.fillRect(0,0,W,H);
   const m=Math.min(W,H);
-  for(let i=0;i<clusters.length;i++){
-    const cl=clusters[i];
-    const ph=phases[i];
-    const c=Math.PI*triangleWave(ph);
-    const cx=cl.fx*W, cy=cl.fy*H, scalePx=m*0.13;
-    const wob=(id)=>[Math.sin(ph*2+id*0.7+i*3)*3, Math.cos(ph*2+id*1.3+1.7+i*3)*3];
-    const leaves=[];
-    drawNode(cl.nodes,cl.nodes[0],c,cx,cy,scalePx,wob,leaves);
-    drawSiblingThreads(leaves);
+  for(const a of ambient){
+    const raw=1.5+1.35*Math.sin(now*0.00032+a.phase);
+    const d=Math.max(0,Math.min(3,Math.round(raw)));
+    drawNested(a.fx*W,a.fy*H,m*a.sizeF,d,a.hue+gHueShift,gRot,gShrink,0.5);
+  }
+  for(const s of sanctuary){
+    drawNested(s.x,s.y,m*0.115,s.depth,s.hue+gHueShift,gRot,gShrink,0.92);
+  }
+  const age=(now-flashAt)/1000;
+  if(age<0.4){
+    const a=Math.max(0,1-age/0.4);
+    ctx.fillStyle=`rgba(255,255,255,${0.2*a*a})`;
+    ctx.fillRect(0,0,W,H);
   }
 }
-
-// ---------- live: each cluster breathes on its own; touch nudges the nearest one ----------
-let livePhases=[0,0,0], lastFrameTime=performance.now();
-let rateMul=[1,1,1], heldCluster=-1;
-let dtFlashAt=-999; // real-time double-tap screen pulse (live only, never exported)
-
 function loop(){
   const now=performance.now();
   const dt=(now-lastFrameTime)/1000; lastFrameTime=now;
   if(!APKit.isExporting()){
-    for(let i=0;i<3;i++){
-      const target=(i===heldCluster)?4.2:1;
-      rateMul[i]+=(target-rateMul[i])*0.08;
-      livePhases[i]=(livePhases[i]+dt*(TAU/APKit.LOOP_DUR)*rateMul[i])%TAU;
-    }
-    renderClusters(livePhases);
-    const age=(now-dtFlashAt)/1000;
-    if(age<0.4){
-      const a=Math.max(0,1-age/0.4);
-      ctx.fillStyle=`rgba(255,255,255,${0.22*a*a})`;
-      ctx.fillRect(0,0,W,H);
-    }
+    updateGrowth(Math.min(dt,0.1));
+    renderLive(now);
   }
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
 
-// ---------- input: tap/hold act on whichever cluster is closest to the touch ----------
-function nearestCluster(x,y){
-  let best=0, bestD=Infinity;
-  for(let i=0;i<clusters.length;i++){
-    const d=Math.hypot(clusters[i].fx*W-x, clusters[i].fy*H-y);
-    if(d<bestD){ bestD=d; best=i; }
-  }
-  return best;
-}
-let lastTap=0;
 canvas.addEventListener('pointerdown',e=>{
   const now=performance.now();
-  const idx=nearestCluster(e.clientX,e.clientY);
+  holdX=e.clientX; holdY=e.clientY; holding=true;
   if(now-lastTap<300){
-    for(let i=0;i<3;i++) livePhases[i]=(livePhases[i]+TAU*0.16)%TAU; // double tap: kick everyone
-    dtFlashAt=now;
-    lastTap=0;
+    for(const s of sanctuary) s.depth=Math.min(MAX_DEPTH,s.depth+1);
+    flashAt=now; lastTap=0;
   }else{
     lastTap=now;
-    livePhases[idx]=(livePhases[idx]+TAU*0.06)%TAU; // tap: kick the nearest cluster
+    addSanctuary(e.clientX,e.clientY);
   }
-  heldCluster=idx;
 },{passive:true});
-canvas.addEventListener('pointerup',()=>{ heldCluster=-1; },{passive:true});
-canvas.addEventListener('pointercancel',()=>{ heldCluster=-1; },{passive:true});
+canvas.addEventListener('pointermove',e=>{
+  if(holding){ holdX=e.clientX; holdY=e.clientY; }
+},{passive:true});
+canvas.addEventListener('pointerup',()=>{holding=false;},{passive:true});
+canvas.addEventListener('pointercancel',()=>{holding=false;},{passive:true});
 
-// ---------- shared kit: clock, fullscreen, GIF ----------
-// renderClusters is a pure function of the phase array — for export every
-// cluster is driven by the SAME phase ap-kit hands us, so the whole frame is a
-// pure function of that one number with period TAU: an exact loop. The
-// double-tap screen flash is drawn only from the live loop(), never here.
+// ---------- GIF export: deterministic, phase-only. sanctuary can't loop while
+// growing forever, so the export shows a symbolic birth: it grows to full
+// depth by phase π, then only its alpha fades to 0 by phase 2π — matching the
+// invisible phase-0 state exactly. the ambient breathing above is already an
+// exact function of phase (integer multiple), so it is reused as-is. ----------
+let demoSeeds=null;
+function buildDemoSeeds(seed){
+  const rng=mulberry32(seed);
+  const list=[];
+  for(let i=0;i<4;i++) list.push({fx:0.2+rng()*0.6, fy:0.2+rng()*0.6, hue:rng()});
+  return list;
+}
+let demoSeed=(Math.random()*1e9)|0;
+function renderLoopDemo(phase){
+  if(!demoSeeds) demoSeeds=buildDemoSeeds(demoSeed);
+  ctx.fillStyle=BG; ctx.fillRect(0,0,W,H);
+  const m=Math.min(W,H);
+  for(const a of ambient){
+    const raw=1.5+1.35*Math.sin(phase*2+a.phase);
+    const d=Math.max(0,Math.min(3,Math.round(raw)));
+    drawNested(a.fx*W,a.fy*H,m*a.sizeF,d,a.hue+gHueShift,gRot,gShrink,0.5);
+  }
+  const growE=Math.min(1,phase/Math.PI);
+  const fadeE=phase<=Math.PI?1:Math.max(0,1-(phase-Math.PI)/Math.PI);
+  if(fadeE>0.01){
+    const depth=Math.round(growE*MAX_DEPTH);
+    for(const s of demoSeeds){
+      drawNested(s.fx*W,s.fy*H,m*0.115,depth,s.hue+gHueShift,gRot,gShrink,0.92*fadeE);
+    }
+  }
+}
+
 APKit.init({
   canvas:canvas,
-  gifName:'share-loop',
+  gifName:'sanctuary-loop',
   clockFormat:'spec',
   dock:true,
   autoHide:true,
   fullscreenButton:false,
-  loopFrame:function(phase){ renderClusters([phase,phase,phase]); },
+  loopFrame:function(phase){ renderLoopDemo(phase); },
   buttons:[
     {label:'\u2726',name:'mutate',onClick:function(){
-      baseSeed=(Math.random()*1e9)|0;
-      clusters=buildAllTrees();
+      gHueShift=Math.random();
+      gShrink=0.62+Math.random()*0.22;
+      gRot=0.16+Math.random()*0.55;
+      demoSeed=(Math.random()*1e9)|0; demoSeeds=null;
     }},
     {label:'\u21bb',name:'reset',onClick:function(){
-      baseSeed=(Math.random()*1e9)|0;
-      clusters=buildAllTrees();
-      livePhases=[0,0,0];
+      resetWorld();
+      gHueShift=0; gShrink=0.72; gRot=0.34;
+      demoSeed=(Math.random()*1e9)|0; demoSeeds=null;
     }}
   ]
 });
