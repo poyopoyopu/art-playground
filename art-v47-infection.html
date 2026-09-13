@@ -3,26 +3,22 @@
 let pts=[],scars=[],law=0,pulse=0,seed,pal;const TAU=Math.PI*2;
 function makePalette(){const h1=Math.random()*360,spread=55+Math.random()*175,h2=(h1+spread*(Math.random()<.5?1:-1)+360)%360,gap=((h2-h1)+360)%360,mid=(gap>=180)?h1+gap/2:h2+(360-gap)/2,room=Math.max(gap,360-gap)/2,jitter=(Math.random()-.5)*2*Math.max(0,room-48);return{h1,h2,h3:(mid+jitter+360)%360,s1:.45+Math.random()*.45,s3:.6+Math.random()*.4,v:.75+Math.random()*.25,bg:6+Math.random()*22,warm:Math.random()<.5}}
 function hsv(h,s,v){h=((h%360)+360)%360/60;const i=Math.floor(h),f=h-i,p=v*(1-s),q=v*(1-f*s),t=v*(1-(1-f)*s);let r,g,b;switch(i%6){case 0:r=v;g=t;b=p;break;case 1:r=q;g=v;b=p;break;case 2:r=p;g=v;b=t;break;case 3:r=p;g=q;b=v;break;case 4:r=t;g=p;b=v;break;default:r=v;g=p;b=q}return[r*255,g*255,b*255]}
-function setup(){createCanvas(windowWidth,windowHeight);pixelDensity(Math.min(2,window.devicePixelRatio||1));seed=floor(random(1e6));randomSeed(seed);pal=makePalette();build();background(0);APKit.init({canvas:document.querySelector('canvas'),gifName:'infection-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:p=>renderScene(p),buttons:[{label:'✦',name:'mutate',onClick:()=>{seed=floor(random(1e6));randomSeed(seed);pal=makePalette();scars=[];law++;pulse=1;background(0)}},{label:'↻',name:'reset',onClick:()=>{scars=[];law=0;background(0)}}]});}
+function setup(){createCanvas(windowWidth,windowHeight);bindPointerEvents();pixelDensity(Math.min(2,window.devicePixelRatio||1));seed=floor(random(1e6));randomSeed(seed);pal=makePalette();build();background(0);APKit.init({canvas:document.querySelector('canvas'),gifName:'infection-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:p=>renderScene(p),buttons:[{label:'✦',name:'mutate',onClick:()=>{seed=floor(random(1e6));randomSeed(seed);pal=makePalette();scars=[];law++;pulse=1;background(0)}},{label:'↻',name:'reset',onClick:()=>{scars=[];law=0;background(0)}}]});}
 function build(){pts=[];const step=Math.max(5,Math.min(10,width/105));for(let x=step/2;x<width;x+=step)for(let y=step/2;y<height;y+=step)pts.push({x,y,ox:x,oy:y,phase:random(TWO_PI),w:random(.5,1.5)})}
 function K(k,P){if(P===null||P===undefined)return frameCount*k;return Math.max(1,Math.round(k*60*APKit.LOOP_DUR/TAU))*P}
 function renderScene(P){const live=P===null||P===undefined;background(0,pal.bg);if(live)pulse*=.94;noStroke();for(const p of pts){let dx=p.x-width*.5,dy=p.y-height*.5,r=sqrt(dx*dx+dy*dy),a=atan2(dy,dx),local=0;for(const s of scars){let sx=p.x-s.x,sy=p.y-s.y,d=sqrt(sx*sx+sy*sy);if(d<s.radius){let q=1-d/s.radius;local+=q*q;const twist=(law%2===0?1:-1)*q*1.8,tx=sx*cos(twist)-sy*sin(twist),ty=sx*sin(twist)+sy*cos(twist);p.x=s.x+tx;p.y=s.y+ty}}p.x+=(p.ox-p.x)*.018;p.y+=(p.oy-p.y)*.018;let body=pow(max(0,sin(r*.010+sin(a*2)*1.8+K(.012,P)+law)),8)+local*1.7,q=.5+.5*sin(r*.035-K(.025,P)+p.phase),size=1.1+2.5*body+1.7*local,col;if(local>.03)col=hsv(pal.h3+q*40,pal.s3,pal.v);else{const h=pal.h1+(pal.h2-pal.h1)*q,lift=pal.warm?body*.25:-body*.25;col=hsv(h+lift*60,pal.s1*(.55+.45*body),.22+.78*min(1,body+.18))}fill(col[0],col[1],col[2],110+145*min(1,body+local));rect(p.x-size/2,p.y-size/2,size,size)}for(let i=scars.length-1;i>=0;i--){const s=scars[i];if(live){s.radius+=1.2;s.life-=1}noFill();const ring=hsv(pal.h3,pal.s3,1);stroke(ring[0],ring[1],ring[2],18);circle(s.x,s.y,s.radius*2);if(s.life<0)scars.splice(i,1)}noStroke();fill(255,70);const beat=live?pulse:.5+.5*sin(P);circle(width*.5,height*.5,2+beat*10)}
 function draw(){if(window.APKit&&APKit.isExporting())return;renderScene(null)}
 function touchLaw(x,y,force=1){if(window.APKit&&APKit.isUI(x,y))return true;law++;pulse=1;scars.push({x,y,radius:22+force*16,life:90+force*50});if(scars.length>7)scars.shift();const h=document.getElementById('hint');if(h)h.style.opacity='0';return false}
-/* p5's own touchStarted/mousePressed rely on listeners p5 registers itself,
-   and inside the gallery's nested iframe those never fire on iOS Safari —
-   touch worked fine opened directly, only broke embedded. Binding straight
-   to the canvas element is what every other piece in this project already
-   does, and that works through the same iframe, so input is driven from
-   here instead. touchLaw already checks APKit.isUI(x,y) itself. */
-(function(){
+/* Bind only after p5 has created the canvas. */
+function bindPointerEvents(){
   const cv=document.querySelector('canvas');
+  if(!cv)return;
   let dragging=false;
   function xy(e){const r=cv.getBoundingClientRect();return [e.clientX-r.left,e.clientY-r.top]}
   cv.addEventListener('pointerdown',e=>{const [x,y]=xy(e);dragging=true;touchLaw(x,y,1)},{passive:true});
   cv.addEventListener('pointermove',e=>{if(!dragging)return;const [x,y]=xy(e);if(frameCount%3===0)touchLaw(x,y,.55)},{passive:true});
   cv.addEventListener('pointerup',()=>{dragging=false},{passive:true});
   cv.addEventListener('pointercancel',()=>{dragging=false},{passive:true});
-})();
+}
 function windowResized(){resizeCanvas(windowWidth,windowHeight);build();background(0)}
 </script></body></html>
