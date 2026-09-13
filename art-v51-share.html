@@ -9,17 +9,25 @@
 <meta name="apple-mobile-web-app-title" content="Share">
 <title>Art Playground — 分与 SHARE</title>
 <!--
-  分与 SHARE (v51) — Claude作 / 改良: ChatGPT / 再設計: Claude
+  分与 SHARE (v51) — Claude作 / 改良: ChatGPT / 再設計: Claude(2回目)
   世界のルール: 総質量(半径の二乗の合計)は常に一定。分裂は足し算ではなく
   既存の質量の再配分でしかない。
-  再設計の理由: 以前のバージョンは「たまに1個だけランダムに分裂する」自律
-  挙動で、地味で退屈な上、GIFループも作れなかった(蓄積された乱数状態は
-  同じ姿に戻らないため)。今回は最初から「ひとつの決まった木構造が、一定の
-  周期でπまで開いてπから2πでまた同じ姿に閉じる」呼吸として設計し直した。
-  開閉は同じ関数を位相(0〜2π)だけで駆動しているので、ライブでもGIF書き出し
-  でも数式として厳密に同じ姿に戻ってくる — 継ぎ目のない完全ループ。
-  タップは呼吸を一段先へ蹴る、長押しは呼吸を一時的に速める、ダブルタップは
-  大きく蹴る、✦は次の呼吸の木の形そのものを引き直す。
+
+  1回目の再設計は「全員が同じ深さで同時にパッと分裂する」同期モデルで、
+  数学的にはループしたが、常に1〜2段しか同時に見えず地味で、タップも
+  画面全体に効く漠然とした操作だった。
+
+  今回は3つの独立したクラスタ(それぞれ別の場所・別の形)を置き、各々の
+  枝ごとに「いつ分裂し終えるか」をあらかじめ乱数で決めておく(非同期の
+  分裂スケジュール)。時刻cにおいて、まだ自分の番が来ていない個体はそのまま
+  留まり、番が来た個体だけ短く弾けて2つに分かれる — 常に色々な深さの個体が
+  同時に画面上に存在し、有機的なクラスターに見える。
+  クラスタごとに個別のライブ位相を持たせたので、タップは一番近いクラスタ
+  だけを軽く前に進め、長押しは一番近いクラスタだけを加速する、という
+  「場所に意味のある」操作になった。ダブルタップだけは全クラスタを一斉に
+  進める。GIF書き出し時は3クラスタとも同じ位相(ap-kitが渡すphase)だけで
+  描くので、渡された位相に対して常に同じ絵になる — 位相0とTAUが完全に
+  一致する厳密なループ。
 -->
 <script src="ap-kit.js"></script>
 <style>
@@ -54,9 +62,6 @@ function pal(t){
     Math.round(255*(0.5+0.5*Math.cos(TAU*(t+0.67))))
   ];
 }
-
-// ---------- a fixed, seeded binary tree — the same shape every breath ----------
-const MAXDEPTH=6;
 function mulberry32(a){
   return function(){
     a|=0; a=(a+0x6D2B79F5)|0;
@@ -65,32 +70,45 @@ function mulberry32(a){
     return ((t^t>>>14)>>>0)/4294967296;
   };
 }
+
+// ---------- each cluster: a fixed tree where every node knows WHEN (in clock
+// units 0..PI) it finishes splitting into its two children ----------
+const BIRTH_DURATION=0.14;
+const CLOCK_LIMIT=Math.PI-0.05;
+
 function buildTree(seed){
   const rng=mulberry32(seed);
   const list=[];
-  function make(parentId,depth,x,y,r,hue){
+  function make(parentId,tau,x,y,r,hue){
     const id=list.length;
-    const node={id,parentId,depth,x,y,r,hue,children:[]};
+    const node={id,parentId,tau,x,y,r,hue,children:[]};
     list.push(node);
     if(parentId>=0) list[parentId].children.push(id);
-    if(depth<MAXDEPTH){
+    const childTau=tau+0.30+rng()*0.42;
+    if(childTau<CLOCK_LIMIT && list.length<120){
       const newR=r/Math.SQRT2;
       const angle=rng()*TAU;
       const push=newR*(0.75+rng()*0.36);
       const dx=push*Math.cos(angle), dy=push*Math.sin(angle);
-      make(id,depth+1,x-dx,y-dy,newR,hue+(rng()*0.05-0.025));
-      make(id,depth+1,x+dx,y+dy,newR,hue-(rng()*0.05-0.025));
+      make(id,childTau,x-dx,y-dy,newR,hue+(rng()*0.05-0.025));
+      make(id,childTau,x+dx,y+dy,newR,hue-(rng()*0.05-0.025));
     }
   }
   make(-1,0,0,0,1,rng());
   return list;
 }
-let treeSeed=(Math.random()*1e9)|0;
-let nodes=buildTree(treeSeed);
 
-// ---------- pure function of phase: this is the whole loop ----------
-function triangleWave(ph){ return 1-Math.abs((ph/Math.PI)-1); } // 0 at 0 and TAU, 1 at PI
-function easeInOut(x){ return x*x*(3-2*x); }
+// three independent clusters, scattered like the rest of the gallery's pieces
+const CLUSTERS=[
+  {fx:0.32,fy:0.42},
+  {fx:0.68,fy:0.36},
+  {fx:0.5,fy:0.7}
+];
+let baseSeed=(Math.random()*1e9)|0;
+function buildAllTrees(){
+  return CLUSTERS.map((c,i)=>({ ...c, nodes:buildTree(baseSeed+i*97) }));
+}
+let clusters=buildAllTrees();
 
 function drawCell(x,y,r,hue,alpha){
   if(alpha<=0.01||r<=0.2) return;
@@ -105,75 +123,92 @@ function drawCell(x,y,r,hue,alpha){
   ctx.beginPath(); ctx.arc(x,y,r,0,TAU); ctx.stroke();
 }
 
-function renderAtPhase(ph){
-  const t=MAXDEPTH*triangleWave(ph);
-  const flo=Math.min(MAXDEPTH,Math.floor(t)), frac=t-flo;
-
-  ctx.fillStyle='#040308';
-  ctx.fillRect(0,0,W,H);
-
-  const cx=W/2, cy=H/2, scalePx=Math.min(W,H)*0.17;
-  // a small organic wobble, driven by phase itself (2 full cycles per breath)
-  // so it closes the loop exactly like everything else here
-  function wobble(id){
-    return [Math.sin(ph*2+id*0.7)*3, Math.cos(ph*2+id*1.3+1.7)*3];
+// recursive: renders whatever this node's lineage looks like at clock time c
+function drawNode(nodes,node,c,cx,cy,scalePx,wob){
+  const hasKids=node.children.length>0;
+  const kidsTau=hasKids?nodes[node.children[0]].tau:Infinity;
+  if(!hasKids||c<kidsTau){
+    const w=wob(node.id);
+    drawCell(cx+node.x*scalePx+w[0], cy+node.y*scalePx+w[1], Math.max(0.6,node.r*scalePx), node.hue, 1);
+    return;
   }
-
-  for(const n of nodes){
-    if(n.depth!==flo) continue;
-    const wn=wobble(n.id);
-    const px=cx+n.x*scalePx+wn[0], py=cy+n.y*scalePx+wn[1], pr=Math.max(0.6,n.r*scalePx);
-    drawCell(px,py,pr,n.hue,1);
-    if(n.depth<MAXDEPTH && frac>0.001){
-      const e=easeInOut(frac);
-      for(const cid of n.children){
-        const c=nodes[cid];
-        const wc=wobble(c.id);
-        const ix=cx+(n.x+(c.x-n.x)*e)*scalePx+wc[0];
-        const iy=cy+(n.y+(c.y-n.y)*e)*scalePx+wc[1];
-        const ir=Math.max(0.6,(n.r+(c.r-n.r)*e)*scalePx);
-        drawCell(ix,iy,ir,c.hue,e);
-      }
+  const e=Math.min(1,(c-kidsTau)/BIRTH_DURATION);
+  for(const cid of node.children){
+    const child=nodes[cid];
+    if(e<1){
+      const w=wob(child.id);
+      const ix=node.x+(child.x-node.x)*e, iy=node.y+(child.y-node.y)*e, ir=node.r+(child.r-node.r)*e;
+      drawCell(cx+ix*scalePx+w[0], cy+iy*scalePx+w[1], Math.max(0.6,ir*scalePx), child.hue, e);
+    }else{
+      drawNode(nodes,child,c,cx,cy,scalePx,wob);
     }
   }
 }
 
-// ---------- live: the breath advances on its own, touch just kicks it ----------
-let livePhase=0, lastFrameTime=performance.now();
-let rateMul=1, holding=false;
+function triangleWave(ph){ return 1-Math.abs((ph/Math.PI)-1); } // 0 at 0 & TAU, 1 at PI
+
+function renderClusters(phases){
+  ctx.fillStyle='#040308';
+  ctx.fillRect(0,0,W,H);
+  const m=Math.min(W,H);
+  for(let i=0;i<clusters.length;i++){
+    const cl=clusters[i];
+    const ph=phases[i];
+    const c=Math.PI*triangleWave(ph);
+    const cx=cl.fx*W, cy=cl.fy*H, scalePx=m*0.13;
+    const wob=(id)=>[Math.sin(ph*2+id*0.7+i*3)*3, Math.cos(ph*2+id*1.3+1.7+i*3)*3];
+    drawNode(cl.nodes,cl.nodes[0],c,cx,cy,scalePx,wob);
+  }
+}
+
+// ---------- live: each cluster breathes on its own; touch nudges the nearest one ----------
+let livePhases=[0,0,0], lastFrameTime=performance.now();
+let rateMul=[1,1,1], heldCluster=-1;
 
 function loop(){
   const now=performance.now();
   const dt=(now-lastFrameTime)/1000; lastFrameTime=now;
   if(!APKit.isExporting()){
-    const targetRate=holding?4.2:1;
-    rateMul+=(targetRate-rateMul)*0.08;
-    livePhase=(livePhase+dt*(TAU/APKit.LOOP_DUR)*rateMul)%TAU;
-    renderAtPhase(livePhase);
+    for(let i=0;i<3;i++){
+      const target=(i===heldCluster)?4.2:1;
+      rateMul[i]+=(target-rateMul[i])*0.08;
+      livePhases[i]=(livePhases[i]+dt*(TAU/APKit.LOOP_DUR)*rateMul[i])%TAU;
+    }
+    renderClusters(livePhases);
   }
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
 
-// ---------- input: tap kicks the breath forward, hold speeds it up ----------
+// ---------- input: tap/hold act on whichever cluster is closest to the touch ----------
+function nearestCluster(x,y){
+  let best=0, bestD=Infinity;
+  for(let i=0;i<clusters.length;i++){
+    const d=Math.hypot(clusters[i].fx*W-x, clusters[i].fy*H-y);
+    if(d<bestD){ bestD=d; best=i; }
+  }
+  return best;
+}
 let lastTap=0;
 canvas.addEventListener('pointerdown',e=>{
   const now=performance.now();
+  const idx=nearestCluster(e.clientX,e.clientY);
   if(now-lastTap<300){
-    livePhase=(livePhase+TAU*0.4)%TAU; // double tap: a big kick
+    for(let i=0;i<3;i++) livePhases[i]=(livePhases[i]+TAU*0.32)%TAU; // double tap: kick everyone
     lastTap=0;
   }else{
     lastTap=now;
-    livePhase=(livePhase+TAU*0.14)%TAU; // tap: a kick
+    livePhases[idx]=(livePhases[idx]+TAU*0.16)%TAU; // tap: kick the nearest cluster
   }
-  holding=true;
+  heldCluster=idx;
 },{passive:true});
-canvas.addEventListener('pointerup',()=>{ holding=false; },{passive:true});
-canvas.addEventListener('pointercancel',()=>{ holding=false; },{passive:true});
+canvas.addEventListener('pointerup',()=>{ heldCluster=-1; },{passive:true});
+canvas.addEventListener('pointercancel',()=>{ heldCluster=-1; },{passive:true});
 
 // ---------- shared kit: clock, fullscreen, GIF ----------
-// renderAtPhase is a pure function of phase with period TAU, so loopFrame just
-// calls it directly — this is a mathematically exact, seamless loop.
+// renderClusters is a pure function of the phase array — for export every
+// cluster is driven by the SAME phase ap-kit hands us, so the whole frame is a
+// pure function of that one number with period TAU: an exact loop.
 APKit.init({
   canvas:canvas,
   gifName:'share-loop',
@@ -181,16 +216,16 @@ APKit.init({
   dock:true,
   autoHide:true,
   fullscreenButton:false,
-  loopFrame:function(phase){ renderAtPhase(phase); },
+  loopFrame:function(phase){ renderClusters([phase,phase,phase]); },
   buttons:[
     {label:'\u2726',name:'mutate',onClick:function(){
-      treeSeed=(Math.random()*1e9)|0;
-      nodes=buildTree(treeSeed);
+      baseSeed=(Math.random()*1e9)|0;
+      clusters=buildAllTrees();
     }},
     {label:'\u21bb',name:'reset',onClick:function(){
-      treeSeed=(Math.random()*1e9)|0;
-      nodes=buildTree(treeSeed);
-      livePhase=0;
+      baseSeed=(Math.random()*1e9)|0;
+      clusters=buildAllTrees();
+      livePhases=[0,0,0];
     }}
   ]
 });
