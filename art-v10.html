@@ -1,6 +1,5 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Art Playground — INK BLOOM</title><style>
-*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;background:#02040a;color:#fff;font-family:-apple-system,BlinkMacSystemFont,sans-serif;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}body{overflow:hidden}#app{height:100dvh;background:#02040a}main{position:relative;width:100%;height:100dvh}canvas{width:100%;height:100%;display:block;touch-action:none;background:#02040a}.hud{position:absolute;left:0;right:0;bottom:max(16px,env(safe-area-inset-bottom));display:flex;justify-content:center;z-index:5;pointer-events:none}.random{pointer-events:auto;border:1px solid #ffffff14;border-radius:999px;padding:13px 20px;background:#0b1220d9;color:#dbe7ff;font-size:14px;font-weight:650;letter-spacing:.12em;box-shadow:0 8px 28px #0007;backdrop-filter:blur(14px);display:flex;gap:9px;align-items:center}.random .spin{font-size:22px;line-height:12px;font-weight:300;transition:transform .5s cubic-bezier(.2,.8,.2,1)}.random:active .spin{transform:rotate(180deg)}.random:active{transform:scale(.96)}.toast{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);padding:12px 16px;background:#172037;border-radius:14px;opacity:0;pointer-events:none;transition:.2s;z-index:10}.toast.show{opacity:1}
-</style></head><body><div id="app"><main><canvas id="c"></canvas><div class="hud"><button class="random" id="rnd"><span class="spin">↻</span><span>RANDOM</span></button></div></main></div><div class="toast" id="toast"></div><script>const C=document.getElementById("c"),X=C.getContext("2d"),$=id=>document.getElementById(id);
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Art Playground — INK BLOOM</title><script src="ap-kit.js"></script><style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;background:#02040a;color:#fff;font-family:-apple-system,BlinkMacSystemFont,sans-serif;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}body{overflow:hidden}#app{height:100dvh;background:#02040a}main{position:relative;width:100%;height:100dvh}canvas{width:100%;height:100%;display:block;touch-action:none;background:#02040a}</style></head><body><div id="app"><main><canvas id="c"></canvas></main></div><script>const C=document.getElementById("c"),X=C.getContext("2d"),$=id=>document.getElementById(id);
 let mode="field",W=1,H=1,dpr=1,t=0,last=0,run=true,pulses=[],touches=[],glitters=[],lastGlitter=0;
 let seed=Math.random()*1000,energy=.65;
 let h=210,speed=70,n=28,w=.60;
@@ -190,10 +189,27 @@ function drawOrbit(v){X.save();X.translate(W/2,H/2);for(let i=0;i<Math.max(5,v.n
 function drawRibbon(v){X.save();X.translate(W/2,H/2);for(let k=0;k<7;k++){X.strokeStyle=col(v.h+k*35,.32);X.lineWidth=2+k;X.beginPath();for(let i=0;i<150;i++){let q=i/149*Math.PI*6,a=q+t*.2+k,r=Math.min(W,H)*.45*i/149,x=Math.cos(a)*r+Math.sin(q*3+t+k)*40,y=Math.sin(a)*r+Math.cos(q*4-t)*40;i?X.lineTo(x,y):X.moveTo(x,y)}X.stroke()}X.restore()}
 function drawCell(v){let N=v.n*2;for(let i=0;i<N;i++){let a=i*2.399+t*.1,r=Math.sqrt(i/N)*Math.min(W,H)*.65,x=W/2+Math.cos(a)*r,y=H/2+Math.sin(a)*r;X.fillStyle=col(v.h+i*7,.18);X.beginPath();X.arc(x,y,6+15*(.5+.5*Math.sin(t+i)),0,Math.PI*2);X.fill()}}
 function art(){let v=vals();if(mode==="field"){drawField(v)}else if(mode==="bloom")drawBloom(v);else if(mode==="flow")drawFlow(v);else if(mode==="flower")drawFlower(v);else if(mode==="wave")drawWave(v);else if(mode==="spiral")drawSpiral(v);else if(mode==="grid")drawGrid(v);else if(mode==="stars")drawStars(v);else if(mode==="orbit")drawOrbit(v);else if(mode==="cell")drawCell(v);else{drawFlow(v);drawStars(v);drawWave(v)}}
-let frameDt=.016;function frame(ms){if(!last)last=ms;let dt=Math.min(.05,(ms-last)/1000);frameDt=dt;last=ms;if(run)t+=dt*(speed/70)*(1+energy*.28*Math.sin(t*.11));bg();art();drawGlitter(vals(),dt);for(let p of pulses){p.r+=2.5;p.a-=.025;X.strokeStyle=col(vals().h+p.r,.45*p.a);X.lineWidth=2;X.beginPath();X.arc(p.x,p.y,p.r,0,Math.PI*2);X.stroke()}pulses=pulses.filter(p=>p.a>0);touches.forEach(p=>{p.a*=.985;p.r+=1.8});touches=touches.filter(p=>p.a>.035);requestAnimationFrame(frame)}requestAnimationFrame(frame);
+let frameDt=.016;
+function step(dt){
+  frameDt=dt;
+  if(run)t+=dt*(speed/70)*(1+energy*.28*Math.sin(t*.11));
+  bg();art();drawGlitter(vals(),dt);
+  for(let p of pulses){p.r+=2.5;p.a-=.025;X.strokeStyle=col(vals().h+p.r,.45*p.a);X.lineWidth=2;X.beginPath();X.arc(p.x,p.y,p.r,0,Math.PI*2);X.stroke()}
+  pulses=pulses.filter(p=>p.a>0);
+  touches.forEach(p=>{p.a*=.985;p.r+=1.8});
+  touches=touches.filter(p=>p.a>.035);
+}
+function frame(ms){
+  if(window.APKit && APKit.isExporting()){ last=0; requestAnimationFrame(frame); return; }
+  if(!last)last=ms;
+  const dt=Math.min(.05,(ms-last)/1000);
+  last=ms;
+  step(dt);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
 C.addEventListener("pointerdown",e=>{let r=C.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;pulses.push({x,y,r:4,a:1});addTouch(x,y);burstGlitter(x,y,true)});
 C.addEventListener("pointermove",e=>{if(e.buttons){let r=C.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;addTouch(x,y);burstGlitter(x,y,false)}});
-$("rnd").onclick=()=>randomize();
 function randomize(){
   h=Math.floor(Math.random()*360);
   speed=Math.floor(28+Math.random()*120);
@@ -202,9 +218,16 @@ function randomize(){
   energy=.25+Math.random()*.85;
   seed=Math.random()*1000;
   touches=[];
-  const tip=document.querySelector(".tip");
-  tip.textContent=["形が変わった","グリッターが混ざった","触ると局所的に変形する","なぞると歪みが残る","気持ち悪く、気持ちよく"][Math.floor(Math.random()*5)];
-  tip.style.opacity=1;setTimeout(()=>tip.style.opacity=.55,1200);
 }
-function toast(s){$("toast").textContent=s;$("toast").classList.add("show");setTimeout(()=>$("toast").classList.remove("show"),1800)}
+
+APKit.init({
+  canvas:C,
+  gifName:'ink-bloom-loop',
+  clockFormat:'spec',
+  dock:true, autoHide:true, fullscreenButton:false,
+  loopFrame:function(){ step(0.016); },
+  buttons:[
+    {label:'\u2726', name:'mutate', onClick:randomize}
+  ]
+});
 </script></body></html>
