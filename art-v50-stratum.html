@@ -8,210 +8,43 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Stratum">
 <title>Art Playground — STRATUM</title>
-<!--
-  STRATUM (v50) — Claude作。ap-kit.js統合: Claude
-  世界のルール: この世界は6層の入れ子状の折り畳み(自己相似フラクタル)でできている。
-  タップするたびに「今どの層を編集しているか」が1つずつ深くなり(6回で一周)、
-  押している間、指の位置(横=回転・縦=拡大率)がその層の"法則"を書き換え続ける。
-  離すとその法則は固定され、次にその層の番が回ってくるまで変わらない。
-  ダブルタップは、直前に編集した層だけを初期状態に戻す「特赦」。
-  つまり触っているのは絵そのものではなく、絵を生成しているルールの一段。
-  浅い層(外側)を書き換えると全体が大きく揺れ、深い層(内側)を書き換えると
-  細部だけが変わる — 同じ操作が層によって全く違う規模の変化を起こす。
+<!-- STRATUM (v50) — Claude作。ap-kit.js統合: Claude / 改良: ChatGPT
+  世界のルール: 6層の自己相似フォールド。タップ/ドラッグで層の法則を変え、
+  世界そのものは常に高速で脈動する。浅い層ほど全体、深い層ほど細部が変わる。
 -->
 <script src="ap-kit.js"></script>
 <style>
-*{box-sizing:border-box}
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#040308}
-body{touch-action:none;overscroll-behavior:none;
- -webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#040308}
+body{touch-action:none;overscroll-behavior:none;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
 </style>
-</head>
-<body>
-<canvas id="c"></canvas>
-
-<script>
+</head><body><canvas id="c"></canvas><script>
 const canvas=document.getElementById('c');
 const gl=canvas.getContext('webgl2',{antialias:false,preserveDrawingBuffer:true});
 if(!gl){document.body.innerHTML='<div style="color:#fff;padding:30px;font:13px system-ui">WebGL2 is required.</div>';throw Error('WebGL2');}
-
 const VS=`#version 300 es
-in vec2 a;
-void main(){ gl_Position=vec4(a,0.,1.); }`;
-
+in vec2 a;void main(){gl_Position=vec4(a,0.,1.);}`;
 const FS=`#version 300 es
-precision highp float;
-out vec4 o;
-uniform vec2 R;
-uniform float time, seed, loopMode, phase, loopDur;
-uniform vec4 laws[6];
-#define PI 3.14159265359
+precision highp float;out vec4 o;uniform vec2 R;uniform float time,seed,loopMode,phase,loopDur;uniform vec4 laws[6];
 #define TAU 6.2831853
-
-/* Every animated term goes through T() so a GIF export can close its loop —
-   live it's just time*k, exporting it becomes a whole number of turns. */
-float T(float k){
-  if(loopMode<0.5) return time*k;
-  float cycles=max(1.0, floor(k*loopDur/TAU+0.5));
-  return cycles*phase;
-}
-
-vec3 pal(float t){
-  return 0.5+0.5*cos(TAU*(t+vec3(0.0,0.33,0.67)));
-}
-
-/* the six strata's resting law, before anyone has touched anything */
-const vec2 BT[6]=vec2[6](vec2(0.34,0.02),vec2(0.30,0.06),vec2(0.24,0.09),vec2(0.19,0.10),vec2(0.15,0.11),vec2(0.11,0.12));
-const float BR[6]=float[6](0.6,-0.5,0.75,-0.65,0.55,-0.7);
-const float BS[6]=float[6](1.75,1.68,1.60,1.55,1.50,1.46);
-
-void main(){
-  vec2 uv=(gl_FragCoord.xy-0.5*R)/min(R.x,R.y);
-  vec2 z=uv*2.2;
-
-  float trapMin=1e9;
-  float hueAcc=0.0;
-  float totalScale=1.0;
-
-  /* six-level self-similar fold. laws[i] is what a finger has written into
-     level i: .x biases that level's rotation, .y biases its scale — nothing
-     else about the picture is touched directly, only this per-level rule. */
-  for(int i=0;i<6;i++){
-    vec4 L=laws[i];
-    float rot=BR[i] + L.x*3.0 + T(0.018*float(i+1));
-    float sc = clamp(BS[i] + L.y*0.55, 1.05, 2.35);
-
-    z=abs(z)-BT[i];
-    float ca=cos(rot), sa=sin(rot);
-    z=mat2(ca,-sa,sa,ca)*z;
-    z*=sc;
-    totalScale*=sc;
-
-    float d=length(z)/totalScale;
-    trapMin=min(trapMin,d);
-    hueAcc+=d*0.15+float(i)*0.09;
-  }
-
-  float glow=exp(-trapMin*9.0);
-  vec3 col=pal(hueAcc*0.6+seed*0.13+T(0.015))*(0.35+glow*1.6);
-
-  float r=length(uv);
-  col*=mix(1.0,0.6,smoothstep(0.6,1.6,r));
-
-  o=vec4(pow(max(col,0.0),vec3(0.92)),1.0);
-}`;
-
-function sh(type,src){
-  const x=gl.createShader(type); gl.shaderSource(x,src); gl.compileShader(x);
-  if(!gl.getShaderParameter(x,gl.COMPILE_STATUS)) throw Error(gl.getShaderInfoLog(x));
-  return x;
-}
-const prog=gl.createProgram();
-gl.attachShader(prog,sh(gl.VERTEX_SHADER,VS));
-gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,FS));
-gl.linkProgram(prog);
-if(!gl.getProgramParameter(prog,gl.LINK_STATUS)) throw Error(gl.getProgramInfoLog(prog));
-gl.useProgram(prog);
-
-const buf=gl.createBuffer();
-gl.bindBuffer(gl.ARRAY_BUFFER,buf);
-gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
-const loc=gl.getAttribLocation(prog,'a');
-gl.enableVertexAttribArray(loc);
-gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
-
-const U={};
-['R','time','seed','loopMode','phase','loopDur','laws'].forEach(k=>U[k]=gl.getUniformLocation(prog,k));
-
-let seedVal=Math.random()*1000;
-let laws=new Array(6).fill(0).map(()=>[0,0]); // [rotBias, scaleBias] per level
-let W=1,H=1,DPR=1,startTime=performance.now();
-
-function resize(){
-  DPR=Math.min(devicePixelRatio||1,2);
-  W=innerWidth; H=innerHeight;
-  canvas.width=Math.round(W*DPR); canvas.height=Math.round(H*DPR);
-  gl.viewport(0,0,canvas.width,canvas.height);
-}
-addEventListener('resize',resize); resize();
-
-function renderGL(loopModeV,phaseV){
-  gl.uniform2f(U.R,canvas.width,canvas.height);
-  gl.uniform1f(U.time,(performance.now()-startTime)*0.001);
-  gl.uniform1f(U.seed,seedVal);
-  gl.uniform1f(U.loopMode,loopModeV);
-  gl.uniform1f(U.phase,phaseV);
-  gl.uniform1f(U.loopDur,APKit.LOOP_DUR);
-  const arr=new Float32Array(24);
-  for(let i=0;i<6;i++){ arr[i*4]=laws[i][0]; arr[i*4+1]=laws[i][1]; }
-  gl.uniform4fv(U.laws,arr);
-  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
-}
-
-function loop(){
-  if(!APKit.isExporting()){
-    if(active){
-      // holding dials the targeted level: finger x -> rotation, finger y -> scale
-      const nx=active.x/W, ny=active.y/H;
-      laws[active.level][0]=(nx-0.5)*2.0;
-      laws[active.level][1]=(0.5-ny)*2.0;
-    }
-    renderGL(0,0);
-  }
-  requestAnimationFrame(loop);
-}
-requestAnimationFrame(loop);
-
-// ---------- input: each tap advances which level you're editing ----------
-let tapCount=0, lastTap=0, active=null;
-
-canvas.addEventListener('pointerdown',e=>{
-  const now=performance.now();
-  if(now-lastTap<300){
-    // double tap: grant amnesty to the level the previous single tap targeted
-    const prevLevel=(tapCount-1+6)%6;
-    laws[prevLevel][0]=0; laws[prevLevel][1]=0;
-    lastTap=0;
-    active=null;
-  }else{
-    lastTap=now;
-    const level=tapCount%6;
-    tapCount++;
-    active={level,x:e.clientX,y:e.clientY,id:e.pointerId};
-  }
-},{passive:true});
-
-canvas.addEventListener('pointermove',e=>{
-  if(active && active.id===e.pointerId){ active.x=e.clientX; active.y=e.clientY; }
-},{passive:true});
-
-function endTouch(e){
-  if(active && active.id===e.pointerId) active=null;
-}
-canvas.addEventListener('pointerup',endTouch,{passive:true});
-canvas.addEventListener('pointercancel',endTouch,{passive:true});
-
-// ---------- shared kit: clock, fullscreen, GIF ----------
-APKit.init({
-  canvas:canvas,
-  gifName:'stratum-loop',
-  clockFormat:'spec',
-  dock:true,
-  autoHide:true,
-  fullscreenButton:false,
-  loopFrame:function(phase){ renderGL(1,phase); },
-  buttons:[
-    {label:'\u2726',name:'mutate',onClick:function(){
-      seedVal=Math.random()*1000;
-      laws=laws.map(()=>[(Math.random()*2-1),(Math.random()*2-1)]);
-    }},
-    {label:'\u21bb',name:'reset',onClick:function(){
-      laws=new Array(6).fill(0).map(()=>[0,0]);
-      tapCount=0;
-    }}
-  ]
-});
-</script>
-</body>
-</html>
+float T(float k){if(loopMode<0.5)return time*k;float cycles=max(1.,floor(k*loopDur/TAU+.5));return cycles*phase;}
+vec3 pal(float t){return .5+.5*cos(TAU*(t+vec3(0.,.33,.67)));}
+const vec2 BT[6]=vec2[6](vec2(.34,.02),vec2(.30,.06),vec2(.24,.09),vec2(.19,.10),vec2(.15,.11),vec2(.11,.12));
+const float BR[6]=float[6](.6,-.5,.75,-.65,.55,-.7);const float BS[6]=float[6](1.75,1.68,1.60,1.55,1.50,1.46);
+void main(){vec2 uv=(gl_FragCoord.xy-.5*R)/min(R.x,R.y),z=uv*2.2;float trapMin=1e9,hueAcc=0.,totalScale=1.;
+for(int i=0;i<6;i++){vec4 L=laws[i];float rot=BR[i]+L.x*3.+T(.045*float(i+1));float sc=clamp(BS[i]+L.y*.55,1.05,2.35);z=abs(z)-BT[i];float ca=cos(rot),sa=sin(rot);z=mat2(ca,-sa,sa,ca)*z;z*=sc;totalScale*=sc;float d=length(z)/totalScale;trapMin=min(trapMin,d);hueAcc+=d*.15+float(i)*.09;}
+float glow=exp(-trapMin*9.);vec3 col=pal(hueAcc*.6+seed*.13+T(.038))*(.35+glow*1.6);float r=length(uv);col*=mix(1.,.6,smoothstep(.6,1.6,r));o=vec4(pow(max(col,0.),vec3(.92)),1.);}`;
+function sh(type,src){const x=gl.createShader(type);gl.shaderSource(x,src);gl.compileShader(x);if(!gl.getShaderParameter(x,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(x));return x;}
+const prog=gl.createProgram();gl.attachShader(prog,sh(gl.VERTEX_SHADER,VS));gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,FS));gl.linkProgram(prog);if(!gl.getProgramParameter(prog,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(prog));gl.useProgram(prog);
+const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);const loc=gl.getAttribLocation(prog,'a');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+const U={};['R','time','seed','loopMode','phase','loopDur','laws'].forEach(k=>U[k]=gl.getUniformLocation(prog,k));
+let seedVal=Math.random()*1000,laws=new Array(6).fill(0).map(()=>[0,0]);let W=1,H=1,DPR=1,startTime=performance.now();
+function resize(){DPR=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;canvas.width=Math.round(W*DPR);canvas.height=Math.round(H*DPR);gl.viewport(0,0,canvas.width,canvas.height);}addEventListener('resize',resize);resize();
+function renderGL(loopModeV,phaseV){gl.uniform2f(U.R,canvas.width,canvas.height);gl.uniform1f(U.time,(performance.now()-startTime)*.001);gl.uniform1f(U.seed,seedVal);gl.uniform1f(U.loopMode,loopModeV);gl.uniform1f(U.phase,phaseV);gl.uniform1f(U.loopDur,APKit.LOOP_DUR);const arr=new Float32Array(24);for(let i=0;i<6;i++){arr[i*4]=laws[i][0];arr[i*4+1]=laws[i][1];}gl.uniform4fv(U.laws,arr);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);}
+let tapCount=0,lastTap=0,active=null;
+function loop(){if(!APKit.isExporting()){if(active){const nx=active.x/W,ny=active.y/H;laws[active.level][0]=(nx-.5)*2.;laws[active.level][1]=(.5-ny)*2.;}renderGL(0,0);}requestAnimationFrame(loop);}requestAnimationFrame(loop);
+canvas.addEventListener('pointerdown',e=>{const now=performance.now();if(now-lastTap<300){const prevLevel=(tapCount-1+6)%6;laws[prevLevel][0]=0;laws[prevLevel][1]=0;lastTap=0;active=null;}else{lastTap=now;const level=tapCount%6;tapCount++;active={level,x:e.clientX,y:e.clientY,id:e.pointerId};}},{passive:true});
+canvas.addEventListener('pointermove',e=>{if(active&&active.id===e.pointerId){active.x=e.clientX;active.y=e.clientY;}},{passive:true});
+function endTouch(e){if(active&&active.id===e.pointerId)active=null;}canvas.addEventListener('pointerup',endTouch,{passive:true});canvas.addEventListener('pointercancel',endTouch,{passive:true});
+APKit.init({canvas:canvas,gifName:'stratum-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:function(phase){renderGL(1,phase);},buttons:[{label:'\u2726',name:'mutate',onClick:function(){seedVal=Math.random()*1000;laws=laws.map(()=>[(Math.random()*2-1),(Math.random()*2-1)]);}},{label:'\u21bb',name:'reset',onClick:function(){laws=new Array(6).fill(0).map(()=>[0,0]);tapCount=0;}}]});
+</script></body></html>
