@@ -27,7 +27,7 @@ export default {
       const type = response.headers.get('content-type') || '';
       if (type.includes('text/html')) {
         let html = await response.text();
-        const oldDate = /clockDate\\.textContent\\s*=\\s*[^;]+;/;
+        const oldDate = /clockDate\.textContent\s*=\s*[^;]+;/;
         const newDate = "clockDate.textContent=d.getFullYear()+' '+String(d.getMonth()+1).padStart(2,'0')+' '+String(d.getDate()).padStart(2,'0')+' '+['SUN','MON','TUE','WED','THU','FRI','SAT'][d.getDay()];";
         html = html.replace(oldDate, newDate);
         const headers = new Headers(response.headers);
