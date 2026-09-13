@@ -2,81 +2,80 @@ import { onRequestPost } from './functions/api/vote.js';
 import { onRequestGet } from './functions/api/results.js';
 
 const SOCIAL_CSS = `
-  /* ---------- social ---------- */
+  /* ---------- social (minimal, no frame — kept visually lighter than SUPPORT) ---------- */
   .social{
-    margin:42px 2px 0;
-    padding:26px 8px 4px;
-    position:relative;
+    margin:30px 2px 0;
+    padding:0 8px;
     text-align:center;
-    border-top:1px solid var(--line-2);
-  }
-  .social::before{
-    content:"";
-    position:absolute;
-    top:-1px; left:50%; width:56px; height:1px;
-    transform:translateX(-50%);
-    background:linear-gradient(90deg,var(--a),var(--b));
-    box-shadow:0 0 12px rgba(122,217,255,.16);
   }
   .social-kicker{
-    margin:0 0 10px;
+    margin:0 0 8px;
     font-size:9px;
     letter-spacing:.28em;
     color:var(--text-3);
   }
   .social h2{
     margin:0;
-    font-size:16px;
+    font-size:14px;
     line-height:1.5;
     font-weight:700;
     letter-spacing:-.02em;
-  }
-  .social p{
-    margin:8px auto 16px;
-    max-width:38ch;
     color:var(--text-2);
-    font-size:11px;
-    line-height:1.7;
   }
   .social-links{
     display:flex;
     justify-content:center;
-    gap:10px;
-    flex-wrap:wrap;
+    align-items:center;
+    gap:26px;
+    margin-top:14px;
   }
   .social-link{
     display:inline-flex;
     align-items:center;
-    justify-content:center;
-    min-width:112px;
-    min-height:40px;
-    padding:0 18px;
-    border:1px solid rgba(255,255,255,.10);
-    border-radius:999px;
-    background:rgba(255,255,255,.025);
-    color:var(--text-1);
+    gap:6px;
+    padding:6px 2px;
+    color:var(--text-3);
     font-size:10.5px;
     font-weight:700;
-    letter-spacing:.05em;
-    transition:transform .15s ease, border-color .15s ease, background .15s ease;
+    letter-spacing:.06em;
+    transition:color .18s ease, transform .18s ease;
   }
-  .social-link:active{ transform:scale(.97); }
+  .social-link svg{
+    width:15px;
+    height:15px;
+    flex:none;
+    transition:transform .18s ease;
+  }
+  .social-link:active{ transform:scale(.92); }
+  .social-link:active svg{ transform:scale(.88); }
   @media (hover:hover){
-    .social-link:hover{
-      border-color:rgba(122,217,255,.24);
-      background:linear-gradient(135deg,rgba(122,217,255,.08),rgba(255,122,255,.07));
-    }
+    .social-link:hover{ transform:translateY(-1px); }
+    .social-link.ig:hover{ color:var(--b); }
+    .social-link.ig:hover svg{ transform:rotate(-8deg) scale(1.08); }
+    .social-link.tt:hover{ color:var(--a); }
+    .social-link.tt:hover svg{ transform:scale(1.1); }
   }
 `;
 
 const SOCIAL_HTML = `
   <section class="social" aria-label="ART PLAYGROUND social links">
     <div class="social-kicker mono">FOLLOW THE PLAYGROUND</div>
-    <h2>作品の変化を追う。</h2>
-    <p>新しい作品、実験、変化の記録をSNSで公開しています。</p>
+    <h2>新しい作品、実験、変化の記録をSNSで。</h2>
     <div class="social-links">
-      <a class="social-link" href="https://www.instagram.com/artplayground.art/" target="_blank" rel="noopener noreferrer">Instagram</a>
-      <a class="social-link" href="https://www.tiktok.com/@artplayground.art" target="_blank" rel="noopener noreferrer">TikTok</a>
+      <a class="social-link ig" href="https://www.instagram.com/artplayground.art/" target="_blank" rel="noopener noreferrer" aria-label="Instagram">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <rect x="3" y="3" width="18" height="18" rx="5.5"/>
+          <circle cx="12" cy="12" r="4.1"/>
+          <circle cx="17.1" cy="6.9" r="0.55" fill="currentColor" stroke="none"/>
+        </svg>
+        Instagram
+      </a>
+      <a class="social-link tt" href="https://www.tiktok.com/@artplayground.art" target="_blank" rel="noopener noreferrer" aria-label="TikTok">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M16.6 3h-3v12.2a2.9 2.9 0 1 1-2.05-2.77v-3.05a5.95 5.95 0 1 0 5.05 5.88V9.2a7.1 7.1 0 0 0 4.1 1.3V7.5a4.1 4.1 0 0 1-4.1-4.1V3z"/>
+        </svg>
+        TikTok
+      </a>
     </div>
   </section>
 `;
