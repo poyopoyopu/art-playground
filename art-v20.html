@@ -2,15 +2,12 @@
 <html lang="ja"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Art Playground — ALIVE</title>
+<script src="ap-kit.js"></script>
 <style>
 *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#03050b;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 canvas{display:block;width:100%;height:100%;touch-action:none}
-#ui{position:fixed;inset:0;pointer-events:none;font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#dbe7ff}
-#reset{pointer-events:auto;position:fixed;left:50%;bottom:max(3.5vh,env(safe-area-inset-bottom));transform:translateX(-50%);width:46px;height:46px;border-radius:50%;border:none;background:transparent;color:#fff;font-size:16px;--dock:1}
-#reset::before{content:"";position:absolute;inset:-6px;z-index:-1;border-radius:30px;background:rgba(8,8,14,.5);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:0 6px 30px #0009}
 </style></head><body>
 <canvas id="c"></canvas>
-<div id="ui"><button id="reset" aria-label="reset">↻</button></div>
 <script>
 (()=>{"use strict";
 const c=document.getElementById("c"),g=c.getContext("2d",{alpha:false});
@@ -31,8 +28,7 @@ function field(p,t){
  let swirl=Math.sin((u+v)*6+t*.00016+p.p)*.42;
  return ang+swirl;
 }
-function loop(t){
- if(!last)last=t;let dt=Math.min(40,t-last);last=t;
+function step(dt){
  g.fillStyle="rgb(3,5,11)";g.fillRect(0,0,W,H);
  g.globalCompositeOperation="lighter";
  for(const p of A){
@@ -57,11 +53,26 @@ function loop(t){
  g.globalCompositeOperation="source-over";
  for(let i=touches.length-1;i>=0;i--){let z=touches[i];z.r*=.988;if(z.r<8)touches.splice(i,1)}
  hue=(hue+.018)%360;
+}
+function loop(t){
+ if(window.APKit && APKit.isExporting()){ last=0; requestAnimationFrame(loop); return; }
+ if(!last)last=t;const dt=Math.min(40,t-last);last=t;
+ step(dt);
  requestAnimationFrame(loop);
 }
 c.addEventListener("pointerdown",e=>{c.setPointerCapture?.(e.pointerId);addTouch(e,.55)});
 c.addEventListener("pointermove",e=>{if(e.buttons)addTouch(e,.20)});
-document.getElementById("reset").onclick=()=>{seed();touches.length=0};
 requestAnimationFrame(loop);
+
+APKit.init({
+  canvas:c,
+  gifName:'alive-loop',
+  clockFormat:'spec',
+  dock:true, autoHide:true, fullscreenButton:false,
+  loopFrame:function(){ step(16); },
+  buttons:[
+    {label:'\u2726', name:'mutate', onClick:function(){ seed(); touches.length=0; }}
+  ]
+});
 })();
 </script></body></html>
