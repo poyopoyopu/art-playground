@@ -9,5 +9,20 @@ function draw(){if(window.APKit&&APKit.isExporting())return;renderScene(null)}
 function globalWave(x,y){waves.push({x,y,r:2,life:120})}
 function pointerDown(x,y){if(window.APKit&&APKit.isUI(x,y))return true;const now=millis();if(now-lastTap<320)globalWave(x,y);lastTap=now;downAt=now;downX=x;downY=y;holding=true;makeVoid(x,y,true,1);document.getElementById('hint')?.classList.add('gone');return false}
 function pointerMove(x,y){if(window.APKit&&APKit.isUI(x,y))return true;downX=x;downY=y;if(millis()-downAt>120&&frameCount%7===0)makeVoid(x,y,true,.4);return false}function pointerUp(){holding=null}
-let onKitUI=false;function mousePressed(){if(window.APKit&&APKit.isUI(mouseX,mouseY))return true;pointerDown(mouseX,mouseY);return false}function mouseDragged(){if(window.APKit&&APKit.isUI(mouseX,mouseY))return true;pointerMove(mouseX,mouseY);return false}function mouseReleased(){pointerUp();return false}function touchStarted(){if(!touches.length)return true;const x=touches[0].x,y=touches[0].y;if(window.APKit&&APKit.isUI(x,y)){onKitUI=true;return true}onKitUI=false;pointerDown(x,y);return false}function touchMoved(){if(onKitUI)return true;if(touches.length)pointerMove(touches[0].x,touches[0].y);return false}function touchEnded(){if(onKitUI){onKitUI=false;return true}pointerUp();return false}function keyPressed(){if(key==='r'||key==='R'){voids=[];waves=[];seedParticles();background(0)}}function windowResized(){resizeCanvas(windowWidth,windowHeight);seedParticles();background(0)}
+/* p5's own touchStarted/mousePressed rely on listeners p5 registers itself,
+   and inside the gallery's nested iframe those never fire on iOS Safari —
+   touch worked fine opened directly, only broke embedded. Binding straight
+   to the canvas element is what every other piece in this project already
+   does, and that works through the same iframe. pointerDown/pointerMove
+   already check APKit.isUI(x,y) themselves. */
+(function(){
+  const cv=document.querySelector('canvas');
+  let dragging=false;
+  function xy(e){const r=cv.getBoundingClientRect();return [e.clientX-r.left,e.clientY-r.top]}
+  cv.addEventListener('pointerdown',e=>{const [x,y]=xy(e);dragging=true;pointerDown(x,y)},{passive:true});
+  cv.addEventListener('pointermove',e=>{if(!dragging)return;const [x,y]=xy(e);pointerMove(x,y)},{passive:true});
+  cv.addEventListener('pointerup',()=>{dragging=false;pointerUp()},{passive:true});
+  cv.addEventListener('pointercancel',()=>{dragging=false;pointerUp()},{passive:true});
+})();
+function keyPressed(){if(key==='r'||key==='R'){voids=[];waves=[];seedParticles();background(0)}}function windowResized(){resizeCanvas(windowWidth,windowHeight);seedParticles();background(0)}
 </script></body></html>
