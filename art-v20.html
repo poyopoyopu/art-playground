@@ -11,7 +11,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 <script>
 (()=>{"use strict";
 const c=document.getElementById("c"),g=c.getContext("2d",{alpha:false});
-let W=1,H=1,D=1,last=0,hue=Math.random()*360;
+let W=1,H=1,D=1,last=0,hue=Math.random()*360,simT=0;
 const NUM=520, A=[], touches=[];
 const rnd=(a,b)=>a+Math.random()*(b-a);
 function resize(){D=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;c.width=W*D;c.height=H*D;g.setTransform(D,0,0,D,0,0)}
@@ -29,10 +29,11 @@ function field(p,t){
  return ang+swirl;
 }
 function step(dt){
+ simT+=dt;
  g.fillStyle="rgb(3,5,11)";g.fillRect(0,0,W,H);
  g.globalCompositeOperation="lighter";
  for(const p of A){
-   let ang=field(p,t),speed=.22+Math.sin(t*.0007+p.p)*.10;
+   let ang=field(p,simT),speed=.22+Math.sin(simT*.0007+p.p)*.10;
    p.vx+=Math.cos(ang)*speed;p.vy+=Math.sin(ang)*speed;
    for(const z of touches){
      let dx=p.x-z.x,dy=p.y-z.y,d=Math.hypot(dx,dy)||1;
@@ -45,7 +46,7 @@ function step(dt){
    p.vx*=.962;p.vy*=.962;p.x+=p.vx*dt*.055;p.y+=p.vy*dt*.055;
    if(p.x<-20)p.x=W+20;if(p.x>W+20)p.x=-20;if(p.y<-20)p.y=H+20;if(p.y>H+20)p.y=-20;
    p.trail.push([p.x,p.y]);if(p.trail.length>7)p.trail.shift();
-   let col=(hue+p.h+Math.sin(t*.00035+p.p)*45)%360;
+   let col=(hue+p.h+Math.sin(simT*.00035+p.p)*45)%360;
    g.strokeStyle=`hsla(${col},95%,68%,.13)`;g.lineWidth=p.s*.65;g.beginPath();
    for(let i=0;i<p.trail.length;i++){let q=p.trail[i];i?g.lineTo(q[0],q[1]):g.moveTo(q[0],q[1])}g.stroke();
    g.fillStyle=`hsla(${col},95%,75%,.65)`;g.beginPath();g.arc(p.x,p.y,p.s,0,Math.PI*2);g.fill();
