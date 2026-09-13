@@ -26,6 +26,7 @@
   }
   a{ color:inherit; text-decoration:none; }
   :focus-visible{ outline:2px solid var(--a); outline-offset:3px; border-radius:4px; }
+  button{ font-family:inherit; }
 
   .mono{
     font-family:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
@@ -73,7 +74,7 @@
 
   .prevbar{ display:flex; justify-content:flex-end; margin:22px 0 0; }
   #prevToggle{
-    font-family:inherit; border:1px solid var(--line-2); background:var(--panel); color:var(--text-2);
+    border:1px solid var(--line-2); background:var(--panel); color:var(--text-2);
     border-radius:20px; padding:7px 13px; font-size:10.5px; letter-spacing:.12em;
   }
   #prevToggle.off{ color:var(--text-3); }
@@ -84,11 +85,16 @@
     position:relative; display:block; aspect-ratio:4/5; border-radius:20px;
     overflow:hidden; border:1px solid var(--line-2); background:#000;
     box-shadow:0 24px 60px -24px rgba(0,0,0,.75);
+    cursor:pointer;
   }
   .current::before{
-    content:""; position:absolute; top:0; left:0; right:0; height:2px; z-index:2;
-    background:linear-gradient(90deg,var(--a),var(--b));
+    content:""; position:absolute; top:0; left:-30%; right:-30%; height:2px; z-index:2;
+    background:linear-gradient(90deg,transparent,var(--a),var(--b),var(--a),transparent);
+    background-size:200% 100%;
+    animation:shimmer 7s linear infinite;
   }
+  @media (prefers-reduced-motion: reduce){ .current::before{ animation:none; background-size:100% 100%; left:0; right:0; } }
+  @keyframes shimmer{ from{ background-position:0% 0; } to{ background-position:-200% 0; } }
   .current iframe{
     position:absolute; top:0; left:0; width:460px; height:900px; border:0;
     pointer-events:none; transform-origin:top left;
@@ -114,7 +120,9 @@
 
   /* LOG is a list, not a card grid — it reads top to bottom, newest first */
   .log{ border-top:1px solid var(--line); }
-  .entry{ display:flex; align-items:center; gap:14px; padding:13px 2px; border-bottom:1px solid var(--line); transition:background-color .15s; }
+  .entry{ display:flex; align-items:center; gap:14px; padding:13px 2px; border-bottom:1px solid var(--line);
+    background:none; border-left:0; border-right:0; border-top:0; width:100%; text-align:left; cursor:pointer;
+    transition:background-color .15s; color:inherit; }
   .entry:active{ background:rgba(255,255,255,.03); }
   .entry .thumb{ position:relative; flex:0 0 auto; width:64px; height:64px; border-radius:12px; overflow:hidden; background:#000; border:1px solid var(--line-2); }
   .entry .thumb iframe{ position:absolute; top:0; left:0; width:460px; height:900px; border:0; pointer-events:none; transform-origin:top left; }
@@ -132,6 +140,29 @@
   .current:not(.live) .cap::after{ top:-40px; left:22px; font-size:20px; }
 
   .credit{ padding:30px 2px 0; font-size:10.5px; letter-spacing:.1em; color:var(--text-3); text-align:center; }
+
+  /* ---------- viewer ---------- */
+  .modal{
+    position:fixed; inset:0; background:#000; z-index:50;
+    opacity:0; pointer-events:none; transition:opacity .28s ease;
+  }
+  .modal.open{ opacity:1; pointer-events:auto; }
+  .modal iframe{
+    width:100%; height:100%; border:0;
+    transform:scale(.97); transition:transform .32s cubic-bezier(.2,.7,.2,1);
+  }
+  .modal.open iframe{ transform:none; }
+  @media (prefers-reduced-motion: reduce){
+    .modal{ transition:none; } .modal iframe{ transition:none; transform:none; }
+  }
+  .modal .close{
+    position:fixed; top:max(16px, env(safe-area-inset-top)); right:16px;
+    width:38px; height:38px; border-radius:50%; z-index:51;
+    display:flex; align-items:center; justify-content:center;
+    color:#fff; border:1px solid rgba(255,255,255,.16);
+    background:rgba(10,10,16,.55); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+    font-size:15px; box-shadow:0 6px 20px rgba(0,0,0,.4);
+  }
 </style>
 </head>
 <body>
@@ -141,84 +172,113 @@
   <header class="top">
     <div class="eyebrow mono">ART PLAYGROUND</div>
     <h1>実験ログ</h1>
-    <p>ジェネラティブアートの実験場。遊んで、壊して、進化させる。タップすると、その作品のページへそのまま移動するよ。</p>
+    <p>ジェネラティブアートの実験場。遊んで、壊して、進化させる。タップすると全画面で開くよ。</p>
   </header>
 
   <div class="prevbar"><button id="prevToggle" class="mono">PREVIEW ON</button></div>
 
-  <a class="current" href="art-v49-feather-fold.html">
+  <div class="current" onclick="openArt('art-v49-feather-fold.html','FEATHER FOLD')">
     <iframe data-src="art-v49-feather-fold.html" loading="lazy"></iframe>
     <div class="cap">
       <div class="tag mono">CURRENT</div>
       <div class="name">FEATHER FOLD</div>
     </div>
-  </a>
+  </div>
 
   <h2 class="label">LOG</h2>
   <div class="log">
-    <a class="entry" href="art-v47-infection.html">
+    <button class="entry" onclick="openArt('art-v47-infection.html','INFECTION')">
       <div class="thumb"><iframe data-src="art-v47-infection.html" loading="lazy"></iframe></div>
       <div class="name">INFECTION</div>
       <div class="arrow">→</div>
-    </a>
-    <a class="entry" href="art-v36-art-of-becoming.html">
+    </button>
+    <button class="entry" onclick="openArt('art-v36-art-of-becoming.html','ART OF BECOMING')">
       <div class="thumb"><iframe data-src="art-v36-art-of-becoming.html" loading="lazy"></iframe></div>
       <div class="name">ART OF BECOMING</div>
       <div class="arrow">→</div>
-    </a>
-    <a class="entry" href="art-v35-one-knot.html">
+    </button>
+    <button class="entry" onclick="openArt('art-v35-one-knot.html','ONE KNOT')">
       <div class="thumb"><iframe data-src="art-v35-one-knot.html" loading="lazy"></iframe></div>
       <div class="name">ONE KNOT</div>
       <div class="arrow">→</div>
-    </a>
-    <a class="entry" href="art-v31-divided-law.html">
+    </button>
+    <button class="entry" onclick="openArt('art-v31-divided-law.html','DIVIDED LAW')">
       <div class="thumb"><iframe data-src="art-v31-divided-law.html" loading="lazy"></iframe></div>
       <div class="name">DIVIDED LAW</div>
       <div class="arrow">→</div>
-    </a>
-    <a class="entry" href="art-v30-standing-law.html">
+    </button>
+    <button class="entry" onclick="openArt('art-v30-standing-law.html','STANDING LAW')">
       <div class="thumb"><iframe data-src="art-v30-standing-law.html" loading="lazy"></iframe></div>
       <div class="name">STANDING LAW</div>
       <div class="arrow">→</div>
-    </a>
-    <a class="entry" href="art-v28-living-order.html">
+    </button>
+    <button class="entry" onclick="openArt('art-v28-living-order.html','LIVING ORDER')">
       <div class="thumb"><iframe data-src="art-v28-living-order.html" loading="lazy"></iframe></div>
       <div class="name">LIVING ORDER</div>
       <div class="arrow">→</div>
-    </a>
-    <a class="entry" href="art-v27.html">
+    </button>
+    <button class="entry" onclick="openArt('art-v27.html','PARTICLE COSMOS II')">
       <div class="thumb"><iframe data-src="art-v27.html" loading="lazy"></iframe></div>
       <div class="name">PARTICLE COSMOS II</div>
       <div class="arrow">→</div>
-    </a>
-    <a class="entry" href="art-v20.html">
+    </button>
+    <button class="entry" onclick="openArt('art-v20.html','ALIVE')">
       <div class="thumb"><iframe data-src="art-v20.html" loading="lazy"></iframe></div>
       <div class="name">ALIVE</div>
       <div class="arrow">→</div>
-    </a>
-    <a class="entry" href="art-v10.html">
+    </button>
+    <button class="entry" onclick="openArt('art-v10.html','INK BLOOM')">
       <div class="thumb"><iframe data-src="art-v10.html" loading="lazy"></iframe></div>
       <div class="name">INK BLOOM</div>
       <div class="arrow">→</div>
-    </a>
-    <a class="entry" href="void-field-ii.html">
+    </button>
+    <button class="entry" onclick="openArt('void-field-ii.html','VOID FIELD II')">
       <div class="thumb"><iframe data-src="void-field-ii.html" loading="lazy"></iframe></div>
       <div class="name">VOID FIELD II</div>
       <div class="arrow">→</div>
-    </a>
+    </button>
   </div>
 
   <div class="credit mono">ART PLAYGROUND</div>
 </div>
 
+<div class="modal" id="modal">
+  <button class="close" onclick="closeArt()">✕</button>
+  <iframe id="modalFrame" src=""></iframe>
+</div>
+
 <script>
-/* ---------------------------------------------------------------------------
-   Preview budget.
-   Every box is a full generative piece, so loading whatever is on screen
-   meant several animations running at once. Only the two nearest the middle
-   of the viewport stay live; the rest show their card. PREVIEW OFF stops
-   all of them. Links navigate directly — no in-page overlay state to track.
-   --------------------------------------------------------------------------- */
+function openArt(url, title){
+  var f = document.getElementById('modalFrame');
+  f.src = url;
+  document.getElementById('modal').classList.add('open');
+  if(title) try{ history.replaceState(null,'', location.pathname); document.title = title + ' — Art Playground'; }catch(e){}
+  schedule();
+}
+function closeArt(){
+  document.getElementById('modal').classList.remove('open');
+  setTimeout(function(){ document.getElementById('modalFrame').src = ''; document.title = 'ART PLAYGROUND'; }, 300);
+  schedule();
+}
+document.getElementById('modalFrame').addEventListener('load', function(){
+  try{
+    var doc = this.contentDocument;
+    if(!doc) return;
+    var vw = this.clientWidth;
+    var all = doc.querySelectorAll('body *');
+    all.forEach(function(el){
+      var cs = doc.defaultView.getComputedStyle(el);
+      if(cs.position !== 'fixed' && cs.position !== 'absolute') return;
+      var r = el.getBoundingClientRect();
+      // anything pinned to the top-right corner would sit under our own
+      // close button, so nudge just that region down out of the way
+      if(r.top < 70 && r.right > vw - 90 && r.width < 120 && r.height < 120){
+        el.style.top = (parseInt(cs.top || '0', 10) + 66) + 'px';
+      }
+    });
+  }catch(e){}
+});
+
 function scalePreviews(){
   document.querySelectorAll('.current, .thumb').forEach(function(box){
     var iframe = box.querySelector('iframe');
@@ -228,6 +288,13 @@ function scalePreviews(){
 }
 window.addEventListener('resize', scalePreviews);
 
+/* ---------------------------------------------------------------------------
+   Preview budget.
+   Every box is a full generative piece, so loading whatever is on screen
+   meant several animations running at once. Only the two nearest the middle
+   of the viewport stay live; the rest show their card. PREVIEW OFF and the
+   modal being open both stop all of them.
+   --------------------------------------------------------------------------- */
 var LIVE_BUDGET = 2;
 var previewsOn = true;
 try { previewsOn = localStorage.getItem('ap-prev') !== 'off'; } catch(e){}
@@ -248,6 +315,10 @@ function unloadBox(b){
 var pending = false;
 function apply(){
   pending = false;
+  if(document.getElementById('modal').classList.contains('open')){
+    boxes().forEach(unloadBox);
+    return;
+  }
   if(!previewsOn || document.hidden){ boxes().forEach(unloadBox); return; }
   var mid = innerHeight / 2;
   var visible = boxes().map(function(b){
