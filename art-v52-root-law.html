@@ -1,142 +1,238 @@
 <!doctype html>
-<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="Root Law"><title>Art Playground — 根の掟 ROOT LAW</title>
-<!-- 根の掟 ROOT LAW (v52) — Claude作。改良: ChatGPT, Claude(4回目)
-  世界のルール: 根は止まらない。触らなくても世界は自律的に種を生み、自己相似の分岐を続ける。
-  土地は有限で早い者勝ち。他の根の縄張りに触れた枝は即死。
-  タッチは「新しい法則を介入させる」ためのもので、成長の開始条件ではない。
-  改良(Claude): 分岐に失敗した先端は消えず極細の根毛として這い続ける。
-  長押しは全体でなく指の近くの先端だけを加速する(場所に意味を持たせた)。
-  2.6〜4.8秒ごとに既存の先端を1本、確率を無視して強制的に分岐させる
-  「若返り」を追加し、この根毛化だけで画面が寂しくならないようにした。
-  「もっと面白く」を受けての追加(Claude・4回目): 縄張り(グリッド)を
-  最初に占有した瞬間、そのマスに極薄い色のタイルを敷くようにした —
-  「早い者勝ちの土地」というルールが単なる当たり判定ではなく実際に見える
-  地図になった。他の根の縄張りに触れて即死する瞬間には、その場所から
-  火花のリングが散る(演出専用のオーバーレイ用canvas #fx を追加、毎フレーム
-  クリアするので本体のcanvasを汚さない)。長押しで加速中の先端にも同じ
-  #fx に白い光点を重ねている。これらは全部ライブ限定の演出で、位相だけで
-  再現するGIF書き出し側のロジックには一切影響しない。
-  GIFループ(Claude・再設計 → 5回目で再修正): 前回は「枝ごとに生まれた順に
-  消える」設計にしたが、実機で確認すると若い枝(大多数を占める細い先端)が
-  π→2πに入った直後の0.1秒程度でほぼ全部消えてしまい、残り1.4秒近くが
-  ほぼ真っ黒のまま幹だけがゆっくり消えていく画になっていた — 体感的には
-  「育ったのに急に壊れて長い間何も無い」というループしていない印象だった。
-  5回目でここを単純化: 個々の枝ごとの消えるタイミングをずらすのをやめ、
-  木全体を1つの共通アルファ値で一様に、π→2πの間ずっと少しずつ均等に
-  暗くしていく方式にした。全体が最後まで薄く見え続けたまま2πでちょうど
-  真っ黒(=0の状態と一致)になる。位相だけの純粋な関数なのは変わらない。
-  ライブ側の成長ルールは変えていない。
---><script src="ap-kit.js"></script><style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#04030a}body{touch-action:none;overscroll-behavior:none;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}canvas{position:fixed;inset:0;width:100%;height:100%;display:block}#fx{pointer-events:none}</style></head>
-<body><canvas id="c"></canvas><canvas id="fx"></canvas><script>
-const canvas=document.getElementById('c'),ctx=canvas.getContext('2d',{alpha:false}),fx=document.getElementById('fx'),fctx=fx.getContext('2d'),TAU=Math.PI*2,CELL=22,MAXDEPTH=8,MAXBRANCHES=900,BASE_THICK=3.2,MINTHICK=.5;
-function pal(t){return[Math.round(255*(.5+.5*Math.cos(TAU*t))),Math.round(255*(.5+.5*Math.cos(TAU*(t+.33)))),Math.round(255*(.5+.5*Math.cos(TAU*(t+.67))))]}
-let W=1,H=1,DPR=1,gridW=1,gridH=1,territory=new Int32Array(1),branches=[],tips=[],nextSeedId=1,nextBranchId=1,branchAngle=.55,decayRatio=.74,holding=false,speedMul=0,holdX=0,holdY=0,seedHue={},sparks=[];
-function rebuildTerritory(){gridW=Math.max(1,Math.ceil(W/CELL));gridH=Math.max(1,Math.ceil(H/CELL));territory=new Int32Array(gridW*gridH).fill(-1)}
-function strokeBranchSegment(br,x1,y1,x2,y2){const[r,g,b]=pal(br.hue+br.depth*.02),alpha=Math.max(.28,1-br.depth*.08);ctx.strokeStyle=`rgba(${r},${g},${b},${alpha})`;ctx.lineWidth=Math.max(.6,br.thickness);ctx.lineCap='round';ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke()}
-function redrawAll(){ctx.fillStyle='#04030a';ctx.fillRect(0,0,W,H);for(let gy=0;gy<gridH;gy++)for(let gx=0;gx<gridW;gx++){const o=territory[gy*gridW+gx];if(o!==-1)tintCell(gx,gy,o)}for(const br of branches){const pts=br.points;for(let i=1;i<pts.length;i++)strokeBranchSegment(br,pts[i-1][0],pts[i-1][1],pts[i][0],pts[i][1])}}
-function resize(){DPR=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;canvas.width=Math.round(W*DPR);canvas.height=Math.round(H*DPR);ctx.setTransform(DPR,0,0,DPR,0,0);fx.width=canvas.width;fx.height=canvas.height;fctx.setTransform(DPR,0,0,DPR,0,0);rebuildTerritory();redrawAll()}addEventListener('resize',resize);
-function tintCell(gx,gy,seedId){const[r,g,b]=pal((seedHue[seedId]||0)+.5);ctx.fillStyle=`rgba(${r},${g},${b},.05)`;ctx.fillRect(gx*CELL,gy*CELL,CELL,CELL)}
-function claim(x,y,seedId){const gx=Math.floor(x/CELL),gy=Math.floor(y/CELL);if(gx<0||gy<0||gx>=gridW||gy>=gridH)return false;const gi=gy*gridW+gx,owner=territory[gi];if(owner!==-1&&owner!==seedId)return false;if(owner===-1)tintCell(gx,gy,seedId);territory[gi]=seedId;return true}
-function spawnChildren(tip){const angleOff=branchAngle*(.75+Math.random()*.5),childThick=tip.branch.thickness*decayRatio;for(const sign of [1,-1]){const childAngle=tip.angle+sign*angleOff*(.85+Math.random()*.3),branch={id:nextBranchId++,seedId:tip.seedId,depth:tip.depth+1,thickness:childThick,hue:tip.branch.hue,points:[[tip.x,tip.y]]};branches.push(branch);tips.push({branch,seedId:tip.seedId,depth:branch.depth,x:tip.x,y:tip.y,angle:childAngle,traveled:0})}}
-function stepGrowth(){for(let i=tips.length-1;i>=0;i--){const tip=tips[i];let localBoost=1;if(holding){const d=Math.hypot(tip.x-holdX,tip.y-holdY);localBoost=1+speedMul*4.5*Math.exp(-d/140)}tip.lastBoost=localBoost;const speed=Math.max(.18,.85*Math.pow(.88,tip.depth))*localBoost;tip.angle+=(Math.random()-.5)*(.035+tip.depth*.01);const nx=tip.x+Math.cos(tip.angle)*speed,ny=tip.y+Math.sin(tip.angle)*speed;if(nx<-40||nx>W+40||ny<-40||ny>H+40){tips.splice(i,1);continue}if(!claim(nx,ny,tip.seedId)){sparks.push({x:nx,y:ny,hue:tip.branch.hue,bornAt:performance.now()});if(sparks.length>40)sparks.shift();tips.splice(i,1);continue}strokeBranchSegment(tip.branch,tip.x,tip.y,nx,ny);tip.branch.points.push([nx,ny]);tip.x=nx;tip.y=ny;tip.traveled+=speed;const interval=Math.max(6,34*Math.pow(.80,tip.depth));if(tip.traveled>=interval){const forkChance=Math.max(.10,.9*Math.pow(.84,tip.depth)),canFork=tip.depth<MAXDEPTH&&tip.branch.thickness>MINTHICK&&branches.length<MAXBRANCHES-2&&Math.random()<forkChance;if(canFork){tips.splice(i,1);spawnChildren(tip)}else{tip.traveled=0}}}}
-function rejuvenate(){if(!tips.length||branches.length>=MAXBRANCHES-2)return;const t=tips[Math.floor(Math.random()*tips.length)];if(t.depth<MAXDEPTH&&t.branch.thickness>MINTHICK){const idx=tips.indexOf(t);tips.splice(idx,1);spawnChildren(t)}}
-function plantSeed(x,y){if(branches.length>=MAXBRANCHES)return;const seedId=nextSeedId++,hue=Math.random(),branch={id:nextBranchId++,seedId,depth:0,thickness:BASE_THICK,hue,points:[[x,y]]};seedHue[seedId]=hue;branches.push(branch);tips.push({branch,seedId,depth:0,x,y,angle:Math.random()*TAU,traveled:0});claim(x,y,seedId)}
-function plantCluster(x,y,n){for(let k=0;k<n;k++){const a=Math.random()*TAU,d=20+Math.random()*40;plantSeed(x+Math.cos(a)*d,y+Math.sin(a)*d)}}
-// ---------- GIF export: a separate, fully deterministic demo growth ----------
-// The live growth above never repeats itself (that's the point of the piece),
-// so it can never produce a seamless GIF loop. For export only, a fixed seeded
-// tree is generated once, where every branch knows exactly when (in clock
-// units 0..CLOCK_LIMIT) it starts and finishes growing. Phase 0..PI grows the
-// tree branch-by-branch along that schedule; phase PI..TAU eats it away again,
-// newest tips first and the oldest trunk last, so it's fully gone by TAU —
-// matching phase 0 exactly. Not "ungrowing" (that would contradict the live
-// rule), just fading from view, tip-first, like memory eroding backwards.
-function mulberry32(a){return function(){a|=0;a=(a+0x6D2B79F5)|0;let t=Math.imul(a^a>>>15,1|a);t=(t+Math.imul(t^t>>>7,61|t))^t;return((t^t>>>14)>>>0)/4294967296}}
-const LOOP_SEEDS=[[.38,.5],[.62,.46],[.5,.68]];
-const CLOCK_LIMIT=Math.PI-0.1;
-function buildLoopDemo(seed){
-  const rng=mulberry32(seed);
-  let queue=LOOP_SEEDS.map(s=>({fx:s[0],fy:s[1],ux:0,uy:0,angle:rng()*TAU,depth:0,hue:rng(),tau:0}));
-  const list=[]; const MAXD=7, MAXBR=200;
-  while(queue.length && list.length<MAXBR){
-    const next=[];
-    for(const tip of queue){
-      if(list.length>=MAXBR) break;
-      const growDur=Math.max(.10,.32*Math.pow(.82,tip.depth));
-      const tauStart=tip.tau, tauEnd=tip.tau+growDur;
-      const segLen=Math.max(.012,.09*Math.pow(.8,tip.depth)), steps=7;
-      const pts=[[tip.ux,tip.uy]]; let ux=tip.ux,uy=tip.uy,angle=tip.angle;
-      for(let s=0;s<steps;s++){
-        angle+=(rng()-.5)*(.10+tip.depth*.02);
-        ux+=Math.cos(angle)*(segLen/steps); uy+=Math.sin(angle)*(segLen/steps);
-        pts.push([ux,uy]);
-      }
-      list.push({fx:tip.fx,fy:tip.fy,points:pts,depth:tip.depth,thickness:Math.max(.4,3.0*Math.pow(.74,tip.depth)),hue:tip.hue,tauStart,tauEnd});
-      if(tauEnd<CLOCK_LIMIT){
-        const forkChance=Math.max(.12,.92*Math.pow(.82,tip.depth));
-        if(rng()<forkChance){
-          const angleOff=.5*(.75+rng()*.5);
-          next.push({fx:tip.fx,fy:tip.fy,ux,uy,angle:angle+angleOff*(.85+rng()*.3),depth:tip.depth+1,hue:tip.hue,tau:tauEnd});
-          next.push({fx:tip.fx,fy:tip.fy,ux,uy,angle:angle-angleOff*(.85+rng()*.3),depth:tip.depth+1,hue:tip.hue,tau:tauEnd});
-        }
-      }
-    }
-    queue=next;
-  }
-  return list;
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Focus">
+<title>Art Playground — 焦点 FOCUS</title>
+<!--
+  焦点 FOCUS (v52・旧「根の掟 ROOT LAW」を全面作り直し) — Claude作
+
+  旧v52(根の掟 ROOT LAW)は「根は止まらず自律的に伸び続け、縄張りは
+  早い者勝ち」という成長と陣取りの法則だったが、「もっと面白く」ではなく
+  「全部気に入らないので一から新しい法則で」という要望を受け、
+  コンセプトから作り直した。
+
+  世界のルール: この世界は見られた場所にしか細部が存在しない。
+  画面全体は常に4分木で再帰的に細分化されているが、ある一区画がさらに
+  自己相似に割れて奥へ進めるかどうかは、その場所に注がれている
+  「注視」の強さで決まる——注視が薄い場所は粗いブロックのまま止まり、
+  濃い場所ほど同じ分割ルールを繰り返し何段も奥まで割れていく。
+
+  タップした場所はその瞬間の注視点になり、離した後も"残像"として
+  数秒かけて薄れながら細部を保つ。指を置いたまま(ホールド)でいるほど
+  注視は強く育ち、より深い階層まで世界を割り続ける——長く見つめるほど
+  世界は詳しくなる。触れていない間も、世界は完全に静止はせず、
+  弱い「漂う視線」が画面をゆっくり彷徨って、そこだけ僅かに細部を保つ。
+
+  ダブルタップは「瞬き」——一瞬すべての注視(漂う視線も残像もホールド中の
+  注視も)を無効化し、世界を一斉に最も粗い状態へ引き戻す。瞬きが終われば
+  法則はそのまま再開し、また見た場所から細部が生まれ直す。
+
+  ホールドの継続時間・残像の減衰・瞬きはすべて実時間駆動のライブ専用。
+  GIFループ側は「漂う視線」だけを注視源として使う(位相の整数倍で作った
+  完全に周期的なリサージュ軌道なので位相0と2πで座標が厳密に一致する)。
+  タップ残像やホールドはループの中には存在しない——これは省略ではなく、
+  そもそも「一回きりの注視」は周期関数にできないための設計上の選択。
+-->
+<script src="ap-kit.js"></script>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#030308}
+body{touch-action:none;overscroll-behavior:none;
+ -webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<script>
+const canvas=document.getElementById('c');
+const ctx=canvas.getContext('2d',{alpha:false});
+
+let W=1,H=1,DPR=1;
+function resize(){
+  DPR=Math.min(devicePixelRatio||1,2);
+  W=innerWidth; H=innerHeight;
+  canvas.width=Math.round(W*DPR); canvas.height=Math.round(H*DPR);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
 }
-let loopDemoSeed=(Math.random()*1e9)|0, loopDemo=null;
+addEventListener('resize',resize); resize();
+
+const TAU=Math.PI*2;
+const BG='#030308';
+function pal(t){
+  return [
+    Math.round(255*(0.5+0.5*Math.cos(TAU*t))),
+    Math.round(255*(0.5+0.5*Math.cos(TAU*(t+0.33)))),
+    Math.round(255*(0.5+0.5*Math.cos(TAU*(t+0.67))))
+  ];
+}
+
+// ---------- law: how much attention falls on a point, given every source
+// currently active (the roaming idle gaze, a held touch, fading afterimages)
+// ----------
+function attentionAt(x,y,sources){
+  let v=0;
+  for(let i=0;i<sources.length;i++){
+    const s=sources[i];
+    const d=Math.hypot(x-s.x,y-s.y);
+    v+=s.strength*Math.exp(-d/s.radius);
+  }
+  return v;
+}
+
+// ---------- the recursive rule: a rectangle either holds still as a single
+// leaf, or — if enough attention falls on its centre — splits into four
+// half-size rectangles that obey exactly the same rule. self-similar by
+// construction; depth is bounded by both a hard cap and a rising threshold,
+// so only a small, attention-lit region ever goes deep. ----------
+let gHueShift=0, gSensitivity=1, MAX_DEPTH=6;
+function drawLeaf(x,y,w,h,depth,hue,att){
+  const [r,g,b]=pal(hue);
+  const alpha=Math.min(1,0.32+att*0.5);
+  const px=x+Math.min(w,h)*0.045, py=y+Math.min(w,h)*0.045;
+  const pw=w-Math.min(w,h)*0.09, ph=h-Math.min(w,h)*0.09;
+  const cx=x+w/2, cy=y+h/2, rad=Math.max(pw,ph)*0.72;
+  const grad=ctx.createRadialGradient(cx,cy,0,cx,cy,rad);
+  grad.addColorStop(0,`rgba(${r},${g},${b},${0.85*alpha})`);
+  grad.addColorStop(1,`rgba(${r},${g},${b},${0.10*alpha})`);
+  ctx.fillStyle=grad;
+  ctx.fillRect(px,py,Math.max(0,pw),Math.max(0,ph));
+  ctx.strokeStyle=`rgba(${r},${g},${b},${0.32*alpha})`;
+  ctx.lineWidth=1;
+  ctx.strokeRect(px,py,Math.max(0,pw),Math.max(0,ph));
+}
+function subdivide(x,y,w,h,depth,sources){
+  const cx=x+w/2, cy=y+h/2;
+  const att=attentionAt(cx,cy,sources);
+  const threshold=(0.5+depth*0.34)/gSensitivity;
+  if(depth<MAX_DEPTH && att>threshold && Math.min(w,h)>12){
+    const hw=w/2, hh=h/2;
+    subdivide(x,y,hw,hh,depth+1,sources);
+    subdivide(x+hw,y,hw,hh,depth+1,sources);
+    subdivide(x,y+hh,hw,hh,depth+1,sources);
+    subdivide(x+hw,y+hh,hw,hh,depth+1,sources);
+  }else{
+    const hue=gHueShift+depth*0.045+(cx/W)*0.09+(cy/H)*0.06;
+    drawLeaf(x,y,w,h,depth,hue,att);
+  }
+}
+
+// ---------- live: idle gaze roams; touch adds a growing, then fading, source
+// ----------
+let tGaze=0;
+let activeTouch=null; // {x,y,downAt}
+let memories=[]; // {x,y,strength}
+let lastTap=0, blinkAt=-999;
+let lastFrameTime=performance.now();
+
+function idleGaze(t){
+  return [
+    W*(0.5+0.30*Math.sin(t*0.19)+0.09*Math.sin(t*0.47+1.3)),
+    H*(0.5+0.26*Math.cos(t*0.15)+0.08*Math.cos(t*0.36+0.7))
+  ];
+}
+function buildLiveSources(now){
+  if(now-blinkAt<260) return []; // a blink zeroes every source at once
+  const [gx,gy]=idleGaze(tGaze);
+  const sources=[{x:gx,y:gy,strength:0.5,radius:Math.min(W,H)*0.52}];
+  if(activeTouch){
+    const heldSec=(now-activeTouch.downAt)/1000;
+    sources.push({
+      x:activeTouch.x,y:activeTouch.y,
+      strength:Math.min(2.6,0.8+heldSec*1.15),
+      radius:Math.min(W,H)*(0.20+Math.min(0.28,heldSec*0.05))
+    });
+  }
+  for(let i=0;i<memories.length;i++){
+    const m=memories[i];
+    sources.push({x:m.x,y:m.y,strength:m.strength,radius:Math.min(W,H)*0.22});
+  }
+  return sources;
+}
+function renderLive(now,dt){
+  tGaze+=dt;
+  for(let i=memories.length-1;i>=0;i--){
+    memories[i].strength*=Math.pow(0.06,dt); // ~3s to fade below notice
+    if(memories[i].strength<0.03) memories.splice(i,1);
+  }
+  ctx.fillStyle=BG; ctx.fillRect(0,0,W,H);
+  subdivide(0,0,W,H,0,buildLiveSources(now));
+}
+function loop(){
+  const now=performance.now();
+  const dt=Math.min(0.1,(now-lastFrameTime)/1000); lastFrameTime=now;
+  if(!APKit.isExporting()) renderLive(now,dt);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+canvas.addEventListener('pointerdown',e=>{
+  const now=performance.now();
+  if(now-lastTap<300){
+    blinkAt=now; activeTouch=null; memories=[];
+    lastTap=0;
+  }else{
+    lastTap=now;
+    activeTouch={x:e.clientX,y:e.clientY,downAt:now};
+  }
+},{passive:true});
+canvas.addEventListener('pointermove',e=>{
+  if(activeTouch){ activeTouch.x=e.clientX; activeTouch.y=e.clientY; }
+},{passive:true});
+function releaseTouch(){
+  if(activeTouch){
+    const heldSec=(performance.now()-activeTouch.downAt)/1000;
+    memories.push({x:activeTouch.x,y:activeTouch.y,strength:Math.min(2.4,0.6+heldSec*0.9)});
+    if(memories.length>18) memories.shift();
+    activeTouch=null;
+  }
+}
+canvas.addEventListener('pointerup',releaseTouch,{passive:true});
+canvas.addEventListener('pointercancel',releaseTouch,{passive:true});
+
+// ---------- GIF export: only the idle gaze, on an exact-period Lissajous path
+// (integer multiples of phase => coordinates at phase 0 and 2π match
+// exactly). a second, phase-shifted echo is layered in for a richer loop
+// without breaking periodicity. ----------
 function renderLoopDemo(phase){
-  if(!loopDemo) loopDemo=buildLoopDemo(loopDemoSeed);
-  const growing=phase<Math.PI;
-  const c=growing?phase:Math.PI;
-  // uniform fade for the whole tree at once (was: per-branch staggered fade,
-  // which made the many young/deep twigs vanish within ~0.1s of the erosion
-  // half starting, leaving a mostly-black screen for most of the loop — read
-  // as "broken" rather than looping). A single global fade stays visible,
-  // gradually dimming, across the entire second half instead.
-  const globalAlpha = growing ? 1 : Math.max(0, 1-(phase-Math.PI)/Math.PI);
-  const m=Math.min(W,H);
-  ctx.fillStyle='#04030a'; ctx.fillRect(0,0,W,H);
-  for(const br of loopDemo){
-    if(c<=br.tauStart) continue;
-    const growE=Math.min(1,(c-br.tauStart)/(br.tauEnd-br.tauStart));
-    const alpha=growE*globalAlpha;
-    if(alpha<=0.01) continue;
-    const ox=br.fx*W, oy=br.fy*H;
-    const nPts=Math.max(2,Math.round(br.points.length*growE));
-    const [r,g,b]=pal(br.hue+br.depth*.02);
-    ctx.strokeStyle=`rgba(${r},${g},${b},${Math.max(.28,1-br.depth*.08)*alpha})`;
-    ctx.lineWidth=Math.max(.6,br.thickness); ctx.lineCap='round';
-    ctx.beginPath();
-    ctx.moveTo(ox+br.points[0][0]*m, oy+br.points[0][1]*m);
-    for(let i=1;i<nPts;i++) ctx.lineTo(ox+br.points[i][0]*m, oy+br.points[i][1]*m);
-    ctx.stroke();
-  }
+  const gx=W*(0.5+0.30*Math.sin(2*phase)+0.09*Math.sin(3*phase+1.3));
+  const gy=H*(0.5+0.26*Math.cos(3*phase)+0.08*Math.cos(2*phase+0.7));
+  const echoStrength=Math.max(0,Math.sin(phase*2))*1.4;
+  const ex=W*(0.5+0.34*Math.cos(2*phase+2.1));
+  const ey=H*(0.5+0.30*Math.sin(3*phase+0.5));
+  const sources=[
+    {x:gx,y:gy,strength:0.5,radius:Math.min(W,H)*0.52},
+    {x:ex,y:ey,strength:echoStrength,radius:Math.min(W,H)*0.3}
+  ];
+  ctx.fillStyle=BG; ctx.fillRect(0,0,W,H);
+  subdivide(0,0,W,H,0,sources);
 }
-function renderFx(now){
-  fctx.clearRect(0,0,W,H);
-  for(let i=sparks.length-1;i>=0;i--){
-    const s=sparks[i], age=(now-s.bornAt)/1000;
-    if(age>0.5){ sparks.splice(i,1); continue; }
-    const a=Math.max(0,1-age/0.5), [r,g,b]=pal(s.hue+0.5);
-    fctx.strokeStyle=`rgba(${r},${g},${b},${0.7*a})`;
-    fctx.lineWidth=Math.max(0.5,2.4*a);
-    fctx.beginPath(); fctx.arc(s.x,s.y,4+age*30,0,TAU); fctx.stroke();
-  }
-  if(holding){
-    for(const tip of tips){
-      if(tip.lastBoost>1.4){
-        const g=Math.min(1,(tip.lastBoost-1)/4.5);
-        fctx.fillStyle=`rgba(255,255,255,${0.5*g})`;
-        fctx.beginPath(); fctx.arc(tip.x,tip.y,2+3*g,0,TAU); fctx.fill();
-      }
-    }
-  }
-}
-function resetWorld(){branches=[];tips=[];seedHue={};sparks=[];rebuildTerritory();redrawAll();plantSeed(W*.38,H*.5);plantSeed(W*.62,H*.46);plantSeed(W*.5,H*.68)}
-resize();resetWorld();let lastAutoSeed=performance.now(),lastRejuvenate=performance.now();
-function loop(){if(!APKit.isExporting()){const now=performance.now(),target=holding?1:0;speedMul+=(target-speedMul)*.12;stepGrowth();renderFx(now);if(now-lastAutoSeed>4200&&branches.length<MAXBRANCHES-20){const edge=Math.floor(Math.random()*4),x=edge===0?10:edge===1?W-10:Math.random()*W,y=edge===2?10:edge===3?H-10:Math.random()*H;plantSeed(x,y);lastAutoSeed=now}if(now-lastRejuvenate>2600+Math.random()*2200){lastRejuvenate=now;rejuvenate()}}else{fctx.clearRect(0,0,W,H)}requestAnimationFrame(loop)}requestAnimationFrame(loop);
-let lastTap=0;canvas.addEventListener('pointerdown',e=>{const now=performance.now(),x=e.clientX,y=e.clientY;holdX=x;holdY=y;if(now-lastTap<300){plantCluster(x,y,3);lastTap=0}else{lastTap=now;plantSeed(x,y)}holding=true},{passive:true});canvas.addEventListener('pointermove',e=>{if(holding){holdX=e.clientX;holdY=e.clientY}},{passive:true});canvas.addEventListener('pointerup',()=>{holding=false},{passive:true});canvas.addEventListener('pointercancel',()=>{holding=false},{passive:true});
-APKit.init({canvas:canvas,gifName:'root-law-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:function(phase){renderLoopDemo(phase)},buttons:[{label:'\u2726',name:'mutate',onClick:function(){branchAngle=.30+Math.random()*.65;decayRatio=.62+Math.random()*.20;loopDemoSeed=(Math.random()*1e9)|0;loopDemo=null}},{label:'\u21bb',name:'reset',onClick:function(){resetWorld();lastAutoSeed=performance.now();loopDemoSeed=(Math.random()*1e9)|0;loopDemo=null}}]});
-</script></body></html>
+
+APKit.init({
+  canvas:canvas,
+  gifName:'focus-loop',
+  clockFormat:'spec',
+  dock:true,
+  autoHide:true,
+  fullscreenButton:false,
+  loopFrame:function(phase){ renderLoopDemo(phase); },
+  buttons:[
+    {label:'\u2726',name:'mutate',onClick:function(){
+      gHueShift=Math.random();
+      gSensitivity=0.65+Math.random()*1.0;
+    }},
+    {label:'\u21bb',name:'reset',onClick:function(){
+      activeTouch=null; memories=[]; blinkAt=-999;
+      gHueShift=0; gSensitivity=1; tGaze=0;
+    }}
+  ]
+});
+</script>
+</body>
+</html>
