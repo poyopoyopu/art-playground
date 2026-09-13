@@ -1,7 +1,6 @@
 import { onRequestPost } from './functions/api/vote.js';
 import { onRequestGet } from './functions/api/results.js';
 
-// SOCIAL_LINKS_DEPLOY_CHECK: 2026-09-14
 const SOCIAL_CSS = `
   /* ---------- social ---------- */
   .social{
@@ -65,7 +64,7 @@ const SOCIAL_CSS = `
   @media (hover:hover){
     .social-link:hover{
       border-color:rgba(122,217,255,.24);
-      background:linear-gradient(135deg,rgba(122,217,255,.08),rgba(255,122,217,.07));
+      background:linear-gradient(135deg,rgba(122,217,255,.08),rgba(255,122,255,.07));
     }
   }
 `;
@@ -96,7 +95,7 @@ export default {
 
     const asset = await env.ASSETS.fetch(request);
 
-    // Add the social section only to the gallery page, without touching the artwork files.
+    // Add social links only to the gallery page.
     if ((url.pathname === '/' || url.pathname === '/index.html') && asset.ok) {
       const contentType = asset.headers.get('content-type') || '';
       if (contentType.includes('text/html')) {
@@ -104,10 +103,18 @@ export default {
         const enhanced = html
           .replace('</style>', `${SOCIAL_CSS}</style>`)
           .replace(/<section class="support"[^>]*>/, `${SOCIAL_HTML}$&`);
+
+        const headers = new Headers(asset.headers);
+        // The body was changed, so stale byte/encoding validators must not be reused.
+        headers.delete('content-length');
+        headers.delete('content-encoding');
+        headers.delete('etag');
+        headers.delete('content-md5');
+
         return new Response(enhanced, {
           status: asset.status,
           statusText: asset.statusText,
-          headers: asset.headers
+          headers
         });
       }
     }
