@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="Root Law"><title>Art Playground — 根の掟 ROOT LAW</title>
-<!-- 根の掟 ROOT LAW (v52) — Claude作。改良: ChatGPT, Claude(3回目)
+<!-- 根の掟 ROOT LAW (v52) — Claude作。改良: ChatGPT, Claude(4回目)
   世界のルール: 根は止まらない。触らなくても世界は自律的に種を生み、自己相似の分岐を続ける。
   土地は有限で早い者勝ち。他の根の縄張りに触れた枝は即死。
   タッチは「新しい法則を介入させる」ためのもので、成長の開始条件ではない。
@@ -8,6 +8,14 @@
   長押しは全体でなく指の近くの先端だけを加速する(場所に意味を持たせた)。
   2.6〜4.8秒ごとに既存の先端を1本、確率を無視して強制的に分岐させる
   「若返り」を追加し、この根毛化だけで画面が寂しくならないようにした。
+  「もっと面白く」を受けての追加(Claude・4回目): 縄張り(グリッド)を
+  最初に占有した瞬間、そのマスに極薄い色のタイルを敷くようにした —
+  「早い者勝ちの土地」というルールが単なる当たり判定ではなく実際に見える
+  地図になった。他の根の縄張りに触れて即死する瞬間には、その場所から
+  火花のリングが散る(演出専用のオーバーレイ用canvas #fx を追加、毎フレーム
+  クリアするので本体のcanvasを汚さない)。長押しで加速中の先端にも同じ
+  #fx に白い光点を重ねている。これらは全部ライブ限定の演出で、位相だけで
+  再現するGIF書き出し側のロジックには一切影響しない。
   GIFループ(Claude・再設計): 前回は木全体を1つの指標で開閉していたため
   継ぎ目が不自然だった。今回は枝ごとに「いつ生まれ、いつ伸び終わるか」を
   あらかじめ決めておき、位相0→πでその通りに1本ずつ伸びていき、π→2πでは
@@ -15,20 +23,21 @@
   「巻き戻す」のではなく「記憶が先端から薄れていく」フェードとして設計した。
   位相だけの純粋な関数なので0とTAUが完全に一致する。ライブ側の成長ルールは
   変えていない。
---><script src="ap-kit.js"></script><style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#04030a}body{touch-action:none;overscroll-behavior:none;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}canvas{position:fixed;inset:0;width:100%;height:100%;display:block}</style></head>
-<body><canvas id="c"></canvas><script>
-const canvas=document.getElementById('c'),ctx=canvas.getContext('2d',{alpha:false}),TAU=Math.PI*2,CELL=22,MAXDEPTH=8,MAXBRANCHES=900,BASE_THICK=3.2,MINTHICK=.5;
+--><script src="ap-kit.js"></script><style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#04030a}body{touch-action:none;overscroll-behavior:none;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}canvas{position:fixed;inset:0;width:100%;height:100%;display:block}#fx{pointer-events:none}</style></head>
+<body><canvas id="c"></canvas><canvas id="fx"></canvas><script>
+const canvas=document.getElementById('c'),ctx=canvas.getContext('2d',{alpha:false}),fx=document.getElementById('fx'),fctx=fx.getContext('2d'),TAU=Math.PI*2,CELL=22,MAXDEPTH=8,MAXBRANCHES=900,BASE_THICK=3.2,MINTHICK=.5;
 function pal(t){return[Math.round(255*(.5+.5*Math.cos(TAU*t))),Math.round(255*(.5+.5*Math.cos(TAU*(t+.33)))),Math.round(255*(.5+.5*Math.cos(TAU*(t+.67))))]}
-let W=1,H=1,DPR=1,gridW=1,gridH=1,territory=new Int32Array(1),branches=[],tips=[],nextSeedId=1,nextBranchId=1,branchAngle=.55,decayRatio=.74,holding=false,speedMul=0,holdX=0,holdY=0;
+let W=1,H=1,DPR=1,gridW=1,gridH=1,territory=new Int32Array(1),branches=[],tips=[],nextSeedId=1,nextBranchId=1,branchAngle=.55,decayRatio=.74,holding=false,speedMul=0,holdX=0,holdY=0,seedHue={},sparks=[];
 function rebuildTerritory(){gridW=Math.max(1,Math.ceil(W/CELL));gridH=Math.max(1,Math.ceil(H/CELL));territory=new Int32Array(gridW*gridH).fill(-1)}
 function strokeBranchSegment(br,x1,y1,x2,y2){const[r,g,b]=pal(br.hue+br.depth*.02),alpha=Math.max(.28,1-br.depth*.08);ctx.strokeStyle=`rgba(${r},${g},${b},${alpha})`;ctx.lineWidth=Math.max(.6,br.thickness);ctx.lineCap='round';ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke()}
-function redrawAll(){ctx.fillStyle='#04030a';ctx.fillRect(0,0,W,H);for(const br of branches){const pts=br.points;for(let i=1;i<pts.length;i++)strokeBranchSegment(br,pts[i-1][0],pts[i-1][1],pts[i][0],pts[i][1])}}
-function resize(){DPR=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;canvas.width=Math.round(W*DPR);canvas.height=Math.round(H*DPR);ctx.setTransform(DPR,0,0,DPR,0,0);rebuildTerritory();redrawAll()}addEventListener('resize',resize);
-function claim(x,y,seedId){const gx=Math.floor(x/CELL),gy=Math.floor(y/CELL);if(gx<0||gy<0||gx>=gridW||gy>=gridH)return false;const gi=gy*gridW+gx,owner=territory[gi];if(owner!==-1&&owner!==seedId)return false;territory[gi]=seedId;return true}
+function redrawAll(){ctx.fillStyle='#04030a';ctx.fillRect(0,0,W,H);for(let gy=0;gy<gridH;gy++)for(let gx=0;gx<gridW;gx++){const o=territory[gy*gridW+gx];if(o!==-1)tintCell(gx,gy,o)}for(const br of branches){const pts=br.points;for(let i=1;i<pts.length;i++)strokeBranchSegment(br,pts[i-1][0],pts[i-1][1],pts[i][0],pts[i][1])}}
+function resize(){DPR=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;canvas.width=Math.round(W*DPR);canvas.height=Math.round(H*DPR);ctx.setTransform(DPR,0,0,DPR,0,0);fx.width=canvas.width;fx.height=canvas.height;fctx.setTransform(DPR,0,0,DPR,0,0);rebuildTerritory();redrawAll()}addEventListener('resize',resize);
+function tintCell(gx,gy,seedId){const[r,g,b]=pal((seedHue[seedId]||0)+.5);ctx.fillStyle=`rgba(${r},${g},${b},.05)`;ctx.fillRect(gx*CELL,gy*CELL,CELL,CELL)}
+function claim(x,y,seedId){const gx=Math.floor(x/CELL),gy=Math.floor(y/CELL);if(gx<0||gy<0||gx>=gridW||gy>=gridH)return false;const gi=gy*gridW+gx,owner=territory[gi];if(owner!==-1&&owner!==seedId)return false;if(owner===-1)tintCell(gx,gy,seedId);territory[gi]=seedId;return true}
 function spawnChildren(tip){const angleOff=branchAngle*(.75+Math.random()*.5),childThick=tip.branch.thickness*decayRatio;for(const sign of [1,-1]){const childAngle=tip.angle+sign*angleOff*(.85+Math.random()*.3),branch={id:nextBranchId++,seedId:tip.seedId,depth:tip.depth+1,thickness:childThick,hue:tip.branch.hue,points:[[tip.x,tip.y]]};branches.push(branch);tips.push({branch,seedId:tip.seedId,depth:branch.depth,x:tip.x,y:tip.y,angle:childAngle,traveled:0})}}
-function stepGrowth(){for(let i=tips.length-1;i>=0;i--){const tip=tips[i];let localBoost=1;if(holding){const d=Math.hypot(tip.x-holdX,tip.y-holdY);localBoost=1+speedMul*4.5*Math.exp(-d/140)}const speed=Math.max(.18,.85*Math.pow(.88,tip.depth))*localBoost;tip.angle+=(Math.random()-.5)*(.035+tip.depth*.01);const nx=tip.x+Math.cos(tip.angle)*speed,ny=tip.y+Math.sin(tip.angle)*speed;if(nx<-40||nx>W+40||ny<-40||ny>H+40){tips.splice(i,1);continue}if(!claim(nx,ny,tip.seedId)){tips.splice(i,1);continue}strokeBranchSegment(tip.branch,tip.x,tip.y,nx,ny);tip.branch.points.push([nx,ny]);tip.x=nx;tip.y=ny;tip.traveled+=speed;const interval=Math.max(6,34*Math.pow(.80,tip.depth));if(tip.traveled>=interval){const forkChance=Math.max(.10,.9*Math.pow(.84,tip.depth)),canFork=tip.depth<MAXDEPTH&&tip.branch.thickness>MINTHICK&&branches.length<MAXBRANCHES-2&&Math.random()<forkChance;if(canFork){tips.splice(i,1);spawnChildren(tip)}else{tip.traveled=0}}}}
+function stepGrowth(){for(let i=tips.length-1;i>=0;i--){const tip=tips[i];let localBoost=1;if(holding){const d=Math.hypot(tip.x-holdX,tip.y-holdY);localBoost=1+speedMul*4.5*Math.exp(-d/140)}tip.lastBoost=localBoost;const speed=Math.max(.18,.85*Math.pow(.88,tip.depth))*localBoost;tip.angle+=(Math.random()-.5)*(.035+tip.depth*.01);const nx=tip.x+Math.cos(tip.angle)*speed,ny=tip.y+Math.sin(tip.angle)*speed;if(nx<-40||nx>W+40||ny<-40||ny>H+40){tips.splice(i,1);continue}if(!claim(nx,ny,tip.seedId)){sparks.push({x:nx,y:ny,hue:tip.branch.hue,bornAt:performance.now()});if(sparks.length>40)sparks.shift();tips.splice(i,1);continue}strokeBranchSegment(tip.branch,tip.x,tip.y,nx,ny);tip.branch.points.push([nx,ny]);tip.x=nx;tip.y=ny;tip.traveled+=speed;const interval=Math.max(6,34*Math.pow(.80,tip.depth));if(tip.traveled>=interval){const forkChance=Math.max(.10,.9*Math.pow(.84,tip.depth)),canFork=tip.depth<MAXDEPTH&&tip.branch.thickness>MINTHICK&&branches.length<MAXBRANCHES-2&&Math.random()<forkChance;if(canFork){tips.splice(i,1);spawnChildren(tip)}else{tip.traveled=0}}}}
 function rejuvenate(){if(!tips.length||branches.length>=MAXBRANCHES-2)return;const t=tips[Math.floor(Math.random()*tips.length)];if(t.depth<MAXDEPTH&&t.branch.thickness>MINTHICK){const idx=tips.indexOf(t);tips.splice(idx,1);spawnChildren(t)}}
-function plantSeed(x,y){if(branches.length>=MAXBRANCHES)return;const seedId=nextSeedId++,hue=Math.random(),branch={id:nextBranchId++,seedId,depth:0,thickness:BASE_THICK,hue,points:[[x,y]]};branches.push(branch);tips.push({branch,seedId,depth:0,x,y,angle:Math.random()*TAU,traveled:0});claim(x,y,seedId)}
+function plantSeed(x,y){if(branches.length>=MAXBRANCHES)return;const seedId=nextSeedId++,hue=Math.random(),branch={id:nextBranchId++,seedId,depth:0,thickness:BASE_THICK,hue,points:[[x,y]]};seedHue[seedId]=hue;branches.push(branch);tips.push({branch,seedId,depth:0,x,y,angle:Math.random()*TAU,traveled:0});claim(x,y,seedId)}
 function plantCluster(x,y,n){for(let k=0;k<n;k++){const a=Math.random()*TAU,d=20+Math.random()*40;plantSeed(x+Math.cos(a)*d,y+Math.sin(a)*d)}}
 // ---------- GIF export: a separate, fully deterministic demo growth ----------
 // The live growth above never repeats itself (that's the point of the piece),
@@ -101,9 +110,29 @@ function renderLoopDemo(phase){
     ctx.stroke();
   }
 }
-function resetWorld(){branches=[];tips=[];rebuildTerritory();redrawAll();plantSeed(W*.38,H*.5);plantSeed(W*.62,H*.46);plantSeed(W*.5,H*.68)}
+function renderFx(now){
+  fctx.clearRect(0,0,W,H);
+  for(let i=sparks.length-1;i>=0;i--){
+    const s=sparks[i], age=(now-s.bornAt)/1000;
+    if(age>0.5){ sparks.splice(i,1); continue; }
+    const a=Math.max(0,1-age/0.5), [r,g,b]=pal(s.hue+0.5);
+    fctx.strokeStyle=`rgba(${r},${g},${b},${0.7*a})`;
+    fctx.lineWidth=Math.max(0.5,2.4*a);
+    fctx.beginPath(); fctx.arc(s.x,s.y,4+age*30,0,TAU); fctx.stroke();
+  }
+  if(holding){
+    for(const tip of tips){
+      if(tip.lastBoost>1.4){
+        const g=Math.min(1,(tip.lastBoost-1)/4.5);
+        fctx.fillStyle=`rgba(255,255,255,${0.5*g})`;
+        fctx.beginPath(); fctx.arc(tip.x,tip.y,2+3*g,0,TAU); fctx.fill();
+      }
+    }
+  }
+}
+function resetWorld(){branches=[];tips=[];seedHue={};sparks=[];rebuildTerritory();redrawAll();plantSeed(W*.38,H*.5);plantSeed(W*.62,H*.46);plantSeed(W*.5,H*.68)}
 resize();resetWorld();let lastAutoSeed=performance.now(),lastRejuvenate=performance.now();
-function loop(){if(!APKit.isExporting()){const now=performance.now(),target=holding?1:0;speedMul+=(target-speedMul)*.12;stepGrowth();if(now-lastAutoSeed>4200&&branches.length<MAXBRANCHES-20){const edge=Math.floor(Math.random()*4),x=edge===0?10:edge===1?W-10:Math.random()*W,y=edge===2?10:edge===3?H-10:Math.random()*H;plantSeed(x,y);lastAutoSeed=now}if(now-lastRejuvenate>2600+Math.random()*2200){lastRejuvenate=now;rejuvenate()}}requestAnimationFrame(loop)}requestAnimationFrame(loop);
+function loop(){if(!APKit.isExporting()){const now=performance.now(),target=holding?1:0;speedMul+=(target-speedMul)*.12;stepGrowth();renderFx(now);if(now-lastAutoSeed>4200&&branches.length<MAXBRANCHES-20){const edge=Math.floor(Math.random()*4),x=edge===0?10:edge===1?W-10:Math.random()*W,y=edge===2?10:edge===3?H-10:Math.random()*H;plantSeed(x,y);lastAutoSeed=now}if(now-lastRejuvenate>2600+Math.random()*2200){lastRejuvenate=now;rejuvenate()}}else{fctx.clearRect(0,0,W,H)}requestAnimationFrame(loop)}requestAnimationFrame(loop);
 let lastTap=0;canvas.addEventListener('pointerdown',e=>{const now=performance.now(),x=e.clientX,y=e.clientY;holdX=x;holdY=y;if(now-lastTap<300){plantCluster(x,y,3);lastTap=0}else{lastTap=now;plantSeed(x,y)}holding=true},{passive:true});canvas.addEventListener('pointermove',e=>{if(holding){holdX=e.clientX;holdY=e.clientY}},{passive:true});canvas.addEventListener('pointerup',()=>{holding=false},{passive:true});canvas.addEventListener('pointercancel',()=>{holding=false},{passive:true});
 APKit.init({canvas:canvas,gifName:'root-law-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:function(phase){renderLoopDemo(phase)},buttons:[{label:'\u2726',name:'mutate',onClick:function(){branchAngle=.30+Math.random()*.65;decayRatio=.62+Math.random()*.20;loopDemoSeed=(Math.random()*1e9)|0;loopDemo=null}},{label:'\u21bb',name:'reset',onClick:function(){resetWorld();lastAutoSeed=performance.now();loopDemoSeed=(Math.random()*1e9)|0;loopDemo=null}}]});
 </script></body></html>

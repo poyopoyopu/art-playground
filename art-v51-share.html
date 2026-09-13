@@ -9,25 +9,22 @@
 <meta name="apple-mobile-web-app-title" content="Share">
 <title>Art Playground — 分与 SHARE</title>
 <!--
-  分与 SHARE (v51) — Claude作 / 改良: ChatGPT / 再設計: Claude(2回目)
+  分与 SHARE (v51) — Claude作 / 改良: ChatGPT / 再設計: Claude(3回目)
   世界のルール: 総質量(半径の二乗の合計)は常に一定。分裂は足し算ではなく
   既存の質量の再配分でしかない。
 
-  1回目の再設計は「全員が同じ深さで同時にパッと分裂する」同期モデルで、
-  数学的にはループしたが、常に1〜2段しか同時に見えず地味で、タップも
-  画面全体に効く漠然とした操作だった。
-
-  今回は3つの独立したクラスタ(それぞれ別の場所・別の形)を置き、各々の
-  枝ごとに「いつ分裂し終えるか」をあらかじめ乱数で決めておく(非同期の
-  分裂スケジュール)。時刻cにおいて、まだ自分の番が来ていない個体はそのまま
-  留まり、番が来た個体だけ短く弾けて2つに分かれる — 常に色々な深さの個体が
-  同時に画面上に存在し、有機的なクラスターに見える。
-  クラスタごとに個別のライブ位相を持たせたので、タップは一番近いクラスタ
-  だけを軽く前に進め、長押しは一番近いクラスタだけを加速する、という
-  「場所に意味のある」操作になった。ダブルタップだけは全クラスタを一斉に
-  進める。GIF書き出し時は3クラスタとも同じ位相(ap-kitが渡すphase)だけで
-  描くので、渡された位相に対して常に同じ絵になる — 位相0とTAUが完全に
-  一致する厳密なループ。
+  1回目は全員同時にパッと分裂する同期モデルで地味だった。2回目は3クラスタ
+  +非同期の分裂スケジュールにして常に色々な深さが同時に見えるようにした。
+  今回(3回目)は「もっと面白く」というリクエストを受けて、地味さの残る
+  部分を派手さで補強:
+  - 分裂の瞬間、その場所から白い衝撃波リング(ポン、という視覚的な破裂)
+  - まだ再分裂していない兄弟同士を、細い光の糸でつなぐ(血縁が見える)
+  - 分裂の間隔を詰めて全体のテンポを速めた
+  - ダブルタップは全クラスタを蹴るだけでなく、画面全体が一瞬明るく光る
+  衝撃波リングと兄弟の糸は位相だけで決まる純関数なので、GIFループの
+  厳密さ(0とTAUで完全一致)は崩れない。ダブルタップの画面フラッシュだけは
+  実時間で減衰する演出なので、ライブ表示のみで発生しGIF書き出しには
+  一切影響しない。
 -->
 <script src="ap-kit.js"></script>
 <style>
@@ -73,7 +70,7 @@ function mulberry32(a){
 
 // ---------- each cluster: a fixed tree where every node knows WHEN (in clock
 // units 0..PI) it finishes splitting into its two children ----------
-const BIRTH_DURATION=0.14;
+const BIRTH_DURATION=0.11;
 const CLOCK_LIMIT=Math.PI-0.05;
 
 function buildTree(seed){
@@ -84,8 +81,8 @@ function buildTree(seed){
     const node={id,parentId,tau,x,y,r,hue,children:[]};
     list.push(node);
     if(parentId>=0) list[parentId].children.push(id);
-    const childTau=tau+0.30+rng()*0.42;
-    if(childTau<CLOCK_LIMIT && list.length<120){
+    const childTau=tau+0.22+rng()*0.34;
+    if(childTau<CLOCK_LIMIT && list.length<140){
       const newR=r/Math.SQRT2;
       const angle=rng()*TAU;
       const push=newR*(0.75+rng()*0.36);
@@ -122,26 +119,57 @@ function drawCell(x,y,r,hue,alpha){
   ctx.lineWidth=1.2;
   ctx.beginPath(); ctx.arc(x,y,r,0,TAU); ctx.stroke();
 }
+function drawFlash(x,y,r,e){
+  const inten=4*e*(1-e); // 0 at e=0 and e=1, peak at e=0.5 — a pure function of e
+  if(inten<=0.02) return;
+  ctx.strokeStyle=`rgba(255,255,255,${0.6*inten})`;
+  ctx.lineWidth=Math.max(0.5,2.4*inten);
+  ctx.beginPath(); ctx.arc(x,y,r*(1+e*2.0),0,TAU); ctx.stroke();
+}
 
-// recursive: renders whatever this node's lineage looks like at clock time c
-function drawNode(nodes,node,c,cx,cy,scalePx,wob){
+// recursive: renders whatever this node's lineage looks like at clock time c.
+// also records currently-resting leaves into `leaves` so siblings still both
+// whole can be connected with a thread afterward.
+function drawNode(nodes,node,c,cx,cy,scalePx,wob,leaves){
   const hasKids=node.children.length>0;
   const kidsTau=hasKids?nodes[node.children[0]].tau:Infinity;
   if(!hasKids||c<kidsTau){
     const w=wob(node.id);
-    drawCell(cx+node.x*scalePx+w[0], cy+node.y*scalePx+w[1], Math.max(0.6,node.r*scalePx), node.hue, 1);
+    const px=cx+node.x*scalePx+w[0], py=cy+node.y*scalePx+w[1];
+    drawCell(px,py,Math.max(0.6,node.r*scalePx), node.hue, 1);
+    leaves.push({x:px,y:py,parentId:node.parentId,hue:node.hue});
     return;
   }
   const e=Math.min(1,(c-kidsTau)/BIRTH_DURATION);
+  const w0=wob(node.id);
+  drawFlash(cx+node.x*scalePx+w0[0], cy+node.y*scalePx+w0[1], Math.max(0.6,node.r*scalePx), e);
   for(const cid of node.children){
     const child=nodes[cid];
     if(e<1){
       const w=wob(child.id);
       const ix=node.x+(child.x-node.x)*e, iy=node.y+(child.y-node.y)*e, ir=node.r+(child.r-node.r)*e;
-      drawCell(cx+ix*scalePx+w[0], cy+iy*scalePx+w[1], Math.max(0.6,ir*scalePx), child.hue, e);
+      const px=cx+ix*scalePx+w[0], py=cy+iy*scalePx+w[1];
+      drawCell(px,py,Math.max(0.6,ir*scalePx), child.hue, e);
+      if(e>0.7) leaves.push({x:px,y:py,parentId:node.id,hue:child.hue});
     }else{
-      drawNode(nodes,child,c,cx,cy,scalePx,wob);
+      drawNode(nodes,child,c,cx,cy,scalePx,wob,leaves);
     }
+  }
+}
+
+function drawSiblingThreads(leaves){
+  const byParent=new Map();
+  for(const lf of leaves){
+    if(lf.parentId<0) continue;
+    (byParent.get(lf.parentId)||byParent.set(lf.parentId,[]).get(lf.parentId)).push(lf);
+  }
+  for(const pair of byParent.values()){
+    if(pair.length!==2) continue;
+    const [a,b]=pair;
+    const [r,g,b8]=pal((a.hue+b.hue)/2+0.5);
+    ctx.strokeStyle=`rgba(${r},${g},${b8},0.3)`;
+    ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
   }
 }
 
@@ -157,13 +185,16 @@ function renderClusters(phases){
     const c=Math.PI*triangleWave(ph);
     const cx=cl.fx*W, cy=cl.fy*H, scalePx=m*0.13;
     const wob=(id)=>[Math.sin(ph*2+id*0.7+i*3)*3, Math.cos(ph*2+id*1.3+1.7+i*3)*3];
-    drawNode(cl.nodes,cl.nodes[0],c,cx,cy,scalePx,wob);
+    const leaves=[];
+    drawNode(cl.nodes,cl.nodes[0],c,cx,cy,scalePx,wob,leaves);
+    drawSiblingThreads(leaves);
   }
 }
 
 // ---------- live: each cluster breathes on its own; touch nudges the nearest one ----------
 let livePhases=[0,0,0], lastFrameTime=performance.now();
 let rateMul=[1,1,1], heldCluster=-1;
+let dtFlashAt=-999; // real-time double-tap screen pulse (live only, never exported)
 
 function loop(){
   const now=performance.now();
@@ -175,6 +206,12 @@ function loop(){
       livePhases[i]=(livePhases[i]+dt*(TAU/APKit.LOOP_DUR)*rateMul[i])%TAU;
     }
     renderClusters(livePhases);
+    const age=(now-dtFlashAt)/1000;
+    if(age<0.4){
+      const a=Math.max(0,1-age/0.4);
+      ctx.fillStyle=`rgba(255,255,255,${0.22*a*a})`;
+      ctx.fillRect(0,0,W,H);
+    }
   }
   requestAnimationFrame(loop);
 }
@@ -195,6 +232,7 @@ canvas.addEventListener('pointerdown',e=>{
   const idx=nearestCluster(e.clientX,e.clientY);
   if(now-lastTap<300){
     for(let i=0;i<3;i++) livePhases[i]=(livePhases[i]+TAU*0.32)%TAU; // double tap: kick everyone
+    dtFlashAt=now;
     lastTap=0;
   }else{
     lastTap=now;
@@ -208,7 +246,8 @@ canvas.addEventListener('pointercancel',()=>{ heldCluster=-1; },{passive:true});
 // ---------- shared kit: clock, fullscreen, GIF ----------
 // renderClusters is a pure function of the phase array — for export every
 // cluster is driven by the SAME phase ap-kit hands us, so the whole frame is a
-// pure function of that one number with period TAU: an exact loop.
+// pure function of that one number with period TAU: an exact loop. The
+// double-tap screen flash is drawn only from the live loop(), never here.
 APKit.init({
   canvas:canvas,
   gifName:'share-loop',
