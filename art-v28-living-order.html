@@ -378,16 +378,44 @@ function setExport(on,title,msg){
   exportMsg.textContent=msg;
   exportBarFill.style.width="0%";
 }
+// Matches ap-kit.js's own PRESETS exactly, so every artwork's export dialog behaves the same way.
+const GIF_PRESETS=[
+  {name:"SMOOTH",fps:25,delay:40,side:420},
+  {name:"BALANCED",fps:20,delay:50,side:460},
+  {name:"LIGHT",fps:12.5,delay:80,side:480}
+];
+function askGifPreset(){
+  return new Promise(resolve=>{
+    exportSheet.classList.add("on");
+    exportTitle.textContent="EXPORT LOOP";
+    exportMsg.textContent="なめらかさを選んでください";
+    document.querySelector(".exportBar").style.display="none";
+    const card=document.querySelector(".exportCard");
+    const wrap=document.createElement("div");
+    wrap.style.cssText="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:16px";
+    function addChoice(label,value){
+      const b=document.createElement("button");
+      b.className="exportClose";b.style.marginTop="0";b.textContent=label;
+      b.onclick=()=>{wrap.remove();document.querySelector(".exportBar").style.display="";resolve(value)};
+      wrap.appendChild(b);
+    }
+    GIF_PRESETS.forEach(p=>addChoice(p.name+" · "+p.fps+"fps",p));
+    addChoice("キャンセル",null);
+    card.insertBefore(wrap,document.getElementById("exportClose"));
+  });
+}
 async function exportGif(){
   if(exporting)return;
+  const preset=await askGifPreset();
+  if(!preset){exportSheet.classList.remove("on");return}
   exporting=true;
   document.getElementById("gif").disabled=true;
-  setExport(true,"RENDERING LOOP","3秒・30fpsの滑らかなGIFを生成しています…");
+  setExport(true,"RENDERING LOOP","3秒・"+preset.fps+"fpsの滑らかなGIFを生成しています…");
   try{
     await prepareGif();
 
-    const side=Math.min(520,Math.round(Math.min(innerWidth,innerHeight)*1.0));
-    const FPS=30,SECONDS=3,FRAMES=FPS*SECONDS;
+    const side=Math.min(preset.side,Math.round(Math.min(innerWidth,innerHeight)));
+    const FPS=preset.fps,SECONDS=3,FRAMES=Math.round(FPS*SECONDS);
     const ec=document.createElement("canvas");ec.width=ec.height=side;
     const eg=ec.getContext("2d",{alpha:false});
     const gif=new GIF({
@@ -406,7 +434,7 @@ async function exportGif(){
     for(let i=0;i<FRAMES;i++){
       renderExportFrame(i/FRAMES);
       eg.drawImage(c,0,0,side,side);
-      gif.addFrame(eg,{copy:true,delay:1000/FPS});
+      gif.addFrame(eg,{copy:true,delay:preset.delay});
       exportBarFill.style.width=(10+i/FRAMES*48)+"%";
       if(i%2===0)await new Promise(r=>setTimeout(r,0));
     }
@@ -421,7 +449,7 @@ async function exportGif(){
 
     const url=URL.createObjectURL(blob);
     exportTitle.textContent="LOOP READY";
-    exportMsg.textContent=`${side}×${side} · 3秒 · 30fps · ${Math.round(blob.size/1024)}KB`;
+    exportMsg.textContent=`${side}×${side} · 3秒 · ${preset.fps}fps · ${Math.round(blob.size/1024)}KB`;
     exportBarFill.style.width="100%";
 
     const img=document.createElement("img");
