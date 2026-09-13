@@ -103,7 +103,7 @@ export default {
         const html = await asset.text();
         const enhanced = html
           .replace('</style>', `${SOCIAL_CSS}</style>`)
-          .replace('<div class="support">', `${SOCIAL_HTML}<div class="support">`);
+          .replace('<section class="support">', `${SOCIAL_HTML}<section class="support">`);
         return new Response(enhanced, {
           status: asset.status,
           statusText: asset.statusText,
