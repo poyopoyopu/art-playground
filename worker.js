@@ -22,20 +22,20 @@ export default {
 
     const response = await env.ASSETS.fetch(request);
 
-    // Four legacy works still contain their own pre-APKit Japanese clock.
-    // Keep the artwork files untouched and normalize only their rendered clock
-    // to the house spec: HH:MM:SS / YYYY MM DD DDD.
+    // Normalize the four legacy clocks to the house spec.
     if (request.method === 'GET' && CLOCK_SPEC_PATHS.has(url.pathname)) {
       const type = response.headers.get('content-type') || '';
       if (type.includes('text/html')) {
         let html = await response.text();
-        const oldDate = /clockDate\.textContent=\(d\.getMonth\(\)\+1\)[^;]+;/;
+        const oldDate = /clockDate\\.textContent\\s*=\\s*[^;]+;/;
         const newDate = "clockDate.textContent=d.getFullYear()+' '+String(d.getMonth()+1).padStart(2,'0')+' '+String(d.getDate()).padStart(2,'0')+' '+['SUN','MON','TUE','WED','THU','FRI','SAT'][d.getDay()];";
         html = html.replace(oldDate, newDate);
+        const headers = new Headers(response.headers);
+        headers.set('Cache-Control', 'no-store');
         return new Response(html, {
           status: response.status,
           statusText: response.statusText,
-          headers: response.headers
+          headers
         });
       }
     }
