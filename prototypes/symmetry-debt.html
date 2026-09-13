@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#05050a">
+<title>Art Playground — SYMMETRY DEBT</title>
+<script src="../ap-kit.js"></script>
+<style>*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#05050a}body{touch-action:none}canvas{display:block;width:100%;height:100%;touch-action:none}</style>
+</head>
+<body><canvas id="c" aria-label="SYMMETRY DEBT"></canvas>
+<script>
+/*
+SYMMETRY DEBT — ChatGPT作。
+世界のルール: この世界は最初12本の鏡軸で完全な秩序を保っている。
+触れるたび、その場所に最も近い鏡軸が永久に失われる。軸を失うほど、
+自己相似構造は同じ場所を繰り返せなくなり、最後には対称性そのものが崩れる。
+ap-kit.js統合: ChatGPT
+*/
+(()=>{'use strict';
+const c=document.getElementById('c'),g=c.getContext('2d',{alpha:false});
+let W=1,H=1,D=1,CX=0,CY=0,S=1,seed=Math.random()*1000,debt=0,flash=0;
+const MAX=12,broken=[];
+function resize(){D=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;S=Math.min(W,H);CX=W*.5;CY=H*.5;c.width=W*D;c.height=H*D;g.setTransform(D,0,0,D,0,0)}
+addEventListener('resize',resize,{passive:true});resize();
+function rnd(n){const x=Math.sin(n*127.1+seed*17.31)*43758.5453;return x-Math.floor(x)}
+function rot(x,y,a){const cs=Math.cos(a),sn=Math.sin(a);return[x*cs-y*sn,x*sn+y*cs]}
+function breakLaw(x,y){if(window.APKit&&APKit.isUI(x,y))return;const a=Math.atan2(y-CY,x-CX),q=((a+Math.PI*2)%(Math.PI*2))/(Math.PI*2)*MAX,axis=Math.round(q)%MAX;if(broken.includes(axis))return;broken.push(axis);debt=Math.min(MAX,debt+1);flash=1}
+function mapAngle(a,t){const step=Math.PI*2/MAX,k=Math.round(a/step),axis=((k%MAX)+MAX)%MAX,q=a-k*step;if(broken.includes(axis)){const b=broken.indexOf(axis);return k*step+q+Math.sin(q*3+b*1.7+t*.35)*(.10+.055*b)}return k*step+q*(1-.035*debt)}
+function drawLayer(t,layer){const base=S*(.055+layer*.035),count=18+layer*8;g.beginPath();for(let i=0;i<count;i++){const rr=base*(i+1)/count;for(let j=0;j<=160;j++){const u=j/160,a=u*Math.PI*2,aa=mapAngle(a,t),r=rr+Math.sin(aa*(6+layer)+t*(.18+layer*.021)+seed)*S*.008+Math.sin(aa*(13+layer*2)-t*.13+rr*.02)*S*.004;const p=rot(Math.cos(aa)*r,Math.sin(aa)*r,t*.008*(layer+1)),x=CX+p[0],y=CY+p[1];if(j===0)g.moveTo(x,y);else g.lineTo(x,y)}}g.strokeStyle=`hsla(${188+layer*17+debt*7},88%,${62-layer*2}%,${Math.max(.025,.11-layer*.006)})`;g.lineWidth=.65+layer*.18;g.stroke()}
+function render(sec){g.globalCompositeOperation='source-over';g.fillStyle='#05050a';g.fillRect(0,0,W,H);g.globalCompositeOperation='screen';for(let l=0;l<7;l++)drawLayer(sec,l);
+for(let i=0;i<broken.length;i++){const a=broken[i]*Math.PI*2/MAX,p1=rot(-S*.47,0,a),p2=rot(S*.47,0,a),gr=g.createLinearGradient(CX+p1[0],CY+p1[1],CX+p2[0],CY+p2[1]);gr.addColorStop(0,'rgba(255,70,190,0)');gr.addColorStop(.5,`hsla(${310+i*19},100%,72%,${.045+.025*(1-debt/MAX)})`);gr.addColorStop(1,'rgba(70,220,255,0)');g.strokeStyle=gr;g.lineWidth=1.2+i*.18;g.beginPath();g.moveTo(CX+p1[0],CY+p1[1]);g.lineTo(CX+p2[0],CY+p2[1]);g.stroke()}
+for(let k=0;k<4;k++){const r=S*(.035+k*.018);g.beginPath();for(let j=0;j<=180;j++){const a=j/180*Math.PI*2,aa=mapAngle(a,sec),rr=r*(1+.16*Math.sin(aa*(8+debt)+sec*.55+k)),x=CX+Math.cos(aa)*rr,y=CY+Math.sin(aa)*rr;if(j===0)g.moveTo(x,y);else g.lineTo(x,y)}g.closePath();g.strokeStyle=`hsla(${195+k*38+debt*9},100%,75%,${.08+.025*k})`;g.stroke()}
+if(debt>=6){g.globalCompositeOperation='lighter';for(let i=0;i<(debt-5)*18;i++){const a=rnd(i*3.7)*Math.PI*2+sec*.025,r=S*(.12+.34*rnd(i*9.1)),x=CX+Math.cos(a)*r,y=CY+Math.sin(a)*r,s=1+3*rnd(i*4.2);g.fillStyle=`hsla(${280+i*7+debt*11},100%,72%,${.025+.012*(debt-5)})`;g.fillRect(x-s*.5,y-s*.5,s,s)}}
+const vg=g.createRadialGradient(CX,CY,S*.08,CX,CY,S*.72);vg.addColorStop(0,'rgba(0,0,0,0)');vg.addColorStop(1,'rgba(0,0,0,.30)');g.globalCompositeOperation='source-over';g.fillStyle=vg;g.fillRect(0,0,W,H);if(flash>0){g.fillStyle=`rgba(255,255,255,${flash*.08})`;g.fillRect(0,0,W,H);flash*=.78}}
+function loop(t){if(!APKit.isExporting())render(t*.001);requestAnimationFrame(loop)}
+c.addEventListener('pointerdown',e=>{if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;e.preventDefault();breakLaw(e.clientX,e.clientY)},{passive:false});
+APKit.init({canvas:c,gifName:'symmetry-debt-loop',clockFormat:'spec',autoHide:true,dock:true,loopFrame:phase=>render(phase),buttons:[{label:'✦',name:'mutate',onClick:()=>{seed=Math.random()*1000;broken.length=0;debt=0;flash=1}},{label:'↻',name:'reset',onClick:()=>{broken.length=0;debt=0;flash=1}}]});
+render(0);requestAnimationFrame(loop);
+})();
+</script></body></html>
