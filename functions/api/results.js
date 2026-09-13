@@ -1,20 +1,3 @@
-const WORKS = [
-  'INFECTION','VOID FIELD II','ART OF BECOMING','ONE KNOT','DIVIDED LAW',
-  'STANDING LAW','LIVING ORDER','PARTICLE COSMOS II','ALIVE','INK BLOOM'
-];
-
-function json(data, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }
-  });
-}
-
-export async function onRequestGet({ env }) {
-  if (!env.DB) return json({ error: 'DB_NOT_CONFIGURED' }, 503);
-  const rows = await env.DB.prepare(`SELECT work, COUNT(*) AS votes, ROUND(AVG(rating), 2) AS average FROM votes GROUP BY work`).all();
-  const map = Object.fromEntries((rows.results || []).map(r => [r.work, { votes: Number(r.votes), average: Number(r.average) }]));
-  const results = WORKS.map(work => ({ work, votes: map[work]?.votes || 0, average: map[work]?.average || 0 }));
-  const total = await env.DB.prepare('SELECT COUNT(*) AS n FROM voters').first();
-  return json({ voters: Number(total?.n || 0), results });
-}
+const WORKS = ['FEATHER FOLD','INFECTION','VOID FIELD II','ART OF BECOMING','ONE KNOT','DIVIDED LAW','STANDING LAW','LIVING ORDER','PARTICLE COSMOS II','ALIVE'];
+function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'}})}
+export async function onRequestGet({env}){if(!env.DB)return json({error:'DB_NOT_CONFIGURED'},503);const rows=await env.DB.prepare(`SELECT work, COUNT(*) AS votes, ROUND(AVG(rating), 2) AS average FROM votes GROUP BY work`).all();const map=Object.fromEntries((rows.results||[]).map(r=>[r.work,{votes:Number(r.votes),average:Number(r.average)}]));const results=WORKS.map(work=>({work,votes:map[work]?.votes||0,average:map[work]?.average||0}));const total=await env.DB.prepare('SELECT COUNT(*) AS n FROM voters').first();return json({voters:Number(total?.n||0),results})}
