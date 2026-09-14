@@ -1,0 +1,27 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no"><title>FOCUS COLLAPSE</title><script src="../ap-kit.js"></script><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#010203}body{touch-action:none}canvas{display:block;width:100%;height:100%}</style></head><body><canvas id="c"></canvas><script>
+/* CHATGPT — FOCUS COLLAPSE
+WORLD LAW: detail only exists where attention is paid. But attention has a
+conservation law: making one region more detailed removes detail from another.
+Touch is not a brush. It is a choice. Every choice collapses somewhere else.
+When two deep regions meet, they exchange their histories and swap positions.
+*/
+const c=document.querySelector('#c'),g=c.getContext('2d'),TAU=Math.PI*2;let W,H,D=1,seed=4,spots=[];
+function sz(){D=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;c.width=W*D;c.height=H*D;g.setTransform(D,0,0,D,0,0)}addEventListener('resize',sz);sz();
+function rnd(){let x=Math.sin(seed++*113.17)*43758.5453;return x-Math.floor(x)}
+function reset(){seed=4;spots=[];for(let i=0;i<5;i++)spots.push({x:W*(.1+.8*rnd()),y:H*(.1+.8*rnd()),d:1+rnd()*2,e:.25+rnd()*.25,a:rnd()*TAU,h:rnd()})}reset();
+function fieldCell(x,y,w,d,e,h,t){let cx=x+w/2,cy=y+w/2;if(d<=0||w<5){let glow=Math.min(1,.12+e*.4+d*.02);g.fillStyle=`hsla(${190+h*150},90%,${50+e*25}%,${glow})`;g.fillRect(x+1,y+1,w-2,w-2);return}let att=0;for(let s of spots){let q=Math.hypot(cx-s.x,cy-s.y);att+=s.e*Math.exp(-q/(70+d*18))}let split=att>.48+d*.12?2:1;if(split===1){g.strokeStyle=`hsla(${195+h*130},80%,65%,${.08+e*.12})`;g.strokeRect(x+.5,y+.5,w-1,w-1);return}let q=w/2;for(let iy=0;iy<2;iy++)for(let ix=0;ix<2;ix++)fieldCell(x+ix*q,y+iy*q,q,d-1,e*.94,h+(ix+iy)*.08,t)}
+function draw(phase=null){let t=phase===null?performance.now()*.00008:phase;g.fillStyle='#010203';g.fillRect(0,0,W,H);
+ // Base lattice: depth appears only where the conserved attention field allows it.
+ fieldCell(0,0,W,7,.7,.1,t);
+ for(let s of spots){s.a+=.0002;let pulse=1+.035*Math.sin(t*2+s.a);g.save();g.translate(s.x,s.y);g.rotate(s.a);g.strokeStyle=`hsla(${190+s.h*150},95%,78%,${.22+s.e*.28})`;g.lineWidth=1.2+s.d*.22;g.beginPath();g.arc(0,0,(5+s.d*3)*pulse,0,TAU);g.stroke();g.restore()}
+ // Strong attention is expensive: drain the weakest other focus. The visual result is a moving hierarchy, not accumulation.
+ for(let s of spots){s.e=Math.min(1,s.e+.00003);let weakest=null;for(let q of spots)if(q!==s&&(!weakest||q.e<weakest.e))weakest=q;if(weakest)weakest.e=Math.max(.06,weakest.e-.000018*s.e)}
+ // Deep foci exchange identities when they approach.
+ for(let i=0;i<spots.length;i++)for(let j=i+1;j<spots.length;j++){let a=spots[i],b=spots[j],d=Math.hypot(a.x-b.x,a.y-b.y);if(d<18+(a.d+b.d)*5&&a.d>2&&b.d>2){[a.h,b.h]=[b.h,a.h];[a.d,b.d]=[b.d,a.d];a.x+=Math.cos(a.a)*24;b.x-=Math.cos(b.a)*24;}}
+}
+function touch(x,y){if(APKit.isUI(x,y))return;let hit=null,best=Infinity;for(let s of spots){let d=Math.hypot(x-s.x,y-s.y);if(d<best){best=d;hit=s}}if(hit&&best<150){hit.x=x;hit.y=y;hit.d=Math.min(7,hit.d+1);hit.e=Math.min(1,hit.e+.34);hit.a+=Math.PI/2; // choice deepens here
+ // force the conservation law immediately: one of the other foci must lose depth
+ let victim=spots.filter(q=>q!==hit).sort((a,b)=>a.e-b.e)[0];if(victim){victim.e=Math.max(.04,victim.e-.38);victim.d=Math.max(0,victim.d-1)}}else{spots.push({x,y,d:2,e:.7,a:Math.random()*TAU,h:Math.random()});if(spots.length>7)spots.shift()}}
+c.addEventListener('pointerdown',e=>touch(e.clientX,e.clientY));c.addEventListener('pointermove',e=>{if(e.buttons)touch(e.clientX,e.clientY)});
+APKit.init({canvas:c,gifName:'focus-collapse-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:p=>draw(p),buttons:[{label:'✦',name:'mutate',onClick:()=>{spots.forEach(s=>{s.h=Math.random();s.a+=Math.random()*TAU});spots.sort(()=>Math.random()-.5)}},{label:'↻',name:'reset',onClick:reset}]});function loop(){draw();requestAnimationFrame(loop)}loop();
+</script></body></html>
