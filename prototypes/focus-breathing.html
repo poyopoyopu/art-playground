@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>FOCUS BREATHING</title><script src="../ap-kit.js"></script>
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#02030a}body{touch-action:none;overscroll-behavior:none;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}canvas{position:fixed;inset:0;width:100%;height:100%;display:block}</style>
+</head><body><canvas id="c"></canvas><script>
+/* CHATGPT — FOCUS BREATHING
+WORLD LAW: the field can only be detailed where attention is concentrated.
+Attention is alive: a focus inhales, deepens the recursive field around it,
+then exhales. At the end of an exhale the detailed region collapses and the
+same attention is reborn elsewhere. The world therefore changes by itself.
+Touch grabs the current breath and redirects it. Hold prolongs the inhale.
+*/
+const C=document.querySelector('#c'),X=C.getContext('2d',{alpha:false}),TAU=Math.PI*2;
+let W=1,H=1,D=1;
+function resize(){D=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;C.width=W*D;C.height=H*D;X.setTransform(D,0,0,D,0,0)}addEventListener('resize',resize);resize();
+let seed=42,hue=.58,speed=1,twist=.22;
+function rand(){let v=Math.sin(seed++*127.17)*43758.5453;return v-Math.floor(v)}
+function reset(){seed=42;hue=.58;speed=1;twist=.22;focuses=[];for(let i=0;i<5;i++)focuses.push({x:W*(.12+.76*rand()),y:H*(.12+.76*rand()),energy:.1+rand()*.2,phase:rand()*TAU,age:rand()*10,rot:rand()*TAU,life:.2+rand()*.5});active=0;grab=null}
+let focuses=[],active=0,grab=null,last=performance.now();reset();
+function rgb(t){return [Math.round(255*(.5+.5*Math.cos(TAU*t))),Math.round(255*(.5+.5*Math.cos(TAU*(t+.33)))),Math.round(255*(.5+.5*Math.cos(TAU*(t+.67))))]}
+function rec(x,y,s,depth,fx,fy,p,rot){
+ if(s<4)return;
+ const cx=x+s/2,cy=y+s/2,dist=Math.hypot(cx-fx,cy-fy);
+ const local=p*Math.exp(-dist/(Math.min(W,H)*(.16+.025*depth)));
+ const threshold=.18+depth*.085;
+ if(depth<7&&local>threshold&&s>9){
+  const gap=Math.max(.8,s*.018),q=(s-gap)/2;
+  rec(x,y,q,depth+1,fx,fy,p,rot+twist);
+  rec(x+q+gap,y,q,depth+1,fx,fy,p,rot-twist*.7);
+  rec(x,y+q+gap,q,depth+1,fx,fy,p,rot-twist*.55);
+  rec(x+q+gap,y+q+gap,q,depth+1,fx,fy,p,rot+twist*.85);
+ }else{
+  const d=Math.min(1,local),h=hue+depth*.047+dist/Math.max(W,H)*.08;
+  const [r,g,b]=rgb(h);X.strokeStyle=`rgba(${r},${g},${b},${.055+d*.25})`;X.lineWidth=.55+d*1.1;
+  X.save();X.translate(cx,cy);X.rotate(rot+depth*.035);
+  X.strokeRect(-s*.46,-s*.46,s*.92,s*.92);
+  if(d>.38){X.fillStyle=`rgba(${r},${g},${b},${d*.035})`;X.fillRect(-s*.39,-s*.39,s*.78,s*.78)}X.restore();
+ }
+}
+function render(t){
+ X.fillStyle='#02030a';X.fillRect(0,0,W,H);let f=focuses[active];if(!f)return;
+ // Two breath layers: the active focus and a weaker echo make the autonomous
+ // transformation visible across the field rather than as a tiny marker.
+ rec(0,0,W,0,f.x,f.y,f.energy,f.rot);
+ const echo=focuses[(active+2)%focuses.length];
+ if(echo){X.globalAlpha=.24;rec(0,0,W,0,echo.x,echo.y,echo.energy,echo.rot);X.globalAlpha=1}
+ for(let i=0;i<focuses.length;i++){let q=focuses[i],a=i===active?.7:.13+q.energy*.18,r=7+q.energy*15+Math.sin(t*3+q.phase)*2;X.beginPath();X.arc(q.x,q.y,r,0,TAU);X.strokeStyle=`hsla(${185+q.phase*30},85%,75%,${a})`;X.lineWidth=i===active?1.5:.7;X.stroke()}
+ // The active focus has a visible breathing halo, but the geometry is the artwork.
+ let pulse=.5+.5*Math.sin(f.phase);X.beginPath();X.arc(f.x,f.y,24+pulse*55,0,TAU);X.strokeStyle=`rgba(220,235,255,${.025+.05*pulse})`;X.lineWidth=1;X.stroke();
+}
+function update(dt){let f=focuses[active];if(!f)return;f.age+=dt;f.phase+=dt*speed*1.15;f.rot+=dt*.035;let held=!!grab;
+ if(held){f.x=grab.x;f.y=grab.y;f.energy=Math.min(1,f.energy+dt*.9);f.life=Math.min(1,f.life+dt*.35)}
+ else {f.energy=Math.min(1,f.energy+dt*(.10+.10*Math.sin(f.phase)*.5));f.life+=dt*.055}
+ // Other possible foci remain visible but lose the world's attention.
+ for(let i=0;i<focuses.length;i++)if(i!==active){focuses[i].energy=Math.max(.055,focuses[i].energy-dt*.025);focuses[i].age+=dt*.2}
+ // One full breath: inhale -> maximum detail -> collapse -> rebirth.
+ if(f.phase>=TAU){
+   f.phase=0;f.energy=.06;f.life=0;
+   let next=(active+1+Math.floor(rand()*(focuses.length-1)))%focuses.length;
+   active=next;let n=focuses[active];n.x=W*(.08+.84*rand());n.y=H*(.08+.84*rand());n.energy=.82;n.phase=0;n.rot=rand()*TAU;
+ }
+}
+function touch(x,y){if(APKit.isUI(x,y))return;let best=Infinity,idx=-1;for(let i=0;i<focuses.length;i++){let d=Math.hypot(x-focuses[i].x,y-focuses[i].y);if(d<best){best=d;idx=i}}
+ if(idx>=0&&best<190){active=idx;focuses[idx].x=x;focuses[idx].y=y;focuses[idx].energy=Math.min(1,focuses[idx].energy+.45);focuses[idx].phase=Math.max(0,focuses[idx].phase-.8)}
+ else {let n=focuses[active];n.x=x;n.y=y;n.energy=Math.min(1,n.energy+.3);n.phase=Math.max(0,n.phase-.65)}grab={x,y}}
+C.addEventListener('pointerdown',e=>touch(e.clientX,e.clientY));C.addEventListener('pointermove',e=>{if(grab){grab.x=e.clientX;grab.y=e.clientY}});C.addEventListener('pointerup',()=>grab=null);C.addEventListener('pointercancel',()=>grab=null);
+function live(){let now=performance.now(),dt=Math.min(.05,(now-last)/1000);last=now;if(!APKit.isExporting()){update(dt);render(now*.001)}requestAnimationFrame(live)}requestAnimationFrame(live);
+function loopFrame(p){
+ // Periodic counterpart of the breathing law. At p=0 and 2π the focus is
+ // shallow and identical, so the export closes cleanly.
+ let e=.08+.88*(.5-.5*Math.cos(p));let f={x:W*(.5+.34*Math.cos(p)),y:H*(.5+.28*Math.sin(p*2)),energy:e,phase:p,rot:p*.12};
+ X.fillStyle='#02030a';X.fillRect(0,0,W,H);rec(0,0,W,0,f.x,f.y,f.energy,f.rot);
+ X.beginPath();X.arc(f.x,f.y,8+e*18,0,TAU);X.strokeStyle=`rgba(230,240,255,${.18+.35*e})`;X.stroke();
+}
+APKit.init({canvas:C,gifName:'focus-breathing-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:loopFrame,buttons:[
+ {label:'✦',name:'mutate',onClick:()=>{hue=Math.random();speed=.65+Math.random()*.8;twist=.1+Math.random()*.4;focuses.forEach(f=>{f.x=Math.max(0,Math.min(W,f.x+(Math.random()-.5)*W*.16));f.y=Math.max(0,Math.min(H,f.y+(Math.random()-.5)*H*.16));f.rot+=Math.random()*TAU})}},
+ {label:'↻',name:'reset',onClick:reset}
+]});
+</script></body></html>
