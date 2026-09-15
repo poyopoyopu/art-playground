@@ -4,9 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>CHROMATIC FOLD</title>
+<!-- CHROMATIC FOLD — ChatGPT作。参照画像(虹色の極細線の束+パステルのシルクリボン)に寄せた描画の作り直し: Claude -->
 <script src="../ap-kit.js"></script>
 <style>
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#f1eee6}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#f6f0e4}
 canvas{display:block;width:100%;height:100%;touch-action:none}
 </style>
 </head>
@@ -14,168 +15,227 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 <canvas id="c"></canvas>
 <script>
 'use strict';
+/* WORLD LAW
+   The sheet is lit by one light. Where you touch, the light moves there and the
+   folds lean toward it; each tap rotates the spectrum the light reveals.      */
 const canvas=document.getElementById('c'),ctx=canvas.getContext('2d',{alpha:false});
 let W=0,H=0,DPR=1,seed=Math.random()*1000;
-let law=0,px=.5,py=.5,tx=.5,ty=.5,last=performance.now();
-const palettes=[
- ['#f4efe4','#d7d1c3','#b8a79d','#8f6f83','#563f68'],
- ['#f2eadc','#d5c0a7','#b56d5b','#7e3f55','#34263f'],
- ['#e9f1ef','#b9d5d0','#7199a0','#4c6289','#2d345f'],
- ['#f3ead8','#d8d29d','#9c9a5c','#64734d','#303c39']
-];
+let hueCur=0,hueTarget=0;
+let lx=.10,ly=.32,ltx=.10,lty=.32;      // light source (normalized)
+let press=0,pressTarget=0,last=performance.now();
+const TAU=Math.PI*2;
+
 function resize(){DPR=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;canvas.width=Math.round(W*DPR);canvas.height=Math.round(H*DPR);ctx.setTransform(DPR,0,0,DPR,0,0)}
 addEventListener('resize',resize,{passive:true});resize();
-function hs(h,s,l,a=1){return `hsla(${h},${s}%,${l}%,${a})`}
+
+const hs=(h,s,l,a=1)=>`hsla(${((h%360)+360)%360},${s}%,${l}%,${a})`;
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+const smooth=v=>{v=clamp(v,0,1);return v*v*(3-2*v)};
+const hash=n=>{const s=Math.sin(n*127.1+seed*.013)*43758.5453;return s-Math.floor(s)};
+
 function render(phase=null){
- const now=performance.now()/1000,t=phase===null?now:phase,p=palettes[law];
- const T=k=>APKit.T(k,phase,t),base=Math.min(W,H),u=T(.16);
- const breathe=(Math.sin(T(.39))+1)/2;
- const tide=(Math.sin(T(.145)-.8)+1)/2;
- const bloom=(Math.sin(T(.082)+1.2)+1)/2;
- const centerX=W*(.5+(px-.5)*.14),centerY=H*(.5+(py-.5)*.14);
+  const t=phase===null?performance.now()/1000:phase;
+  const T=k=>APKit.T(k,phase,t);
+  const base=Math.min(W,H),hu=hueCur,sp=seed*.0009;
+  const LX=lx*W,LY=ly*H;
+  const breathe=(Math.sin(T(.21))+1)/2;
 
- // The paper is never visually still: a very slow chromatic dawn moves through it.
- const bg=ctx.createLinearGradient(0,0,W,H);
- const drift=.5+.5*Math.sin(T(.052));
- bg.addColorStop(0,p[0]);
- bg.addColorStop(.20,p[0]);
- bg.addColorStop(.43,hs((law*57+u*30)%360,18,92,.55));
- bg.addColorStop(.62,p[1]);
- bg.addColorStop(.84,p[0]);
- bg.addColorStop(1,p[0]);
- ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
- ctx.globalCompositeOperation='screen';
- for(let k=0;k<5;k++){
-   const gx=W*(.02+k*.245+Math.sin(T(.038)+k*1.7)*.10)+drift*W*.08;
-   const gy=H*(.10+.24*((k*1.37)%1))+Math.cos(T(.030)+k)*H*.07;
-   const rg=ctx.createRadialGradient(gx,gy,0,gx,gy,base*(.43+.14*bloom));
-   const hue=(law*55+k*29+u*22+drift*24)%360;
-   rg.addColorStop(0,hs(hue,36,77,.048+.035*breathe));
-   rg.addColorStop(.48,hs(hue+24,28,79,.018+.012*bloom));
-   rg.addColorStop(1,hs(hue,30,80,0));
-   ctx.fillStyle=rg;ctx.fillRect(0,0,W,H);
- }
- ctx.globalCompositeOperation='source-over';
+  /* ---------- paper ---------- */
+  const bg=ctx.createLinearGradient(0,0,W*.4,H);
+  bg.addColorStop(0,hs(38+hu*.05,55,95));
+  bg.addColorStop(.45,hs(35+hu*.05,48,93));
+  bg.addColorStop(1,hs(30+hu*.05,45,94));
+  ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
 
- ctx.save();ctx.translate(centerX,centerY);
- const bands=46;
+  // light beams fanning from the light source
+  ctx.globalCompositeOperation='screen';
+  for(let k=0;k<5;k++){
+    const ang=-.55+k*.33+Math.sin(T(.035)+k*1.9)*.06;
+    const len=Math.hypot(W,H)*1.3,wid=base*(.05+.05*hash(k+3));
+    ctx.save();ctx.translate(LX,LY);ctx.rotate(ang);
+    const g=ctx.createLinearGradient(0,-wid,0,wid);
+    const a=.16+.08*Math.sin(T(.09)+k*2.3);
+    g.addColorStop(0,'rgba(255,250,235,0)');
+    g.addColorStop(.5,`rgba(255,250,235,${a})`);
+    g.addColorStop(1,'rgba(255,250,235,0)');
+    ctx.fillStyle=g;ctx.fillRect(-len*.2,-wid,len,wid*2);
+    ctx.restore();
+  }
+  ctx.globalCompositeOperation='source-over';
 
- // Soft folds establish depth first. Their crests travel at a different speed
- // from the fine field, so the image slowly changes its internal hierarchy.
- for(let r=0;r<9;r++){
-   const q=r/8,phaseR=T(.052)+r*.83;
-   ctx.beginPath();
-   for(let i=0;i<=300;i++){
-     const z=i/300,x=(z-.5)*W*1.44;
-     const y=(q-.5)*base*.80
-       +Math.sin(z*Math.PI*1.72+phaseR)*base*(.060+.032*breathe)
-       +Math.sin(z*Math.PI*3.18-phaseR*.55+r)*base*.022
-       +Math.sin(z*Math.PI*.82-T(.028))*base*.018*(q-.5);
-     if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
-   }
-   const hue=(law*58+r*24+u*34)%360;
-   ctx.strokeStyle=hs(hue,46+q*25,65-q*6,.045+.035*(1-q));
-   ctx.lineWidth=base*(.024+.011*breathe);
-   ctx.filter='blur('+Math.max(3,base*.0105)+'px)';ctx.stroke();ctx.filter='none';
- }
+  /* ---------- geometry ---------- */
+  const lean=(z)=>press*Math.exp(-Math.pow((z-lx)/.18,2));
+  function bundleY(q,z){
+    let y=H*(.13+q*.46-z*(.06+.04*q))
+      +base*(.055+.035*q)*Math.sin(z*Math.PI*1.8+.44-q*1.0+T(.07)+sp)
+      +base*.022*q*Math.sin(z*Math.PI*3.6-q*3.1-T(.05)+sp*1.3)
+      +base*.004*Math.sin(z*Math.PI*9+q*7+T(.12));
+    return y+(LY-y)*.22*lean(z);
+  }
+  function ribbon(y0,amp,f,ph,w0,w1,g,ph2,sp1,sp2){
+    const top=[],bot=[],N=120;
+    for(let i=0;i<=N;i++){
+      const z=-.05+i/N*1.1,x=z*W;
+      let c=H*y0+base*amp*Math.sin(z*Math.PI*f+ph+T(sp1));
+      c+=(LY-c)*.10*lean(z);
+      const w=base*(w0+w1*Math.sin(z*Math.PI*g+ph2+T(sp2)));
+      top.push([x,c-w/2]);bot.push([x,c+w/2]);
+    }
+    return {top,bot};
+  }
+  function drawRibbon(r,hue,sat,light,alpha){
+    const {top,bot}=r,N=top.length-1;
+    // body — three nested fills give a denser core and soft edges
+    for(let L=0;L<3;L++){
+      const s=[1,.72,.42][L];
+      ctx.beginPath();
+      for(let i=0;i<=N;i++){const m=(top[i][1]+bot[i][1])/2,h=(bot[i][1]-top[i][1])/2*s;i?ctx.lineTo(top[i][0],m-h):ctx.moveTo(top[i][0],m-h)}
+      for(let i=N;i>=0;i--){const m=(top[i][1]+bot[i][1])/2,h=(bot[i][1]-top[i][1])/2*s;ctx.lineTo(bot[i][0],m+h)}
+      ctx.closePath();
+      const g=ctx.createLinearGradient(0,0,W,0);
+      g.addColorStop(0,hs(hue,sat,light,alpha*.35));
+      g.addColorStop(.4,hs(hue+12,sat,light,alpha));
+      g.addColorStop(1,hs(hue-10,sat,light,alpha*.6));
+      ctx.fillStyle=g;ctx.fill();
+    }
+    // silk threads
+    const threads=18;
+    for(let k=0;k<=threads;k++){
+      const f=k/threads;
+      ctx.beginPath();
+      for(let i=0;i<=N;i+=2){const y=top[i][1]+(bot[i][1]-top[i][1])*f;i?ctx.lineTo(top[i][0],y):ctx.moveTo(top[i][0],y)}
+      const edge=(k===0||k===threads);
+      ctx.strokeStyle=hs(hue,sat+10,light-(edge?22:14),edge?.30:.09);
+      ctx.lineWidth=edge?.8:.5;ctx.stroke();
+    }
+    // sheen on the upper edge
+    ctx.beginPath();
+    for(let i=0;i<=N;i+=2){i?ctx.lineTo(top[i][0],top[i][1]-.8):ctx.moveTo(top[i][0],top[i][1]-.8)}
+    ctx.strokeStyle='rgba(255,255,255,.55)';ctx.lineWidth=.8;ctx.stroke();
+  }
+  function curve(fn,z0,z1,n){const pts=[];for(let i=0;i<=n;i++){const z=z0+(z1-z0)*i/n;pts.push([z*W,fn(z)])}return pts}
+  function strokePts(pts){ctx.beginPath();pts.forEach((p,i)=>i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]))}
 
- // Main folded field. The spacing breathes, while a very slow phase slip moves
- // the crest. Color changes continuously instead of jumping between stripes.
- for(let b=0;b<bands;b++){
-   const q=b/(bands-1),path=new Path2D();
-   for(let i=0;i<=320;i++){
-     const z=i/320;
-     const x=(z-.5)*W*1.43;
-     const crest=Math.sin(z*Math.PI*1.72+T(.075)+q*2.15+seed*.0007);
-     const fold=Math.sin(z*Math.PI*3.45-T(.045)+q*1.55+T(.20)*.12+seed*.001);
-     const fine=Math.sin(z*Math.PI*8.2+q*5.8+T(.11))*base*.0037;
-     const localBreath=.72+.28*Math.sin(T(.31)+q*4.2);
-     const y=(q-.5)*base*.82
-       +crest*base*(.050+.031*breathe)*localBreath
-       +fold*base*(.009+.012*(1-q))
-       +fine;
-     const xx=x+Math.sin(z*Math.PI*2.15+q*3.2+T(.065))*base*.006*(.45+breathe);
-     if(i===0)path.moveTo(xx,y);else path.lineTo(xx,y);
-   }
-   const hue=(law*62+q*102+u*34+Math.sin(q*Math.PI*2+T(.12))*12)%360;
-   const sat=33+q*31+7*Math.sin(q*Math.PI);
-   const light=42+q*31+4*breathe;
-   const alpha=.22+.32*(1-q);
-   ctx.strokeStyle=hs(hue,sat,light,alpha);
-   ctx.lineWidth=.62+base*.00225*(1-q)*(1.02+.38*breathe);
-   ctx.stroke(path);
- }
+  /* ---------- back ribbons ---------- */
+  drawRibbon(ribbon(.66,.06,1.6,2.3,.035,.075,1.4,1.5,-.05,.035),340+hu,55,80,.26);
+  drawRibbon(ribbon(.73,.07,1.3,3.6,.05,.10,1.1,.3,.04,.03),228+hu,48,78,.26);
 
- // Pearlescent illumination sweeps slowly across the sheet. Three veils overlap
- // so the eye sees changing color relationships rather than a moving stripe.
- for(let r=0;r<3;r++){
-   const q=(tide+r*.305)%1;
-   const y0=(q-.5)*base*.82;
-   ctx.beginPath();
-   for(let i=0;i<=260;i++){
-     const z=i/260,x=(z-.5)*W*1.44;
-     const y=y0
-       +Math.sin(z*Math.PI*1.72+T(.075)+q*2.15)*base*.075
-       +Math.sin(z*Math.PI*3.4-T(.04)+r*.5)*base*.018;
-     if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
-   }
-   const hue=(law*60+q*150+u*28+r*18)%360;
-   ctx.strokeStyle=hs(hue,60,73,.060+.045*breathe);
-   ctx.lineWidth=base*(.012+.007*breathe);
-   ctx.filter='blur('+Math.max(2,base*.006)+'px)';ctx.stroke();ctx.filter='none';
- }
+  /* ---------- blue filament (behind bundle) ---------- */
+  const blue=curve(z=>{let y=H*.56+base*.16*Math.sin(Math.min(z,.95)*Math.PI*1.6+T(.06)*.3);return y+(LY-y)*.12*lean(z)},-.02,.85,160);
+  const bg2=ctx.createLinearGradient(0,0,W*.85,0);
+  bg2.addColorStop(0,hs(205+hu,55,62,.75));bg2.addColorStop(.45,hs(215+hu,45,66,.6));
+  bg2.addColorStop(.75,hs(345+hu,50,72,.35));bg2.addColorStop(1,hs(345+hu,50,72,0));
+  strokePts(blue);ctx.strokeStyle=bg2;ctx.lineWidth=3.5;ctx.globalAlpha=.25;ctx.stroke();
+  ctx.globalAlpha=1;ctx.lineWidth=1.1;ctx.stroke();
 
- // The accent filament now behaves like a reflection: it becomes visible,
- // fades, and changes hue as the broad illumination passes over it.
- const filament=T(.20);
- ctx.beginPath();
- for(let i=0;i<=280;i++){
-   const z=i/280,x=(z-.5)*W*1.40;
-   const y=Math.sin(z*Math.PI*1.62+filament)*base*.235
-     +Math.sin(z*Math.PI*4.8-filament*.65)*base*.017;
-   if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
- }
- const fh=(law*80+u*55+Math.sin(T(.08))*18)%360;
- ctx.strokeStyle=hs(fh,66,72,.22+.30*(1-tide));
- ctx.lineWidth=Math.max(.75,base*.0021);ctx.stroke();
+  /* ---------- main bundle of chromatic lines ---------- */
+  const bands=Math.round(clamp(H/16,44,58)),NP=Math.round(clamp(W/6,120,240));
+  for(let b=0;b<bands;b++){
+    const q=b/(bands-1);
+    const pts=[];
+    for(let i=0;i<=NP;i++){const z=-.02+i/NP*1.04;pts.push([z*W,bundleY(q,z)])}
+    const g=ctx.createLinearGradient(0,0,W,0);
+    const hL=(q<.45?352+q/.45*58:50+smooth((q-.45)/.30)*155)+hu,hR=352-q*140+hu,a=.88-.30*q;
+    const sL=62-34*Math.exp(-Math.pow((q-.6)/.12,2));
+    g.addColorStop(0,hs(hL,sL,54+q*6,a));
+    g.addColorStop(.28,hs(hL+6,sL,56+q*4,a*.9));
+    g.addColorStop(.55,hs((hL+hR)/2+(q>.35?180:0),38,66,a*.7));
+    g.addColorStop(.8,hs(hR,50,60,a*.9));
+    g.addColorStop(1,hs(hR-6,54,56,a));
+    strokePts(pts);ctx.strokeStyle=g;ctx.lineWidth=1.25;ctx.stroke();
+    // glass highlight riding just above each line
+    ctx.save();ctx.translate(0,-.9);
+    ctx.strokeStyle=`rgba(255,255,255,${.65-.2*q})`;ctx.lineWidth=.7;ctx.stroke();
+    ctx.restore();
+  }
 
- // Tiny glints drift across the folds. They are deliberately broad enough to
- // read as light moving over a surface, not as particles.
- ctx.globalCompositeOperation='screen';
- for(let g=0;g<3;g++){
-   const gx=-W*.65+((T(.042+g*.009)+g*.37)%1)*W*2.3;
-   const gy=H*(.35+.16*g)+Math.sin(T(.065)+g*2.1)*base*.16-H*.5;
-   const gr=ctx.createRadialGradient(gx,gy,0,gx,gy,base*(.14+.04*bloom));
-   gr.addColorStop(0,hs((law*64+g*51+u*26)%360,48,84,.050+.018*bloom));
-   gr.addColorStop(1,'rgba(255,255,255,0)');
-   ctx.fillStyle=gr;ctx.fillRect(-W,-H,W*2,H*2);
- }
- ctx.globalCompositeOperation='source-over';
- ctx.restore();
+  /* ---------- front ribbons ---------- */
+  drawRibbon(ribbon(.81,.08,1.2,4.2,.04,.085,.9,2.0,.045,-.03),158+hu,38,74,.24);
+  drawRibbon(ribbon(.89,.07,1.5,1.0,.03,.09,1.2,.8,.05,.04),205+hu,58,76,.32);
 
- const vign=ctx.createRadialGradient(W*.5,H*.5,base*.16,W*.5,H*.5,Math.max(W,H)*.78);
- vign.addColorStop(0,'rgba(255,255,255,0)');
- vign.addColorStop(.70,'rgba(0,0,0,.010)');
- vign.addColorStop(1,'rgba(0,0,0,.075)');
- ctx.fillStyle=vign;ctx.fillRect(0,0,W,H);
+  /* ---------- orange filament (in front) ---------- */
+  const orange=curve(z=>{let y=H*(.80-.56*smooth((z-.18)/.88))+base*.012*Math.sin(z*Math.PI*3+T(.08));return y+(LY-y)*.12*lean(z)},.18,1.04,140);
+  const og=ctx.createLinearGradient(W*.18,0,W,0);
+  og.addColorStop(0,hs(20+hu,70,70,0));og.addColorStop(.3,hs(24+hu,72,66,.55));
+  og.addColorStop(1,hs(18+hu,70,62,.9));
+  strokePts(orange);ctx.strokeStyle=og;ctx.lineWidth=4;ctx.globalAlpha=.22;ctx.stroke();
+  ctx.globalAlpha=1;ctx.lineWidth=1.3;ctx.stroke();
+  ctx.save();ctx.translate(0,-.8);ctx.strokeStyle='rgba(255,252,240,.6)';ctx.lineWidth=.6;ctx.stroke();ctx.restore();
+
+  /* ---------- light: bloom, glints ---------- */
+  ctx.globalCompositeOperation='screen';
+  const R=Math.max(W,H);
+  let rg=ctx.createRadialGradient(LX,LY,0,LX,LY,R*(.34+.05*breathe));
+  rg.addColorStop(0,'rgba(255,242,195,.95)');rg.addColorStop(.10,'rgba(255,230,170,.50)');
+  rg.addColorStop(.40,'rgba(255,236,205,.08)');rg.addColorStop(1,'rgba(255,238,210,0)');
+  ctx.fillStyle=rg;ctx.fillRect(0,0,W,H);
+  rg=ctx.createRadialGradient(LX,LY,0,LX,LY,base*.16);
+  rg.addColorStop(0,'rgba(255,250,225,.9)');rg.addColorStop(.35,'rgba(255,232,170,.35)');rg.addColorStop(1,'rgba(255,232,170,0)');
+  ctx.fillStyle=rg;ctx.fillRect(0,0,W,H);
+  const sx=W*(.48+.08*Math.sin(T(.03))),sy=H*.22;
+  rg=ctx.createRadialGradient(sx,sy,0,sx,sy,R*.28);
+  rg.addColorStop(0,'rgba(255,250,238,.35)');rg.addColorStop(1,'rgba(255,250,238,0)');
+  ctx.fillStyle=rg;ctx.fillRect(0,0,W,H);
+  rg=ctx.createRadialGradient(W*.1,H*.95,0,W*.1,H*.95,R*.45);
+  rg.addColorStop(0,'rgba(255,248,236,.30)');rg.addColorStop(1,'rgba(255,248,236,0)');
+  ctx.fillStyle=rg;ctx.fillRect(0,0,W,H);
+
+  function glint(x,y,s,a){
+    if(a<.02)return;
+    const r=ctx.createRadialGradient(x,y,0,x,y,s*5);
+    r.addColorStop(0,`rgba(255,253,240,${a})`);r.addColorStop(.2,`rgba(255,238,195,${a*.7})`);r.addColorStop(1,'rgba(255,236,190,0)');
+    ctx.fillStyle=r;ctx.fillRect(x-s*5,y-s*5,s*10,s*10);
+    const lg=ctx.createLinearGradient(x-s*9,0,x+s*9,0);
+    lg.addColorStop(0,'rgba(255,250,230,0)');lg.addColorStop(.5,`rgba(255,250,230,${a*.8})`);lg.addColorStop(1,'rgba(255,250,230,0)');
+    ctx.fillStyle=lg;ctx.fillRect(x-s*9,y-.5,s*18,1);
+    const vg=ctx.createLinearGradient(0,y-s*4,0,y+s*4);
+    vg.addColorStop(0,'rgba(255,250,230,0)');vg.addColorStop(.5,`rgba(255,250,230,${a*.6})`);vg.addColorStop(1,'rgba(255,250,230,0)');
+    ctx.fillStyle=vg;ctx.fillRect(x-.5,y-s*4,1,s*8);
+  }
+  const gs=Math.max(3,base*.0065);
+  for(let g=0;g<10;g++){
+    const q=hash(g+11)*.75;
+    const z=clamp(lx+(hash(g+29)-.4)*.7+Math.sin(T(.03)+g*1.3)*.05,0,1);
+    const tw=Math.pow(Math.max(0,Math.sin(T(.45+g*.03)+g*1.9)),2);
+    glint(z*W,bundleY(q,z),gs*(.7+.6*hash(g+5)),1*tw*(.4+.6*Math.exp(-Math.abs(z-lx)*2.5)));
+  }
+  {
+    const z=.62+.3*((T(.02)/TAU)%1);
+    glint(z*W,H*(.80-.56*smooth((z-.18)/.88)),gs,.7*Math.pow((Math.sin(T(.33))+1)/2,2));
+  }
+  ctx.globalCompositeOperation='source-over';
+
+  // faint milky haze at the edges keeps the whole thing airy
+  const vg=ctx.createRadialGradient(W*.5,H*.45,base*.2,W*.5,H*.5,R*.8);
+  vg.addColorStop(0,'rgba(250,244,232,0)');vg.addColorStop(1,'rgba(250,244,232,.22)');
+  ctx.fillStyle=vg;ctx.fillRect(0,0,W,H);
 }
+
 function animate(now){
- const dt=Math.min(.05,(now-last)/1000);last=now;
- px+=(tx-px)*(1-Math.exp(-dt*2.3));py+=(ty-py)*(1-Math.exp(-dt*2.3));
- render();requestAnimationFrame(animate);
+  const dt=Math.min(.05,(now-last)/1000);last=now;
+  const e=1-Math.exp(-dt*2.0);
+  lx+=(ltx-lx)*e;ly+=(lty-ly)*e;
+  hueCur+=(hueTarget-hueCur)*(1-Math.exp(-dt*1.2));
+  press+=(pressTarget-press)*(1-Math.exp(-dt*(pressTarget>press?3:.7)));
+  render();requestAnimationFrame(animate);
 }
 function touch(x,y){
- if(window.APKit&&APKit.isUI(x,y))return true;
- tx=x/innerWidth;ty=y/innerHeight;
- law=(law+1)%palettes.length;seed=Math.random()*1000;
- return true;
+  if(window.APKit&&APKit.isUI(x,y))return true;
+  ltx=x/innerWidth;lty=y/innerHeight;
+  hueTarget+=97;pressTarget=1;
+  return true;
 }
 canvas.addEventListener('pointerdown',e=>touch(e.clientX,e.clientY),{passive:true});
-canvas.addEventListener('pointermove',e=>{if(e.buttons){tx=e.clientX/innerWidth;ty=e.clientY/innerHeight}},{passive:true});
-APKit.init({canvas:canvas,gifName:'chromatic-fold-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:function(phase){render(phase)},buttons:[
- {label:'✦',name:'mutate',onClick:function(){law=(law+1)%palettes.length;seed=Math.random()*1000}},
- {label:'↻',name:'reset',onClick:function(){law=0;seed=Math.random()*1000;tx=ty=px=py=.5}}
-]});
+canvas.addEventListener('pointermove',e=>{if(e.buttons){ltx=e.clientX/innerWidth;lty=e.clientY/innerHeight}},{passive:true});
+addEventListener('pointerup',()=>{pressTarget=0},{passive:true});
+addEventListener('pointercancel',()=>{pressTarget=0},{passive:true});
+
+APKit.init({canvas:canvas,gifName:'chromatic-fold-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,
+  loopFrame:function(phase){render(phase)},
+  buttons:[
+    {label:'✦',name:'mutate',onClick:function(){hueTarget+=60+Math.random()*240;seed=Math.random()*1000;ltx=.05+Math.random()*.5;lty=.15+Math.random()*.4}},
+    {label:'↻',name:'reset',onClick:function(){hueTarget=hueCur-(((hueCur%360)+360)%360);ltx=.10;lty=.32;pressTarget=0}}
+  ]});
 requestAnimationFrame(animate);
 </script>
 </body>
