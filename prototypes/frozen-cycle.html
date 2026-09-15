@@ -24,30 +24,22 @@ function temperature(phase){
 }
 
 function buildCrystal(seed,originX,originY){
-  const created=[];
-  const root={x:originX,y:originY,depth:0,angle:-Math.PI/2,parentId:-1,bornAtTemp:temperature(phase)};
-  created.push(root);
-  const walk=(parent,depth,index)=>{
-    if(depth>=7)return;
-    const branches=depth<2?3:2;
-    for(let b=0;b<branches;b++){
-      const spread=.34+depth*.035;
-      const wobble=Math.sin(seed*17.13+index*2.71+b*4.37+depth*.91)*.075;
-      const angle=parent.angle+(b-(branches-1)/2)*spread+wobble;
-      const length=(22+depth*8)*(0.78+0.22*Math.sin(seed*8.1+index*.73+b*2.9)**2);
-      const child={
-        x:parent.x+Math.cos(angle)*length,
-        y:parent.y+Math.sin(angle)*length,
-        depth:depth,
-        angle:angle,
-        parentId:created.indexOf(parent),
-        bornAtTemp:parent.bornAtTemp
-      };
-      created.push(child);
-      walk(child,depth+1,index*branches+b+1);
+  const created=[{x:originX,y:originY,depth:0,angle:-Math.PI/2,parentId:-1,bornAtTemp:temperature(phase)}];
+  for(let depth=0;depth<7;depth++){
+    const start=created.length;
+    for(let i=0;i<start;i++){
+      if(created[i].depth!==depth)continue;
+      const branches=depth<2?3:2;
+      for(let b=0;b<branches;b++){
+        const parent=created[i];
+        const spread=.34+depth*.035;
+        const wobble=Math.sin(seed*17.13+i*2.71+b*4.37+depth*.91)*.075;
+        const angle=parent.angle+(b-(branches-1)/2)*spread+wobble;
+        const length=(22+depth*8)*(0.78+0.22*Math.sin(seed*8.1+i*.73+b*2.9)**2);
+        created.push({x:parent.x+Math.cos(angle)*length,y:parent.y+Math.sin(angle)*length,depth:depth+1,angle:angle,parentId:i,bornAtTemp:parent.bornAtTemp});
+      }
     }
-  };
-  walk(root,1,1);
+  }
   return created;
 }
 
@@ -60,41 +52,30 @@ function renderAt(nodes,temp){
     if(!p)continue;
     const melt=Math.max(0,Math.min(1,(temp-n.bornAtTemp+.12)/.48));
     const reach=Math.max(.015,cold*(1-melt*.96));
-    const x=p.x+(n.x-p.x)*reach;
-    const y=p.y+(n.y-p.y)*reach;
-    const glow=.08+.8*reach;
-    g.beginPath();
-    g.moveTo(p.x,p.y);
-    g.lineTo(x,y);
-    g.strokeStyle=`rgba(194,235,255,${glow})`;
-    g.lineWidth=Math.max(.35,2.35-n.depth*.25);
-    g.stroke();
+    const x=p.x+(n.x-p.x)*reach,y=p.y+(n.y-p.y)*reach;
+    g.beginPath();g.moveTo(p.x,p.y);g.lineTo(x,y);
+    g.strokeStyle=`rgba(194,235,255,${.08+.8*reach})`;
+    g.lineWidth=Math.max(.35,2.35-n.depth*.25);g.stroke();
   }
   for(const n of nodes){
     if(n.depth!==0)continue;
-    g.beginPath();
-    g.arc(n.x,n.y,2.6,0,Math.PI*2);
-    g.fillStyle='rgba(238,250,255,.95)';
-    g.fill();
+    g.beginPath();g.arc(n.x,n.y,2.6,0,Math.PI*2);
+    g.fillStyle='rgba(238,250,255,.95)';g.fill();
   }
 }
 
 function onTap(x,y){
   if(window.APKit&&APKit.isUI(x,y))return true;
   const crystal=buildCrystal(seed+nodes.length*.173,x,y),offset=nodes.length;
-  for(const n of crystal){
-    if(n.parentId>=0)n.parentId+=offset;
-    nodes.push(n);
-  }
+  for(const n of crystal){if(n.parentId>=0)n.parentId+=offset;nodes.push(n)}
   return true;
 }
 
 function onHold(x,y){
   if(window.APKit&&APKit.isUI(x,y))return true;
   holdX=x;holdY=y;
-  const radius=Math.min(W,H)*.22;
   for(const n of nodes){
-    if(n.depth>0&&Math.hypot(n.x-x,n.y-y)<radius)n.bornAtTemp=Math.min(n.bornAtTemp,0.18);
+    if(n.depth>0&&Math.hypot(n.x-x,n.y-y)<Math.min(W,H)*.22)n.bornAtTemp=Math.min(n.bornAtTemp,0.18);
   }
   return true;
 }
@@ -109,18 +90,11 @@ c.setAttribute('onpointerdown',"if(window.APKit&&APKit.isUI(event.clientX,event.
 c.setAttribute('onpointerup',"clearTimeout(holdTimer);holdX=-9999;holdY=-9999");
 
 nodes=buildCrystal(seed,W*.5,H*.5);
-let last=performance.now();
-function frame(now){
-  const dt=Math.min(.05,(now-last)/1000);last=now;
-  phase=(phase+Math.PI*2*dt/TEMP_PERIOD)%(Math.PI*2);
-  renderAt(nodes,temperature(phase));
-  requestAnimationFrame(frame);
-}
-requestAnimationFrame(frame);
+setInterval('phase=(phase+Math.PI*2*(0.016/TEMP_PERIOD))%(Math.PI*2);renderAt(nodes,temperature(phase))',16);
 
 APKit.init({canvas:c,gifName:'FROZEN-CYCLE-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:p=>renderAt(nodes,temperature(p)),buttons:[
-  {label:'✦',name:'mutate',onClick:()=>{seed=Math.random();nodes=buildCrystal(seed,W*.5,H*.5)}},
-  {label:'↻',name:'reset',onClick:()=>{nodes=buildCrystal(seed,W*.5,H*.5)}}
+ {label:'✦',name:'mutate',onClick:()=>{seed=Math.random();nodes=buildCrystal(seed,W*.5,H*.5)}},
+ {label:'↻',name:'reset',onClick:()=>{nodes=buildCrystal(seed,W*.5,H*.5)}}
 ]});
 </script>
 </body>
