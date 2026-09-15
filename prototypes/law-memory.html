@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>LAW MEMORY</title>
+<script src="../ap-kit.js"></script>
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#050507}canvas{display:block;width:100%;height:100%;touch-action:none}</style>
+</head><body><canvas id="c"></canvas><script>
+const canvas=document.getElementById('c'),ctx=canvas.getContext('2d');
+let W=0,H=0,dpr=1,phase=0,seed=Math.random()*1000;
+const laws=[];
+function resize(){dpr=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;canvas.width=W*dpr;canvas.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0)}
+addEventListener('resize',resize);resize();
+function reset(){laws.length=0;seed=Math.random()*1000}
+function mutate(){seed=Math.random()*1000;for(let i=0;i<laws.length;i++)laws[i].h=(laws[i].h+35+Math.random()*90)%360}
+function touch(x,y){if(window.APKit&&APKit.isUI(x,y))return true;const r=Math.hypot(x-W/2,y-H/2),a=Math.atan2(y-H/2,x-W/2);laws.push({x,y,r:Math.max(18,Math.min(180,r)),a,h:(a*57.3+seed)%360,t:performance.now()});if(laws.length>11)laws.shift();return true}
+canvas.addEventListener('pointerdown',e=>touch(e.clientX,e.clientY));
+function draw(p=phase){
+ctx.fillStyle='rgb(5,5,7)';ctx.fillRect(0,0,W,H);const cx=W/2,cy=H/2,max=Math.hypot(W,H)*.62;
+ctx.save();ctx.translate(cx,cy);
+for(let ring=1;ring<23;ring++){const rr=ring*max/23;const n=72;ctx.beginPath();for(let i=0;i<=n;i++){const q=i/n*Math.PI*2;let warp=0;for(const l of laws){const dx=rr*Math.cos(q)-l.x+cx,dy=rr*Math.sin(q)-l.y+cy;const d=Math.hypot(dx,dy);if(d<l.r)warp+=(1-d/l.r)*.16*Math.sin(q*3+l.a)}const rad=rr*(1+warp);const x=rad*Math.cos(q),y=rad*Math.sin(q);i?ctx.lineTo(x,y):ctx.moveTo(x,y)}ctx.strokeStyle=`hsla(${205+ring*3+seed%40},70%,${35+ring*1.7}%,${.16+ring/120})`;ctx.lineWidth=1.2;ctx.stroke()}
+for(const l of laws){const age=(performance.now()-l.t)/1000;const pulse=(Math.sin(p*2+l.r*.01)+1)/2;ctx.beginPath();ctx.arc(l.x-cx,l.y-cy,l.r*(.82+.08*pulse),0,Math.PI*2);ctx.strokeStyle=`hsla(${l.h},90%,70%,${Math.max(.08,.42-age*.025)})`;ctx.lineWidth=1;ctx.stroke()}
+ctx.restore();
+}
+function frame(){phase=(performance.now()%12000)/12000*Math.PI*2;draw();requestAnimationFrame(frame)}frame();
+APKit.init({canvas,gifName:'law-memory-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:p=>draw(p),buttons:[{label:'✦',name:'mutate',onClick:mutate},{label:'↻',name:'reset',onClick:reset}]});
+</script></body></html>
