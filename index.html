@@ -7,452 +7,58 @@
 <meta name="theme-color" content="#050507">
 <meta name="color-scheme" content="dark">
 <style>
-  :root{
-    --bg:#050507;
-    --panel:#0c0c12;
-    --line:#1c1c25;
-    --line-2:#28282f;
-    --text-1:#f2f2f7;
-    --text-2:#84848f;
-    --text-3:#4d4d58;
-    --a:#7ad9ff;
-    --b:#ff7ad9;
-    --support:#6c4dff;
-  }
-  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
-  html,body{ margin:0; background:var(--bg); color:var(--text-1); }
-  body{
-    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;
-    -webkit-font-smoothing:antialiased;
-  }
-  a{ color:inherit; text-decoration:none; }
-  :focus-visible{ outline:2px solid var(--a); outline-offset:3px; border-radius:4px; }
-  button{ font-family:inherit; }
-
-  .mono{
-    font-family:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
-    font-variant-numeric:tabular-nums;
-  }
-
-  .field{ position:fixed; inset:0; z-index:-2; overflow:hidden; }
-  .field::before{
-    content:""; position:absolute; inset:-20%;
-    background:
-      radial-gradient(38vw 38vw at 18% 6%, rgba(122,217,255,.10), transparent 60%),
-      radial-gradient(42vw 42vw at 90% 74%, rgba(255,122,217,.08), transparent 60%);
-    filter:blur(10px);
-    animation:drift 26s ease-in-out infinite alternate;
-  }
-  @keyframes drift{
-    from{ transform:translate3d(0,0,0) scale(1); }
-    to{ transform:translate3d(-2%,2%,0) scale(1.06); }
-  }
-  .grain{ position:fixed; inset:0; z-index:-1; opacity:.05; mix-blend-mode:overlay; pointer-events:none;
-    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
-  }
-
-  .wrap{ max-width:640px; margin:0 auto; padding:28px 18px 56px; position:relative; }
-
-  @media (prefers-reduced-motion: no-preference){
-    .wrap{ animation:rise .6s cubic-bezier(.2,.7,.2,1) both; }
-  }
-  @keyframes rise{ from{ opacity:0; transform:translateY(10px); } to{ opacity:1; transform:none; } }
-
-  header.top{ padding:2px 2px 26px; }
-  header.top .eyebrow{
-    display:flex; align-items:center; gap:9px;
-    font-size:10.5px; letter-spacing:.28em; color:var(--text-2);
-  }
-  header.top .eyebrow::before{
-    content:""; width:6px; height:6px; border-radius:50%;
-    background:linear-gradient(135deg,var(--a),var(--b));
-    box-shadow:0 0 10px rgba(122,217,255,.7);
-  }
-  header.top h1{ font-size:24px; font-weight:700; letter-spacing:-.01em; margin:10px 0 8px; }
-  header.top p{ margin:14px 0 0; font-size:13px; line-height:1.75; color:var(--text-2); max-width:46ch; }
-
-  .prevbar{ display:flex; justify-content:flex-end; margin:22px 0 0; }
-  #prevToggle{
-    border:1px solid var(--line-2); background:var(--panel); color:var(--text-2);
-    border-radius:20px; padding:7px 13px; font-size:10.5px; letter-spacing:.12em;
-  }
-  #prevToggle.off{ color:var(--text-3); }
-
-  h2.label{ font-size:10.5px; letter-spacing:.24em; color:var(--text-2); font-weight:600; margin:26px 2px 10px; }
-
-  .current{
-    position:relative; display:block; aspect-ratio:4/5; border-radius:20px;
-    overflow:hidden; border:1px solid var(--line-2); background:#000;
-    box-shadow:0 24px 60px -24px rgba(0,0,0,.75);
-    cursor:pointer;
-  }
-  .current::before{
-    content:""; position:absolute; top:0; left:-30%; right:-30%; height:2px; z-index:2;
-    background:linear-gradient(90deg,transparent,var(--a),var(--b),var(--a),transparent);
-    background-size:200% 100%;
-    animation:shimmer 7s linear infinite;
-  }
-  @media (prefers-reduced-motion: reduce){ .current::before{ animation:none; background-size:100% 100%; left:0; right:0; } }
-  @keyframes shimmer{ from{ background-position:0% 0; } to{ background-position:-200% 0; } }
-  .current iframe{
-    position:absolute; top:0; left:0; width:460px; height:900px; border:0;
-    pointer-events:none; transform-origin:top left;
-  }
-  .current .cap{
-    position:absolute; left:0; right:0; bottom:0; padding:22px;
-    background:linear-gradient(to top, rgba(0,0,0,.88) 14%, rgba(0,0,0,.4) 55%, transparent);
-  }
-  .current .tag{
-    display:flex; align-items:center; gap:7px;
-    font-size:10px; letter-spacing:.24em; color:var(--text-2); margin-bottom:10px;
-  }
-  .current .tag::before{
-    content:""; width:6px; height:6px; border-radius:50%; background:var(--a);
-    box-shadow:0 0 8px var(--a); animation:pulse 2.2s ease-in-out infinite;
-  }
-  @media (prefers-reduced-motion: reduce){ .current .tag::before{ animation:none; } }
-  @keyframes pulse{ 0%,100%{ opacity:1; } 50%{ opacity:.35; } }
-  .current .name{
-    font-size:11vw; line-height:.98; font-weight:800; letter-spacing:-.02em;
-    color:var(--text-1); text-wrap:balance;
-  }
-
-  .log{ display:grid; grid-template-columns:repeat(2,1fr); gap:10px; }
-  .entry{ position:relative; display:block; aspect-ratio:3/4; border-radius:16px; overflow:hidden;
-    border:1px solid var(--line-2); background:#000; padding:0; margin:0; width:100%; cursor:pointer;
-    -webkit-appearance:none; appearance:none; transition:transform .15s; }
-  .entry:active{ transform:scale(.97); }
-  .entry iframe{ position:absolute; top:0; left:0; width:460px; height:900px; border:0; pointer-events:none; transform-origin:top left; }
-  .entry .cap{ position:absolute; left:0; right:0; bottom:0; padding:9px 10px;
-    background:linear-gradient(to top, rgba(0,0,0,.88) 25%, transparent); }
-  .entry .name{ font-size:12px; font-weight:700; letter-spacing:-.005em; color:var(--text-1);
-    line-height:1.3; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
-
-  .entry:not(.live){ background:radial-gradient(120% 120% at 30% 0%,#17171f 0%,#0a0a0f 70%); }
-  .current:not(.live){ background:radial-gradient(120% 90% at 50% 0%,#17171f 0%,#0a0a0f 70%); }
-  .entry:not(.live) iframe,
-  .current:not(.live) iframe{ visibility:hidden; }
-  .entry:not(.live)::after,
-  .current:not(.live) .cap::after{ content:"▷"; position:absolute; color:var(--text-3); pointer-events:none; }
-  .entry:not(.live)::after{ inset:0; display:grid; place-items:center; font-size:15px; }
-  .current:not(.live) .cap::after{ top:-40px; left:22px; font-size:20px; }
-
-  /* ---------- about ---------- */
-  .about{
-    margin:38px 2px 0;
-    padding:24px 4px 2px;
-    border-top:1px solid var(--line-2);
-  }
-  .about-kicker{
-    margin:0 0 10px;
-    font-size:9px;
-    letter-spacing:.28em;
-    color:var(--text-3);
-  }
-  .about h2{
-    margin:0;
-    font-size:16px;
-    line-height:1.5;
-    font-weight:700;
-    letter-spacing:-.02em;
-  }
-  .about p{
-    margin:10px 0 0;
-    color:var(--text-2);
-    font-size:12px;
-    line-height:1.8;
-  }
-  .about-en{
-    margin-top:12px !important;
-    color:var(--text-3) !important;
-    font-size:10.5px !important;
-    line-height:1.7 !important;
-  }
-  .about-works{
-    margin-top:12px !important;
-    color:var(--text-3) !important;
-    font-size:9.5px !important;
-    line-height:1.7 !important;
-  }
-
-  /* ---------- support ---------- */
-  .support{
-    margin:42px 2px 0;
-    padding:26px 8px 4px;
-    position:relative;
-    text-align:center;
-    border-top:1px solid var(--line-2);
-  }
-  .support::before{
-    content:"";
-    position:absolute;
-    top:-1px; left:50%; width:76px; height:1px;
-    transform:translateX(-50%);
-    background:linear-gradient(90deg,var(--a),var(--b));
-    box-shadow:0 0 12px rgba(122,217,255,.18);
-  }
-  .support-kicker{
-    margin:0 0 10px;
-    font-size:9px;
-    letter-spacing:.28em;
-    color:var(--text-3);
-  }
-  .support h2{
-    margin:0;
-    font-size:17px;
-    line-height:1.45;
-    font-weight:700;
-    letter-spacing:-.02em;
-  }
-  .support p{
-    margin:10px auto 18px;
-    max-width:38ch;
-    color:var(--text-2);
-    font-size:12px;
-    line-height:1.75;
-  }
-  .support-link{
-    display:inline-flex;
-    align-items:center;
-    justify-content:center;
-    gap:8px;
-    min-height:42px;
-    padding:0 20px;
-    border:1px solid rgba(255,255,255,.12);
-    border-radius:999px;
-    background:linear-gradient(135deg,rgba(122,217,255,.12),rgba(108,77,255,.18),rgba(255,122,217,.12));
-    box-shadow:0 10px 28px -18px rgba(108,77,255,.65);
-    color:var(--text-1);
-    font-size:11px;
-    font-weight:700;
-    letter-spacing:.02em;
-    transition:transform .15s ease, border-color .15s ease, background .15s ease;
-  }
-  .support-link:active{ transform:scale(.97); }
-  .support-note{
-    margin:10px 0 0 !important;
-    font-size:9.5px !important;
-    line-height:1.6 !important;
-    color:var(--text-3) !important;
-  }
-  @media (hover:hover){
-    .support-link:hover{
-      border-color:rgba(122,217,255,.28);
-      background:linear-gradient(135deg,rgba(122,217,255,.17),rgba(108,77,255,.24),rgba(255,122,217,.16));
-    }
-  }
-
-  .credit{ padding:30px 2px 0; font-size:10.5px; letter-spacing:.1em; color:var(--text-3); text-align:center; }
-
-  .modal{
-    position:fixed; inset:0; background:#000; z-index:50;
-    opacity:0; pointer-events:none; transition:opacity .28s ease;
-  }
-  .modal.open{ opacity:1; pointer-events:auto; }
-  .modal iframe{
-    width:100%; height:100%; border:0;
-    transform:scale(.97); transition:transform .32s cubic-bezier(.2,.7,.2,1);
-  }
-  .modal.open iframe{ transform:none; }
-  @media (prefers-reduced-motion: reduce){
-    .modal{ transition:none; } .modal iframe{ transition:none; transform:none; }
-  }
-  .modal .close{
-    position:fixed; top:max(16px, env(safe-area-inset-top)); right:16px;
-    width:38px; height:38px; border-radius:50%; z-index:51;
-    display:flex; align-items:center; justify-content:center;
-    color:#fff; border:1px solid rgba(255,255,255,.16);
-    background:rgba(10,10,16,.55); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
-    font-size:15px; box-shadow:0 6px 20px rgba(0,0,0,.4);
-  }
+  :root{--bg:#050507;--panel:#0c0c12;--line:#1c1c25;--line-2:#28282f;--text-1:#f2f2f7;--text-2:#84848f;--text-3:#4d4d58;--a:#7ad9ff;--b:#ff7ad9;--support:#6c4dff}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;background:var(--bg);color:var(--text-1)}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;-webkit-font-smoothing:antialiased}
+  a{color:inherit;text-decoration:none}:focus-visible{outline:2px solid var(--a);outline-offset:3px;border-radius:4px}button{font-family:inherit}
+  .mono{font-family:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
+  .field{position:fixed;inset:0;z-index:-2;overflow:hidden}.field::before{content:"";position:absolute;inset:-20%;background:radial-gradient(38vw 38vw at 18% 6%,rgba(122,217,255,.10),transparent 60%),radial-gradient(42vw 42vw at 90% 74%,rgba(255,122,217,.08),transparent 60%);filter:blur(10px);animation:drift 26s ease-in-out infinite alternate}
+  @keyframes drift{from{transform:translate3d(0,0,0) scale(1)}to{transform:translate3d(-2%,2%,0) scale(1.06)}}
+  .grain{position:fixed;inset:0;z-index:-1;opacity:.05;mix-blend-mode:overlay;pointer-events:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>")}
+  .wrap{max-width:640px;margin:0 auto;padding:28px 18px 56px;position:relative}
+  @media (prefers-reduced-motion:no-preference){.wrap{animation:rise .6s cubic-bezier(.2,.7,.2,1) both}}@keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  header.top{padding:2px 2px 26px}header.top .eyebrow{display:flex;align-items:center;gap:9px;font-size:10.5px;letter-spacing:.28em;color:var(--text-2)}header.top .eyebrow::before{content:"";width:6px;height:6px;border-radius:50%;background:linear-gradient(135deg,var(--a),var(--b));box-shadow:0 0 10px rgba(122,217,255,.7)}header.top h1{font-size:24px;font-weight:700;letter-spacing:-.01em;margin:10px 0 8px}header.top p{margin:14px 0 0;font-size:13px;line-height:1.75;color:var(--text-2);max-width:46ch}
+  .prevbar{display:flex;justify-content:flex-end;margin:22px 0 0}#prevToggle{border:1px solid var(--line-2);background:var(--panel);color:var(--text-2);border-radius:20px;padding:7px 13px;font-size:10.5px;letter-spacing:.12em}#prevToggle.off{color:var(--text-3)}
+  h2.label{font-size:10.5px;letter-spacing:.24em;color:var(--text-2);font-weight:600;margin:26px 2px 10px}
+  .current{position:relative;display:block;aspect-ratio:4/5;border-radius:20px;overflow:hidden;border:1px solid var(--line-2);background:#000;box-shadow:0 24px 60px -24px rgba(0,0,0,.75);cursor:pointer}.current::before{content:"";position:absolute;top:0;left:-30%;right:-30%;height:2px;z-index:2;background:linear-gradient(90deg,transparent,var(--a),var(--b),var(--a),transparent);background-size:200% 100%;animation:shimmer 7s linear infinite}@media (prefers-reduced-motion:reduce){.current::before{animation:none;background-size:100% 100%;left:0;right:0}}@keyframes shimmer{from{background-position:0% 0}to{background-position:-200% 0}}
+  .current iframe{position:absolute;top:0;left:0;width:460px;height:900px;border:0;pointer-events:none;transform-origin:top left}.current .cap{position:absolute;left:0;right:0;bottom:0;padding:22px;background:linear-gradient(to top,rgba(0,0,0,.88) 14%,rgba(0,0,0,.4) 55%,transparent)}.current .tag{display:flex;align-items:center;gap:7px;font-size:10px;letter-spacing:.24em;color:var(--text-2);margin-bottom:10px}.current .tag::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--a);box-shadow:0 0 8px var(--a);animation:pulse 2.2s ease-in-out infinite}@media (prefers-reduced-motion:reduce){.current .tag::before{animation:none}}@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}.current .name{font-size:11vw;line-height:.98;font-weight:800;letter-spacing:-.02em;color:var(--text-1);text-wrap:balance}
+  .log{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.entry{position:relative;display:block;aspect-ratio:3/4;border-radius:16px;overflow:hidden;border:1px solid var(--line-2);background:#000;padding:0;margin:0;width:100%;cursor:pointer;-webkit-appearance:none;appearance:none;transition:transform .15s}.entry:active{transform:scale(.97)}.entry iframe{position:absolute;top:0;left:0;width:460px;height:900px;border:0;pointer-events:none;transform-origin:top left}.entry .cap{position:absolute;left:0;right:0;bottom:0;padding:9px 10px;background:linear-gradient(to top,rgba(0,0,0,.88) 25%,transparent)}.entry .name{font-size:12px;font-weight:700;letter-spacing:-.005em;color:var(--text-1);line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .entry:not(.live){background:radial-gradient(120% 120% at 30% 0%,#17171f 0%,#0a0a0f 70%)}.current:not(.live){background:radial-gradient(120% 90% at 50% 0%,#17171f 0%,#0a0a0f 70%)}.entry:not(.live) iframe,.current:not(.live) iframe{visibility:hidden}.entry:not(.live)::after,.current:not(.live) .cap::after{content:"▷";position:absolute;color:var(--text-3);pointer-events:none}.entry:not(.live)::after{inset:0;display:grid;place-items:center;font-size:15px}.current:not(.live) .cap::after{top:-40px;left:22px;font-size:20px}
+  .about{margin:38px 2px 0;padding:24px 4px 2px;border-top:1px solid var(--line-2)}.about-kicker{margin:0 0 10px;font-size:9px;letter-spacing:.28em;color:var(--text-3)}.about h2{margin:0;font-size:16px;line-height:1.5;font-weight:700;letter-spacing:-.02em}.about p{margin:10px 0 0;color:var(--text-2);font-size:12px;line-height:1.8}.about-en{margin-top:12px!important;color:var(--text-3)!important;font-size:10.5px!important;line-height:1.7!important}.about-works{margin-top:12px!important;color:var(--text-3)!important;font-size:9.5px!important;line-height:1.7!important}
+  .support{margin:42px 2px 0;padding:26px 8px 4px;position:relative;text-align:center;border-top:1px solid var(--line-2)}.support::before{content:"";position:absolute;top:-1px;left:50%;width:76px;height:1px;transform:translateX(-50%);background:linear-gradient(90deg,var(--a),var(--b));box-shadow:0 0 12px rgba(122,217,255,.18)}.support-kicker{margin:0 0 10px;font-size:9px;letter-spacing:.28em;color:var(--text-3)}.support h2{margin:0;font-size:17px;line-height:1.45;font-weight:700;letter-spacing:-.02em}.support p{margin:10px auto 18px;max-width:38ch;color:var(--text-2);font-size:12px;line-height:1.75}.support-link{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:42px;padding:0 20px;border:1px solid rgba(255,255,255,.12);border-radius:999px;background:linear-gradient(135deg,rgba(122,217,255,.12),rgba(108,77,255,.18),rgba(255,122,217,.12));box-shadow:0 10px 28px -18px rgba(108,77,255,.65);color:var(--text-1);font-size:11px;font-weight:700;letter-spacing:.02em;transition:transform .15s ease,border-color .15s ease,background .15s ease}.support-link:active{transform:scale(.97)}.support-note{margin:10px 0 0!important;font-size:9.5px!important;line-height:1.6!important;color:var(--text-3)!important}@media (hover:hover){.support-link:hover{border-color:rgba(122,217,255,.28);background:linear-gradient(135deg,rgba(122,217,255,.17),rgba(108,77,255,.24),rgba(255,122,217,.16))}}
+  .credit{padding:30px 2px 0;font-size:10.5px;letter-spacing:.1em;color:var(--text-3);text-align:center}.modal{position:fixed;inset:0;background:#000;z-index:50;opacity:0;pointer-events:none;transition:opacity .28s ease}.modal.open{opacity:1;pointer-events:auto}.modal iframe{width:100%;height:100%;border:0;transform:scale(.97);transition:transform .32s cubic-bezier(.2,.7,.2,1)}.modal.open iframe{transform:none}@media (prefers-reduced-motion:reduce){.modal{transition:none}.modal iframe{transition:none;transform:none}}.modal .close{position:fixed;top:max(16px,env(safe-area-inset-top));right:16px;width:38px;height:38px;border-radius:50%;z-index:51;display:flex;align-items:center;justify-content:center;color:#fff;border:1px solid rgba(255,255,255,.16);background:rgba(10,10,16,.55);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);font-size:15px;box-shadow:0 6px 20px rgba(0,0,0,.4)}
 </style>
 </head>
 <body>
-<div class="field"></div>
-<div class="grain"></div>
-<div class="wrap">
-  <header class="top">
-    <div class="eyebrow mono">ART PLAYGROUND</div>
-    <p>ジェネラティブアートの実験場。遊んで、壊して、進化させる。タップすると全画面で開くよ。</p>
-  </header>
-
-  <div class="prevbar"><button id="prevToggle" class="mono">PREVIEW ON</button></div>
-
-  <div class="current" onclick="openArt('art-v50-stratum.html','STRATUM')">
-    <iframe data-src="art-v50-stratum.html" loading="lazy"></iframe>
-    <div class="cap">
-      <div class="tag mono">CURRENT</div>
-      <div class="name">STRATUM</div>
-    </div>
-  </div>
-
-  <h2 class="label">LOG</h2>
-  <div class="log">
-    <button class="entry" onclick="openArt('art-v49-feather-fold.html','FEATHER FOLD')">
-      <iframe data-src="art-v49-feather-fold.html" loading="lazy"></iframe>
-      <div class="cap"><div class="name">FEATHER FOLD</div></div>
-    </button>
-    <button class="entry" onclick="openArt('art-v47-infection.html','INFECTION')">
-      <iframe data-src="art-v47-infection.html" loading="lazy"></iframe>
-      <div class="cap"><div class="name">INFECTION</div></div>
-    </button>
-    <button class="entry" onclick="openArt('void-field-ii.html','VOID FIELD II')">
-      <iframe data-src="void-field-ii.html" loading="lazy"></iframe>
-      <div class="cap"><div class="name">VOID FIELD II</div></div>
-    </button>
-    <button class="entry" onclick="openArt('art-v30-standing-law.html','STANDING LAW')">
-      <iframe data-src="art-v30-standing-law.html" loading="lazy"></iframe>
-      <div class="cap"><div class="name">STANDING LAW</div></div>
-    </button>
-    <button class="entry" onclick="openArt('art-v28-living-order.html','LIVING ORDER')">
-      <iframe data-src="art-v28-living-order.html" loading="lazy"></iframe>
-      <div class="cap"><div class="name">LIVING ORDER</div></div>
-    </button>
-    <button class="entry" onclick="openArt('art-v27.html','PARTICLE COSMOS II')">
-      <iframe data-src="art-v27.html" loading="lazy"></iframe>
-      <div class="cap"><div class="name">PARTICLE COSMOS II</div></div>
-    </button>
-    <button class="entry" onclick="openArt('art-v36-art-of-becoming.html','ART OF BECOMING')">
-      <iframe data-src="art-v36-art-of-becoming.html" loading="lazy"></iframe>
-      <div class="cap"><div class="name">ART OF BECOMING</div></div>
-    </button>
-    <button class="entry" onclick="openArt('art-v35-one-knot.html','ONE KNOT')">
-      <iframe data-src="art-v35-one-knot.html" loading="lazy"></iframe>
-      <div class="cap"><div class="name">ONE KNOT</div></div>
-    </button>
-    <button class="entry" onclick="openArt('art-v31-divided-law.html','DIVIDED LAW')">
-      <iframe data-src="art-v31-divided-law.html" loading="lazy"></iframe>
-      <div class="cap"><div class="name">DIVIDED LAW</div></div>
-    </button>
-    <button class="entry" onclick="openArt('art-v20.html','ALIVE')">
-      <iframe data-src="art-v20.html" loading="lazy"></iframe>
-      <div class="cap"><div class="name">ALIVE</div></div>
-    </button>
-  </div>
-
-  <section class="about" aria-label="ART PLAYGROUNDについて">
-    <div class="about-kicker mono">ABOUT THE PROJECT</div>
-    <h2>インタラクティブなジェネラティブアート作品を制作・公開する独立プロジェクトです。</h2>
-    <p>ART PLAYGROUNDでは、触れることで作品世界のルールが変化する作品を制作しています。現在公開している作品を、このサイト上で実際に体験できます。</p>
-    <p class="about-en">ART PLAYGROUND is an independent generative art project creating and publishing interactive artworks. Each work explores a world whose rules can change through interaction. The artworks are available to experience directly on this website.</p>
-    <p class="about-works">Published works: STRATUM · FEATHER FOLD · INFECTION · VOID FIELD II · STANDING LAW · LIVING ORDER · PARTICLE COSMOS II · ART OF BECOMING · ONE KNOT · DIVIDED LAW · ALIVE</p>
-  </section>
-
-  <section class="support" aria-label="ART PLAYGROUNDの制作支援">
-    <div class="support-kicker mono">SUPPORT</div>
-    <h2>気に入ったら、作品制作を支援できます。</h2>
-    <p>ART PLAYGROUNDを楽しんでもらえたら、制作と実験を続けるための支援をお願いします。</p>
-    <a class="support-link" href="https://ko-fi.com/artplayground" target="_blank" rel="noopener noreferrer" aria-label="ART PLAYGROUNDの制作を支援する">
-      ☕ 制作を支援する
-    </a>
-    <p class="support-note">100円から · PayPal / クレジットカード対応</p>
-  </section>
-
-  <div class="credit mono">ART PLAYGROUND</div>
+<div class="field"></div><div class="grain"></div><div class="wrap">
+<header class="top"><div class="eyebrow mono">ART PLAYGROUND</div><p>ジェネラティブアートの実験場。遊んで、壊して、進化させる。タップすると全画面で開くよ。</p></header>
+<div class="prevbar"><button id="prevToggle" class="mono">PREVIEW ON</button></div>
+<div class="current" onclick="openArt('art-v50-stratum.html','STRATUM')"><iframe data-src="art-v50-stratum.html" loading="lazy"></iframe><div class="cap"><div class="tag mono">CURRENT</div><div class="name">STRATUM</div></div></div>
+<h2 class="label">LOG</h2><div class="log">
+<button class="entry" onclick="openArt('prototypes/membrane-rgb.html','RGB MEMBRANE')"><iframe data-src="prototypes/membrane-rgb.html" loading="lazy"></iframe><div class="cap"><div class="name">RGB MEMBRANE</div></div></button>
+<button class="entry" onclick="openArt('art-v49-feather-fold.html','FEATHER FOLD')"><iframe data-src="art-v49-feather-fold.html" loading="lazy"></iframe><div class="cap"><div class="name">FEATHER FOLD</div></div></button>
+<button class="entry" onclick="openArt('art-v47-infection.html','INFECTION')"><iframe data-src="art-v47-infection.html" loading="lazy"></iframe><div class="cap"><div class="name">INFECTION</div></div></button>
+<button class="entry" onclick="openArt('void-field-ii.html','VOID FIELD II')"><iframe data-src="void-field-ii.html" loading="lazy"></iframe><div class="cap"><div class="name">VOID FIELD II</div></div></button>
+<button class="entry" onclick="openArt('art-v30-standing-law.html','STANDING LAW')"><iframe data-src="art-v30-standing-law.html" loading="lazy"></iframe><div class="cap"><div class="name">STANDING LAW</div></div></button>
+<button class="entry" onclick="openArt('art-v28-living-order.html','LIVING ORDER')"><iframe data-src="art-v28-living-order.html" loading="lazy"></iframe><div class="cap"><div class="name">LIVING ORDER</div></div></button>
+<button class="entry" onclick="openArt('art-v27.html','PARTICLE COSMOS II')"><iframe data-src="art-v27.html" loading="lazy"></iframe><div class="cap"><div class="name">PARTICLE COSMOS II</div></div></button>
+<button class="entry" onclick="openArt('art-v36-art-of-becoming.html','ART OF BECOMING')"><iframe data-src="art-v36-art-of-becoming.html" loading="lazy"></iframe><div class="cap"><div class="name">ART OF BECOMING</div></div></button>
+<button class="entry" onclick="openArt('art-v35-one-knot.html','ONE KNOT')"><iframe data-src="art-v35-one-knot.html" loading="lazy"></iframe><div class="cap"><div class="name">ONE KNOT</div></div></button>
+<button class="entry" onclick="openArt('art-v31-divided-law.html','DIVIDED LAW')"><iframe data-src="art-v31-divided-law.html" loading="lazy"></iframe><div class="cap"><div class="name">DIVIDED LAW</div></div></button>
+<button class="entry" onclick="openArt('art-v20.html','ALIVE')"><iframe data-src="art-v20.html" loading="lazy"></iframe><div class="cap"><div class="name">ALIVE</div></div></button>
 </div>
-
-<div class="modal" id="modal">
-  <button class="close" onclick="closeArt()">✕</button>
-  <iframe id="modalFrame" src=""></iframe>
-</div>
-
+<section class="about" aria-label="ART PLAYGROUNDについて"><div class="about-kicker mono">ABOUT THE PROJECT</div><h2>インタラクティブなジェネラティブアート作品を制作・公開する独立プロジェクトです。</h2><p>ART PLAYGROUNDでは、触れることで作品世界のルールが変化する作品を制作しています。現在公開している作品を、このサイト上で実際に体験できます。</p><p class="about-en">ART PLAYGROUND is an independent generative art project creating and publishing interactive artworks. Each work explores a world whose rules can change through interaction. The artworks are available to experience directly on this website.</p><p class="about-works">Published works: STRATUM · FEATHER FOLD · INFECTION · VOID FIELD II · STANDING LAW · LIVING ORDER · PARTICLE COSMOS II · ART OF BECOMING · ONE KNOT · DIVIDED LAW · ALIVE</p></section>
+<section class="support" aria-label="ART PLAYGROUNDの制作支援"><div class="support-kicker mono">SUPPORT</div><h2>気に入ったら、作品制作を支援できます。</h2><p>ART PLAYGROUNDを楽しんでもらえたら、制作と実験を続けるための支援をお願いします。</p><a class="support-link" href="https://ko-fi.com/artplayground" target="_blank" rel="noopener noreferrer" aria-label="ART PLAYGROUNDの制作を支援する">☕ 制作を支援する</a><p class="support-note">100円から · PayPal / クレジットカード対応</p></section><div class="credit mono">ART PLAYGROUND</div></div>
+<div class="modal" id="modal"><button class="close" onclick="closeArt()">✕</button><iframe id="modalFrame" src=""></iframe></div>
 <script>
-function openArt(url, title){
-  var f = document.getElementById('modalFrame');
-  f.src = url;
-  document.getElementById('modal').classList.add('open');
-  if(title) try{ history.replaceState(null,'', location.pathname); document.title = title + ' — Art Playground'; }catch(e){}
-  schedule();
-}
-function closeArt(){
-  document.getElementById('modal').classList.remove('open');
-  setTimeout(function(){ document.getElementById('modalFrame').src = ''; document.title = 'ART PLAYGROUND'; }, 300);
-  schedule();
-}
-document.getElementById('modalFrame').addEventListener('load', function(){
-  try{
-    var doc = this.contentDocument;
-    if(!doc) return;
-    var vw = this.clientWidth;
-    var all = doc.querySelectorAll('body *');
-    all.forEach(function(el){
-      var cs = doc.defaultView.getComputedStyle(el);
-      if(cs.position !== 'fixed' && cs.position !== 'absolute') return;
-      var r = el.getBoundingClientRect();
-      if(r.top < 70 && r.right > vw - 90 && r.width < 120 && r.height < 120){
-        el.style.top = (parseInt(cs.top || '0', 10) + 66) + 'px';
-      }
-    });
-  }catch(e){}
-});
-
-function scalePreviews(){
-  document.querySelectorAll('.current, .entry').forEach(function(box){
-    var iframe = box.querySelector('iframe');
-    if(!iframe) return;
-    iframe.style.transform = 'scale(' + (box.clientWidth / 460) + ')';
-  });
-}
-window.addEventListener('resize', scalePreviews);
-
-/* ---------------------------------------------------------------------------
-   Preview budget.
-   Every box is a full generative piece, so loading whatever is on screen
-   meant several animations running at once. Only the two nearest the middle
-   of the viewport stay live; the rest show their card. PREVIEW OFF and the
-   modal being open both stop all of them.
-   --------------------------------------------------------------------------- */
-var LIVE_BUDGET = 2;
-var previewsOn = true;
-try { previewsOn = localStorage.getItem('ap-prev') !== 'off'; } catch(e){}
-
-function boxes(){ return [].slice.call(document.querySelectorAll('.current, .entry')); }
-function loadBox(b){
-  var f = b.querySelector('iframe'); if(!f) return;
-  var src = f.getAttribute('data-src');
-  if(src && f.getAttribute('src') !== src){ f.setAttribute('src', src); f.addEventListener('load', scalePreviews); }
-  b.classList.add('live');
-}
-function unloadBox(b){
-  var f = b.querySelector('iframe'); if(!f) return;
-  if(f.getAttribute('src')){ f.removeAttribute('src'); }
-  b.classList.remove('live');
-}
-
-var pending = false;
-function apply(){
-  pending = false;
-  if(document.getElementById('modal').classList.contains('open')){
-    boxes().forEach(unloadBox);
-    return;
-  }
-  if(!previewsOn || document.hidden){ boxes().forEach(unloadBox); return; }
-  var mid = innerHeight / 2;
-  var visible = boxes().map(function(b){
-    var r = b.getBoundingClientRect();
-    return { b:b, on: r.bottom > 0 && r.top < innerHeight,
-             d: Math.abs((r.top + r.bottom) / 2 - mid) };
-  }).filter(function(o){ return o.on; }).sort(function(a,b){ return a.d - b.d; });
-
-  var keep = visible.slice(0, LIVE_BUDGET).map(function(o){ return o.b; });
-  boxes().forEach(function(b){ keep.indexOf(b) >= 0 ? loadBox(b) : unloadBox(b); });
-}
-function schedule(){ if(!pending){ pending = true; requestAnimationFrame(apply); } }
-
-addEventListener('scroll', schedule, {passive:true});
-addEventListener('resize', schedule, {passive:true});
-document.addEventListener('visibilitychange', schedule);
-
-var toggle = document.getElementById('prevToggle');
-function paintToggle(){ toggle.textContent = previewsOn ? 'PREVIEW ON' : 'PREVIEW OFF';
-  toggle.classList.toggle('off', !previewsOn); }
-toggle.addEventListener('click', function(){
-  previewsOn = !previewsOn;
-  try { localStorage.setItem('ap-prev', previewsOn ? 'on' : 'off'); } catch(e){}
-  paintToggle(); schedule();
-});
-paintToggle();
-schedule();
-</script>
-</body>
-</html>
+function openArt(url,title){var f=document.getElementById('modalFrame');f.src=url;document.getElementById('modal').classList.add('open');if(title)try{history.replaceState(null,'',location.pathname);document.title=title+' — Art Playground'}catch(e){}schedule()}
+function closeArt(){document.getElementById('modal').classList.remove('open');setTimeout(function(){document.getElementById('modalFrame').src='';document.title='ART PLAYGROUND'},300);schedule()}
+document.getElementById('modalFrame').addEventListener('load',function(){try{var doc=this.contentDocument;if(!doc)return;var vw=this.clientWidth;var all=doc.querySelectorAll('body *');all.forEach(function(el){var cs=doc.defaultView.getComputedStyle(el);if(cs.position!=='fixed'&&cs.position!=='absolute')return;var r=el.getBoundingClientRect();if(r.top<70&&r.right>vw-90&&r.width<120&&r.height<120)el.style.top=(parseInt(cs.top||'0',10)+66)+'px'})}catch(e){}});
+function scalePreviews(){document.querySelectorAll('.current,.entry').forEach(function(box){var iframe=box.querySelector('iframe');if(!iframe)return;iframe.style.transform='scale('+(box.clientWidth/460)+')'})}window.addEventListener('resize',scalePreviews);
+var LIVE_BUDGET=2;var previewsOn=true;try{previewsOn=localStorage.getItem('ap-prev')!=='off'}catch(e){}
+function boxes(){return[].slice.call(document.querySelectorAll('.current,.entry'))}function loadBox(b){var f=b.querySelector('iframe');if(!f)return;var src=f.getAttribute('data-src');if(src&&f.getAttribute('src')!==src){f.setAttribute('src',src);f.addEventListener('load',scalePreviews)}b.classList.add('live')}function unloadBox(b){var f=b.querySelector('iframe');if(!f)return;if(f.getAttribute('src'))f.removeAttribute('src');b.classList.remove('live')}
+var pending=false;function apply(){pending=false;if(document.getElementById('modal').classList.contains('open')){boxes().forEach(unloadBox);return}if(!previewsOn||document.hidden){boxes().forEach(unloadBox);return}var mid=innerHeight/2;var visible=boxes().map(function(b){var r=b.getBoundingClientRect();return{b:b,on:r.bottom>0&&r.top<innerHeight,d:Math.abs((r.top+r.bottom)/2-mid)}}).filter(function(o){return o.on}).sort(function(a,b){return a.d-b.d});var keep=visible.slice(0,LIVE_BUDGET).map(function(o){return o.b});boxes().forEach(function(b){keep.indexOf(b)>=0?loadBox(b):unloadBox(b)})}function schedule(){if(!pending){pending=true;requestAnimationFrame(apply)}}
+addEventListener('scroll',schedule,{passive:true});addEventListener('resize',schedule,{passive:true});document.addEventListener('visibilitychange',schedule);
+var toggle=document.getElementById('prevToggle');function paintToggle(){toggle.textContent=previewsOn?'PREVIEW ON':'PREVIEW OFF';toggle.classList.toggle('off',!previewsOn)}toggle.addEventListener('click',function(){previewsOn=!previewsOn;try{localStorage.setItem('ap-prev',previewsOn?'on':'off')}catch(e){}paintToggle();schedule()});paintToggle();schedule();
+</script></body></html>
