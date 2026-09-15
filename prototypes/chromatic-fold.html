@@ -6,7 +6,7 @@
 <title>CHROMATIC FOLD</title>
 <script src="../ap-kit.js"></script>
 <style>
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#f1eee6}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#eee7dc}
 canvas{display:block;width:100%;height:100%;touch-action:none}
 </style>
 </head>
@@ -17,66 +17,147 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 const canvas=document.getElementById('c'),ctx=canvas.getContext('2d',{alpha:false});
 let W=0,H=0,DPR=1,seed=Math.random()*1000;
 let law=0,px=.5,py=.5,tx=.5,ty=.5,last=performance.now();
+
 const palettes=[
- ['#f4efe4','#d7d1c3','#b8a79d','#8f6f83','#563f68'],
- ['#f2eadc','#d5c0a7','#b56d5b','#7e3f55','#34263f'],
- ['#e9f1ef','#b9d5d0','#7199a0','#4c6289','#2d345f'],
- ['#f3ead8','#d8d29d','#9c9a5c','#64734d','#303c39']
+ ['#f3eadb','#d9cdbd','#a8b39b','#718b6d','#465a50'],
+ ['#f4e9dc','#dbc5bc','#b88ca1','#816487','#4d425e'],
+ ['#e8f0ec','#c5d8d0','#9bb8ad','#688c87','#435e68'],
+ ['#f1ead6','#ddd4a8','#b9b889','#879b6b','#536b59'],
+ ['#eee9e2','#d2c8c2','#b29ca0','#887985','#595565']
 ];
-function resize(){DPR=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;canvas.width=W*DPR;canvas.height=H*DPR;ctx.setTransform(DPR,0,0,DPR,0,0)}
+
+function resize(){
+ DPR=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;
+ canvas.width=Math.round(W*DPR);canvas.height=Math.round(H*DPR);ctx.setTransform(DPR,0,0,DPR,0,0);
+}
 addEventListener('resize',resize,{passive:true});resize();
 function hs(h,s,l,a=1){return `hsla(${h},${s}%,${l}%,${a})`}
 function render(phase=null){
  const now=performance.now()/1000,t=phase===null?now:phase,p=palettes[law];
- const T=k=>APKit.T(k,phase,t),base=Math.min(W,H),u=T(.16),breath=(Math.sin(T(.62))+1)/2;
- const centerX=W*(.5+(px-.5)*.18),centerY=H*(.5+(py-.5)*.18);
+ const T=k=>APKit.T(k,phase,t),base=Math.min(W,H),u=T(.115);
+ const slow=(Math.sin(T(.34))+1)/2, slow2=(Math.sin(T(.19)+1.7)+1)/2;
+ const centerX=W*(.5+(px-.5)*.12),centerY=H*(.5+(py-.5)*.12);
+
+ // A barely moving paper-like atmosphere. The artwork should feel illuminated,
+ // not like a flat CSS background.
  const bg=ctx.createLinearGradient(0,0,W,H);
- bg.addColorStop(0,p[0]);bg.addColorStop(.42,p[1]);bg.addColorStop(1,p[0]);ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
- ctx.save();ctx.translate(centerX,centerY);
- const folds=7, bands=46;
- for(let b=0;b<bands;b++){
-   const q=b/(bands-1), path=new Path2D();
-   for(let i=0;i<=240;i++){
-     const z=i/240, x=(z-.5)*W*1.35;
-     const bend=(.055+.028*breath)*base*Math.sin(z*Math.PI*2+T(.09)+q*2.4);
-     const crease=Math.sin(z*Math.PI*folds+T(.27)+q*1.7+seed*.01)*base*(.012+.018*(1-q));
-     const y=(q-.5)*base*.78 + bend + crease;
-     const xx=x + Math.sin(z*Math.PI*3+q*4+T(.13))*base*.012*(1+breath);
-     if(i===0)path.moveTo(xx,y);else path.lineTo(xx,y);
-   }
-   const hue=(law*74+q*92+u*28)%360;
-   ctx.strokeStyle=hs(hue,35+q*18,32+q*42,.24+.44*(1-q));
-   ctx.lineWidth=.7+base*.003*(1-q)*(1.2+breath);
-   ctx.stroke(path);
+ bg.addColorStop(0,p[0]);
+ bg.addColorStop(.38,p[0]);
+ bg.addColorStop(.68,p[1]);
+ bg.addColorStop(1,p[0]);
+ ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
+ ctx.globalCompositeOperation='screen';
+ for(let k=0;k<3;k++){
+   const gx=W*(.2+.3*k+Math.sin(T(.07)+k*2.1)*.08);
+   const gy=H*(.25+.28*slow+Math.cos(T(.05)+k)*.08);
+   const rg=ctx.createRadialGradient(gx,gy,0,gx,gy,base*.62);
+   rg.addColorStop(0,hs((law*53+k*31+u*18)%360,35,72,.045+.025*slow2));
+   rg.addColorStop(1,hs(0,0,100,0));
+   ctx.fillStyle=rg;ctx.fillRect(0,0,W,H);
  }
- // broad luminous ribbons create the photographic soft-gradient character of the reference
- for(let r=0;r<folds;r++){
-   const phaseR=T(.11)+r*1.17;
+ ctx.globalCompositeOperation='source-over';
+
+ ctx.save();ctx.translate(centerX,centerY);
+ const bands=72;
+
+ // Soft silk ribbons sit behind the fine structure. Their low opacity and
+ // changing width create a sense of depth rather than a stack of equal lines.
+ for(let r=0;r<8;r++){
+   const rr=r/7, phaseR=T(.075)+r*1.11;
    ctx.beginPath();
-   for(let i=0;i<=220;i++){
-     const z=i/220,x=(z-.5)*W*1.4;
-     const y=(r-(folds-1)/2)*base*.105 + Math.sin(z*Math.PI*2+phaseR)*base*.075 + Math.sin(z*Math.PI*4-T(.07)+r)*base*.018;
+   for(let i=0;i<=260;i++){
+     const z=i/260,x=(z-.5)*W*1.45;
+     const envelope=Math.sin(z*Math.PI)*(.7+.3*Math.sin(T(.12)+r));
+     const y=(r-3.5)*base*.105
+       +Math.sin(z*Math.PI*1.65+phaseR)*base*(.105+.018*slow)
+       +Math.sin(z*Math.PI*3.2-phaseR*.55+r)*base*.025*envelope;
      if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
    }
-   const hue=(law*70+r*37+u*40)%360;
-   ctx.strokeStyle=hs(hue,68,55,.10+.08*breath);ctx.lineWidth=base*(.035+.014*breath);ctx.filter='blur('+Math.max(2,base*.008)+'px)';ctx.stroke();ctx.filter='none';
+   const hue=(law*61+r*25+u*30)%360;
+   ctx.strokeStyle=hs(hue,48+rr*22,62-rr*6,.075+.035*(1-rr));
+   ctx.lineWidth=base*(.028+.010*slow2)*(1+.15*Math.sin(r+T(.16)));
+   ctx.filter='blur('+Math.max(3,base*.011)+'px)';ctx.stroke();ctx.filter='none';
  }
- // one sharp seam slowly migrates through the field
- const seam=T(.20);
+
+ // Main field: lines are not parallel. Their spacing breathes and their phase
+ // slips slowly from one side to the other, producing an organic folded sheet.
+ for(let b=0;b<bands;b++){
+   const q=b/(bands-1);
+   const path=new Path2D();
+   for(let i=0;i<=280;i++){
+     const z=i/280;
+     const x=(z-.5)*W*1.42;
+     const crest=Math.sin(z*Math.PI*1.72+T(.075)+q*2.15);
+     const fold=Math.sin(z*Math.PI*3.35-T(.045)+q*1.55+seed*.008);
+     const fine=Math.sin(z*Math.PI*8.0+q*5.7+T(.13))*base*.0045;
+     const y=(q-.5)*base*.82
+       +crest*base*(.055+.026*slow)
+       +fold*base*(.010+.012*(1-q))* (0.75+.25*slow2)
+       +fine;
+     const xx=x+Math.sin(z*Math.PI*2.2+q*3.4+T(.09))*base*.006*(.5+slow);
+     if(i===0)path.moveTo(xx,y);else path.lineTo(xx,y);
+   }
+   const hue=(law*58+q*96+u*34+Math.sin(q*8+T(.08))*9)%360;
+   const light=43+q*29+slow*4;
+   ctx.strokeStyle=hs(hue,30+q*34,light,.20+.34*(1-q));
+   ctx.lineWidth=.65+base*.0022*(1-q)*(1.05+.45*slow2);
+   ctx.stroke(path);
+ }
+
+ // A few colored threads emerge and recede. They are deliberately soft,
+ // asymmetrical accents rather than a single attention-grabbing seam.
+ for(let a=0;a<6;a++){
+   const z0=a/5;
+   ctx.beginPath();
+   for(let i=0;i<=240;i++){
+     const z=i/240,x=(z-.5)*W*1.42;
+     const y=(z0-.5)*base*.78
+       +Math.sin(z*Math.PI*1.65+T(.055)+a*.9)*base*.105
+       +Math.sin(z*Math.PI*3.1-T(.035)+a*1.4)*base*.024;
+     if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+   }
+   const hue=(law*65+a*42+u*48)%360;
+   ctx.strokeStyle=hs(hue,58,68,.085+.045*slow2);
+   ctx.lineWidth=base*(.009+.004*slow);
+   ctx.filter='blur('+Math.max(1.5,base*.004)+'px)';ctx.stroke();ctx.filter='none';
+ }
+
+ // The original sharp seam is replaced by a very thin wandering filament that
+ // changes position slowly; it gives the eye something to discover without
+ // dominating the composition.
  ctx.beginPath();
- for(let i=0;i<=180;i++){
-   const z=i/180,x=(z-.5)*W*1.3;
-   const y=Math.sin(z*Math.PI*1.7+seam)*base*.25 + Math.sin(z*Math.PI*6-seam*.7)*base*.025;
+ for(let i=0;i<=240;i++){
+   const z=i/240,x=(z-.5)*W*1.38;
+   const y=Math.sin(z*Math.PI*1.55+T(.085))*base*.24
+     +Math.sin(z*Math.PI*4.6-T(.055))*base*.018;
    if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
  }
- ctx.strokeStyle=hs((law*80+u*55)%360,80,72,.8);ctx.lineWidth=Math.max(1,base*.006);ctx.stroke();
+ ctx.strokeStyle=hs((law*79+u*44)%360,68,70,.48+.10*slow2);
+ ctx.lineWidth=Math.max(.7,base*.0022);ctx.stroke();
  ctx.restore();
- const vign=ctx.createRadialGradient(W*.5,H*.5,base*.2,W*.5,H*.5,Math.max(W,H)*.75);vign.addColorStop(0,'rgba(255,255,255,0)');vign.addColorStop(1,'rgba(0,0,0,.10)');ctx.fillStyle=vign;ctx.fillRect(0,0,W,H);
+
+ // Subtle edge falloff for a photographic, gallery-like finish.
+ const vign=ctx.createRadialGradient(W*.5,H*.5,base*.18,W*.5,H*.5,Math.max(W,H)*.78);
+ vign.addColorStop(0,'rgba(255,255,255,0)');
+ vign.addColorStop(.72,'rgba(0,0,0,.015)');
+ vign.addColorStop(1,'rgba(0,0,0,.085)');
+ ctx.fillStyle=vign;ctx.fillRect(0,0,W,H);
 }
-function animate(now){const dt=Math.min(.05,(now-last)/1000);last=now;px+=(tx-px)*(1-Math.exp(-dt*3));py+=(ty-py)*(1-Math.exp(-dt*3));render();requestAnimationFrame(animate)}
-function touch(x,y){if(window.APKit&&APKit.isUI(x,y))return true;tx=x/innerWidth;ty=y/innerHeight;law=(law+1)%palettes.length;seed=Math.random()*1000;return true}
+
+function animate(now){
+ const dt=Math.min(.05,(now-last)/1000);last=now;
+ px+=(tx-px)*(1-Math.exp(-dt*2.1));py+=(ty-py)*(1-Math.exp(-dt*2.1));
+ render();requestAnimationFrame(animate);
+}
+function touch(x,y){
+ if(window.APKit&&APKit.isUI(x,y))return true;
+ tx=x/innerWidth;ty=y/innerHeight;
+ law=(law+1)%palettes.length;seed=Math.random()*1000;
+ return true;
+}
 canvas.addEventListener('pointerdown',e=>touch(e.clientX,e.clientY),{passive:true});
 canvas.addEventListener('pointermove',e=>{if(e.buttons){tx=e.clientX/innerWidth;ty=e.clientY/innerHeight}},{passive:true});
+
 APKit.init({canvas:canvas,gifName:'chromatic-fold-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:function(phase){render(phase)},buttons:[
  {label:'✦',name:'mutate',onClick:function(){law=(law+1)%palettes.length;seed=Math.random()*1000}},
  {label:'↻',name:'reset',onClick:function(){law=0;seed=Math.random()*1000;tx=ty=px=py=.5}}
