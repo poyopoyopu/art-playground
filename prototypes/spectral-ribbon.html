@@ -1,3 +1,45 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Spectral Ribbon</title><script src="../ap-kit.js"></script><style>html,body{margin:0;height:100%;overflow:hidden;background:#fff}canvas{display:block;width:100%;height:100%}</style></head><body><canvas id="c"></canvas><script>
-const c=document.getElementById('c'),g=c.getContext('2d');let W,H,d,seed=1,warp=0,t0=performance.now();function sz(){d=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;c.width=W*d;c.height=H*d;g.setTransform(d,0,0,d,0,0)}addEventListener('resize',sz);sz();
-function draw(p){let t=p*Math.PI*2,S=Math.min(W,H);let bx=W*(.5+.34*Math.sin(t+seed)),by=H*(.5+.32*Math.cos(2*t+seed*.7));let bh=(190+110*Math.sin(t+seed*.31))%360;let bg=g.createRadialGradient(bx,by,0,W*.52,H*.56);bg.addColorStop(0,'hsla('+bh+',78%,82%,.95)');bg.addColorStop(.28,'hsla('+((bh+45)%360)+',70%,91%,.72)');bg.addColorStop(.58,'hsla('+((bh+155)%360)+',58%,96%,.46)');bg.addColorStop(1,'#fff');g.fillStyle=bg;g.fillRect(0,0,W,H);let wash=g.createLinearGradient(W,0,0,H);wash.addColorStop(0,'hsla('+((bh+210)%360)+',55%,92%,.42)');wash.addColorStop(.5,'rgba(255,255,255,0)');wash.addColorStop(1,'hsla('+((bh+80)%360)+',55%,92%,.42)');g.fillStyle=wash;g.fillRect(0,0,W,H);g.globalCompositeOperation='source-over';for(let b=0;b<52;b++){g.beginPath();for(let i=0;i<=420;i++){let u=i/420,x=u*W,y=H*.5;let a=(u-.5)*Math.PI*2.8;let wave=Math.sin(a*1.7+t*.45+seed*.2)*.10+Math.sin(a*5.2-t*.31+b*.018)*.025;let lens=Math.exp(-Math.pow((u-(.22+.56*(.5+.5*Math.sin(t*.5+seed))))/.16,2));y+=Math.sin(a+wave)*S*.34;y+=Math.sin(a*2.4-t*.2+b*.07)*S*.012;y+=warp*lens*Math.sin(a*3.2+t+b*.04)*S*.20;let xx=x+Math.sin(a*1.7+t*.15)*S*.025*lens;let yy=y+Math.cos(a+wave)*S*.03;if(i===0)g.moveTo(xx,yy);else g.lineTo(xx,yy)}let hue=(b*9.5+seed*43+t*32)%360;g.strokeStyle='hsla('+hue+',88%,'+(58+b*.25)+'%,'+(.018+b*.0028)+')';g.lineWidth=.45+b*.022;g.stroke()}g.globalCompositeOperation='screen';for(let k=0;k<9;k++){let x0=W*(.12+k*.095+.018*Math.sin(t+k));g.beginPath();for(let j=0;j<=120;j++){let v=j/120,y=H*(v-.1),u=(y/H-.5)*4;let bend=Math.sin(v*5+t*.35+k)*W*.035+Math.sin(v*12-t+k*.7)*W*.008;let x=x0+bend+warp*Math.exp(-Math.pow((v-.55)/.22,2))*Math.sin(t+v*7+k)*W*.10;if(j===0)g.moveTo(x,y);else g.lineTo(x,y)}g.strokeStyle='hsla('+((k*47+seed*29+t*25)%360)+',100%,58%,.10)';g.lineWidth=1;g.stroke()}g.globalCompositeOperation='source-over'}function frame(p){draw(p)}function mutate(){seed+=1+Math.floor(Math.random()*8);warp=(warp+1)%5}function reset(){seed=1;warp=0}c.addEventListener('pointerdown',e=>{if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return true;warp=(warp+1)%5;seed+=1;return true});function loop(t){draw(((t-t0)/18000)%1);requestAnimationFrame(loop)}requestAnimationFrame(loop);APKit.init({canvas:c,gifName:'spectral-ribbon-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:frame,buttons:[{label:'✦',name:'mutate',onClick:mutate},{label:'↻',name:'reset',onClick:reset}]});</script></body></html>
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Spectral Ribbon</title><script src="../ap-kit.js"></script><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#fff}canvas{display:block;width:100%;height:100%}</style></head><body><canvas id="c"></canvas><script>
+const c=document.getElementById('c');
+const g=c.getContext('2d',{alpha:false});
+let W=1,H=1,D=1,seed=7,law=0,t0=performance.now();
+function resize(){D=Math.min(window.devicePixelRatio||1,2);W=window.innerWidth;H=window.innerHeight;c.width=Math.max(1,Math.floor(W*D));c.height=Math.max(1,Math.floor(H*D));g.setTransform(D,0,0,D,0,0)}
+window.addEventListener('resize',resize);resize();
+function draw(phase){
+ const t=phase*Math.PI*2, S=Math.min(W,H), cx=W*.5, cy=H*.5;
+ g.fillStyle='#fff';g.fillRect(0,0,W,H);
+ const lx=cx+Math.cos(t*.5+seed)*W*.30, ly=cy+Math.sin(t*.5+seed*.7)*H*.28;
+ for(let b=0;b<72;b++){
+   g.beginPath();
+   for(let i=0;i<=260;i++){
+     const u=i/260, x=u*W, base=(u-.5)*S*1.35;
+     const lens=Math.exp(-Math.pow((x-lx)/(S*.25),2)-Math.pow((base-(ly-cy))/(S*.42),2));
+     const wave=Math.sin(base/S*8+t*.32+seed*.11+b*.035)*S*.012;
+     const bend=Math.sin(base/S*2.8-t*.22+seed)*S*.035;
+     const y=cy+base*.38+bend+wave+law*.012*S*lens*Math.sin(base/S*18+t+b*.13);
+     const xx=x+lens*S*.07*Math.sin(base/S*7-t*.25+b*.08);
+     if(i===0)g.moveTo(xx,y);else g.lineTo(xx,y);
+   }
+   const hue=(190+b*2.35+Math.sin(t*.5+b*.06)*55+seed*17)%360;
+   g.strokeStyle='hsla('+hue+',82%,'+(62+b*.18)+'%,'+(.055+b*.0009)+')';g.lineWidth=.42+(b%5)*.08;g.stroke();
+ }
+ g.globalCompositeOperation='multiply';
+ for(let k=0;k<18;k++){
+   const x=W*(.06+k*.052), drift=Math.sin(t*.5+k*.7)*S*.018;
+   g.beginPath();
+   for(let j=0;j<=120;j++){
+     const v=j/120,y=v*H,q=Math.exp(-Math.pow((x-lx)/(S*.22),2)-Math.pow((y-ly)/(S*.42),2));
+     const xx=x+drift+q*S*.055*Math.sin(v*10+t+k);
+     if(j===0)g.moveTo(xx,y);else g.lineTo(xx,y);
+   }
+   g.strokeStyle='hsla('+((k*19+seed*31+t*28)%360)+',70%,60%,.035)';g.lineWidth=.65;g.stroke();
+ }
+ g.globalCompositeOperation='source-over';
+}
+function frame(p){draw(p)}
+function mutate(){seed+=1+Math.floor(Math.random()*9);law=(law+1)%6}
+function reset(){seed=7;law=0}
+c.addEventListener('pointerdown',e=>{if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return true;law=(law+1)%6;seed+=1;return true});
+function loop(now){draw(((now-t0)/18000)%1);requestAnimationFrame(loop)}
+requestAnimationFrame(loop);
+APKit.init({canvas:c,gifName:'spectral-ribbon-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:frame,buttons:[{label:'✦',name:'mutate',onClick:mutate},{label:'↻',name:'reset',onClick:reset}]});
+</script></body></html>
