@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>CHROMATIC ORBIT</title>
+<script src="../ap-kit.js"></script>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#100b1f}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+'use strict';
+const canvas=document.getElementById('c');
+const ctx=canvas.getContext('2d',{alpha:false});
+let W=0,H=0,DPR=1;
+let seed=Math.random()*1000;
+let law=0;
+let touchX=.5,touchY=.5,targetX=.5,targetY=.5;
+let last=performance.now();
+
+const palettes=[
+  ['#07131a','#1b5960','#63c6b7','#d9f27f','#fff2b2'],
+  ['#16091f','#5d174e','#d34d76','#ff9b71','#ffe0a8'],
+  ['#080f22','#183d70','#4e8ed7','#9fd7ff','#e9f3ff']
+];
+
+function resize(){
+  DPR=Math.min(devicePixelRatio||1,2);
+  W=innerWidth;H=innerHeight;
+  canvas.width=Math.round(W*DPR);canvas.height=Math.round(H*DPR);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+}
+addEventListener('resize',resize,{passive:true});resize();
+
+function hsl(h,s,l,a=1){return `hsla(${h},${s}%,${l}%,${a})`}
+function noise(t){return Math.sin(t*1.713+seed)*.5+Math.sin(t*.719-seed*1.7)*.3+Math.sin(t*.271+seed*2.1)*.2}
+
+function render(phase=null){
+  const now=performance.now()/1000;
+  const t=phase===null?now:phase;
+  const p=palettes[law%palettes.length];
+  const cx=W*(.5+(targetX-.5)*.16), cy=H*(.5+(targetY-.5)*.16);
+  const base=Math.min(W,H);
+  const drift=APKit.T(.16,phase,t);
+  const breathe=(Math.sin(APKit.T(.72,phase,t))+1)/2;
+  const spin=APKit.T(.34,phase,t);
+
+  const g=ctx.createRadialGradient(cx,cy,0,cx,cy,base*.72);
+  g.addColorStop(0,p[4]);g.addColorStop(.13,p[3]);g.addColorStop(.42,p[1]);g.addColorStop(1,p[0]);
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+
+  ctx.globalCompositeOperation='screen';
+  for(let k=0;k<3;k++){
+    const a=.035+.018*Math.sin(t*.6+k*2.1);
+    const gx=W*(.5+Math.sin(t*.17+k*2.2)*.35), gy=H*(.5+Math.cos(t*.13+k)*.3);
+    const vg=ctx.createRadialGradient(gx,gy,0,gx,gy,base*.65);
+    vg.addColorStop(0,hsl((law*115+k*55+drift*20)%360,70,65,a));vg.addColorStop(1,hsl(0,0,0,0));
+    ctx.fillStyle=vg;ctx.fillRect(0,0,W,H);
+  }
+  ctx.globalCompositeOperation='source-over';
+
+  ctx.save();ctx.translate(cx,cy);ctx.rotate(spin*.16);
+  const rings=38;
+  for(let r=0;r<rings;r++){
+    const q=r/(rings-1);
+    const radius=base*(.045+q*.48)*(1+.025*Math.sin(t*.8+r*.33));
+    const turns=4.5+law*1.25+1.1*breathe;
+    const points=180;
+    ctx.beginPath();
+    for(let i=0;i<=points;i++){
+      const u=i/points;
+      const ang=u*Math.PI*2*turns + r*.115 - spin*(.55+q*.8);
+      const wobble=(1+0.075*Math.sin(ang*3+r*.7+t*.55)+.035*Math.sin(ang*7-t*.35));
+      const rr=radius*wobble*(1+.05*Math.sin(u*Math.PI*2+t*.7+r));
+      const x=Math.cos(ang)*rr*(1+.08*(1-q)*Math.sin(t*.45));
+      const y=Math.sin(ang)*rr;
+      if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+    }
+    const hue=(law*113+r*4.7+drift*26+q*80)%360;
+    ctx.strokeStyle=hsl(hue,62+q*22,54+q*24,.34+.38*(1-q));
+    ctx.lineWidth=.55+2.2*(1-q)*(.65+breathe*.55);
+    ctx.stroke();
+  }
+
+  for(let s=0;s<24;s++){
+    const a=s*Math.PI*2/24 - spin*.23;
+    ctx.beginPath();
+    const len=base*(.08+.43*breathe);
+    for(let j=0;j<45;j++){
+      const u=j/44, rr=base*(.035+u*.46);
+      const aa=a+Math.sin(u*9+t*.42+s)*.025+u*spin*.08;
+      const off=Math.sin(u*Math.PI*3+t*.35+s*.4)*len*.035;
+      const x=Math.cos(aa)*rr+Math.cos(aa+Math.PI/2)*off;
+      const y=Math.sin(aa)*rr+Math.sin(aa+Math.PI/2)*off;
+      if(j===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+    }
+    ctx.strokeStyle=hsl((law*97+s*9+drift*35)%360,70,72,.16+.12*breathe);
+    ctx.lineWidth=.6;
+    ctx.stroke();
+  }
+
+  const eye=base*(.018+.012*breathe);
+  const eg=ctx.createRadialGradient(0,0,0,0,0,eye*4);
+  eg.addColorStop(0,p[4]);eg.addColorStop(.35,p[3]);eg.addColorStop(1,hsl((law*120+drift*30)%360,70,55,0));
+  ctx.fillStyle=eg;ctx.beginPath();ctx.arc(0,0,eye*4,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle=p[4];ctx.beginPath();ctx.arc(0,0,eye*(.8+.35*breathe),0,Math.PI*2);ctx.fill();
+  ctx.restore();
+
+  const vg=ctx.createRadialGradient(W/2,H/2,base*.25,W/2,H/2,base*.72);
+  vg.addColorStop(0,'rgba(0,0,0,0)');vg.addColorStop(.72,'rgba(0,0,0,.02)');vg.addColorStop(1,'rgba(0,0,0,.34)');
+  ctx.fillStyle=vg;ctx.fillRect(0,0,W,H);
+}
+
+function animate(now){
+  const dt=Math.min(.04,(now-last)/1000);last=now;
+  touchX+=(targetX-touchX)*(1-Math.exp(-dt*2.2));
+  touchY+=(targetY-touchY)*(1-Math.exp(-dt*2.2));
+  render();requestAnimationFrame(animate);
+}
+
+function changeLaw(x,y){
+  if(window.APKit&&APKit.isUI(x,y))return true;
+  targetX=x/innerWidth;targetY=y/innerHeight;
+  law=(law+1)%palettes.length;
+  seed=Math.random()*1000;
+  return true;
+}
+canvas.addEventListener('pointerdown',e=>changeLaw(e.clientX,e.clientY),{passive:true});
+canvas.addEventListener('pointermove',e=>{
+  if(e.buttons){targetX=e.clientX/innerWidth;targetY=e.clientY/innerHeight}
+},{passive:true});
+
+APKit.init({
+  canvas:canvas,
+  gifName:'chromatic-orbit-loop',
+  clockFormat:'spec',
+  dock:true,
+  autoHide:true,
+  fullscreenButton:false,
+  loopFrame:function(phase){render(phase)},
+  buttons:[
+    {label:'✦',name:'mutate',onClick:function(){law=(law+1)%palettes.length;seed=Math.random()*1000}},
+    {label:'↻',name:'reset',onClick:function(){law=0;seed=Math.random()*1000;targetX=.5;targetY=.5}}
+  ]
+});
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>
