@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>CHROMATIC TENSION</title><script src="../ap-kit.js"></script><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#020307}canvas{display:block;width:100%;height:100%;touch-action:none}</style></head><body><canvas id="c"></canvas><script>
+const c=document.getElementById('c'),x=c.getContext('2d');let W,H,D,t0=performance.now(),seed=Math.random()*9,source={x:.5,y:.5,p:0};
+function resize(){D=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;c.width=W*D;c.height=H*D;x.setTransform(D,0,0,D,0,0)}addEventListener('resize',resize);resize();
+function field(px,py,t){let q=0;for(let k=1;k<5;k++)q+=Math.sin(px*(.004*k*k)+t*(.5+k*.13)+Math.sin(py*.009+k)*1.7)*(.9/k);let dx=px-source.x*W,dy=py-source.y*H,r=Math.hypot(dx,dy),a=Math.atan2(dy,dx);q+=source.p*Math.exp(-r/260)*Math.sin(a*3-r*.018+t*1.6);return q}
+function draw(phase){let t=phase*2.0+seed; x.fillStyle='#020307';x.fillRect(0,0,W,H);let rows=150,step=H/rows;for(let j=0;j<rows;j++){let y0=j*step;for(let layer=0;layer<3;layer++){x.beginPath();for(let i=0;i<=W;i+=4){let q=field(i,y0,t+layer*.021), yy=y0+q*(10+j/rows*12)+Math.sin(i*.003+t*.7+j*.09)*4;let off=(layer-1)*1.9+q*(layer-1)*1.2;if(i===0)x.moveTo(i,yy+off);else x.lineTo(i,yy+off)}let hue=200+layer*63+28*Math.sin(t*.4+j*.03);x.strokeStyle=`hsla(${hue},95%,${54+layer*10}%,.58)`;x.lineWidth=.72; x.stroke()}}
+// grain-like spectral edge
+for(let j=0;j<rows;j+=2){let y=j*step;for(let i=0;i<W;i+=7){let q=field(i,y,t);let a=Math.max(0,Math.min(1,Math.abs(q)*.035));if(a>.12){x.fillStyle=`hsla(${210+q*28},100%,75%,${a*.5})`;x.fillRect(i,y+q*7,1,1)}}}}
+function loopFrame(p){draw(p)}
+function frame(){draw(((performance.now()-t0)/10000)%1);requestAnimationFrame(frame)}frame();
+function hit(e){const r=c.getBoundingClientRect(),px=e.clientX-r.left,py=e.clientY-r.top;if(window.APKit&&APKit.isUI(px,py))return true;source={x:px/W,y:py/H,p:1.0};setTimeout(()=>source.p=.35,900);return true}
+c.addEventListener('pointerdown',hit);
+APKit.init({canvas:c,gifName:'chromatic-tension-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame,buttons:[{label:'✦',name:'mutate',onClick:()=>{seed=Math.random()*99}},{label:'↻',name:'reset',onClick:()=>{seed=1;source={x:.5,y:.5,p:0}}}]});
+</script></body></html>
