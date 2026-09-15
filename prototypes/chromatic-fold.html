@@ -31,25 +31,28 @@ function render(phase=null){
  const T=k=>APKit.T(k,phase,t),base=Math.min(W,H),u=T(.16);
  const breathe=(Math.sin(T(.39))+1)/2;
  const tide=(Math.sin(T(.145)-.8)+1)/2;
+ const bloom=(Math.sin(T(.082)+1.2)+1)/2;
  const centerX=W*(.5+(px-.5)*.14),centerY=H*(.5+(py-.5)*.14);
 
- // A warm, luminous paper atmosphere. The light drifts so slowly that the
- // field feels alive without reading as an animated background effect.
+ // The paper is never visually still: a very slow chromatic dawn moves through it.
  const bg=ctx.createLinearGradient(0,0,W,H);
+ const drift=.5+.5*Math.sin(T(.052));
  bg.addColorStop(0,p[0]);
- bg.addColorStop(.28,p[0]);
- bg.addColorStop(.55,p[1]);
- bg.addColorStop(.82,p[0]);
+ bg.addColorStop(.20,p[0]);
+ bg.addColorStop(.43,hs((law*57+u*30)%360,18,92,.55));
+ bg.addColorStop(.62,p[1]);
+ bg.addColorStop(.84,p[0]);
  bg.addColorStop(1,p[0]);
  ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
  ctx.globalCompositeOperation='screen';
- for(let k=0;k<4;k++){
-   const gx=W*(.10+.28*k)+Math.sin(T(.045)+k*1.7)*W*.08;
-   const gy=H*(.18+.23*((k*1.37)%1))+Math.cos(T(.035)+k)*H*.06;
-   const rg=ctx.createRadialGradient(gx,gy,0,gx,gy,base*(.48+.10*Math.sin(k+T(.06))));
-   const hue=(law*55+k*31+u*22)%360;
-   rg.addColorStop(0,hs(hue,30,74,.035+.025*breathe));
-   rg.addColorStop(1,hs(hue,30,74,0));
+ for(let k=0;k<5;k++){
+   const gx=W*(.02+k*.245+Math.sin(T(.038)+k*1.7)*.10)+drift*W*.08;
+   const gy=H*(.10+.24*((k*1.37)%1))+Math.cos(T(.030)+k)*H*.07;
+   const rg=ctx.createRadialGradient(gx,gy,0,gx,gy,base*(.43+.14*bloom));
+   const hue=(law*55+k*29+u*22+drift*24)%360;
+   rg.addColorStop(0,hs(hue,36,77,.048+.035*breathe));
+   rg.addColorStop(.48,hs(hue+24,28,79,.018+.012*bloom));
+   rg.addColorStop(1,hs(hue,30,80,0));
    ctx.fillStyle=rg;ctx.fillRect(0,0,W,H);
  }
  ctx.globalCompositeOperation='source-over';
@@ -57,91 +60,102 @@ function render(phase=null){
  ctx.save();ctx.translate(centerX,centerY);
  const bands=46;
 
- // Very soft broad folds sit behind the drawing. Their colors migrate through
- // the same field as the fine lines, producing a silk-like depth.
- for(let r=0;r<7;r++){
-   const q=r/6,phaseR=T(.07)+r*1.07;
+ // Soft folds establish depth first. Their crests travel at a different speed
+ // from the fine field, so the image slowly changes its internal hierarchy.
+ for(let r=0;r<9;r++){
+   const q=r/8,phaseR=T(.052)+r*.83;
    ctx.beginPath();
-   for(let i=0;i<=280;i++){
-     const z=i/280,x=(z-.5)*W*1.42;
+   for(let i=0;i<=300;i++){
+     const z=i/300,x=(z-.5)*W*1.44;
      const y=(q-.5)*base*.80
-       +Math.sin(z*Math.PI*1.72+phaseR)*base*(.075+.025*breathe)
-       +Math.sin(z*Math.PI*3.25-phaseR*.6+r)*base*.025;
+       +Math.sin(z*Math.PI*1.72+phaseR)*base*(.060+.032*breathe)
+       +Math.sin(z*Math.PI*3.18-phaseR*.55+r)*base*.022
+       +Math.sin(z*Math.PI*.82-T(.028))*base*.018*(q-.5);
      if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
    }
    const hue=(law*58+r*24+u*34)%360;
-   ctx.strokeStyle=hs(hue,48+q*22,66-q*7,.055+.035*(1-q));
-   ctx.lineWidth=base*(.032+.010*breathe);
-   ctx.filter='blur('+Math.max(3,base*.012)+'px)';ctx.stroke();ctx.filter='none';
+   ctx.strokeStyle=hs(hue,46+q*25,65-q*6,.045+.035*(1-q));
+   ctx.lineWidth=base*(.024+.011*breathe);
+   ctx.filter='blur('+Math.max(3,base*.0105)+'px)';ctx.stroke();ctx.filter='none';
  }
 
- // Main folded field. The spacing breathes very slightly, while a slow phase
- // slip moves the apparent crest from left to right. This keeps the image
- // recognizable but gives the eye new relationships to discover.
+ // Main folded field. The spacing breathes, while a very slow phase slip moves
+ // the crest. Color changes continuously instead of jumping between stripes.
  for(let b=0;b<bands;b++){
    const q=b/(bands-1),path=new Path2D();
-   for(let i=0;i<=300;i++){
-     const z=i/300;
+   for(let i=0;i<=320;i++){
+     const z=i/320;
      const x=(z-.5)*W*1.43;
      const crest=Math.sin(z*Math.PI*1.72+T(.075)+q*2.15+seed*.0007);
      const fold=Math.sin(z*Math.PI*3.45-T(.045)+q*1.55+T(.20)*.12+seed*.001);
-     const fine=Math.sin(z*Math.PI*8.2+q*5.8+T(.11))*base*.0038;
+     const fine=Math.sin(z*Math.PI*8.2+q*5.8+T(.11))*base*.0037;
      const localBreath=.72+.28*Math.sin(T(.31)+q*4.2);
      const y=(q-.5)*base*.82
-       +crest*base*(.052+.028*breathe)*localBreath
+       +crest*base*(.050+.031*breathe)*localBreath
        +fold*base*(.009+.012*(1-q))
        +fine;
      const xx=x+Math.sin(z*Math.PI*2.15+q*3.2+T(.065))*base*.006*(.45+breathe);
      if(i===0)path.moveTo(xx,y);else path.lineTo(xx,y);
    }
    const hue=(law*62+q*102+u*34+Math.sin(q*Math.PI*2+T(.12))*12)%360;
-   const sat=31+q*30+6*Math.sin(q*Math.PI);
-   const light=43+q*30+3*breathe;
-   const alpha=.22+.31*(1-q);
+   const sat=33+q*31+7*Math.sin(q*Math.PI);
+   const light=42+q*31+4*breathe;
+   const alpha=.22+.32*(1-q);
    ctx.strokeStyle=hs(hue,sat,light,alpha);
-   ctx.lineWidth=.62+base*.00225*(1-q)*(1.02+.36*breathe);
+   ctx.lineWidth=.62+base*.00225*(1-q)*(1.02+.38*breathe);
    ctx.stroke(path);
  }
 
- // A pearly band of light slowly travels through the field. It is broad enough
- // to feel like illumination, not another line competing with the composition.
+ // Pearlescent illumination sweeps slowly across the sheet. Three veils overlap
+ // so the eye sees changing color relationships rather than a moving stripe.
  for(let r=0;r<3;r++){
-   const q=(tide+r*.31)%1;
+   const q=(tide+r*.305)%1;
    const y0=(q-.5)*base*.82;
    ctx.beginPath();
-   for(let i=0;i<=240;i++){
-     const z=i/240,x=(z-.5)*W*1.42;
+   for(let i=0;i<=260;i++){
+     const z=i/260,x=(z-.5)*W*1.44;
      const y=y0
        +Math.sin(z*Math.PI*1.72+T(.075)+q*2.15)*base*.075
-       +Math.sin(z*Math.PI*3.4-T(.04))*base*.018;
+       +Math.sin(z*Math.PI*3.4-T(.04)+r*.5)*base*.018;
      if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
    }
-   const hue=(law*60+q*150+u*28)%360;
-   ctx.strokeStyle=hs(hue,58,72,.075+.035*breathe);
-   ctx.lineWidth=base*(.012+.006*breathe);
+   const hue=(law*60+q*150+u*28+r*18)%360;
+   ctx.strokeStyle=hs(hue,60,73,.060+.045*breathe);
+   ctx.lineWidth=base*(.012+.007*breathe);
    ctx.filter='blur('+Math.max(2,base*.006)+'px)';ctx.stroke();ctx.filter='none';
  }
 
- // The recognizable accent filament remains, but it now emerges and recedes
- // with the moving light instead of dominating the whole composition.
+ // The accent filament now behaves like a reflection: it becomes visible,
+ // fades, and changes hue as the broad illumination passes over it.
  const filament=T(.20);
  ctx.beginPath();
- for(let i=0;i<=260;i++){
-   const z=i/260,x=(z-.5)*W*1.40;
+ for(let i=0;i<=280;i++){
+   const z=i/280,x=(z-.5)*W*1.40;
    const y=Math.sin(z*Math.PI*1.62+filament)*base*.235
      +Math.sin(z*Math.PI*4.8-filament*.65)*base*.017;
    if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
  }
- const fh=(law*80+u*55)%360;
- ctx.strokeStyle=hs(fh,68,71,.38+.16*(1-tide));
- ctx.lineWidth=Math.max(.8,base*.0021);
- ctx.stroke();
+ const fh=(law*80+u*55+Math.sin(T(.08))*18)%360;
+ ctx.strokeStyle=hs(fh,66,72,.22+.30*(1-tide));
+ ctx.lineWidth=Math.max(.75,base*.0021);ctx.stroke();
+
+ // Tiny glints drift across the folds. They are deliberately broad enough to
+ // read as light moving over a surface, not as particles.
+ ctx.globalCompositeOperation='screen';
+ for(let g=0;g<3;g++){
+   const gx=-W*.65+((T(.042+g*.009)+g*.37)%1)*W*2.3;
+   const gy=H*(.35+.16*g)+Math.sin(T(.065)+g*2.1)*base*.16-H*.5;
+   const gr=ctx.createRadialGradient(gx,gy,0,gx,gy,base*(.14+.04*bloom));
+   gr.addColorStop(0,hs((law*64+g*51+u*26)%360,48,84,.050+.018*bloom));
+   gr.addColorStop(1,'rgba(255,255,255,0)');
+   ctx.fillStyle=gr;ctx.fillRect(-W,-H,W*2,H*2);
+ }
+ ctx.globalCompositeOperation='source-over';
  ctx.restore();
 
- // A very light edge falloff gives the image a finished, photographic softness.
  const vign=ctx.createRadialGradient(W*.5,H*.5,base*.16,W*.5,H*.5,Math.max(W,H)*.78);
  vign.addColorStop(0,'rgba(255,255,255,0)');
- vign.addColorStop(.70,'rgba(0,0,0,.012)');
+ vign.addColorStop(.70,'rgba(0,0,0,.010)');
  vign.addColorStop(1,'rgba(0,0,0,.075)');
  ctx.fillStyle=vign;ctx.fillRect(0,0,W,H);
 }
