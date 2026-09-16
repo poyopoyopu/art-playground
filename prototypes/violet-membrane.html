@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>VIOLET MEMBRANE</title>
 <style>
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#010104}
-body{font-family:system-ui,-apple-system,sans-serif;touch-action:none}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}
+body{touch-action:none;font-family:system-ui,-apple-system,sans-serif}
 canvas{display:block;width:100%;height:100%;touch-action:none}
 </style>
 <script src="../ap-kit.js"></script>
@@ -19,57 +19,110 @@ const canvas=document.getElementById('c');
 const gl=canvas.getContext('webgl2',{antialias:false,alpha:false,preserveDrawingBuffer:true});
 if(!gl){document.body.innerHTML='<div style="color:white;padding:2rem">WebGL2 is required.</div>';throw new Error('WebGL2 unavailable')}
 const TAU=Math.PI*2;
-const VERT=`#version 300 es
+const V=`#version 300 es
 precision highp float;
-in vec3 aPos; in float aKind; in float aSize; in float aSeed; in vec3 aColor;
-uniform float uTime; uniform vec2 uRes; uniform vec2 uTouch;
-out vec3 vColor; out float vAlpha;
-mat2 rot(float a){float s=sin(a),c=cos(a);return mat2(c,-s,s,c);}
+in vec3 aP; in float aSize; in float aSeed; in vec3 aCol;
+uniform float uT; uniform vec2 uR; uniform vec2 uTouch;
+out vec3 vCol; out float vA;
 void main(){
- vec3 p=aPos; float t=uTime;
- if(aKind<.5){
-  p.x+=.045*sin(t*.34+aSeed*5.7+p.y*4.0);
-  p.y+=.032*sin(t*.22+aSeed*9.0+p.x*7.0);
-  p.z+=.055*cos(t*.28+aSeed*6.0+p.y*3.0);
-  float pull=exp(-5.2*length(vec2(p.x-uTouch.x*.72,p.y-uTouch.y*.72)));
-  p.x+=uTouch.x*.16*pull; p.y+=uTouch.y*.12*pull;
- }else if(aKind<1.5){p*=1.0+.025*sin(t*.55+aSeed*8.0);}
- else{float r=length(p.xz),ang=atan(p.z,p.x)+t*(.10+.035*aSeed);p.xz=vec2(cos(ang),sin(ang))*r;p.y+=.05*sin(t*.27+aSeed*12.0);}
- p.xz*=rot(t*.075); p.y+=.015*sin(t*.31+p.x*3.0);
- float depth=4.0-p.z; float f=1.65/depth; vec2 ndc=p.xy*f; ndc.x*=uRes.y/uRes.x;
- gl_Position=vec4(ndc,0.,1.); gl_PointSize=max(1.,aSize*f*(uRes.y/700.));
- vColor=aColor; vAlpha=aKind<.5?.72:(aKind<1.5?.86:.78);
+ vec3 p=aP; float t=uT;
+ float wave=sin(p.y*5.2+t*.42+aSeed*7.0)+.55*sin(p.y*11.0-t*.23+aSeed*13.0);
+ float pocket=exp(-dot(p.xy-uTouch*.52,p.xy-uTouch*.52)*5.0);
+ p.x+=wave*.055+pocket*uTouch.x*.11;
+ p.y+=sin(p.x*8.0+t*.31+aSeed*9.0)*.018+pocket*uTouch.y*.08;
+ p.z+=cos(p.y*7.0-t*.27+aSeed*11.0)*.06;
+ float ca=cos(t*.055),sa=sin(t*.055); p.xz=mat2(ca,-sa,sa,ca)*p.xz;
+ float depth=3.05-p.z; float f=1.75/max(depth,.45);
+ vec2 q=p.xy*f; q.x*=uR.y/uR.x;
+ gl_Position=vec4(q,0.,1.);
+ gl_PointSize=max(1.2,aSize*f*(uR.y/620.));
+ vCol=aCol; vA=.58+.42*clamp(aSize/7.,0.,1.);
 }`;
-const FRAG=`#version 300 es
-precision highp float; in vec3 vColor; in float vAlpha; out vec4 outColor;
-void main(){vec2 q=gl_PointCoord-.5;float d=length(q)*2.;if(d>1.)discard;float core=pow(max(0.,1.-d),3.2),halo=pow(max(0.,1.-d),1.2)*.28;outColor=vec4(vColor*(core*1.65+halo),vAlpha*(core+halo));}`;
+const F=`#version 300 es
+precision highp float;
+in vec3 vCol; in float vA; out vec4 o;
+void main(){
+ vec2 q=gl_PointCoord-.5; float d=length(q)*2.; if(d>1.)discard;
+ float core=pow(max(0.,1.-d),5.0); float halo=pow(max(0.,1.-d),1.65);
+ o=vec4(vCol*(core*2.8+halo*.55),vA*(core+halo*.18));
+}`;
 function compile(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));return s}
-const prog=gl.createProgram();gl.attachShader(prog,compile(gl.VERTEX_SHADER,VERT));gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,FRAG));gl.linkProgram(prog);if(!gl.getProgramParameter(prog,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(prog));
-const loc={pos:gl.getAttribLocation(prog,'aPos'),kind:gl.getAttribLocation(prog,'aKind'),size:gl.getAttribLocation(prog,'aSize'),seed:gl.getAttribLocation(prog,'aSeed'),color:gl.getAttribLocation(prog,'aColor'),time:gl.getUniformLocation(prog,'uTime'),res:gl.getUniformLocation(prog,'uRes'),touch:gl.getUniformLocation(prog,'uTouch')};
-let seed=Math.random()*1000;const data=[];const C=[[.42,.12,.82],[.66,.20,1],[.20,.42,1],[.90,.30,.90],[.30,.78,1]];
-function add(x,y,z,kind,size,s,c){data.push(x,y,z,kind,size,s,c[0],c[1],c[2])}
-// A vertical, hollow membrane: the reference is not a sphere but a deep curtain/half-shell.
-for(let layer=0;layer<12;layer++)for(let j=0;j<34;j++){
- const v=j/33,y=(v-.5)*1.78,width=Math.sqrt(Math.max(0,1-(y/1.03)*(y/1.03)));
- for(let i=0;i<24;i++){const u=i/23,ang=-1.38+u*2.18,rr=.70+layer*.026+.035*Math.sin(j*.9+layer);const x=-.13+rr*Math.cos(ang)*width,z=.18+rr*Math.sin(ang)*width*.78;const ripple=.035*Math.sin(layer*1.7+j*.37+u*11);add(x+ripple,y,z,0,1.8+(layer%3)*.45,(layer*37+j*3+i)*.017,C[(layer+j+Math.floor(u*7))%C.length])}
+const prog=gl.createProgram();gl.attachShader(prog,compile(gl.VERTEX_SHADER,V));gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,F));gl.linkProgram(prog);if(!gl.getProgramParameter(prog,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(prog));
+const L={p:gl.getAttribLocation(prog,'aP'),size:gl.getAttribLocation(prog,'aSize'),seed:gl.getAttribLocation(prog,'aSeed'),col:gl.getAttribLocation(prog,'aCol'),t:gl.getUniformLocation(prog,'uT'),r:gl.getUniformLocation(prog,'uR'),touch:gl.getUniformLocation(prog,'uTouch')};
+
+let seed=Math.random()*1000;
+const pts=[];
+function add(x,y,z,size,s,c){pts.push(x,y,z,size,s,c[0],c[1],c[2])}
+const palette=[[.18,.05,.40],[.36,.08,.72],[.62,.14,.95],[.16,.38,.95],[.82,.28,1],[.18,.65,1]];
+function rnd(i){return (Math.sin(i*127.31+seed*3.17)*43758.5453)%1}
+
+// Main structure: a deep, vertical, hollow membrane rather than a sphere.
+// Hundreds of curved filaments share a common field, creating a single living body.
+for(let s=0;s<96;s++){
+ const u=s/95, side=(u-.5)*2;
+ const centerX=-.10+side*.18+.11*Math.sin(side*3.2);
+ const baseZ=.10+.17*Math.cos(side*2.5);
+ const half=.78+.16*Math.sin(u*Math.PI);
+ for(let k=0;k<74;k++){
+  const v=k/73, y=(v-.5)*1.92;
+  const bulge=Math.sqrt(Math.max(.02,1-Math.pow(y/1.05,2)));
+  const bow=Math.sin(u*Math.PI)*.20;
+  const x=centerX+side*half*bulge+bow*Math.sin(v*Math.PI);
+  const z=baseZ+.22*Math.cos(side*2.7+v*3.4)+.10*Math.sin(v*TAU+u*8.0);
+  const size=1.5+1.7*(.5+.5*Math.sin(s*.71+k*.19));
+  add(x,y,z,size,s*.071+k*.013,palette[(s+Math.floor(k/9))%palette.length]);
+ }
 }
-// Fine filaments peeling from the outer edge.
-for(let strand=0;strand<54;strand++){const s=strand/53,y=-.88+s*1.76,len=.18+.24*Math.sin(s*Math.PI);for(let k=0;k<10;k++){const q=k/9,x=-.15-len*q-.08*Math.sin(q*4+s*9),z=.10+.28*q+.055*Math.sin(s*15+q*5);add(x,y+.018*Math.sin(q*TAU+s*8),z,0,1.25,(strand*19+k)*.031,C[(strand+k)%C.length])}}
-// The front globe is a dotted volume, deliberately independent from the membrane.
-for(let iy=0;iy<26;iy++){const vv=iy/25,phi=Math.PI*vv;for(let ix=0;ix<44;ix++){const th=TAU*ix/44,r=.43*Math.sin(phi);add(.20+r*Math.cos(th),.02+.43*Math.cos(phi),.30+r*Math.sin(th),1,1.7,(iy*47+ix)*.023,[.52,.30,.92])}}
-// Small satellites orbit around both structures.
-for(let k=0;k<8;k++){const a=k/8*TAU,r=.72+.10*Math.sin(k*2.7),x=.10+Math.cos(a)*r,y=.66*Math.sin(a*1.31),z=.15+Math.sin(a)*r*.72;for(let q=0;q<16;q++){const ph=q/16*TAU,rr=.055+.012*Math.sin(k);add(x+Math.cos(ph)*rr,y+Math.sin(ph)*rr,z,2,2.0,(k*23+q)*.041,C[(k+q)%C.length])}}
-const stride=9,arr=new Float32Array(data.flat()),buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,arr,gl.STATIC_DRAW);
-gl.enableVertexAttribArray(loc.pos);gl.vertexAttribPointer(loc.pos,3,gl.FLOAT,false,stride*4,0);gl.enableVertexAttribArray(loc.kind);gl.vertexAttribPointer(loc.kind,1,gl.FLOAT,false,stride*4,12);gl.enableVertexAttribArray(loc.size);gl.vertexAttribPointer(loc.size,1,gl.FLOAT,false,stride*4,16);gl.enableVertexAttribArray(loc.seed);gl.vertexAttribPointer(loc.seed,1,gl.FLOAT,false,stride*4,20);gl.enableVertexAttribArray(loc.color);gl.vertexAttribPointer(loc.color,3,gl.FLOAT,false,stride*4,24);
-let touch={x:0,y:0},target={x:0,y:0},dragging=false;
-function resize(){const d=Math.min(devicePixelRatio||1,1.7),w=Math.max(1,Math.floor(innerWidth*d)),h=Math.max(1,Math.floor(innerHeight*d));if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;gl.viewport(0,0,w,h)}}
+// Cross-current filaments give the membrane its tangled, fibrous interior.
+for(let s=0;s<62;s++){
+ const a=s/61*TAU;
+ for(let k=0;k<62;k++){
+  const q=k/61, y=(q-.5)*1.82;
+  const x=-.05+.68*Math.sin(a+y*2.6)*Math.cos(y*.7);
+  const z=.05+.34*Math.cos(a+y*3.2)+.15*Math.sin(q*TAU+a*2.0);
+  add(x,y,z,1.0+1.1*Math.sin(q*Math.PI),a+s*.037+q*.11,palette[(s*2+k)%palette.length]);
+ }
+}
+// A compact foreground volume: this reads as a floating luminous organism, not a planet.
+for(let i=0;i<1500;i++){
+ const a=i*2.399, r=.10+.34*Math.sqrt((i%97)/96), y=((i*37)%101)/100*1.18-.59;
+ const x=.18+r*Math.cos(a)*(1.0-.18*Math.abs(y));
+ const z=.47+r*Math.sin(a)*.72;
+ add(x,y,z,1.3+(i%7)*.42,i*.017,palette[(i*5)%palette.length]);
+}
+// Sparse satellites, deliberately larger and brighter than the field.
+for(let j=0;j<7;j++){
+ const a=j/7*TAU;
+ const x=.15+.80*Math.cos(a),y=.58*Math.sin(a*1.37),z=.42+.45*Math.sin(a);
+ for(let k=0;k<34;k++){
+  const q=k/33*TAU,r=.028+.018*Math.sin(k*.7);
+  add(x+Math.cos(q)*r,y+Math.sin(q)*r,z,2.2+(k%4)*.7,j*.31+k*.017,palette[(j+k)%palette.length]);
+ }
+}
+const stride=8,arr=new Float32Array(pts),buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,arr,gl.STATIC_DRAW);
+gl.enableVertexAttribArray(L.p);gl.vertexAttribPointer(L.p,3,gl.FLOAT,false,stride*4,0);
+gl.enableVertexAttribArray(L.size);gl.vertexAttribPointer(L.size,1,gl.FLOAT,false,stride*4,12);
+gl.enableVertexAttribArray(L.seed);gl.vertexAttribPointer(L.seed,1,gl.FLOAT,false,stride*4,16);
+gl.enableVertexAttribArray(L.col);gl.vertexAttribPointer(L.col,3,gl.FLOAT,false,stride*4,20);
+
+let touch={x:0,y:0},target={x:0,y:0},drag=false;
+function resize(){const d=Math.min(devicePixelRatio||1,1.5),w=Math.max(1,Math.floor(innerWidth*d)),h=Math.max(1,Math.floor(innerHeight*d));if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;gl.viewport(0,0,w,h)}}
 addEventListener('resize',resize,{passive:true});resize();
-function setTouch(e){const r=canvas.getBoundingClientRect();target.x=((e.clientX-r.left)/r.width-.5)*1.7;target.y=-((e.clientY-r.top)/r.height-.5)*1.7}
-canvas.addEventListener('pointerdown',e=>{if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;dragging=true;canvas.setPointerCapture?.(e.pointerId);setTouch(e)});
-canvas.addEventListener('pointermove',e=>{if(dragging)setTouch(e)});canvas.addEventListener('pointerup',e=>{dragging=false;setTouch(e)});canvas.addEventListener('pointercancel',()=>dragging=false);
-function draw(phase){resize();touch.x+=(target.x-touch.x)*.045;touch.y+=(target.y-touch.y)*.045;gl.useProgram(prog);gl.uniform1f(loc.time,phase/TAU*18.8495559);gl.uniform2f(loc.res,canvas.width,canvas.height);gl.uniform2f(loc.touch,touch.x,touch.y);gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE);gl.clearColor(.001,.0015,.004,1);gl.clear(gl.COLOR_BUFFER_BIT);gl.drawArrays(gl.POINTS,0,arr.length/stride)}
-function frame(){draw(((performance.now()/1000)/3)%1*TAU);requestAnimationFrame(frame)}frame();
-APKit.init({canvas:canvas,gifName:'violet-membrane-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:function(phase){draw(phase)},buttons:[{label:'✦',name:'mutate',onClick:function(){seed=Math.random()*1000}},{label:'↻',name:'reset',onClick:function(){seed=17.31;target={x:0,y:0};touch={x:0,y:0}}}]});
+function setTouch(e){const r=canvas.getBoundingClientRect();target.x=((e.clientX-r.left)/r.width-.5)*1.55;target.y=-((e.clientY-r.top)/r.height-.5)*1.55}
+canvas.addEventListener('pointerdown',e=>{if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;drag=true;canvas.setPointerCapture?.(e.pointerId);setTouch(e)});
+canvas.addEventListener('pointermove',e=>{if(drag)setTouch(e)});
+canvas.addEventListener('pointerup',e=>{drag=false;setTouch(e)});
+canvas.addEventListener('pointercancel',()=>drag=false);
+function draw(phase){
+ resize();touch.x+=(target.x-touch.x)*.06;touch.y+=(target.y-touch.y)*.06;
+ gl.useProgram(prog);gl.uniform1f(L.t,phase/TAU*TAU);gl.uniform2f(L.r,canvas.width,canvas.height);gl.uniform2f(L.touch,touch.x,touch.y);
+ gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE);gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT);gl.drawArrays(gl.POINTS,0,arr.length/stride);
+}
+function frame(){draw(((performance.now()/1000)/6)%1*TAU);requestAnimationFrame(frame)}frame();
+APKit.init({canvas:canvas,gifName:'violet-membrane-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:function(phase){draw(phase)},buttons:[
+ {label:'✦',name:'mutate',onClick:function(){seed=Math.random()*1000}},
+ {label:'↻',name:'reset',onClick:function(){seed=17.31;target={x:0,y:0};touch={x:0,y:0}}}
+]});
 </script>
 </body>
 </html>
