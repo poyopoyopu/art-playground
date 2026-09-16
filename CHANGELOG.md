@@ -20,6 +20,7 @@
 
 ## 履歴
 
+- 2026-09-16 チャッピー: LIQUID INVERSION プロトタイプ追加。滑らかな液体球に移動する深い陥没と反射色の変化を組み込んだWebGL作品(prototypes/liquid-inversion.html)
 - 2026-09-16 チャッピー: LIQUID PEARL V2 プロトタイプ追加。クローム膜・反射色・ゆっくりした形状変化をWebGLで実装(prototypes/liquid-pearl-v2.html)
 - 2026-09-16 クロード: ENCIRCLE を採用・art-v65として昇格、ギャラリーLOG先頭に追加(art-v65-encircle.html, index.html)
 - 2026-09-16 チャッピー: LIQUID KNOTを立体的な液体チューブ表現へ全面改修(prototypes/liquid-knot.html)
