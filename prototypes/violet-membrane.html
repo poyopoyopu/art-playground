@@ -3,141 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>INVERSE GARDEN</title>
-<style>
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#03030a}
-body{touch-action:none}
-canvas{display:block;width:100%;height:100%}
-</style>
+<title>NOCTURNE FIELD</title>
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#02040b}body{touch-action:none}canvas{display:block;width:100%;height:100%}</style>
 <script src="../ap-kit.js"></script>
 </head>
-<body>
-<canvas id="c"></canvas>
-<script>
-const c=document.getElementById('c'),g=c.getContext('2d');
-let W=0,H=0,D=1,t0=performance.now(),seed=17,flips=[];
-const TAU=Math.PI*2;
-function size(){D=Math.min(devicePixelRatio||1,1.5);W=innerWidth;H=innerHeight;c.width=Math.floor(W*D);c.height=Math.floor(H*D);g.setTransform(D,0,0,D,0,0)}
-size();addEventListener('resize',size);
+<body><canvas id="c"></canvas><script>
+const c=document.getElementById('c'),g=c.getContext('2d');let W=0,H=0,D=1,t0=performance.now(),seed=31,laws=[];const TAU=Math.PI*2;
+function size(){D=Math.min(devicePixelRatio||1,1.5);W=innerWidth;H=innerHeight;c.width=Math.floor(W*D);c.height=Math.floor(H*D);g.setTransform(D,0,0,D,0,0)}size();addEventListener('resize',size);
 function rnd(n){return (Math.sin(n*127.1+seed*311.7)*43758.5453%1+1)%1}
-function field(x,y,t){
-  let a=0,mag=1;
-  for(let i=0;i<flips.length;i++){
-    const f=flips[i],dx=x-f.x,dy=y-f.y,d=Math.hypot(dx,dy)+.0001,q=Math.exp(-d/f.r);
-    a+=f.s*q*(1+.18*Math.sin(t*.7+f.k));
-    mag*=1-f.q*q*.72;
-  }
-  return {a,mag};
-}
-function glow(x,y,r,h,a){
-  const z=g.createRadialGradient(x,y,0,x,y,r);
-  z.addColorStop(0,`hsla(${h},95%,80%,${a})`);
-  z.addColorStop(.35,`hsla(${h+18},92%,62%,${a*.2})`);
-  z.addColorStop(1,`hsla(${h+35},90%,50%,0)`);
-  g.fillStyle=z;g.beginPath();g.arc(x,y,r,0,TAU);g.fill();
-}
-function background(t,S,cx,cy){
-  const bg=g.createRadialGradient(cx-S*.04,cy-S*.08,0,cx,cy,S*.82);
-  bg.addColorStop(0,'#21132b');
-  bg.addColorStop(.28,'#0e0b1b');
-  bg.addColorStop(.68,'#050711');
-  bg.addColorStop(1,'#010208');
-  g.fillStyle=bg;g.fillRect(0,0,W,H);
-  g.globalCompositeOperation='screen';
-  glow(cx-S*.18*Math.sin(t*.18),cy+S*.10*Math.cos(t*.13),S*.48,278,.055);
-  glow(cx+S*.23*Math.cos(t*.11),cy-S*.20*Math.sin(t*.16),S*.40,205,.035);
-  g.globalAlpha=.13;
-  for(let k=0;k<7;k++){
-    g.beginPath();
-    const rr=S*(.26+k*.105),rot=t*(.018+k*.003)+k*.8;
-    for(let j=0;j<=120;j++){
-      const u=j/120*TAU;
-      const x=Math.cos(u+rot)*rr*(1+.08*Math.sin(u*3+k));
-      const y=Math.sin(u+rot)*rr*.72;
-      j?g.lineTo(cx+x,cy+y):g.moveTo(cx+x,cy+y);
-    }
-    g.strokeStyle=`hsla(${220+k*13},70%,65%,.12)`;g.lineWidth=.45;g.stroke();
-  }
-  g.globalAlpha=1;
-  for(let i=0;i<70;i++){
-    const a=rnd(i+5000)*TAU,r=S*(.18+.55*rnd(i+6000));
-    const x=cx+Math.cos(a)*r,y=cy+Math.sin(a)*r*.72;
-    const p=.35+.65*(.5+.5*Math.sin(t*.65+i*2.1));
-    g.fillStyle=`hsla(${205+rnd(i+7000)*95},70%,${65+p*25}%,${.035+p*.12})`;
-    g.fillRect(x,y,.7+p*.8,.7+p*.8);
-  }
-  g.globalCompositeOperation='source-over';
-}
-function draw(p){
-  const t=p*TAU,S=Math.min(W,H),cx=W*.5,cy=H*.5,R=S*.42;
-  background(t,S,cx,cy);
-  glow(cx,cy,R*.92,286,.075);
-  g.globalCompositeOperation='lighter';
-  for(let layer=0;layer<48;layer++){
-    const rr=R*(.075+layer/48*.95),phase=layer*.31;
-    g.beginPath();
-    for(let j=0;j<=230;j++){
-      const u=j/230*TAU;
-      let rad=rr*(1+.052*Math.sin(u*5-phase+t*.11)+.022*Math.sin(u*13+phase-t*.17));
-      let x=Math.cos(u)*rad,y=Math.sin(u)*rad*.76;
-      const f=field(x,y,t),ang=f.a+.13*Math.sin(t*.17+rr/S*7);
-      const xx=x*Math.cos(ang)-y*Math.sin(ang),yy=x*Math.sin(ang)+y*Math.cos(ang);
-      const bend=(1-f.mag)*S*.14;
-      x=xx+(xx/(Math.hypot(xx,yy)+1))*bend;
-      y=yy+(yy/(Math.hypot(xx,yy)+1))*bend;
-      x+=Math.sin(u*3+phase+t*.08)*S*.006;
-      y+=Math.cos(u*4-phase-t*.06)*S*.006;
-      const px=cx+x,py=cy+y;j?g.lineTo(px,py):g.moveTo(px,py);
-    }
-    const hue=244+layer*1.45+20*Math.sin(t*.8+layer*.05);
-    const light=57+layer*.28;
-    g.strokeStyle=`hsla(${hue},88%,${light}%,${.032+layer/48*.034})`;
-    g.lineWidth=.5+layer/48*1.05;g.stroke();
-  }
-  for(let k=0;k<11;k++){
-    const rr=R*(.18+k*.082),rot=t*(.02+k*.002)+k*.61;
-    g.beginPath();
-    for(let j=0;j<=170;j++){
-      const u=j/170*TAU,x=Math.cos(u)*rr,y=Math.sin(u)*rr*.76,f=field(x,y,t),a=f.a*.72+rot;
-      const xx=x*Math.cos(a)-y*Math.sin(a),yy=x*Math.sin(a)+y*Math.cos(a);
-      j?g.lineTo(cx+xx,cy+yy):g.moveTo(cx+xx,cy+yy);
-    }
-    g.strokeStyle=`hsla(${270+k*5.5},94%,72%,.075)`;g.lineWidth=.75;g.stroke();
-  }
-  for(let i=0;i<260;i++){
-    const a=rnd(i)*TAU,r=R*(.06+.88*rnd(i+500));
-    let x=Math.cos(a)*r,y=Math.sin(a)*r*.76,f=field(x,y,t);x*=f.mag;y*=f.mag;
-    const pulse=.5+.5*Math.sin(t*2+i*.17);
-    g.fillStyle=`hsla(${255+rnd(i+900)*70},92%,${67+pulse*25}%,${.08+pulse*.42})`;
-    const q=.7+f.mag*1.35;g.fillRect(cx+x,cy+y,q,q);
-  }
-  for(let i=0;i<flips.length;i++){
-    const f=flips[i],x=cx+f.x,y=cy+f.y,phase=t*1.4+f.k;
-    glow(x,y,f.r*.48,286,.075);
-    g.strokeStyle=`hsla(${285+i*7},95%,82%,.7)`;g.lineWidth=.8;g.beginPath();
-    for(let q=0;q<5;q++){
-      const a=phase+q*TAU/5,rr=f.r*(.035+.018*Math.sin(phase+q));
-      const x1=x+Math.cos(a)*rr,y1=y+Math.sin(a)*rr;
-      const x2=x+Math.cos(a+.48)*rr*2.2,y2=y+Math.sin(a+.48)*rr*2.2;
-      const x3=x+Math.cos(a+.92)*rr*1.15,y3=y+Math.sin(a+.92)*rr*1.15;
-      g.moveTo(x1,y1);g.lineTo(x2,y2);g.lineTo(x3,y3);
-    }
-    g.stroke();
-  }
-  g.globalCompositeOperation='source-over';
-  const v=g.createRadialGradient(cx,cy,S*.08,cx,cy,S*.8);
-  v.addColorStop(0,'rgba(0,0,0,0)');v.addColorStop(.7,'rgba(0,0,0,.06)');v.addColorStop(1,'rgba(0,0,0,.58)');
-  g.fillStyle=v;g.fillRect(0,0,W,H);
-}
-function loop(){draw(((performance.now()-t0)/11000)%1);requestAnimationFrame(loop)}
-loop();
-c.addEventListener('pointerdown',e=>{
-  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
-  const r=c.getBoundingClientRect(),S=Math.min(W,H),x=e.clientX-r.left-W*.5,y=e.clientY-r.top-H*.5;
-  flips.push({x,y,r:S*(.11+.028*(flips.length%5)),s:(flips.length%2?-.72:.72),q:.68,k:flips.length*.93});
-  if(flips.length>7)flips.shift();
-});
-APKit.init({canvas:c,gifName:'inverse-garden-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:draw,buttons:[{label:'✦',name:'mutate',onClick:()=>{seed=Math.random()*9999}},{label:'↻',name:'reset',onClick:()=>{seed=17;flips=[]}}]});
-</script>
-</body>
-</html>
+function field(x,y,t){let a=0,mag=1;for(let i=0;i<laws.length;i++){const f=laws[i],dx=x-f.x,dy=y-f.y,d=Math.hypot(dx,dy)+.0001,q=Math.exp(-d/f.r);a+=f.s*q*(1+.2*Math.sin(t*.55+f.k));mag*=1-f.q*q*.7}return{a,mag}}
+function glow(x,y,r,h,a){const z=g.createRadialGradient(x,y,0,x,y,r);z.addColorStop(0,`hsla(${h},92%,82%,${a})`);z.addColorStop(.3,`hsla(${h+28},88%,64%,${a*.22})`);z.addColorStop(1,`hsla(${h+55},90%,50%,0)`);g.fillStyle=z;g.beginPath();g.arc(x,y,r,0,TAU);g.fill()}
+function background(t,S,cx,cy){const bg=g.createRadialGradient(cx-S*.08,cy-S*.12,0,cx,cy,S*.88);bg.addColorStop(0,'#19162c');bg.addColorStop(.25,'#0b1023');bg.addColorStop(.56,'#050918');bg.addColorStop(1,'#010309');g.fillStyle=bg;g.fillRect(0,0,W,H);g.globalCompositeOperation='screen';glow(cx-S*.25*Math.cos(t*.12),cy+S*.18*Math.sin(t*.15),S*.55,215,.045);glow(cx+S*.28*Math.sin(t*.09),cy-S*.15*Math.cos(t*.13),S*.48,300,.045);glow(cx+S*.03,cy+S*.32*Math.sin(t*.1),S*.34,175,.025);g.globalAlpha=.12;for(let k=0;k<8;k++){const rr=S*(.24+k*.105),rot=-t*(.012+k*.002)+k*.73;g.beginPath();for(let j=0;j<=140;j++){const u=j/140*TAU,wob=1+.035*Math.sin(u*4+k*1.7+t*.2),x=Math.cos(u+rot)*rr*wob,y=Math.sin(u+rot)*rr*.74;j?g.lineTo(cx+x,cy+y):g.moveTo(cx+x,cy+y)}g.strokeStyle=`hsla(${205+k*13},75%,70%,.13)`;g.lineWidth=.45;g.stroke()}g.globalAlpha=1;for(let i=0;i<90;i++){const a=rnd(i+5000)*TAU,r=S*(.16+.7*rnd(i+6000)),x=cx+Math.cos(a)*r,y=cy+Math.sin(a)*r*.74,p=.5+.5*Math.sin(t*.5+i*1.91);g.fillStyle=`hsla(${190+rnd(i+7000)*125},72%,${62+p*28}%,${.025+p*.1})`;g.fillRect(x,y,.55+p*.8,.55+p*.8)}g.globalCompositeOperation='source-over'}
+function draw(p){const t=p*TAU,S=Math.min(W,H),cx=W*.5,cy=H*.5,R=S*.425;background(t,S,cx,cy);glow(cx,cy,R*.82,285,.07);g.globalCompositeOperation='lighter';for(let layer=0;layer<52;layer++){const rr=R*(.07+layer/52*.94),phase=layer*.29;g.beginPath();for(let j=0;j<=230;j++){const u=j/230*TAU;let rad=rr*(1+.045*Math.sin(u*5-phase+t*.12)+.022*Math.sin(u*9+phase-t*.15));let x=Math.cos(u)*rad,y=Math.sin(u)*rad*.75;const f=field(x,y,t),ang=f.a+.12*Math.sin(t*.16+rr/S*8),xx=x*Math.cos(ang)-y*Math.sin(ang),yy=x*Math.sin(ang)+y*Math.cos(ang),bend=(1-f.mag)*S*.16;x=xx+(xx/(Math.hypot(xx,yy)+1))*bend;y=yy+(yy/(Math.hypot(xx,yy)+1))*bend;x+=Math.sin(u*3+phase+t*.08)*S*.006;y+=Math.cos(u*4-phase-t*.06)*S*.006;j?g.lineTo(cx+x,cy+y):g.moveTo(cx+x,cy+y)}const hue=214+layer*1.65+30*Math.sin(t*.75+layer*.055);g.strokeStyle=`hsla(${hue},88%,${58+layer*.3}%,${.027+layer/52*.036})`;g.lineWidth=.5+layer/52*1.1;g.stroke()}for(let k=0;k<12;k++){const rr=R*(.16+k*.08),rot=t*(.018+k*.0018)+k*.58;g.beginPath();for(let j=0;j<=175;j++){const u=j/175*TAU,x=Math.cos(u)*rr,y=Math.sin(u)*rr*.75,f=field(x,y,t),a=f.a*.78+rot,xx=x*Math.cos(a)-y*Math.sin(a),yy=x*Math.sin(a)+y*Math.cos(a);j?g.lineTo(cx+xx,cy+yy):g.moveTo(cx+xx,cy+yy)}g.strokeStyle=`hsla(${255+k*6},96%,74%,.065)`;g.lineWidth=.72;g.stroke()}for(let i=0;i<280;i++){const a=rnd(i)*TAU,r=R*(.05+.9*rnd(i+500));let x=Math.cos(a)*r,y=Math.sin(a)*r*.75,f=field(x,y,t);x*=f.mag;y*=f.mag;const pulse=.5+.5*Math.sin(t*1.8+i*.17);g.fillStyle=`hsla(${205+rnd(i+900)*120},90%,${68+pulse*25}%,${.06+pulse*.4})`;const q=.65+f.mag*1.25;g.fillRect(cx+x,cy+y,q,q)}g.globalCompositeOperation='source-over';const v=g.createRadialGradient(cx,cy,S*.08,cx,cy,S*.8);v.addColorStop(0,'rgba(0,0,0,0)');v.addColorStop(.62,'rgba(0,0,0,.02)');v.addColorStop(1,'rgba(0,0,0,.62)');g.fillStyle=v;g.fillRect(0,0,W,H)}
+function loop(){draw(((performance.now()-t0)/11000)%1);requestAnimationFrame(loop)}loop();
+c.addEventListener('pointerdown',e=>{if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;const r=c.getBoundingClientRect(),S=Math.min(W,H),x=e.clientX-r.left-W*.5,y=e.clientY-r.top-H*.5;laws.push({x,y,r:S*(.105+.03*(laws.length%5)),s:(laws.length%2?-.72:.72),q:.7,k:laws.length*.93});if(laws.length>7)laws.shift()});
+APKit.init({canvas:c,gifName:'nocturne-field-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:draw,buttons:[{label:'✦',name:'mutate',onClick:()=>{seed=Math.random()*9999}},{label:'↻',name:'reset',onClick:()=>{seed=31;laws=[]}}]});
+</script></body></html>
