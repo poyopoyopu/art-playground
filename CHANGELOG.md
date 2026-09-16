@@ -12,7 +12,7 @@
 ## 現在の状態(変わったら書き換える)
 
 - CURRENT: TAR CEILING(`art-v68-tar-ceiling.html`)
-- LOG先頭: COLOR BREATH(`prototypes/spiral-spectrum-200-v9.html` → 実体は `archive/adopted/spiral-spectrum-200-v9.html`)
+- LOG先頭: OPAL MARBLE(`art-v69-opal-marble.html`)
 - 作業ルール: `AGENTS.md`(ギャラリー追加の手順と命名ルールは13章)
 - 運用メモ: `NOTES.md`(GitHub操作は可能性を確認してから実行)
 
@@ -20,6 +20,8 @@
 
 ## 履歴
 
+- 2026-09-17 クロード: OPAL MARBLEをart-v69として昇格、ギャラリーLOG先頭とPublished works(CURRENTの直後)に追加(art-v69-opal-marble.html, index.html)
+- 2026-09-17 しゅん: OPAL MARBLEを採用決定
 - 2026-09-17 クロード: OPAL MARBLEの白っぽいモヤモヤ(暗部の周りの雲のような縁と、平らな所の乳白色)を約2/3に減らした(prototypes/opal-marble.html)
 - 2026-09-17 クロード: OPAL MARBLEの触り方を根本から作り直し。指=重さとして膜が沈み、虹の同心輪と波紋が出て周りの模様が吸い寄せられる。タップ=ぷるんと跳ね返る・長押し=深く沈む・押したまま動かす=航跡・複数指=波紋の干渉。離すとばねのように揺れて平らに戻る(prototypes/opal-marble.html)
 - 2026-09-17 クロード: TAR CEILINGをart-v68として昇格しCURRENTに設定、それまでのCOLOR BREATHをLOG先頭へ移動、Published works先頭に追加(art-v68-tar-ceiling.html, index.html)
