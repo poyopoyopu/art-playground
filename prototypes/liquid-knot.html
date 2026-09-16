@@ -6,7 +6,7 @@
 <title>LIQUID KNOT</title>
 <script src="../ap-kit.js"></script>
 <style>
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#020307}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#010206}
 canvas{display:block;width:100%;height:100%;touch-action:none}
 </style>
 </head>
@@ -14,196 +14,130 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 <canvas id="c"></canvas>
 <script>
 'use strict';
-/* LIQUID KNOT — ChatGPT作。参照: 有機的なワイヤー球、光沢球、放射対称の精密構造。 */
+/*
+ LIQUID KNOT v2
+ World law: 一本の液体が自分自身を何度もくぐり、ゆっくり形を変える。
+ 見た目の「線」を増やすのではなく、立体チューブそのものを描く。
+ */
 const canvas=document.getElementById('c');
 const ctx=canvas.getContext('2d',{alpha:false});
 let W=0,H=0,DPR=1;
-let seed=Math.random()*10000;
+let seed=Math.random()*9999;
 let law=0;
-let targetX=.5,targetY=.5, touchX=.5,touchY=.5;
+let targetX=.5,targetY=.5,viewX=.5,viewY=.5;
 let last=performance.now();
-
-const palettes=[
-  {h:195,s:92,l:63},
-  {h:220,s:88,l:70},
-  {h:178,s:82,l:62},
-  {h:315,s:78,l:68}
-];
-
+const palettes=[{h:205},{h:225},{h:190},{h:300}];
 function resize(){
-  DPR=Math.min(devicePixelRatio||1,2);
-  W=innerWidth; H=innerHeight;
-  canvas.width=Math.round(W*DPR); canvas.height=Math.round(H*DPR);
-  ctx.setTransform(DPR,0,0,DPR,0,0);
+ DPR=Math.min(devicePixelRatio||1,2); W=innerWidth; H=innerHeight;
+ canvas.width=Math.round(W*DPR);canvas.height=Math.round(H*DPR);
+ ctx.setTransform(DPR,0,0,DPR,0,0);
 }
-addEventListener('resize',resize,{passive:true}); resize();
-
-function hash(n){
-  const x=Math.sin(n*127.1+seed*0.013)*43758.5453;
-  return x-Math.floor(x);
+addEventListener('resize',resize,{passive:true});resize();
+function hs(h,s,l,a=1){return `hsla(${h},${s}%,${l}%,${a})`}
+function smooth(v){return v*v*(3-2*v)}
+function rnd(n){return (Math.sin(n*91.731+seed*7.17)*43758.5453)%1}
+function project(x,y,z,rx,ry,rz,scale){
+ let cy=Math.cos(ry),sy=Math.sin(ry),cx=Math.cos(rx),sx=Math.sin(rx),cz=Math.cos(rz),sz=Math.sin(rz);
+ let X=x*cy+z*sy,Z=-x*sy+z*cy;
+ let Y=y*cx-Z*sx; Z=y*sx+Z*cx;
+ let X2=X*cz-Y*sz,Y2=X*sz+Y*cz;
+ let p=scale/(1-Z*.000001);
+ return {x:X2*p,y:Y2*p,z:Z};
 }
-function hsl(h,s,l,a=1){return `hsla(${h},${s}%,${l}%,${a})`}
-
-/*
-  World law:
-  The visible object is one continuous "ribbon universe".
-  A touch does not add a mark; it changes the number of folds and the
-  refraction axis of the entire object. The new law then becomes the
-  object's new equilibrium and slowly breathes by itself.
-*/
+function point(a,t,variant){
+ const R=1.02+.10*Math.sin(t*2+variant);
+ const r=.54+.08*Math.sin(t*3-variant*.7);
+ const q=3+law;
+ const w=5;
+ const wob=.08*Math.sin(t*q+a*2+variant)+.045*Math.sin(t*7-a*3+seed);
+ const rr=R+r*Math.cos(w*a+t*.32+variant*.4)+wob;
+ let x=rr*Math.cos(q*a+variant*.11);
+ let y=.88*rr*Math.sin(q*a+variant*.11);
+ let z=r*Math.sin(w*a+t*.32+variant*.4)+.14*Math.sin(q*a+variant);
+ const twist=.10*Math.sin(a*2+t*2+variant);
+ x+=twist*Math.cos(a*5);y+=twist*Math.sin(a*5);
+ return {x,y,z};
+}
 function render(phase=null){
-  const now=performance.now()/1000;
-  const ptime=phase===null ? now : phase;
-  const t=ptime;
-  const loop=phase!==null;
-  const cyc=k=>window.APKit ? APKit.T(k,phase,t) : (phase===null ? k*t : k*phase);
-
-  const base=Math.min(W,H);
-  const pal=palettes[law%palettes.length];
-
-  const px=touchX-.5, py=touchY-.5;
-  const axis=px*1.5;
-  const axisY=py*1.1;
-  const folds=3.0 + law*0.72 + Math.sin(seed)*.18;
-  const breath=(Math.sin(cyc(2)*Math.PI*2)+1)/2;
-  const slow=(Math.sin(cyc(1)*Math.PI*2)+1)/2;
-
-  ctx.globalCompositeOperation='source-over';
-  ctx.fillStyle='#020307';
-  ctx.fillRect(0,0,W,H);
-  const bg=ctx.createRadialGradient(W*.5,H*.48,0,W*.5,H*.48,base*.62);
-  bg.addColorStop(0,hsl(pal.h,45,10,.34));
-  bg.addColorStop(.45,hsl((pal.h+28)%360,50,6,.16));
-  bg.addColorStop(1,'rgba(0,0,0,0)');
-  ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
-
-  ctx.save();
-  ctx.translate(W*.5 + px*base*.05, H*.5 + py*base*.05);
-
-  ctx.globalCompositeOperation='screen';
-  const aura=ctx.createRadialGradient(0,0,base*.05,0,0,base*.42);
-  aura.addColorStop(0,hsl(pal.h,80,62,.12));
-  aura.addColorStop(.55,hsl((pal.h+35)%360,80,45,.035));
-  aura.addColorStop(1,'rgba(0,0,0,0)');
-  ctx.fillStyle=aura; ctx.beginPath(); ctx.arc(0,0,base*.45,0,Math.PI*2); ctx.fill();
-
-  const rings=64;
-  const points=190;
-  const radius=base*.31;
-
-  for(let r=0;r<rings;r++){
-    const q=r/(rings-1);
-    const depth=(q-.5)*2;
-    const phaseShift=r*.071 + seed*.0007;
-    ctx.beginPath();
-
-    for(let i=0;i<=points;i++){
-      const u=i/points;
-      const a=u*Math.PI*2;
-      const k=folds;
-      let rr=radius*(.18 + .80*Math.pow(Math.sin(Math.PI*q),.58));
-      const wave1=Math.sin(a*k + phaseShift + cyc(1)*Math.PI*2);
-      const wave2=Math.sin(a*(k+2.0) - cyc(2)*Math.PI*2 + r*.035);
-      rr*=1 + .11*wave1 + .055*wave2;
-
-      let x=Math.cos(a)*rr;
-      let y=Math.sin(a)*rr;
-      const bend=Math.sin(a*2.0 + axis*2.3 + cyc(2)*Math.PI*2)*(.08+.12*breath);
-      const shear=(depth*.18 + bend);
-      x += Math.sin(a*k + axisY)*base*.055*shear;
-      y += Math.cos(a*(k-1.0) - axis)*base*.055*shear;
-      const z=Math.sin(a + q*Math.PI*2 + axisY)*.5 + .5;
-      const scale=.70 + .42*z;
-      x*=scale; y*=scale;
-      const rx=axis*Math.cos(a*2.0)+axisY*Math.sin(a);
-      const ry=axisY*Math.cos(a*2.0)-axis*Math.sin(a);
-      x+=rx*base*.045*(1-q);
-      y+=ry*base*.045*(1-q);
-
-      if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
-    }
-
-    const depthGlow=.30+.70*q;
-    const hue=(pal.h + 42*q + 20*Math.sin(t*Math.PI*2*.5+r*.04+law))%360;
-    const light=52+25*q;
-    ctx.strokeStyle=hsl(hue,66+22*q,light,.10+.30*depthGlow);
-    ctx.lineWidth=.42 + 1.35*(1-q) + 1.0*breath*(1-q);
-    ctx.stroke();
-  }
-
-  ctx.globalCompositeOperation='screen';
-  const meridians=18+law*3;
-  for(let m=0;m<meridians;m++){
-    const a0=m*Math.PI*2/meridians + cyc(1)*Math.PI*2*.125;
-    ctx.beginPath();
-    for(let j=0;j<=90;j++){
-      const u=j/90;
-      const rr=base*(.055+.255*Math.sin(Math.PI*u)**.62);
-      const a=a0 + Math.sin(u*Math.PI*2 + m)*.055 + Math.sin(cyc(2)*Math.PI*2)*.03;
-      const x=Math.cos(a)*rr*(.72+.30*Math.sin(u*Math.PI));
-      const y=Math.sin(a)*rr;
-      if(j===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
-    }
-    ctx.strokeStyle=hsl((pal.h+80+m*7)%360,72,76,.10+.06*slow);
-    ctx.lineWidth=.45;
-    ctx.stroke();
-  }
-
-  const sx=Math.cos(cyc(1)*Math.PI*2)*radius*.23;
-  const sy=Math.sin(cyc(1)*Math.PI*2)*radius*.18;
-  const shine=ctx.createRadialGradient(sx,sy,0,sx,sy,base*.12);
-  shine.addColorStop(0,'rgba(255,255,255,.70)');
-  shine.addColorStop(.08,'rgba(255,255,255,.22)');
-  shine.addColorStop(1,'rgba(255,255,255,0)');
-  ctx.fillStyle=shine;ctx.beginPath();ctx.arc(sx,sy,base*.12,0,Math.PI*2);ctx.fill();
-
-  ctx.restore();
-
-  const vg=ctx.createRadialGradient(W*.5,H*.48,base*.22,W*.5,H*.48,base*.72);
-  vg.addColorStop(0,'rgba(0,0,0,0)');
-  vg.addColorStop(.76,'rgba(0,0,0,.05)');
-  vg.addColorStop(1,'rgba(0,0,0,.62)');
-  ctx.fillStyle=vg;ctx.fillRect(0,0,W,H);
+ const live=phase===null;
+ const t=live?performance.now()/1000:phase;
+ const T=k=>live?k*t:APKit.T(k,phase,t);
+ const cyc1=T(.055),cyc2=T(.085),cyc3=T(.13);
+ const base=Math.min(W,H), pal=palettes[law%palettes.length];
+ const mx=(viewX-.5)*.75,my=(viewY-.5)*.55;
+ const rx=.16+my+Math.sin(cyc1*Math.PI*2)*.08;
+ const ry=cyc2*Math.PI*2+mx;
+ const rz=.06*Math.sin(cyc3*Math.PI*2);
+ const sc=base*.205*(1+.035*Math.sin(cyc1*Math.PI*2));
+ ctx.globalCompositeOperation='source-over';
+ ctx.fillStyle='#010206';ctx.fillRect(0,0,W,H);
+ const bg=ctx.createRadialGradient(W*.5,H*.49,0,W*.5,H*.49,base*.65);
+ bg.addColorStop(0,hs(pal.h,48,12,.42));bg.addColorStop(.42,hs(pal.h+35,50,6,.18));bg.addColorStop(1,'rgba(0,0,0,0)');
+ ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
+ const aura=ctx.createRadialGradient(W*.5,H*.5,base*.03,W*.5,H*.5,base*.4);
+ aura.addColorStop(0,hs(pal.h,90,65,.12));aura.addColorStop(.6,hs(pal.h+55,80,45,.035));aura.addColorStop(1,'rgba(0,0,0,0)');
+ ctx.globalCompositeOperation='screen';ctx.fillStyle=aura;ctx.beginPath();ctx.arc(W*.5,H*.5,base*.4,0,Math.PI*2);ctx.fill();
+ ctx.save();ctx.translate(W*.5,H*.51);
+ const curves=[];const strands=6;const N=300;
+ for(let s=0;s<strands;s++){
+   const pts=[];
+   const off=(s-(strands-1)/2)*.012;
+   for(let i=0;i<N;i++){
+     const a=i/N*Math.PI*2;
+     const p=point(a,t*.22,s*1.7+seed*.0003);
+     const tangent=.018*Math.sin(a*7+s+t*.5);
+     p.x+=off*Math.cos(a*5+t*.2)+tangent;
+     p.y+=off*Math.sin(a*4-t*.15);
+     const pr=project(p.x,p.y,p.z,rx,ry,rz,sc);
+     pts.push(pr);
+   }
+   curves.push(pts);
+ }
+ const segments=[];
+ for(let s=0;s<strands;s++)for(let i=0;i<N;i++){
+   const j=(i+1)%N,a=curves[s][i],b=curves[s][j];
+   segments.push({a,b,s,depth:(a.z+b.z)*.5,i});
+ }
+ segments.sort((a,b)=>a.depth-b.depth);
+ ctx.lineCap='round';ctx.lineJoin='round';
+ const hueBase=pal.h+law*12;
+ for(const seg of segments){
+   const z=(seg.depth+1.7)/3.4;
+   const hue=(hueBase+48*z+18*Math.sin(seg.i/N*Math.PI*2+cyc1*Math.PI*2))%360;
+   const width=9.5+12*z;
+   const x1=seg.a.x,y1=seg.a.y,x2=seg.b.x,y2=seg.b.y;
+   ctx.globalCompositeOperation='screen';
+   ctx.strokeStyle='rgba(0,0,0,.72)';ctx.lineWidth=width*1.8;
+   ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+   ctx.strokeStyle=hs(hue,58+28*z,34+28*z,.72);ctx.lineWidth=width;
+   ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+   ctx.strokeStyle=hs(hue+18,65,70,.34);ctx.lineWidth=width*.43;
+   ctx.beginPath();ctx.moveTo(x1,y1-width*.08);ctx.lineTo(x2,y2-width*.08);ctx.stroke();
+   ctx.strokeStyle='rgba(255,255,255,.68)';ctx.lineWidth=Math.max(1,width*.105);
+   ctx.beginPath();ctx.moveTo(x1,y1-width*.16);ctx.lineTo(x2,y2-width*.16);ctx.stroke();
+ }
+ /* controlled liquid glints: attached to the knot, not floating particles */
+ for(let g=0;g<14;g++){
+   const a=(g/14)*Math.PI*2+cyc2*Math.PI*2;
+   const p=point(a,t*.22,g*2.31+seed*.0002);const pr=project(p.x,p.y,p.z,rx,ry,rz,sc);
+   const rr=(2.2+3.8*((Math.sin(g*7.1+seed)+1)/2))*(.75+(.5+.5*pr.z));
+   const grd=ctx.createRadialGradient(pr.x,pr.y,0,pr.x,pr.y,rr*4);
+   grd.addColorStop(0,'rgba(255,255,255,.92)');grd.addColorStop(.16,hs(hueBase+35,80,72,.45));grd.addColorStop(1,'rgba(0,0,0,0)');
+   ctx.fillStyle=grd;ctx.beginPath();ctx.arc(pr.x,pr.y,rr*4,0,Math.PI*2);ctx.fill();
+ }
+ ctx.restore();
+ const vg=ctx.createRadialGradient(W*.5,H*.5,base*.22,W*.5,H*.5,base*.7);
+ vg.addColorStop(0,'rgba(0,0,0,0)');vg.addColorStop(.72,'rgba(0,0,0,.06)');vg.addColorStop(1,'rgba(0,0,0,.66)');
+ ctx.globalCompositeOperation='source-over';ctx.fillStyle=vg;ctx.fillRect(0,0,W,H);
 }
-
-function animate(now){
-  const dt=Math.min(.04,(now-last)/1000); last=now;
-  touchX+=(targetX-touchX)*(1-Math.exp(-dt*1.8));
-  touchY+=(targetY-touchY)*(1-Math.exp(-dt*1.8));
-  render();
-  requestAnimationFrame(animate);
-}
-
-function changeLaw(x,y){
-  if(window.APKit&&APKit.isUI(x,y))return true;
-  targetX=x/innerWidth; targetY=y/innerHeight;
-  law=(law+1)%palettes.length;
-  seed=Math.random()*10000;
-  return true;
-}
-canvas.addEventListener('pointerdown',e=>changeLaw(e.clientX,e.clientY),{passive:true});
-canvas.addEventListener('pointermove',e=>{
-  if(e.buttons){targetX=e.clientX/innerWidth;targetY=e.clientY/innerHeight}
-},{passive:true});
-
-APKit.init({
-  canvas:canvas,
-  gifName:'liquid-knot-loop',
-  clockFormat:'spec',
-  dock:true,
-  autoHide:true,
-  fullscreenButton:false,
-  loopFrame:function(phase){render(phase)},
-  buttons:[
-    {label:'✦',name:'mutate',onClick:function(){
-      law=(law+1)%palettes.length;
-      seed=Math.random()*10000;
-    }},
-    {label:'↻',name:'reset',onClick:function(){
-      law=0;seed=Math.random()*10000;targetX=.5;targetY=.5;touchX=.5;touchY=.5;
-    }}
-  ]
-});
+function animate(now){const dt=Math.min(.04,(now-last)/1000);last=now;viewX+=(targetX-viewX)*(1-Math.exp(-dt*2));viewY+=(targetY-viewY)*(1-Math.exp(-dt*2));render();requestAnimationFrame(animate)}
+function touch(x,y){if(window.APKit&&APKit.isUI(x,y))return true;targetX=x/innerWidth;targetY=y/innerHeight;law=(law+1)%palettes.length;seed=Math.random()*9999;return true}
+canvas.addEventListener('pointerdown',e=>touch(e.clientX,e.clientY),{passive:true});
+canvas.addEventListener('pointermove',e=>{if(e.buttons){targetX=e.clientX/innerWidth;targetY=e.clientY/innerHeight}},{passive:true});
+APKit.init({canvas:canvas,gifName:'liquid-knot-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:function(phase){render(phase)},buttons:[
+ {label:'✦',name:'mutate',onClick:function(){law=(law+1)%palettes.length;seed=Math.random()*9999}},
+ {label:'↻',name:'reset',onClick:function(){law=0;seed=Math.random()*9999;targetX=.5;targetY=.5;viewX=.5;viewY=.5}}
+]});
 requestAnimationFrame(animate);
 </script>
 </body>
