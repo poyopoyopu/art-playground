@@ -17,8 +17,10 @@
   この面は「水に浮いた絵の具」。模様は自分では壊れない。
   タップ = 一滴の絵の具を落とす。滴は既存の模様を外へ押しのけ、押しのけられた模様は二度と戻らない。
   長押し = 絵の具を注ぎ続ける。注ぐ色が時間で切り替わるので、年輪のような同心の縞が育つ。
-  ドラッグ = 櫛で引く。指の通り道の模様が引きずられ、そのまま残る。
+  ドラッグ = 液に勢いを与える。模様は指に引っ張られ、離したあともヌルヌルと滑り続け、粘りでゆっくり止まる。
   触るたびに「面の座標そのもの」が書き換わっていく(内部では座標の写像テクスチャに累積している)。
+  改修(2026-09-17): 1回の指の動きで何枚も描き直す方式をやめ、低解像度の流体(速度場+圧力)を
+  1フレーム1回だけ進める方式に変更。滴も一瞬ではなく0.4秒かけて広がる。
 */
 const c=document.getElementById('c');
 const gl=c.getContext('webgl2',{antialias:false,alpha:false,preserveDrawingBuffer:true});
@@ -87,6 +89,43 @@ void main(){
   }
 }`;
 
+
+// ---- 流体(低解像度の速度場) ----
+const FS_VADV=`#version 300 es
+precision highp float;uniform sampler2D v;uniform vec2 res;uniform float dt,decay;out vec4 o;
+void main(){vec2 uv=gl_FragCoord.xy/res;vec2 vel=texture(v,uv).xy;
+  vec2 back=uv-vel*dt*min(res.x,res.y)/res;
+  o=vec4(texture(v,back).xy*decay,0.,1.);}`;
+const FS_SPLAT=`#version 300 es
+precision highp float;uniform sampler2D v;uniform vec2 res,C,F;uniform float rad,radial;out vec4 o;
+void main(){vec2 uv=gl_FragCoord.xy/res;vec2 P=(gl_FragCoord.xy-.5*res)/min(res.x,res.y);
+  vec2 d=P-C;float w=exp(-dot(d,d)/(rad*rad));
+  vec2 f=radial>.5?normalize(d+1e-5)*F.x*smoothstep(0.,rad*.6,length(d)):F;
+  o=vec4(texture(v,uv).xy+f*w,0.,1.);}`;
+const FS_DIV=`#version 300 es
+precision highp float;uniform sampler2D v;uniform vec2 res;out vec4 o;
+void main(){vec2 uv=gl_FragCoord.xy/res,px=1./res;
+  float d=.5*((texture(v,uv+vec2(px.x,0)).x-texture(v,uv-vec2(px.x,0)).x)+(texture(v,uv+vec2(0,px.y)).y-texture(v,uv-vec2(0,px.y)).y));
+  o=vec4(d,0.,0.,1.);}`;
+const FS_JAC=`#version 300 es
+precision highp float;uniform sampler2D pr,dv;uniform vec2 res;out vec4 o;
+void main(){vec2 uv=gl_FragCoord.xy/res,px=1./res;
+  float s=texture(pr,uv+vec2(px.x,0)).x+texture(pr,uv-vec2(px.x,0)).x+texture(pr,uv+vec2(0,px.y)).x+texture(pr,uv-vec2(0,px.y)).x;
+  o=vec4((s-texture(dv,uv).x)*.25,0.,0.,1.);}`;
+const FS_GRAD=`#version 300 es
+precision highp float;uniform sampler2D v,pr;uniform vec2 res;out vec4 o;
+void main(){vec2 uv=gl_FragCoord.xy/res,px=1./res;
+  vec2 g=.5*vec2(texture(pr,uv+vec2(px.x,0)).x-texture(pr,uv-vec2(px.x,0)).x,texture(pr,uv+vec2(0,px.y)).x-texture(pr,uv-vec2(0,px.y)).x);
+  o=vec4(texture(v,uv).xy-g,0.,1.);}`;
+// 模様の座標を速度場で運ぶ
+const FS_MADV=`#version 300 es
+precision highp float;uniform sampler2D prev,v;uniform vec2 res;uniform float dt;uniform bool FL;out vec4 o;${ENC}
+void main(){vec2 uv=gl_FragCoord.xy/res;vec2 vel=texture(v,uv).xy;
+  if(dot(vel,vel)<1e-7){o=texture(prev,uv);return;}
+  vec2 back=uv-vel*dt*min(res.x,res.y)/res;
+  if(back.x<0.||back.y<0.||back.x>1.||back.y>1.){vec2 Q=(back*res-.5*res)/min(res.x,res.y);o=enc(Q,0.);return;}
+  o=texture(prev,back);}`;
+
 const NOISE=`
 float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
 float vn(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
@@ -105,7 +144,6 @@ void main(){
   float b0=texture(map,uv+vec2(px.x,0)).b,b1=texture(map,uv-vec2(px.x,0)).b,
         b2=texture(map,uv+vec2(0,px.y)).b,b3=texture(map,uv-vec2(0,px.y)).b;
   float edge=clamp((max(max(b0,b1),max(b2,b3))-min(min(b0,b1),min(b2,b3)))*3.,0.,1.);
-  float ink=step(.05,m.b);
 
   // 自己相似な入れ子のドメインワープ(3段)
   float ca=cos(.62),sa=sin(.62);
@@ -114,17 +152,17 @@ void main(){
   vec2 o2=vec2(fbm(q+3.2*o1+vec2(1.7,9.2)),fbm(q+3.2*o1+vec2(8.3,2.8)+tc*.6));
   float v=fbm(q+3.6*o2);
 
-  float h,film,dark;
-  if(ink<.5){
-    dark=smoothstep(.40,.31,v);
-    h=v*1.2+.014*sin(v*58.)*(1.-dark);            // 細い層の溝
-    film=v*1.3+o2.x*.7;
-  }else{
-    float t=m.b;
-    dark=t<.45?1.:0.;
-    float w=vn(m.rg*22.)*.5+vn(m.rg*55.)*.25;     // 絵の具のわずかなムラ
-    h=.9+w*.08;film=t*2.+w*.3;
-  }
+  // 地の模様
+  float dB=smoothstep(.40,.31,v);
+  float hB=v*1.2+.014*sin(v*58.)*(1.-dB);
+  float fB=v*1.3+o2.x*.7;
+  // 絵の具(縁はなめらかに混ぜる)
+  float t=m.b;
+  float wI=smoothstep(.03,.10,t);
+  float dI=smoothstep(.47,.43,t);
+  float wv=vn(m.rg*22.)*.5+vn(m.rg*55.)*.25;
+  float hI=.9+wv*.08,fI=t*2.+wv*.3;
+  float h=mix(hB,hI,wI),film=mix(fB,fI,wI),dark=mix(dB,dI,wI);
   h+=edge*.10;
   // 暗部の星(絵の具と一緒に流される)
   float sp=0.;
@@ -171,9 +209,11 @@ void main(){
 }`;
 
 const P_INIT=prog(FS_INIT),P_OP=prog(FS_OP),P_FIELD=prog(FS_FIELD),P_SHADE=prog(FS_SHADE);
+const P_VADV=prog(FS_VADV),P_SPLAT=prog(FS_SPLAT),P_DIV=prog(FS_DIV),P_JAC=prog(FS_JAC),P_GRAD=prog(FS_GRAD),P_MADV=prog(FS_MADV);
 
 /* ---------- state ---------- */
 let W=0,H=0,DPR=1,MW=0,MH=0,mapA=null,mapB=null,fld=null;
+let VW=0,VH=0,velA=null,velB=null,divT=null,prA=null,prB=null;
 let seed=Math.random()*50,hue=Math.random(),stretch=1.9;
 let t0=performance.now(),paused=false;
 const S=()=>Math.min(W,H);
@@ -187,15 +227,46 @@ function blit(P,target,uni){
 function clearMap(){
   blit(P_INIT,mapA,()=>{gl.uniform2f(P_INIT.u.res,MW,MH);gl.uniform1i(P_INIT.u.FL,FLOAT?1:0)});
 }
+function clearVel(){
+  if(!velA)return;
+  for(const t of [velA,velB,prA,prB,divT]){gl.bindFramebuffer(gl.FRAMEBUFFER,t.f);gl.viewport(0,0,t.w,t.h);gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT);}
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+}
+function tex(u,name,t,unit){gl.activeTexture(gl.TEXTURE0+unit);gl.bindTexture(gl.TEXTURE_2D,t.t);gl.uniform1i(u[name],unit);}
+let splats=[];   // このフレームで流体に加える力
+function fluidStep(dt){
+  if(!FLOAT)return;
+  const V=(P,out,fn)=>blit(P,out,()=>{gl.uniform2f(P.u.res,VW,VH);fn(P.u)});
+  for(const sp of splats){
+    V(P_SPLAT,velB,u=>{tex(u,'v',velA,0);gl.uniform2f(u.C,sp.C[0],sp.C[1]);gl.uniform2f(u.F,sp.F[0],sp.F[1]);
+      gl.uniform1f(u.rad,sp.r);gl.uniform1f(u.radial,sp.radial?1:0)});
+    [velA,velB]=[velB,velA];
+  }
+  splats=[];
+  V(P_VADV,velB,u=>{tex(u,'v',velA,0);gl.uniform1f(u.dt,dt);gl.uniform1f(u.decay,Math.exp(-dt/1.7))});
+  [velA,velB]=[velB,velA];
+  V(P_DIV,divT,u=>tex(u,'v',velA,0));
+  for(let i=0;i<14;i++){
+    V(P_JAC,prB,u=>{tex(u,'pr',prA,0);tex(u,'dv',divT,1)});
+    [prA,prB]=[prB,prA];
+  }
+  V(P_GRAD,velB,u=>{tex(u,'v',velA,0);tex(u,'pr',prA,1)});
+  [velA,velB]=[velB,velA];
+  blit(P_MADV,mapB,()=>{const u=P_MADV.u;tex(u,'prev',mapA,0);tex(u,'v',velA,1);
+    gl.uniform2f(u.res,MW,MH);gl.uniform1f(u.dt,dt);gl.uniform1i(u.FL,FLOAT?1:0)});
+  [mapA,mapB]=[mapB,mapA];
+}
 function resize(){
   const nw=innerWidth,nh=innerHeight;DPR=Math.min(2,devicePixelRatio||1);
   c.width=Math.round(nw*DPR);c.height=Math.round(nh*DPR);
   if(nw===W&&nh===H&&mapA)return;
   W=nw;H=nh;
-  const k=Math.min(.8,1100/Math.max(W,H));
+  const k=Math.min(.62,860/Math.max(W,H));
   MW=Math.round(W*k);MH=Math.round(H*k);
   mapA=makeTarget(MW,MH);mapB=makeTarget(MW,MH);fld=makeTarget(MW,MH);
-  clearMap();
+  VW=Math.max(8,Math.round(MW/4));VH=Math.max(8,Math.round(MH/4));
+  velA=makeTarget(VW,VH);velB=makeTarget(VW,VH);divT=makeTarget(VW,VH);prA=makeTarget(VW,VH);prB=makeTarget(VW,VH);
+  clearMap();clearVel();
 }
 addEventListener('resize',resize);resize();
 
@@ -231,11 +302,11 @@ function toneFor(i){ // 暗い絵の具と真珠色の絵の具を交互気味�
   const h=Math.abs(Math.sin((i+seed)*12.9898)*43758.5453)%1;
   return i%2===0 ? .12+h*.28 : .55+h*.4;
 }
-let dropCount=0;
+let dropCount=0,pending=[];
 c.addEventListener('pointerdown',e=>{
   if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
   e.preventDefault();c.setPointerCapture&&c.setPointerCapture(e.pointerId);
-  ptr={id:e.pointerId,x:e.clientX,y:e.clientY,sx:e.clientX,sy:e.clientY,t:performance.now(),moved:0,pour:0,band:-1};
+  ptr={id:e.pointerId,x:e.clientX,y:e.clientY,sx:e.clientX,sy:e.clientY,t:performance.now(),moved:0,pour:0,band:-1,fx:0,fy:0};
 });
 c.addEventListener('pointermove',e=>{
   if(!ptr||e.pointerId!==ptr.id)return;
@@ -243,11 +314,10 @@ c.addEventListener('pointermove',e=>{
   if(d<1)return;
   ptr.moved+=d;
   if(ptr.moved>10&&!ptr.pour){
-    // 櫛: 大きく動いたら小分けにして引く
-    const n=Math.ceil(d/5);
-    for(let i=1;i<=n;i++){
-      const px=ptr.x+dx*i/n,py=ptr.y+dy*i/n;
-      op(1,toW(px,py),[dx/d,-dy/d],(d/n)/S()*.75,.06);
+    if(FLOAT){ptr.fx+=dx/S();ptr.fy-=dy/S();}
+    else{ // 流体が使えない端末は従来の櫛
+      const n=Math.min(6,Math.ceil(d/12));
+      for(let i=1;i<=n;i++)op(1,toW(ptr.x+dx*i/n,ptr.y+dy*i/n),[dx/d,-dy/d],(d/n)/S()*.75,.06);
     }
   }
   ptr.x=e.clientX;ptr.y=e.clientY;
@@ -256,27 +326,45 @@ function up(e){
   if(!ptr||e.pointerId!==ptr.id)return;
   const dt=performance.now()-ptr.t;
   if(ptr.moved<=10&&!ptr.pour&&dt<400){
-    const r=.035+Math.random()*.05;
-    drop(toW(ptr.x,ptr.y),r,toneFor(dropCount++));
+    const r=.04+Math.random()*.05;
+    pending.push({C:toW(ptr.x,ptr.y),area:Math.PI*r*r,left:Math.PI*r*r,tone:toneFor(dropCount++)});
   }
   if(ptr.pour)dropCount++;
   ptr=null;
 }
 c.addEventListener('pointerup',up);c.addEventListener('pointercancel',up);
 
+let lastT=performance.now(),liveT=0;
 function step(now){
-  if(ptr&&!paused){
-    const held=now-ptr.t;
-    if(ptr.moved<=10&&held>260){
-      // 注ぐ: 1フレームごとに面積を足す。色は0.45秒ごとに切り替わる
-      ptr.pour=1;
-      const band=Math.floor((held-260)/450);
-      const tone=toneFor(dropCount+band);
-      const area=.0011*(1+Math.min(2,(held-260)/3000));
-      drop(toW(ptr.x,ptr.y),Math.sqrt(area/Math.PI),tone);
+  const dt=Math.min(1/30,(now-lastT)/1000);lastT=now;
+  if(!paused){
+    if(ptr){
+      const held=now-ptr.t;
+      if(ptr.fx||ptr.fy){
+        // 指の勢いを液へ(1フレーム1回)
+        const k=1/Math.max(dt,1/120);
+        splats.push({C:toW(ptr.x,ptr.y),F:[ptr.fx*k*.9,ptr.fy*k*.9],r:.075});
+        ptr.fx=ptr.fy=0;
+      }
+      if(ptr.moved<=10&&held>260){
+        // 注ぐ: 面積を足し続け、色は0.45秒ごとに切り替わる
+        ptr.pour=1;
+        const band=Math.floor((held-260)/450);
+        const area=.05*dt*(1+Math.min(2,(held-260)/3000));
+        drop(toW(ptr.x,ptr.y),Math.sqrt(area/Math.PI),toneFor(dropCount+band));
+        if(FLOAT)splats.push({C:toW(ptr.x,ptr.y),F:[.25,0],r:.09,radial:1});
+      }
     }
+    for(const q of pending){
+      const a=Math.min(q.left,q.area*dt/.4);q.left-=a;
+      drop(q.C,Math.sqrt(a/Math.PI),q.tone);
+      if(FLOAT)splats.push({C:q.C,F:[.35,0],r:.08,radial:1});
+    }
+    pending=pending.filter(q=>q.left>1e-7);
+    fluidStep(dt);
+    liveT+=dt;
+    render((liveT*.16)%(Math.PI*2));
   }
-  if(!paused)render(((now-t0)/1000)*.07%(Math.PI*2));
   requestAnimationFrame(step);
 }
 requestAnimationFrame(step);
@@ -290,13 +378,13 @@ APKit.init({
   fullscreenButton:false,
   preroll:false,
   loopFrame:function(phase){paused=true;render(phase);},
-  onExportEnd:function(){paused=false;},
+  onExportEnd:function(){paused=false;lastT=performance.now();},
   buttons:[
     {label:'✦',name:'mutate',onClick:function(){
       // 模様の種・流れの伸び・虹色の位相を変える(刻まれた写像はそのまま)
       seed=Math.random()*50;hue=Math.random();stretch=1.2+Math.random()*1.6;
     }},
-    {label:'↻',name:'reset',onClick:function(){clearMap();dropCount=0;}}
+    {label:'↻',name:'reset',onClick:function(){clearMap();clearVel();pending=[];dropCount=0;}}
   ]
 });
 </script>

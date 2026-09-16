@@ -16,7 +16,8 @@
   世界のルール:
   天井には黒い液体が溜まっていて、放っておけば落ちてこない(飾りの雫が揺れているだけ)。
   触れた場所は「漏れ口」になり、二度と塞がらない。漏れ口からは雫が育ち、ちぎれて床へ落ちる。
-  長押しすると漏れ口が重くなり、速く・太く垂れる。押したまま横にずらせば漏れ口の位置を決められる。
+  長押しすると漏れ口が重くなり、速く垂れる。指で横になぞると、通り道に細かい漏れ口が並ぶ。
+  改修(2026-09-17): 漏れ口を細い糸状に変更し、数の上限を24に増やした。
   天井の液が尽きると、世界がひっくり返る。溜まった床が新しい天井になり、漏れ口はそのまま残る。
 */
 const c=document.getElementById('c');
@@ -49,7 +50,7 @@ function makeTarget(w,h){
   if(!ok&&FLOAT){FLOAT=false;return makeTarget(w,h)}
   return {t,f,w,h}}
 
-const NC=64,ND=16,NP=24,NR=8,NW=12;
+const NC=64,ND=32,NP=32,NR=8,NW=24;
 
 /* パスA: 液体の距離場 → ドーム状の高さ */
 const FS_FIELD=`#version 300 es
@@ -57,6 +58,7 @@ precision highp float;
 uniform vec2 res,view;uniform float k,flip,wob,margin;
 uniform float th[${NC}];
 uniform vec4 drip[${ND}];   // x, rootY, len, bulb
+uniform float fine[${ND}];  // 1=細い漏れ口
 uniform vec4 drop[${NP}];   // x, y, r, stretch
 uniform vec3 rip[${NR}];    // x, age, amp
 uniform vec2 wsag[${NW}];   // x, sag
@@ -67,7 +69,7 @@ float ceilT(float x){
   float u=clamp((x-margin)/(view.x-2.*margin),0.,1.)*${NC-1}.;
   float i=floor(u);int a=int(i),b=min(a+1,${NC-1});
   float t=mix(th[a],th[b],u-i);
-  for(int j=0;j<${NW};j++){float d=(x-wsag[j].x)/26.;t+=wsag[j].y*exp(-d*d);}
+  for(int j=0;j<${NW};j++){float d=(x-wsag[j].x)/11.;t+=wsag[j].y*exp(-d*d);}
   float dl=x-margin,dr=view.x-margin-x;
   t+=min(t*.9,110.)*(exp(-dl/22.)+exp(-dr/22.));            // 壁を伝う
   t+=wob*(sin(x*.021+k)*2.5+sin(x*.047-k*2.)*1.2);
@@ -80,10 +82,11 @@ float liquid(vec2 p){
     vec4 q=drip[i];if(q.z<1.)continue;
     vec2 a=vec2(q.x,q.y-6.),b=vec2(q.x,q.y+q.z);
     float h;float s=sdSeg(p,a,b,h);
-    float r=mix(12.+q.w*.4,3.4+q.w*.22,pow(h,.5));
+    float fn=fine[i];
+    float r=mix(mix(12.+q.w*.4,3.8+q.w*.3,fn),mix(3.4+q.w*.22,1.1+q.w*.12,fn),pow(h,.5));
     float dd=s-r;
     dd=smin(dd,length(p-b-vec2(0.,q.w*.35))-q.w,5.);
-    d=smin(d,dd,11.);
+    d=smin(d,dd,mix(11.,6.,fn));
   }
   float pl=view.y-margin-pool;
   for(int i=0;i<${NR};i++){vec3 r=rip[i];if(r.z<=0.)continue;float dx=abs(p.x-r.x);
@@ -160,7 +163,7 @@ function resize(){
   c.width=Math.round(innerWidth*d);c.height=Math.round(innerHeight*d);
   if(innerWidth===W&&innerHeight===H&&fld)return;
   W=innerWidth;H=innerHeight;
-  const s=Math.min(.55,700/Math.max(W,H));FW=Math.round(W*s);FH=Math.round(H*s);
+  const s=Math.min(.7,820/Math.max(W,H));FW=Math.round(W*s);FH=Math.round(H*s);
   fld=makeTarget(FW,FH);
   if(!vol0||vol0===1)seedWorld();
 }
@@ -197,15 +200,15 @@ addEventListener('resize',resize);resize();
 
 /* ---------- 漏れ口 ---------- */
 function leakAt(x){
-  let best=null,bd=34;
+  let best=null,bd=9;
   for(const w of weights){const d=Math.abs(w.x-x);if(d<bd){bd=d;best=w}}
-  if(best){best.str=Math.min(4,best.str+.6);return best}
+  if(best){best.str=Math.min(4,best.str+.4);return best}
   if(weights.length>=NW){   // 漏れ口の上限。いちばん近い漏れ口に合流させる
     let n=weights[0];for(const w of weights)if(Math.abs(w.x-x)<Math.abs(n.x-x))n=w;
-    n.str=Math.min(4,n.str+.6);return n}
+    n.str=Math.min(4,n.str+.4);return n}
   const w={x,str:1};weights.push(w);
   // 近くの飾りの雫があれば、それを漏れ口の雫にする
-  let dr=null,dd=30;for(const q of drips){if(q.w)continue;const d=Math.abs(q.x-x);if(d<dd){dd=d;dr=q}}
+  let dr=null,dd=12;for(const q of drips){if(q.w)continue;const d=Math.abs(q.x-x);if(d<dd){dd=d;dr=q}}
   if(dr){dr.w=w;dr.x=x}else drips.push({x,len:0,bulb:5,w,ph:0});
   if(drips.length>ND){const i=drips.findIndex(q=>!q.w);drips.splice(i>=0?i:0,1)}
   return w;
@@ -215,33 +218,38 @@ c.addEventListener('pointerdown',e=>{
   if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
   e.preventDefault();c.setPointerCapture&&c.setPointerCapture(e.pointerId);
   if(flipping)return;
-  const w=leakAt(Math.max(MARGIN+8,Math.min(W-MARGIN-8,e.clientX)));
-  ptr={id:e.pointerId,w};
+  const x=Math.max(MARGIN+6,Math.min(W-MARGIN-6,e.clientX));
+  const w=leakAt(x);
+  ptr={id:e.pointerId,w,lx:x};
 });
 c.addEventListener('pointermove',e=>{
-  if(!ptr||e.pointerId!==ptr.id)return;
-  const x=Math.max(MARGIN+8,Math.min(W-MARGIN-8,e.clientX));
-  ptr.w.x=x;for(const q of drips)if(q.w===ptr.w)q.x=x;
+  if(!ptr||e.pointerId!==ptr.id||flipping)return;
+  const x=Math.max(MARGIN+6,Math.min(W-MARGIN-6,e.clientX));
+  // なぞった所に、細かい漏れ口を12pxおきに並べる
+  while(Math.abs(x-ptr.lx)>=12){
+    ptr.lx+=Math.sign(x-ptr.lx)*12;
+    ptr.w=leakAt(ptr.lx);
+  }
 });
 function up(e){if(ptr&&e.pointerId===ptr.id)ptr=null}
 c.addEventListener('pointerup',up);c.addEventListener('pointercancel',up);
 
 /* ---------- 物理 ---------- */
 function sim(dt){
-  if(ptr)ptr.w.str=Math.min(4,ptr.w.str+dt*.9);
+  if(ptr&&ptr.w)ptr.w.str=Math.min(4,ptr.w.str+dt*.9);
   // 天井の液はゆっくり横にならされる
   for(let it=0;it<3;it++){const n=th.slice();for(let i=0;i<NC;i++){const a=n[Math.max(0,i-1)],b=n[Math.min(NC-1,i+1)];th[i]=n[i]+.22*(a+b-2*n[i]);}}
   const ceilVol=volume();
   for(const q of drips){
     if(!q.w){q.ph+=dt;continue}
     const s=q.w.str,avail=Math.min(1,thickAt(q.x)/40);
-    q.len+=dt*(28+26*s)*avail*(.4+q.len/140);
-    q.bulb=Math.min(9+4*s,6+q.len*.06+s);
-    if(!q.max)q.max=rnd(90,Math.min(320,H*.42))*(.8+.1*s);
+    q.len+=dt*(34+30*s)*avail*(.45+q.len/110);
+    q.bulb=Math.min(3.6+1.6*s,2.6+q.len*.03+.3*s);
+    if(!q.max)q.max=rnd(45,Math.min(190,H*.26))*(.85+.08*s);
     if(q.len>q.max&&avail>.05){
       const root=MARGIN+thickAt(q.x);
-      const v=drain(q.x,Math.PI*q.bulb*q.bulb*1.4+q.len*2.2);
-      drops.push({x:q.x,y:root+q.len+q.bulb*.35,r:q.bulb*1.05,vy:60+s*30,vol:v});
+      const v=drain(q.x,Math.PI*q.bulb*q.bulb*1.4+q.len*.9);
+      drops.push({x:q.x,y:root+q.len+q.bulb*.35,r:q.bulb*1.1,vy:60+s*30,vol:v});
       if(drops.length>NP)drops.shift();
       q.len*=.25;q.max=0;
     }
@@ -261,7 +269,7 @@ function sim(dt){
   }
   for(const r of rips)r.age+=dt;
   rips=rips.filter(r=>r.age<3.5);
-  for(const w of weights)w.sag=6+w.str*6;
+  for(const w of weights)w.sag=1.5+w.str*1.8;
   if(ceilVol<vol0*.2&&!flipping&&drops.length<3){flipping=true;flipU=0;}
 }
 function finishFlip(){
@@ -290,6 +298,7 @@ function render(phase,wob){
     const breathe=q.w?0:Math.sin(q.ph*1.3)*3;
     dr.set([q.x,MARGIN+thickAt(q.x)-2,Math.max(0,q.len+breathe),q.bulb],i*4)});
   gl.uniform4fv(F.drip,dr);
+  const fi=new Float32Array(ND);drips.slice(0,ND).forEach((q,i)=>fi[i]=q.w?1:0);gl.uniform1fv(F.fine,fi);
   const dp=new Float32Array(NP*4);
   drops.slice(-NP).forEach((d,i)=>dp.set([d.x,d.y,d.r,1+Math.min(1.2,Math.abs(d.vy)/900)],i*4));
   gl.uniform4fv(F.drop,dp);

@@ -20,6 +20,10 @@
 
 ## 履歴
 
+- 2026-09-17 クロード: SEVEN SLICEの数値表示(HUD)を非表示に(prototypes/seven-slice.html)
+- 2026-09-17 クロード: HOLO THAWを全面改修しHOLO COMPASSへ。融解をやめ、面を羅針盤の針とし、ドラッグ=向きを揃える・タップ=衝撃波ではじく・長押し=渦で回す(記憶は消えない)に変更。ファイル名は据え置き(prototypes/holo-thaw.html)
+- 2026-09-17 クロード: TAR CEILINGの漏れ口を細い糸状に変更、上限24個に。横になぞると12pxおきに細かい漏れ口が並ぶ(prototypes/tar-ceiling.html)
+- 2026-09-17 クロード: OPAL MARBLEを低解像度の流体(速度場+圧力)に改修。ドラッグ後も液がヌルヌル滑り続け、滴は0.4秒かけて広がる。1操作で多数パスを描く重い処理を廃止(prototypes/opal-marble.html)
 - 2026-09-17 クロード: SEVEN SLICE新規プロトタイプ追加。7次元格子の断面(de Bruijnの7方向グリッド)を線と交点で描き、ドラッグ=フェイゾンで組み替え、タップ=消えない転位、長押し=残る張力、✦=対称数(次元)変更のWebGL2作品(prototypes/seven-slice.html)
 - 2026-09-16 チャッピー: CHROMATIC TIDEを再構成。宇宙空間のような表現を廃し、画面全体を密度の高い多層の生体的な織物として動かす構造へ変更(prototypes/violet-membrane.html)
 - 2026-09-16 チャッピー: CHROMATIC TIDEを画面全体へ拡張。水平・垂直の大域的な潮流と多層色彩場を追加し、変化のスケールを全面化(prototypes/violet-membrane.html)
