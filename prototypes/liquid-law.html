@@ -9,86 +9,88 @@
   LIQUID LAW — Claude(クロちゃん)作
 
   世界のルール:
-  触れた場所には亀裂(crease)が生まれ、そこから虹色の光が漏れ出す。
-  亀裂は消えない。長押しすると、その場所がさらに深く融けて広がる。
-  指を離すと、そこで固まって新しい球の一部になる——二度と元の
-  無傷の球には戻らない(↻でのみリセット)。
-  タップ = 新しい亀裂 / ドラッグ = 球を回す / ホールド = 亀裂を深める。
+  この球は薄い膜でできている。触れた場所には「法(law)」が刻まれる——
+  それは点ではなく、球全体を一周する大円の帯。刻まれた法は消えない。
+  法が増えるほど膜は厚く重なり、干渉色が変わり、球の見え方そのものが
+  作り替えられていく。長押しすると、そこを通る法がねじれて波打ちはじめる。
 */
 const c = document.getElementById('c');
 const gl = c.getContext('webgl', {antialias:true, alpha:false, preserveDrawingBuffer:true}) ||
-           c.getContext('experimental-webgl', {antialias:true, alpha:false});
+           c.getContext('experimental-webgl', {antialias:true, alpha:false, preserveDrawingBuffer:true});
 
-const VERT = `attribute vec2 p;void main(){gl_Position=vec4(p,0.0,1.0);}`;
-const FRAG = `
-precision highp float;
-uniform vec2 res;
-uniform float ay,ax,hueT;
-uniform vec4 tA[24];
-uniform vec4 tB[24];
-uniform int tCount;
+const VERT = 'attribute vec2 p;void main(){gl_Position=vec4(p,0.0,1.0);}';
 
-vec3 hsv2rgb(vec3 c){
-  vec3 p=abs(fract(c.xxx+vec3(0.0,2.0/3.0,1.0/3.0))*6.0-3.0);
-  return c.z*mix(vec3(1.0),clamp(p-1.0,0.0,1.0),c.y);
-}
-vec3 rotX(vec3 v,float a){float s=sin(a),co=cos(a);return vec3(v.x,co*v.y-s*v.z,s*v.y+co*v.z);}
-vec3 rotY(vec3 v,float a){float s=sin(a),co=cos(a);return vec3(co*v.x+s*v.z,v.y,-s*v.x+co*v.z);}
+const FRAG = [
+'precision highp float;',
+'uniform vec2 res;',
+'uniform float ay,ax,phaseT;',
+'uniform vec4 lawA[12];',
+'uniform vec4 lawB[12];',
+'uniform int lawCount;',
+'uniform float baseFilm;',
 
-void main(){
-  vec2 uv=(gl_FragCoord.xy-0.5*res)/min(res.x,res.y)*2.0;
-  float r2=dot(uv,uv);
-  float R=0.86;
-  if(r2>R*R){
-    float vig=smoothstep(R*R,R*R+0.6,r2);
-    gl_FragColor=vec4(vec3(0.02,0.02,0.03)*(1.0-vig*0.6),1.0);
-    return;
-  }
-  float z=sqrt(max(R*R-r2,0.0));
-  vec3 nView=normalize(vec3(uv,z));
-  vec3 nWorld=rotX(rotY(nView,-ay),-ax);
+'vec3 rotX(vec3 v,float a){float s=sin(a),co=cos(a);return vec3(v.x,co*v.y-s*v.z,s*v.y+co*v.z);}',
+'vec3 rotY(vec3 v,float a){float s=sin(a),co=cos(a);return vec3(co*v.x+s*v.z,v.y,-s*v.x+co*v.z);}',
 
-  float crease=0.0;
-  float hueShift=0.0;
-  for(int i=0;i<24;i++){
-    if(i>=tCount) break;
-    vec3 dir=tA[i].xyz;
-    float strength=tA[i].w;
-    float tangAng=tB[i].x;
-    float curve=tB[i].y;
-    float d=dot(nWorld,dir);
-    vec3 up=abs(dir.y)<0.99?vec3(0.0,1.0,0.0):vec3(1.0,0.0,0.0);
-    vec3 e1=normalize(cross(up,dir));
-    vec3 e2=cross(dir,e1);
-    vec3 proj=nWorld-dir*d;
-    float pu=dot(proj,e1);
-    float pv=dot(proj,e2);
-    float cu=cos(tangAng)*pu-sin(tangAng)*pv;
-    float cv=sin(tangAng)*pu+cos(tangAng)*pv;
-    cv-=curve*cu*cu*6.0;
-    float wu=0.10+0.035*strength;
-    float wv=0.045+0.022*strength;
-    float g=exp(-(cu*cu)/(wu*wu)-(cv*cv)/(wv*wv))*(0.5+0.5*strength);
-    crease+=g;
-    hueShift+=g*(tangAng/6.2831853);
-  }
-  crease=clamp(crease,0.0,1.6);
+'vec3 film(float t){',
+'  float r=0.5+0.5*cos(6.2831853*t+0.0);',
+'  float g=0.5+0.5*cos(6.2831853*t+2.094);',
+'  float b=0.5+0.5*cos(6.2831853*t+4.188);',
+'  return vec3(r,g,b);',
+'}',
 
-  vec3 viewDir=vec3(0.0,0.0,1.0);
-  float fres=pow(1.0-max(dot(nView,viewDir),0.0),3.0);
+'void main(){',
+'  vec2 uv=(gl_FragCoord.xy-0.5*res)/min(res.x,res.y)*2.0;',
+'  float r2=dot(uv,uv);',
+'  float R=0.88;',
+'  if(r2>R*R){',
+'    gl_FragColor=vec4(vec3(0.015,0.015,0.022),1.0);',
+'    return;',
+'  }',
+'  float z=sqrt(max(R*R-r2,0.0));',
+'  vec3 nView=normalize(vec3(uv,z));',
+'  vec3 nWorld=rotX(rotY(nView,-ay),-ax);',
 
-  float hue=fract(hueT+fres*1.4+crease*0.5+hueShift);
-  vec3 irid=hsv2rgb(vec3(hue,0.75,1.0));
+'  float ct=max(nView.z,0.02);',
+'  float ps=clamp(1.0/ct,1.0,2.4);',
+'  float glow=0.0;',
 
-  vec3 col=vec3(0.0);
-  col+=irid*clamp(crease*1.1,0.0,1.0);
-  col+=vec3(0.9,0.95,1.0)*pow(fres,6.0)*0.55;
-  col+=irid*pow(fres,2.0)*crease*0.4;
-  float rim=smoothstep(R*R*0.94,R*R,r2);
-  col+=vec3(1.0)*rim*(0.15+0.3*pow(fres,1.5));
+'  for(int i=0;i<12;i++){',
+'    if(i>=lawCount) break;',
+'    vec3 axis=lawA[i].xyz;',
+'    float wgt=lawA[i].w;',
+'    float width=lawB[i].x;',
+'    float tw=lawB[i].y;',
+'    float tf=lawB[i].z;',
+'    float ph=lawB[i].w;',
+'    float dd=dot(nWorld,axis);',
+'    vec3 up=abs(axis.y)<0.98?vec3(0.0,1.0,0.0):vec3(1.0,0.0,0.0);',
+'    vec3 e1=normalize(cross(up,axis));',
+'    vec3 e2=cross(axis,e1);',
+'    float th=atan(dot(nWorld,e2),dot(nWorld,e1));',
+'    dd-=tw*sin(tf*th+ph+phaseT);',
+'    glow+=exp(-(dd*dd)/(width*width))*wgt;',
+'  }',
 
-  gl_FragColor=vec4(col,1.0);
-}`;
+'  float g=clamp(glow,0.0,3.0);',
+'  float gn=clamp(g,0.0,1.0);',
+'  float thick=baseFilm*0.55+(ps-1.0)*0.55+g*0.30;',
+'  vec3 irid=film(thick);',
+'  float fres=pow(1.0-ct,3.0);',
+'  float rim=smoothstep(R*R*0.93,R*R*0.999,r2);',
+'  float lum=g/(1.0+g*0.30);',
+'  float edge=clamp(4.0*gn*(1.0-gn),0.0,1.0);',
+
+'  vec3 col=irid*(lum*0.90);',
+'  col+=irid*(edge*0.55);',
+'  col+=vec3(1.0)*(pow(lum/2.6,7.0)*0.55);',
+'  col+=irid*(rim*(0.22+0.80*fres));',
+'  col+=vec3(0.82,0.88,1.0)*(rim*0.38);',
+'  col+=irid*(fres*0.12);',
+
+'  gl_FragColor=vec4(col,1.0);',
+'}'
+].join('\n');
 
 function compile(type,src){
   const s=gl.createShader(type);
@@ -101,7 +103,9 @@ const prog=gl.createProgram();
 gl.attachShader(prog,compile(gl.VERTEX_SHADER,VERT));
 gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,FRAG));
 gl.linkProgram(prog);
+if(!gl.getProgramParameter(prog,gl.LINK_STATUS)) console.error(gl.getProgramInfoLog(prog));
 gl.useProgram(prog);
+
 const buf=gl.createBuffer();
 gl.bindBuffer(gl.ARRAY_BUFFER,buf);
 gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1, 3,-1, -1,3]),gl.STATIC_DRAW);
@@ -113,132 +117,177 @@ const U={
   res:gl.getUniformLocation(prog,'res'),
   ay:gl.getUniformLocation(prog,'ay'),
   ax:gl.getUniformLocation(prog,'ax'),
-  hueT:gl.getUniformLocation(prog,'hueT'),
-  tA:gl.getUniformLocation(prog,'tA'),
-  tB:gl.getUniformLocation(prog,'tB'),
-  tCount:gl.getUniformLocation(prog,'tCount')
+  phaseT:gl.getUniformLocation(prog,'phaseT'),
+  lawA:gl.getUniformLocation(prog,'lawA'),
+  lawB:gl.getUniformLocation(prog,'lawB'),
+  lawCount:gl.getUniformLocation(prog,'lawCount'),
+  baseFilm:gl.getUniformLocation(prog,'baseFilm')
 };
 
 let W,H,d=1;
 function R(){
   d=Math.min(2,window.devicePixelRatio||1);
   W=innerWidth;H=innerHeight;
-  c.width=W*d;c.height=H*d;
+  c.width=Math.round(W*d);c.height=Math.round(H*d);
   gl.viewport(0,0,c.width,c.height);
 }
 addEventListener('resize',R);R();
 
-const MAX=24;
-let cracks=[];
+const MAX=12;
+let laws=[];
+let baseFilm=1.0;
 let userAy=0,userAx=0;
+let autoYaw=0;
 
 function rotXjs(v,a){const s=Math.sin(a),co=Math.cos(a);return [v[0],co*v[1]-s*v[2],s*v[1]+co*v[2]];}
 function rotYjs(v,a){const s=Math.sin(a),co=Math.cos(a);return [co*v[0]+s*v[2],v[1],-s*v[0]+co*v[2]];}
 function norm3(v){const l=Math.hypot(v[0],v[1],v[2])||1;return [v[0]/l,v[1]/l,v[2]/l];}
+function cross3(a,b){return [a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];}
 
-function screenToView(sx,sy){
-  const R=0.86;
+function screenToNormal(cx,cy){
+  const min=Math.min(c.width,c.height);
+  const sx=(cx*d-0.5*c.width)/min*2;
+  const sy=-(cy*d-0.5*c.height)/min*2;
+  const RR=0.88;
   const r2=sx*sx+sy*sy;
-  if(r2>R*R) return null;
-  const z=Math.sqrt(Math.max(R*R-r2,0));
+  if(r2>RR*RR) return null;
+  const z=Math.sqrt(Math.max(RR*RR-r2,0));
   return norm3([sx,sy,z]);
 }
 
-function addCrack(dirWorld,strength,tangAng,curve){
-  if(cracks.length>=MAX) return;
-  cracks.push({dir:dirWorld,strength:strength,tang:tangAng,curve:curve});
+function makeLaw(p, strong){
+  const up=Math.abs(p[1])<0.95?[0,1,0]:[1,0,0];
+  const t1=norm3(cross3(up,p));
+  const t2=cross3(p,t1);
+  const a=Math.random()*Math.PI*2;
+  const axis=norm3([
+    t1[0]*Math.cos(a)+t2[0]*Math.sin(a),
+    t1[1]*Math.cos(a)+t2[1]*Math.sin(a),
+    t1[2]*Math.cos(a)+t2[2]*Math.sin(a)
+  ]);
+  return {
+    axis:axis,
+    weight:strong?(1.0+Math.random()*0.35):(0.72+Math.random()*0.25),
+    width:0.070+Math.random()*0.075,
+    twist:strong?(0.10+Math.random()*0.16):(0.02+Math.random()*0.07),
+    freq:[1,2,2,3,3,4][Math.floor(Math.random()*6)],
+    phase:Math.random()*Math.PI*2
+  };
 }
 
-function seedGenesis(){
-  cracks=[];
-  const n=2+Math.floor(Math.random()*2);
-  for(let i=0;i<n;i++){
+function addLaw(l){
+  laws.push(l);
+  if(laws.length>MAX) laws.shift();
+}
+
+function genesis(){
+  laws=[];
+  baseFilm=0.6+Math.random()*0.9;
+  for(let i=0;i<3;i++){
     const lon=Math.random()*Math.PI*2, lat=Math.acos(2*Math.random()-1);
-    const dir=[Math.sin(lat)*Math.cos(lon),Math.cos(lat),Math.sin(lat)*Math.sin(lon)];
-    addCrack(dir,0.8+Math.random()*0.6,Math.random()*Math.PI*2,(Math.random()*2-1)*0.6);
+    addLaw(makeLaw([Math.sin(lat)*Math.cos(lon),Math.cos(lat),Math.sin(lat)*Math.sin(lon)],false));
   }
 }
-seedGenesis();
+genesis();
 
-let downX=0,downY=0,downT=0,moved=false,dragging=false,lastX=0,lastY=0;
-const HOLD_MS=340, MOVE_THRESH=8;
+let downX=0,downY=0,moved=false,dragging=false,lastX=0,lastY=0,holdTimer=null;
+const HOLD_MS=380, MOVE_THRESH=9;
 
-c.addEventListener('pointerdown',e=>{
+function worldNormalAt(cx,cy){
+  const nView=screenToNormal(cx,cy);
+  if(!nView) return null;
+  return norm3(rotXjs(rotYjs(nView,-(userAy+autoYaw)),-userAx));
+}
+
+c.addEventListener('pointerdown',function(e){
   if(window.APKit && APKit.isUI(e.clientX,e.clientY)) return;
-  downX=e.clientX;downY=e.clientY;downT=performance.now();
+  downX=e.clientX;downY=e.clientY;
   lastX=e.clientX;lastY=e.clientY;
   moved=false;dragging=true;
   c.setPointerCapture(e.pointerId);
+  holdTimer=setTimeout(function(){
+    if(moved) return;
+    const nW=worldNormalAt(downX,downY);
+    if(!nW) return;
+    let best=null,bestD=0.30;
+    for(let i=0;i<laws.length;i++){
+      const dd=Math.abs(laws[i].axis[0]*nW[0]+laws[i].axis[1]*nW[1]+laws[i].axis[2]*nW[2]);
+      if(dd<bestD){bestD=dd;best=laws[i];}
+    }
+    if(best){
+      best.twist=Math.min(0.42,best.twist+0.13);
+      best.weight=Math.min(1.9,best.weight+0.35);
+      best.width=Math.min(0.20,best.width+0.025);
+    }else{
+      addLaw(makeLaw(nW,true));
+    }
+    baseFilm+=0.35;
+    moved=true;
+  },HOLD_MS);
 });
-c.addEventListener('pointermove',e=>{
+
+c.addEventListener('pointermove',function(e){
   if(!dragging) return;
-  if(window.APKit && APKit.isUI(e.clientX,e.clientY)) return;
   const dx=e.clientX-lastX, dy=e.clientY-lastY;
-  if(!moved && Math.hypot(e.clientX-downX,e.clientY-downY)>MOVE_THRESH) moved=true;
+  if(!moved && Math.hypot(e.clientX-downX,e.clientY-downY)>MOVE_THRESH){
+    moved=true;
+    if(holdTimer){clearTimeout(holdTimer);holdTimer=null;}
+  }
   if(moved){
     userAy+=dx*0.006;
-    userAx=Math.max(-1.3,Math.min(1.3,userAx+dy*0.006));
+    userAx=Math.max(-1.35,Math.min(1.35,userAx+dy*0.006));
   }
   lastX=e.clientX;lastY=e.clientY;
 });
-c.addEventListener('pointerup',e=>{
+
+c.addEventListener('pointerup',function(e){
   if(!dragging) return;
   dragging=false;
-  if(window.APKit && APKit.isUI(e.clientX,e.clientY)) return;
+  if(holdTimer){clearTimeout(holdTimer);holdTimer=null;}
   if(moved) return;
-  const min=Math.min(W,H);
-  const sx=(e.clientX*d-0.5*W)/min*2;
-  const sy=-(e.clientY*d-0.5*H)/min*2;
-  const nView=screenToView(sx,sy);
-  if(!nView) return;
-  const curAy=userAy+autoYaw, curAx=userAx;
-  const nWorld=norm3(rotXjs(rotYjs(nView,-curAy),-curAx));
-  const held=performance.now()-downT;
-  if(held>HOLD_MS){
-    let near=null,best=0.14;
-    for(const cr of cracks){
-      const dd=Math.acos(Math.max(-1,Math.min(1,cr.dir[0]*nWorld[0]+cr.dir[1]*nWorld[1]+cr.dir[2]*nWorld[2])));
-      if(dd<best){best=dd;near=cr;}
-    }
-    if(near){ near.strength=Math.min(3.0,near.strength+0.6); }
-    else addCrack(nWorld,1.7,Math.random()*Math.PI*2,(Math.random()*2-1)*0.7);
-  }else{
-    addCrack(nWorld,1.0,Math.random()*Math.PI*2,(Math.random()*2-1)*0.6);
-  }
+  if(window.APKit && APKit.isUI(e.clientX,e.clientY)) return;
+  const nW=worldNormalAt(e.clientX,e.clientY);
+  if(!nW) return;
+  addLaw(makeLaw(nW,false));
+  baseFilm+=0.18;
 });
 
-let autoYaw=0,time=0;
+c.addEventListener('pointercancel',function(){
+  dragging=false;
+  if(holdTimer){clearTimeout(holdTimer);holdTimer=null;}
+});
 
-function uploadCracks(){
-  const A=new Float32Array(MAX*4), B=new Float32Array(MAX*4);
-  for(let i=0;i<cracks.length;i++){
-    const cr=cracks[i];
-    A[i*4+0]=cr.dir[0];A[i*4+1]=cr.dir[1];A[i*4+2]=cr.dir[2];A[i*4+3]=cr.strength;
-    B[i*4+0]=cr.tang;B[i*4+1]=cr.curve;B[i*4+2]=0;B[i*4+3]=0;
+const A=new Float32Array(MAX*4), B=new Float32Array(MAX*4);
+function upload(){
+  for(let i=0;i<laws.length;i++){
+    const L=laws[i];
+    A[i*4]=L.axis[0];A[i*4+1]=L.axis[1];A[i*4+2]=L.axis[2];A[i*4+3]=L.weight;
+    B[i*4]=L.width;B[i*4+1]=L.twist;B[i*4+2]=L.freq;B[i*4+3]=L.phase;
   }
-  gl.uniform4fv(U.tA,A);
-  gl.uniform4fv(U.tB,B);
-  gl.uniform1i(U.tCount,cracks.length);
+  gl.uniform4fv(U.lawA,A);
+  gl.uniform4fv(U.lawB,B);
+  gl.uniform1i(U.lawCount,laws.length);
+  gl.uniform1f(U.baseFilm,baseFilm);
 }
 
-function render(ayVal,axVal,hueVal){
+function render(ayVal,axVal,phaseVal){
   gl.uniform2f(U.res,c.width,c.height);
   gl.uniform1f(U.ay,ayVal);
   gl.uniform1f(U.ax,axVal);
-  gl.uniform1f(U.hueT,hueVal);
-  uploadCracks();
+  gl.uniform1f(U.phaseT,phaseVal);
+  upload();
   gl.drawArrays(gl.TRIANGLES,0,3);
 }
 
-function loop(phase){
+function loopFrame(phase){
   autoYaw=phase;
-  render(userAy+phase, userAx, phase/(2*Math.PI));
+  render(userAy+phase, userAx, phase);
 }
 
 function anim(ms){
-  time=ms*0.001;
-  autoYaw=time*0.05;
-  render(userAy+autoYaw, userAx, time*0.05);
+  const t=ms*0.001;
+  autoYaw=t*0.16;
+  render(userAy+autoYaw, userAx, t*0.55);
   requestAnimationFrame(anim);
 }
 requestAnimationFrame(anim);
@@ -250,16 +299,19 @@ APKit.init({
   dock:true,
   autoHide:true,
   fullscreenButton:false,
-  loopFrame:loop,
+  loopFrame:loopFrame,
   buttons:[
     {label:'✦',name:'mutate',onClick:function(){
-      for(const cr of cracks){ cr.tang=Math.random()*Math.PI*2; cr.curve=(Math.random()*2-1)*0.7; }
-      if(cracks.length<MAX && Math.random()<0.5){
-        const lon=Math.random()*Math.PI*2, lat=Math.acos(2*Math.random()-1);
-        addCrack([Math.sin(lat)*Math.cos(lon),Math.cos(lat),Math.sin(lat)*Math.sin(lon)],1.0+Math.random()*0.8,Math.random()*Math.PI*2,(Math.random()*2-1)*0.6);
+      baseFilm=0.6+Math.random()*1.4;
+      for(let i=0;i<laws.length;i++){
+        const L=laws[i];
+        L.width=0.065+Math.random()*0.085;
+        L.twist=0.02+Math.random()*0.22;
+        L.freq=[1,2,2,3,3,4][Math.floor(Math.random()*6)];
+        L.phase=Math.random()*Math.PI*2;
       }
     }},
-    {label:'↻',name:'reset',onClick:function(){ seedGenesis(); userAy=0; userAx=0; }}
+    {label:'↻',name:'reset',onClick:function(){ genesis(); userAy=0; userAx=0; }}
   ]
 });
 </script>
