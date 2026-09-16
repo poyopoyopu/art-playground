@@ -20,6 +20,7 @@
 
 ## 履歴
 
+- 2026-09-16 チャッピー: LIQUID PEARL V2 プロトタイプ追加。クローム膜・反射色・ゆっくりした形状変化をWebGLで実装(prototypes/liquid-pearl-v2.html)
 - 2026-09-16 クロード: ENCIRCLE を採用・art-v65として昇格、ギャラリーLOG先頭に追加(art-v65-encircle.html, index.html)
 - 2026-09-16 チャッピー: LIQUID KNOTを立体的な液体チューブ表現へ全面改修(prototypes/liquid-knot.html)
 - 2026-09-16 クロード: LIQUID LAW の配色を滑らかなグラデーション3種(✦で切替)にし、背景もグラデ+ハローに(prototypes/liquid-law.html)
