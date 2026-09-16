@@ -20,6 +20,7 @@
 
 ## 履歴
 
+- 2026-09-16 チャッピー: CHROMATIC TIDEを再構成。宇宙空間のような表現を廃し、画面全体を密度の高い多層の生体的な織物として動かす構造へ変更(prototypes/violet-membrane.html)
 - 2026-09-16 チャッピー: CHROMATIC TIDEを画面全体へ拡張。水平・垂直の大域的な潮流と多層色彩場を追加し、変化のスケールを全面化(prototypes/violet-membrane.html)
 - 2026-09-17 クロード: HOLO THAW新規プロトタイプ追加。3階層の折れ目を持つ凍ったホログラム箔が、触れた熱で溶けて二度と凍らず、温かい間だけ重力で流れて下の箔を溶かしていくWebGL2作品(prototypes/holo-thaw.html)
 - 2026-09-17 クロード: TAR CEILING新規プロトタイプ追加。触れた場所が塞がらない漏れ口になり黒いクローム液が垂れ続け、天井が尽きると世界が反転して床が天井になるWebGL2作品(prototypes/tar-ceiling.html)
