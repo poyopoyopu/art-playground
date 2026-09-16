@@ -20,6 +20,7 @@
 
 ## 履歴
 
+- 2026-09-16 チャッピー: LIQUID ENTANGLEMENT プロトタイプ追加。画面内に収まる閉じた液体立体構造と動く多層背景を実装(prototypes/liquid-entanglement.html)
 - 2026-09-16 チャッピー: FLUX WEAVE プロトタイプ追加。球体ではなく二重に絡むトーラス状の立体構造をレイマーチングで実装(prototypes/flux-weave.html)
 - 2026-09-16 チャッピー: MORPHIC LOOP プロトタイプ追加。球体ではなく、変形する閉ループ立体メッシュと反射シェーディングで構成(prototypes/morphic-loop.html)
 - 2026-09-16 チャッピー: LIQUID INVERSION プロトタイプ追加。滑らかな液体球に移動する深い陥没と反射色の変化を組み込んだWebGL作品(prototypes/liquid-inversion.html)
