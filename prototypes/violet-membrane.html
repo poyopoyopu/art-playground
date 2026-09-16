@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>VIOLET MEMBRANE</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#020205}
+body{font-family:system-ui,-apple-system,sans-serif;touch-action:none}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+</style>
+<script src="../ap-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+'use strict';
+
+const canvas=document.getElementById('c');
+const gl=canvas.getContext('webgl2',{antialias:false,alpha:false,preserveDrawingBuffer:true});
+if(!gl){document.body.innerHTML='<div style="color:white;padding:2rem">WebGL2 is required.</div>';throw new Error('WebGL2 unavailable')}
+
+const TAU=Math.PI*2;
+const VERT=`#version 300 es
+in vec2 a;
+out vec2 v;
+void main(){v=a;gl_Position=vec4(a,0.,1.);}`;
+
+const FRAG=`#version 300 es
+precision highp float;
+in vec2 v;
+out vec4 outColor;
+uniform float uTime;
+uniform vec2 uRes;
+uniform vec2 uTouch;
+uniform float uSeed;
+
+#define PI 3.14159265359
+#define TAU 6.28318530718
+
+mat2 rot(float a){float s=sin(a),c=cos(a);return mat2(c,-s,s,c);}
+float hash21(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
+float hash31(vec3 p){p=fract(p*0.1031);p+=dot(p,p.yzx+33.33);return fract((p.x+p.y)*p.z);}
+float noise(vec3 p){
+ vec3 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
+ float n=mix(mix(mix(hash31(i),hash31(i+vec3(1,0,0)),f.x),mix(hash31(i+vec3(0,1,0)),hash31(i+vec3(1,1,0)),f.x),f.y),mix(mix(hash31(i+vec3(0,0,1)),hash31(i+vec3(1,0,1)),f.x),mix(hash31(i+vec3(0,1,1)),hash31(i+vec3(1,1,1)),f.x),f.y),f.z);
+ return n;
+}
+
+float sdSphere(vec3 p,float r){return length(p)-r;}
+float softLine(float x,float w){return 1.-smoothstep(0.,w,abs(x));}
+
+// A slow camera rotation makes the membrane feel like a real object rather than a flat effect.
+vec3 cameraRay(vec2 uv,out vec3 ro){
+ ro=vec3(0.,0.,3.25);
+ float ca=cos(uTime*.105),sa=sin(uTime*.105);
+ ro.xz*=mat2(ca,-sa,sa,ca);
+ vec3 target=vec3(0.,0.,0.);
+ vec3 f=normalize(target-ro),r=normalize(cross(f,vec3(0.,1.,0.))),up=cross(r,f);
+ return normalize(f+r*uv.x+up*uv.y);
+}
+
+bool sphereHit(vec3 ro,vec3 rd,float r,out float t){
+ float b=dot(ro,rd),c=dot(ro,ro)-r*r,h=b*b-c;
+ if(h<0.)return false;
+ h=sqrt(h);t=-b-h;if(t<0.)t=-b+h;return t>0.;
+}
+
+vec3 palette(float x){
+ vec3 a=vec3(.13,.035,.20);
+ vec3 b=vec3(.32,.10,.58);
+ vec3 c=vec3(.20,.46,.95);
+ vec3 d=vec3(.82,.35,1.0);
+ float m=smoothstep(.05,.72,x);
+ vec3 q=mix(a,b,m);
+ q=mix(q,c,smoothstep(.48,.92,x));
+ return mix(q,d,smoothstep(.83,1.,x));
+}
+
+void main(){
+ vec2 uv=v;
+ float aspect=uRes.x/uRes.y;
+ uv.x*=aspect;
+
+ // Deep, almost-black space with restrained violet dust.
+ float bgNoise=noise(vec3(uv*.72,uTime*.018));
+ vec3 col=vec3(.002,.0025,.008)+vec3(.014,.006,.026)*bgNoise;
+ float stars=step(.996,hash21(floor((uv+uSeed)*90.)));
+ col+=stars*vec3(.30,.17,.48)*(0.35+0.65*hash21(floor(uv*180.)));
+
+ vec3 ro;vec3 rd=cameraRay(uv,ro);
+ // Touch is a persistent "gravity law": the point you touch becomes the slowest,
+ // deepest deformation in the membrane. uTouch is normalized screen space.
+ vec2 law=uTouch*vec2(aspect,1.);
+ vec3 law3=normalize(vec3(law*.72,-.95));
+ float t;
+ if(sphereHit(ro,rd,1.03,t)){
+   vec3 p=ro+rd*t;
+   float radius=length(p);
+   vec3 n=normalize(p);
+
+   // A subtle breathing displacement, plus a permanent touch-biased fold.
+   float lon=atan(n.z,n.x);
+   float lat=asin(clamp(n.y,-1.,1.));
+   float fold=exp(-9.*(1.-dot(n,law3)));
+   float breathe=.035*sin(uTime*.42+lon*7.+sin(lat*5.))*fold;
+   float wobble=.018*sin(lon*19.-uTime*.27+lat*13.)+.012*sin(lon*37.+uTime*.19);
+   float shell=1.+breathe+wobble;
+   p*=shell/radius;
+   n=normalize(p);
+
+   float fres=pow(1.-max(dot(n,-rd),0.),2.4);
+   float field=noise(n*7.5+vec3(0.,uTime*.035,0.));
+   vec3 base=palette(.25+.55*field+.20*fres);
+
+   // Dense, directional membrane filaments. They are arranged by spherical law,
+   // not by random particles, so the structure remains coherent while rotating.
+   float u=lon/TAU+.5;
+   float vv=lat/PI+.5;
+   float lanes=92.;
+   float lanePhase=fract(u*lanes + .08*sin(vv*18.+uTime*.11)+uSeed*.07);
+   float lane=1.-smoothstep(.045,.18,abs(lanePhase-.5));
+   float curl=.5+.5*sin(vv*31.-uTime*.17+sin(u*11.)*1.8);
+   float fibers=lane*(.28+.72*curl);
+
+   // Short bristles following the surface gradient.
+   float bristle=smoothstep(.72,.98,abs(sin(u*TAU*34.+vv*8.-uTime*.22)));
+   float rim=pow(1.-abs(n.y),1.7);
+   float filament=fibers*(.55+.45*rim)+bristle*.23;
+   base+=filament*vec3(.34,.16,.72);
+   base+=pow(filament,3.)*vec3(.75,.25,1.0)*1.45;
+
+   // A few bright living nodes orbiting on the membrane.
+   for(int i=0;i<7;i++){
+     float fi=float(i);
+     float a=fi/7.*TAU+uTime*(.055+fi*.006)+uSeed*fi*.31;
+     float la=.48*sin(fi*2.37+uTime*.09);
+     vec3 q=vec3(cos(a)*cos(la),sin(la),sin(a)*cos(la));
+     float d=length(n-q);
+     float glow=exp(-d*d*2300.)+0.08*exp(-d*d*130.);
+     base+=glow*mix(vec3(.75,.38,1.),vec3(.22,.72,1.),fract(fi*.23+.2));
+   }
+
+   // Surface lighting with a cool rim and a narrow moving highlight.
+   vec3 light=normalize(vec3(-.65,.7,1.4));
+   float diff=.25+.75*max(dot(n,light),0.);
+   float spec=pow(max(dot(reflect(-light,n),-rd),0.),30.);
+   col+=base*diff*(.78+fres*.6);
+   col+=spec*vec3(.72,.54,1.)*1.4;
+   col+=fres*vec3(.28,.10,.55)*.55;
+
+   // Internal translucent discs: projected in 3D so they slide behind and in front.
+   for(int j=0;j<4;j++){
+     float fj=float(j);
+     float a=uTime*(.075+fj*.021)+fj*1.55+uSeed*.4;
+     vec3 c0=vec3(.25*sin(a*1.7+fj),.18*cos(a+fj),.18*sin(a+.8));
+     c0.xz*=mat2(cos(a),-sin(a),sin(a),cos(a));
+     vec3 planeN=normalize(vec3(sin(a*.7+fj),.25*cos(a+fj),cos(a*.7+fj)));
+     float denom=dot(rd,planeN);
+     if(abs(denom)>.03){
+       float tt=dot(c0-ro,planeN)/denom;
+       if(tt>0.){
+         vec3 ip=ro+rd*tt;
+         float dd=length(ip-c0);
+         float disk=exp(-dd*dd/(.055+.018*fj));
+         disk*=smoothstep(1.15,.72,length(c0));
+         col+=disk*mix(vec3(.40,.16,.72),vec3(.15,.58,.95),fract(fj*.29))*0.20;
+       }
+     }
+   }
+ }else{
+   // Faint orbital traces outside the membrane.
+   float rr=length(uv);
+   for(int k=0;k<5;k++){
+     float fk=float(k);
+     float ang=atan(uv.y,uv.x)+uTime*.035*(fk+1.);
+     float ring=abs(rr-(.58+fk*.075+.025*sin(ang*5.+uTime*.2+fk)));
+     col+=exp(-ring*ring*850.)*vec3(.025,.012,.06)*(1.-fk*.12);
+   }
+ }
+
+ // Vignette keeps the eye in the membrane.
+ float vig=1.-smoothstep(.75,1.55,length(uv));
+ col*=.58+.42*vig;
+ col=1.-exp(-col*1.75);
+ col=pow(col,vec3(.88));
+ outColor=vec4(col,1.);
+}`;
+
+function shader(type,src){
+ const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
+ if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));
+ return s;
+}
+const prog=gl.createProgram();
+gl.attachShader(prog,shader(gl.VERTEX_SHADER,VERT));
+gl.attachShader(prog,shader(gl.FRAGMENT_SHADER,FRAG));
+gl.linkProgram(prog);
+if(!gl.getProgramParameter(prog,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(prog));
+
+const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+const a=gl.getAttribLocation(prog,'a');
+gl.enableVertexAttribArray(a);gl.vertexAttribPointer(a,2,gl.FLOAT,false,0,0);
+const U={time:gl.getUniformLocation(prog,'uTime'),res:gl.getUniformLocation(prog,'uRes'),touch:gl.getUniformLocation(prog,'uTouch'),seed:gl.getUniformLocation(prog,'uSeed')};
+
+let start=performance.now();
+let seed=Math.random()*100.;
+let touch={x:0,y:0};
+let targetTouch={x:0,y:0};
+let dragging=false;
+
+function resize(){
+ const dpr=Math.min(devicePixelRatio||1,1.7);
+ const w=Math.max(1,Math.floor(innerWidth*dpr)),h=Math.max(1,Math.floor(innerHeight*dpr));
+ if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;gl.viewport(0,0,w,h)}
+}
+addEventListener('resize',resize,{passive:true});resize();
+
+function setTouch(e){
+ const r=canvas.getBoundingClientRect();
+ targetTouch.x=((e.clientX-r.left)/r.width-.5)*2.;
+ targetTouch.y=-((e.clientY-r.top)/r.height-.5)*2.;
+}
+canvas.addEventListener('pointerdown',e=>{if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;dragging=true;canvas.setPointerCapture?.(e.pointerId);setTouch(e)});
+canvas.addEventListener('pointermove',e=>{if(dragging)setTouch(e)});
+canvas.addEventListener('pointerup',e=>{dragging=false;setTouch(e)});
+canvas.addEventListener('pointercancel',()=>dragging=false);
+
+function draw(phase){
+ resize();
+ touch.x+=(targetTouch.x-touch.x)*.055;
+ touch.y+=(targetTouch.y-touch.y)*.055;
+ gl.useProgram(prog);
+ gl.uniform1f(U.time,phase/TAU*18.8495559);
+ gl.uniform2f(U.res,canvas.width,canvas.height);
+ gl.uniform2f(U.touch,touch.x,touch.y);
+ gl.uniform1f(U.seed,seed);
+ gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+}
+
+function frame(){
+ const t=(performance.now()-start)/1000;
+ draw(t/3.*TAU);
+ requestAnimationFrame(frame);
+}
+frame();
+
+APKit.init({
+ canvas:canvas,
+ gifName:'violet-membrane-loop',
+ clockFormat:'spec',
+ dock:true,
+ autoHide:true,
+ fullscreenButton:false,
+ loopFrame:function(phase){draw(phase)},
+ buttons:[
+  {label:'✦',name:'mutate',onClick:function(){seed=Math.random()*1000;targetTouch={x:0,y:0};}},
+  {label:'↻',name:'reset',onClick:function(){seed=17.31;targetTouch={x:0,y:0};touch={x:0,y:0};}}
+ ]
+});
+</script>
+</body>
+</html>
