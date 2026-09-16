@@ -20,6 +20,7 @@
 
 ## 履歴
 
+- 2026-09-17 チャッピー: VIOLET MEMBRANE新規プロトタイプ追加。WebGL2の有機膜・球面フィラメント・内部軌道・発光ノードを組み合わせ、タッチ位置を恒久的な変形法則として作用させる作品を実装(prototypes/violet-membrane.html)
 - 2026-09-17 チャッピー: CHORUS VOID新規プロトタイプ追加。7階層の折り畳み構造と触れた場所を恒久的な折り目として作用させるWebGL作品を実装(prototypes/chorus-void.html)
 - 2026-09-17 チャッピー: EVENT HORIZONを再設計。触れた場所が恒久的な重力法則になり、3階層の自己相似変形へ作用するCanvas作品に改修(prototypes/event-horizon.html)
 - 2026-09-17 チャッピー: TENFOLD MEMBRANE新規プロトタイプ追加。10本の膜が圧力場で互いに曲げ合う構造を軽量Canvasで実装(prototypes/tenfold-membrane.html)
