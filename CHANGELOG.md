@@ -20,6 +20,7 @@
 
 ## 履歴
 
+- 2026-09-16 チャッピー: NOCTURNE FIELDへ再設計。タッチ痕跡を表示せず変化だけを継続させ、藍紫系の配色と多層の背景光を強化(prototypes/violet-membrane.html)
 - 2026-09-16 チャッピー: INVERSE GARDENの色彩・背景を再設計し、タッチ痕跡を円形マーカーから光の裂け目へ変更(prototypes/violet-membrane.html)
 - 2026-09-16 チャッピー: VIOLET MEMBRANEを発想転換し、触れた場所で「内外」が反転する位相場の作品INVERSE GARDENへ全面再構築(prototypes/violet-membrane.html)
 - 2026-09-17 チャッピー: VIOLET MEMBRANEを本格再構築。球体中心の表現を廃し、連続する多層フィラメント膜・中央粒子核・周回軌道・脱出フィラメントで有機的な立体感を強化(prototypes/violet-membrane.html)
