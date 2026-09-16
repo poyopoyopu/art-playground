@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>OPAL MARBLE</title>
+<script src="../ap-kit.js"></script>
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#07070c}canvas{display:block;width:100%;height:100%;touch-action:none}
+#msg{position:fixed;left:0;right:0;top:45%;text-align:center;color:#aab;font:14px/1.6 system-ui;display:none}</style>
+</head><body>
+<canvas id="c"></canvas><div id="msg">この端末ではWebGL2が使えません</div>
+<script>
+'use strict';
+/*
+  OPAL MARBLE — Claude(クロちゃん)作。ap-kit.js統合: Claude
+  参考: 虹色に光る流体マーブル(おっちゃん提供の参考画像)
+
+  世界のルール:
+  この面は「水に浮いた絵の具」。模様は自分では壊れない。
+  タップ = 一滴の絵の具を落とす。滴は既存の模様を外へ押しのけ、押しのけられた模様は二度と戻らない。
+  長押し = 絵の具を注ぎ続ける。注ぐ色が時間で切り替わるので、年輪のような同心の縞が育つ。
+  ドラッグ = 櫛で引く。指の通り道の模様が引きずられ、そのまま残る。
+  触るたびに「面の座標そのもの」が書き換わっていく(内部では座標の写像テクスチャに累積している)。
+*/
+const c=document.getElementById('c');
+const gl=c.getContext('webgl2',{antialias:false,alpha:false,preserveDrawingBuffer:true});
+if(!gl){document.getElementById('msg').style.display='block';throw Error('no webgl2');}
+
+/* ---------- GL helpers ---------- */
+const VS=`#version 300 es
+in vec2 p;out vec2 vUV;void main(){vUV=p*.5+.5;gl_Position=vec4(p,0.,1.);}`;
+function sh(t,s){const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);
+  if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(o));return o}
+function prog(fs){const p=gl.createProgram();gl.attachShader(p,sh(gl.VERTEX_SHADER,VS));
+  gl.attachShader(p,sh(gl.FRAGMENT_SHADER,fs));gl.bindAttribLocation(p,0,'p');gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(p));
+  const u={};const n=gl.getProgramParameter(p,gl.ACTIVE_UNIFORMS);
+  for(let i=0;i<n;i++){const a=gl.getActiveUniform(p,i);u[a.name.replace('[0]','')]=gl.getUniformLocation(p,a.name)}
+  return {p,u}}
+const vb=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,vb);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+
+let FLOAT=!!gl.getExtension('EXT_color_buffer_float');
+function makeTarget(w,h){
+  const t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);
+  if(FLOAT)gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA16F,w,h,0,gl.RGBA,gl.HALF_FLOAT,null);
+  else gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  const f=gl.createFramebuffer();gl.bindFramebuffer(gl.FRAMEBUFFER,f);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,t,0);
+  const ok=gl.checkFramebufferStatus(gl.FRAMEBUFFER)===gl.FRAMEBUFFER_COMPLETE;
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+  if(!ok&&FLOAT){FLOAT=false;return makeTarget(w,h)}
+  return {t,f,w,h}}
+
+/* ---------- shaders ---------- */
+// FLOAT未対応端末ではRGBA8に座標を詰める(粗くなるが動く)
+const ENC=`
+vec4 enc(vec2 q,float ink){ return FL ? vec4(q,ink,1.) : vec4(q*.2+.5,ink,1.); }
+vec4 dec(vec4 m){ return FL ? m : vec4((m.rg-.5)*5.,m.b,m.a); }`;
+
+const FS_INIT=`#version 300 es
+precision highp float;uniform vec2 res;uniform bool FL;out vec4 o;${ENC}
+void main(){vec2 P=(gl_FragCoord.xy-.5*res)/min(res.x,res.y);o=enc(P,0.);}`;
+
+// 1回の操作 = 写像を1段書き換える(逆写像で前の状態を引く)
+const FS_OP=`#version 300 es
+precision highp float;uniform sampler2D prev;uniform vec2 res;uniform bool FL;
+uniform int type;uniform vec2 C,D;uniform float r,tone,str,wid;out vec4 o;${ENC}
+vec4 look(vec2 Q){
+  vec2 t=(Q*min(res.x,res.y)+.5*res)/res;
+  if(t.x<0.||t.y<0.||t.x>1.||t.y>1.) return enc(Q,0.);   // 画面外はまだ誰も触っていない世界
+  return texture(prev,t);
+}
+void main(){
+  vec2 P=(gl_FragCoord.xy-.5*res)/min(res.x,res.y);
+  if(type==0){                               // 滴: 面積 πr² 分だけ外へ押しのける
+    vec2 d=P-C;float L2=dot(d,d);
+    if(L2<r*r){ o=enc(P,tone); return; }
+    o=look(C+d*sqrt(1.-r*r/L2));
+  }else{                                     // 櫛: 指の進行方向へ引きずる
+    vec2 d=P-C;float al=dot(d,D);vec2 pe=d-al*D;
+    float w=exp(-dot(pe,pe)/(wid*wid))*exp(-al*al/(wid*wid*4.));
+    o=look(P-D*str*w);
+  }
+}`;
+
+const NOISE=`
+float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
+float vn(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
+  return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+1.),f.x),f.y);}
+const mat2 M=mat2(1.6,1.2,-1.2,1.6);
+float fbm(vec2 p){float s=0.,a=.5;for(int i=0;i<4;i++){s+=a*vn(p);p=M*p+11.7;a*=.42;}return s/.8358;}`;
+
+// パスA: 写像 → 高さ・膜厚・暗部・星
+const FS_FIELD=`#version 300 es
+precision highp float;uniform sampler2D map;uniform vec2 res,tc;uniform float seed,stretch;uniform bool FL;
+out vec4 o;${ENC}${NOISE}
+void main(){
+  vec2 uv=gl_FragCoord.xy/res;vec2 px=1./res;
+  vec4 m=dec(texture(map,uv));
+  // 滴の縁(周囲とのインク差)
+  float b0=texture(map,uv+vec2(px.x,0)).b,b1=texture(map,uv-vec2(px.x,0)).b,
+        b2=texture(map,uv+vec2(0,px.y)).b,b3=texture(map,uv-vec2(0,px.y)).b;
+  float edge=clamp((max(max(b0,b1),max(b2,b3))-min(min(b0,b1),min(b2,b3)))*3.,0.,1.);
+  float ink=step(.05,m.b);
+
+  // 自己相似な入れ子のドメインワープ(3段)
+  float ca=cos(.62),sa=sin(.62);
+  vec2 q=mat2(ca,sa,-sa,ca)*m.rg*vec2(1.0,1.0*stretch)*1.35+seed;
+  vec2 o1=vec2(vn(q*1.3+tc),vn(q*1.3+vec2(5.2,1.3)-tc));
+  vec2 o2=vec2(fbm(q+3.2*o1+vec2(1.7,9.2)),fbm(q+3.2*o1+vec2(8.3,2.8)+tc*.6));
+  float v=fbm(q+3.6*o2);
+
+  float h,film,dark;
+  if(ink<.5){
+    dark=smoothstep(.40,.31,v);
+    h=v*1.2+.014*sin(v*58.)*(1.-dark);            // 細い層の溝
+    film=v*1.3+o2.x*.7;
+  }else{
+    float t=m.b;
+    dark=t<.45?1.:0.;
+    float w=vn(m.rg*22.)*.5+vn(m.rg*55.)*.25;     // 絵の具のわずかなムラ
+    h=.9+w*.08;film=t*2.+w*.3;
+  }
+  h+=edge*.10;
+  // 暗部の星(絵の具と一緒に流される)
+  float sp=0.;
+  vec2 sg=m.rg*260.;float hh=hash(floor(sg)+seed);
+  if(hh>.978){vec2 f=fract(sg)-.5;sp=smoothstep(.35,0.,length(f))*(.4+.6*fract(hh*91.));}
+  o=vec4(h*.5,clamp(film*.5,0.,1.),dark,sp*dark);
+}`;
+
+// パスB: 高さから法線 → 真珠光沢の陰影
+const FS_SHADE=`#version 300 es
+precision highp float;uniform sampler2D fld;uniform vec2 fres,res;uniform float lp,hue,gain;
+out vec4 o;
+vec3 env(vec3 r){
+  float a=.5+.5*r.y;
+  vec3 c=mix(vec3(.10,.11,.16),vec3(.78,.80,.88),a);
+  c+=vec3(1.,.96,.92)*smoothstep(.55,.95,dot(r,normalize(vec3(-.4,.7,.5))))*.8;
+  c+=vec3(.7,.8,1.)*smoothstep(.7,.98,dot(r,normalize(vec3(.8,-.2,.55))))*.5;
+  return c;}
+void main(){
+  vec2 uv=gl_FragCoord.xy/res;vec2 px=1./fres;
+  vec4 f=texture(fld,uv);
+  float hl=texture(fld,uv-vec2(px.x,0)).r,hr=texture(fld,uv+vec2(px.x,0)).r;
+  float hd=texture(fld,uv-vec2(0,px.y)).r,hu=texture(fld,uv+vec2(0,px.y)).r;
+  vec3 N=normalize(vec3((hl-hr)*gain,(hd-hu)*gain,1.));
+  float slope=length(N.xy);
+  float film=f.g*2.,dark=f.b;
+  vec3 L=normalize(vec3(cos(lp)*.55,.45+sin(lp)*.35,.75));
+  vec3 R=reflect(vec3(0,0,-1),N);
+  float diff=max(dot(N,L),0.);
+  float spec=pow(max(dot(R,L),0.),48.);
+  float sheen=pow(max(dot(R,normalize(L+vec3(.3,-.5,.2))),0.),10.);
+  vec3 irid=.5+.5*cos(6.2831*(film*1.7+N.x*.45-N.y*.3+hue+vec3(0.,.33,.67)));
+  irid=mix(vec3(1.),irid,.62);
+  vec3 silver=vec3(.60,.62,.71)*(.35+.65*diff)+env(R)*.32;
+  float ia=clamp(smoothstep(.10,.6,slope)*.35+sheen*.75,0.,1.)*.85;
+  vec3 col=mix(silver,silver*.45+irid*.75,ia);
+  col+=spec*(vec3(1.,.97,.93)*1.1+irid*.5);
+  vec3 dk=vec3(.02,.022,.04)+env(R)*.05+irid*sheen*.12+spec*.35+vec3(.9,.9,1.)*f.a*1.4;
+  col=mix(col,dk,dark);
+  col=col/(1.+col*.18);
+  col=pow(col,vec3(.95));
+  float vg=1.-.25*dot(uv-.5,uv-.5)*2.;
+  o=vec4(col*vg,1.);
+}`;
+
+const P_INIT=prog(FS_INIT),P_OP=prog(FS_OP),P_FIELD=prog(FS_FIELD),P_SHADE=prog(FS_SHADE);
+
+/* ---------- state ---------- */
+let W=0,H=0,DPR=1,MW=0,MH=0,mapA=null,mapB=null,fld=null;
+let seed=Math.random()*50,hue=Math.random(),stretch=1.9;
+let t0=performance.now(),paused=false;
+const S=()=>Math.min(W,H);
+
+function blit(P,target,uni){
+  gl.useProgram(P.p);
+  if(target){gl.bindFramebuffer(gl.FRAMEBUFFER,target.f);gl.viewport(0,0,target.w,target.h)}
+  else{gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.viewport(0,0,c.width,c.height)}
+  uni();gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+}
+function clearMap(){
+  blit(P_INIT,mapA,()=>{gl.uniform2f(P_INIT.u.res,MW,MH);gl.uniform1i(P_INIT.u.FL,FLOAT?1:0)});
+}
+function resize(){
+  const nw=innerWidth,nh=innerHeight;DPR=Math.min(2,devicePixelRatio||1);
+  c.width=Math.round(nw*DPR);c.height=Math.round(nh*DPR);
+  if(nw===W&&nh===H&&mapA)return;
+  W=nw;H=nh;
+  const k=Math.min(.8,1100/Math.max(W,H));
+  MW=Math.round(W*k);MH=Math.round(H*k);
+  mapA=makeTarget(MW,MH);mapB=makeTarget(MW,MH);fld=makeTarget(MW,MH);
+  clearMap();
+}
+addEventListener('resize',resize);resize();
+
+function op(type,C,a,b,cc){
+  blit(P_OP,mapB,()=>{
+    const u=P_OP.u;
+    gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,mapA.t);gl.uniform1i(u.prev,0);
+    gl.uniform2f(u.res,MW,MH);gl.uniform1i(u.FL,FLOAT?1:0);gl.uniform1i(u.type,type);
+    gl.uniform2f(u.C,C[0],C[1]);
+    if(type===0){gl.uniform1f(u.r,a);gl.uniform1f(u.tone,b);gl.uniform2f(u.D,1,0);gl.uniform1f(u.str,0);gl.uniform1f(u.wid,.1)}
+    else{gl.uniform2f(u.D,a[0],a[1]);gl.uniform1f(u.str,b);gl.uniform1f(u.wid,cc);gl.uniform1f(u.r,0);gl.uniform1f(u.tone,0)}
+  });
+  const t=mapA;mapA=mapB;mapB=t;
+}
+function drop(C,r,tone){ op(0,C,r,tone); }
+
+function render(phase){
+  const tc=[.32*Math.cos(phase),.32*Math.sin(phase)];
+  blit(P_FIELD,fld,()=>{const u=P_FIELD.u;
+    gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,mapA.t);gl.uniform1i(u.map,0);
+    gl.uniform2f(u.res,MW,MH);gl.uniform2f(u.tc,tc[0],tc[1]);gl.uniform1f(u.seed,seed);
+    gl.uniform1f(u.stretch,stretch);gl.uniform1i(u.FL,FLOAT?1:0)});
+  blit(P_SHADE,null,()=>{const u=P_SHADE.u;
+    gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,fld.t);gl.uniform1i(u.fld,0);
+    gl.uniform2f(u.fres,MW,MH);gl.uniform2f(u.res,c.width,c.height);
+    gl.uniform1f(u.lp,phase*1.0+.8);gl.uniform1f(u.hue,hue);gl.uniform1f(u.gain,MW*.018)});
+}
+
+/* ---------- touch: drop / pour / comb ---------- */
+const toW=(x,y)=>[(x-W/2)/S(),(H/2-y)/S()];
+let ptr=null;
+function toneFor(i){ // 暗い絵の具と真珠色の絵の具を交互気味に
+  const h=Math.abs(Math.sin((i+seed)*12.9898)*43758.5453)%1;
+  return i%2===0 ? .12+h*.28 : .55+h*.4;
+}
+let dropCount=0;
+c.addEventListener('pointerdown',e=>{
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  e.preventDefault();c.setPointerCapture&&c.setPointerCapture(e.pointerId);
+  ptr={id:e.pointerId,x:e.clientX,y:e.clientY,sx:e.clientX,sy:e.clientY,t:performance.now(),moved:0,pour:0,band:-1};
+});
+c.addEventListener('pointermove',e=>{
+  if(!ptr||e.pointerId!==ptr.id)return;
+  const dx=e.clientX-ptr.x,dy=e.clientY-ptr.y,d=Math.hypot(dx,dy);
+  if(d<1)return;
+  ptr.moved+=d;
+  if(ptr.moved>10&&!ptr.pour){
+    // 櫛: 大きく動いたら小分けにして引く
+    const n=Math.ceil(d/5);
+    for(let i=1;i<=n;i++){
+      const px=ptr.x+dx*i/n,py=ptr.y+dy*i/n;
+      op(1,toW(px,py),[dx/d,-dy/d],(d/n)/S()*.75,.06);
+    }
+  }
+  ptr.x=e.clientX;ptr.y=e.clientY;
+});
+function up(e){
+  if(!ptr||e.pointerId!==ptr.id)return;
+  const dt=performance.now()-ptr.t;
+  if(ptr.moved<=10&&!ptr.pour&&dt<400){
+    const r=.035+Math.random()*.05;
+    drop(toW(ptr.x,ptr.y),r,toneFor(dropCount++));
+  }
+  if(ptr.pour)dropCount++;
+  ptr=null;
+}
+c.addEventListener('pointerup',up);c.addEventListener('pointercancel',up);
+
+function step(now){
+  if(ptr&&!paused){
+    const held=now-ptr.t;
+    if(ptr.moved<=10&&held>260){
+      // 注ぐ: 1フレームごとに面積を足す。色は0.45秒ごとに切り替わる
+      ptr.pour=1;
+      const band=Math.floor((held-260)/450);
+      const tone=toneFor(dropCount+band);
+      const area=.0011*(1+Math.min(2,(held-260)/3000));
+      drop(toW(ptr.x,ptr.y),Math.sqrt(area/Math.PI),tone);
+    }
+  }
+  if(!paused)render(((now-t0)/1000)*.07%(Math.PI*2));
+  requestAnimationFrame(step);
+}
+requestAnimationFrame(step);
+
+APKit.init({
+  canvas:c,
+  gifName:'opal-marble-loop',
+  clockFormat:'spec',
+  dock:true,
+  autoHide:true,
+  fullscreenButton:false,
+  preroll:false,
+  loopFrame:function(phase){paused=true;render(phase);},
+  onExportEnd:function(){paused=false;},
+  buttons:[
+    {label:'✦',name:'mutate',onClick:function(){
+      // 模様の種・流れの伸び・虹色の位相を変える(刻まれた写像はそのまま)
+      seed=Math.random()*50;hue=Math.random();stretch=1.2+Math.random()*1.6;
+    }},
+    {label:'↻',name:'reset',onClick:function(){clearMap();dropCount=0;}}
+  ]
+});
+</script>
+</body></html>

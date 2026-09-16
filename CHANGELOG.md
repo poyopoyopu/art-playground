@@ -20,6 +20,9 @@
 
 ## 履歴
 
+- 2026-09-17 クロード: HOLO THAW新規プロトタイプ追加。3階層の折れ目を持つ凍ったホログラム箔が、触れた熱で溶けて二度と凍らず、温かい間だけ重力で流れて下の箔を溶かしていくWebGL2作品(prototypes/holo-thaw.html)
+- 2026-09-17 クロード: TAR CEILING新規プロトタイプ追加。触れた場所が塞がらない漏れ口になり黒いクローム液が垂れ続け、天井が尽きると世界が反転して床が天井になるWebGL2作品(prototypes/tar-ceiling.html)
+- 2026-09-17 クロード: OPAL MARBLE新規プロトタイプ追加。虹色の流体マーブルに、タップ=滴・長押し=注ぐ・ドラッグ=櫛で座標写像を恒久的に書き換える墨流し型WebGL2作品(prototypes/opal-marble.html)
 - 2026-09-16 チャッピー: CHROMATIC TIDEを再設計。多色パレットの連続遷移、形状の多重変形、内外の流れ、背景光と周回光を強化(prototypes/violet-membrane.html)
 - 2026-09-16 チャッピー: CHROMATIC TIDEへ再設計。時間変化を増幅し、周期的な多色パレット変化・呼吸する輪郭・移動する中心・多層背景光と軌道を追加(prototypes/violet-membrane.html)
 - 2026-09-16 チャッピー: NOCTURNE FIELDへ再設計。タッチ痕跡を表示せず変化だけを継続させ、藍紫系の配色と多層の背景光を強化(prototypes/violet-membrane.html)
