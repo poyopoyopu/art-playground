@@ -20,6 +20,7 @@
 
 ## 履歴
 
+- 2026-09-16 クロード: LIQUID LAW を全面書き直し。法を大円の帯として実装し直した(prototypes/liquid-law.html)
 - 2026-09-16 クロード: Published works欄にRGB MEMBRANEが抜けていた不整合を修正(index.html)
 - 2026-09-16 クロード: LIQUID LAW プロトタイプ追加(触れた場所に亀裂が残るクロム球, prototypes/liquid-law.html)
 - 2026-09-16 チャッピー: 採用済みCURRENTのap-kit.js参照パスを修正(archive/adopted/spiral-spectrum-200-v9.html)
