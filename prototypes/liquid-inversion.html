@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>LIQUID INVERSION</title>
+<script src="../ap-kit.js"></script>
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#020205}canvas{display:block;width:100%;height:100%;touch-action:none}</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+'use strict';
+const c=document.getElementById('c');
+const gl=c.getContext('webgl',{antialias:false,alpha:false,preserveDrawingBuffer:true})||c.getContext('experimental-webgl',{antialias:false,alpha:false,preserveDrawingBuffer:true});
+const V='attribute vec2 p;void main(){gl_Position=vec4(p,0.0,1.0);}';
+const F=`precision highp float;
+uniform vec2 res;
+uniform float t,law,seed,rx,ry;
+uniform vec3 c0,c1,c2,c3;
+
+vec3 rotX(vec3 p,float a){float s=sin(a),c=cos(a);return vec3(p.x,c*p.y-s*p.z,s*p.y+c*p.z);}
+vec3 rotY(vec3 p,float a){float s=sin(a),c=cos(a);return vec3(c*p.x+s*p.z,p.y,-s*p.x+c*p.z);}
+
+float hash(vec3 p){p=fract(p*.1031+.17);p+=dot(p,p.yzx+19.19);return fract((p.x+p.y)*p.z);}
+float noise(vec3 p){
+ vec3 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);float n=0.0;
+ for(int z=0;z<2;z++)for(int y=0;y<2;y++)for(int x=0;x<2;x++){
+  vec3 q=vec3(float(x),float(y),float(z));
+  float w=(x==0?1.0-f.x:f.x)*(y==0?1.0-f.y:f.y)*(z==0?1.0-f.z:f.z);
+  n+=hash(i+q)*w;
+ }
+ return n;
+}
+
+vec3 env(vec3 d){
+ float y=.5+.5*d.y;
+ float x=.5+.5*d.x;
+ float bands=0.5+0.5*cos(7.0*d.y+1.8*sin(3.0*d.x+law)+t*.08);
+ vec3 top=mix(c1,c3,y);
+ vec3 side=mix(c0,c2,x);
+ vec3 dark=mix(vec3(.002,.003,.008),c0,.22);
+ return mix(dark,mix(top,side,.38),.52+.38*bands);
+}
+
+float shape(vec3 n,float time){
+ float a=atan(n.z,n.x);
+ float b=asin(clamp(n.y,-1.0,1.0));
+ float waves=.020*sin(3.0*a+1.4*sin(b*4.0-time*.16)+time*.23+seed*.7);
+ waves+=.013*sin(7.0*b-2.0*a-time*.11);
+ waves+=.010*(noise(n*5.0+seed)-.5);
+ vec3 center=normalize(vec3(
+   .55*sin(time*.19+seed),
+   .22*sin(time*.13+1.7+seed*.2),
+   .83*cos(time*.17+seed*.4)));
+ float d=max(dot(n,center),-1.0);
+ float cavity=exp(-pow((1.0-d)/.18,2.0));
+ float ring=exp(-pow((1.0-d)/.40,2.0));
+ return waves-.105*cavity-.022*ring;
+}
+
+vec3 normalAt(vec3 n,float time){
+ float e=.0025;
+ vec3 tx=normalize(n+vec3(e,0.0,0.0));
+ vec3 ty=normalize(n+vec3(0.0,e,0.0));
+ vec3 tz=normalize(n+vec3(0.0,0.0,e));
+ float hx=shape(tx,time)-shape(n,time);
+ float hy=shape(ty,time)-shape(n,time);
+ float hz=shape(tz,time)-shape(n,time);
+ return normalize(n-vec3(hx,hy,hz)*7.0);
+}
+
+void main(){
+ vec2 uv=(gl_FragCoord.xy-.5*res)/min(res.x,res.y);
+ float r=length(uv),rad=.425;
+ float halo=exp(-max(r-rad,0.0)*22.0)*.16;
+ vec3 bg=mix(vec3(.001,.002,.006),c0,.06*exp(-r*3.0));
+ bg+=mix(c0,c2,.5)*halo;
+ if(r>rad){gl_FragColor=vec4(bg,1.0);return;}
+ float z=sqrt(max(rad*rad-dot(uv,uv),0.0));
+ vec3 n=normalize(vec3(uv,z));
+ n=rotY(rotX(n,rx),ry);
+ float disp=shape(n,t);
+ float rim=.010+disp*.15;
+ n=normalize(n+rim*n);
+ vec3 normal=normalAt(n,t);
+ vec3 view=vec3(0.0,0.0,1.0);
+ float ndv=max(dot(normal,view),0.0);
+ float fres=pow(1.0-ndv,3.4);
+ vec3 refl=reflect(-view,normal);
+ refl=rotY(rotX(refl,ry*.55+sin(t*.05)*.08),rx*.35);
+ vec3 e=env(normalize(refl));
+ float key=pow(max(dot(normal,normalize(vec3(-.48,.52,.70))),0.0),55.0);
+ float broad=pow(max(dot(normal,normalize(vec3(.32,.18,.92))),0.0),8.0);
+ float cavityLight=1.0-fres;
+ vec3 col=e*(.55+.72*fres);
+ col+=e*broad*.34;
+ col+=vec3(1.0)*key*1.65;
+ col+=mix(c1,c3,.5+.5*sin(t*.10+n.y*4.0))*key*.35;
+ col*=.88+.12*sin(t*.18+n.x*3.0);
+ col*=.72+.28*cavityLight;
+ float edge=pow(1.0-ndv,1.8);
+ col+=mix(c2,c1,.5+.5*sin(n.y*5.0+t*.12))*edge*.42;
+ float inner=pow(max(0.0,1.0+dot(normalize(refl),vec3(0.0,0.0,1.0))*.5),5.0);
+ col*=.82+.18*inner;
+ gl_FragColor=vec4(col,1.0);
+}`;
+
+function shader(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))console.error(gl.getShaderInfoLog(s));return s;}
+const p=gl.createProgram();
+gl.attachShader(p,shader(gl.VERTEX_SHADER,V));
+gl.attachShader(p,shader(gl.FRAGMENT_SHADER,F));
+gl.linkProgram(p);
+if(!gl.getProgramParameter(p,gl.LINK_STATUS))console.error(gl.getProgramInfoLog(p));
+gl.useProgram(p);
+
+const b=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,b);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+const pl=gl.getAttribLocation(p,'p');
+gl.enableVertexAttribArray(pl);gl.vertexAttribPointer(pl,2,gl.FLOAT,false,0,0);
+const U={
+ res:gl.getUniformLocation(p,'res'),t:gl.getUniformLocation(p,'t'),law:gl.getUniformLocation(p,'law'),seed:gl.getUniformLocation(p,'seed'),
+ rx:gl.getUniformLocation(p,'rx'),ry:gl.getUniformLocation(p,'ry'),c0:gl.getUniformLocation(p,'c0'),c1:gl.getUniformLocation(p,'c1'),c2:gl.getUniformLocation(p,'c2'),c3:gl.getUniformLocation(p,'c3')
+};
+
+const pals=[
+ [[.008,.018,.035],[.02,.72,.68],[.20,.04,.52],[.72,.34,.95]],
+ [[.008,.028,.022],[.20,.92,.58],[.02,.42,.32],[.72,1.0,.82]],
+ [[.025,.008,.030],[.52,.12,.78],[.92,.20,.48],[1.0,.70,.34]],
+ [[.006,.018,.045],[.08,.40,.92],[.32,.06,.68],[.94,.36,.74]]
+];
+let W=0,H=0,d=1,law=0,seed=Math.random()*100,rx=0,ry=0,tx=0,ty=0,last=performance.now();
+function resize(){d=Math.min(2,devicePixelRatio||1);W=innerWidth;H=innerHeight;c.width=W*d;c.height=H*d;gl.viewport(0,0,c.width,c.height);}
+addEventListener('resize',resize);resize();
+function draw(phase){
+ const time=phase===null?performance.now()/1000:phase;
+ const P=pals[law%pals.length];
+ gl.uniform2f(U.res,c.width,c.height);gl.uniform1f(U.t,time);gl.uniform1f(U.law,law);gl.uniform1f(U.seed,seed);
+ gl.uniform1f(U.rx,rx);gl.uniform1f(U.ry,ry);
+ gl.uniform3fv(U.c0,P[0]);gl.uniform3fv(U.c1,P[1]);gl.uniform3fv(U.c2,P[2]);gl.uniform3fv(U.c3,P[3]);
+ gl.drawArrays(gl.TRIANGLES,0,3);
+}
+function animate(now){const dt=Math.min(.05,(now-last)/1000);last=now;rx+=(tx-rx)*(1-Math.exp(-dt*1.4));ry+=(ty-ry)*(1-Math.exp(-dt*1.4));draw(null);requestAnimationFrame(animate);}
+function touch(x,y){if(window.APKit&&APKit.isUI(x,y))return true;tx=(y/innerHeight-.5)*1.25;ty=(x/innerWidth-.5)*1.25;law=(law+1)%pals.length;seed=Math.random()*100;return true;}
+c.addEventListener('pointerdown',e=>touch(e.clientX,e.clientY),{passive:true});
+c.addEventListener('pointermove',e=>{if(e.buttons){tx=(e.clientY/innerHeight-.5)*1.6;ty=(e.clientX/innerWidth-.5)*1.6;}},{passive:true});
+
+APKit.init({canvas:c,gifName:'liquid-inversion-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:function(phase){draw(phase)},buttons:[
+ {label:'✦',name:'mutate',onClick:function(){law=(law+1)%pals.length;seed=Math.random()*100;}},
+ {label:'↻',name:'reset',onClick:function(){law=0;seed=Math.random()*100;rx=ry=tx=ty=0;}}
+]});
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>
