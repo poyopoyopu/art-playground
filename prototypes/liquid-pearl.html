@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>LIQUID PEARL</title>
+<script src="../ap-kit.js"></script>
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#010305}canvas{display:block;width:100%;height:100%;touch-action:none}</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+'use strict';
+/* LIQUID PEARL — one continuous chrome membrane. Touch changes the deformation law. */
+const c=document.getElementById('c');
+const gl=c.getContext('webgl',{antialias:false,alpha:false,preserveDrawingBuffer:true})||c.getContext('experimental-webgl',{antialias:false,alpha:false,preserveDrawingBuffer:true});
+const V=`attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}`;
+const F=`precision highp float;
+uniform vec2 res;uniform float t,law,seed,rx,ry;uniform vec3 c0,c1,c2,c3;
+float hash(vec3 p){p=fract(p*.3183099+.1);p*=17.;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}
+float noise(vec3 p){vec3 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);float n=0.;for(int z=0;z<2;z++)for(int y=0;y<2;y++)for(int x=0;x<2;x++){vec3 q=vec3(float(x),float(y),float(z));n+=mix(0.,1.,hash(i+q))*mix(mix(mix(1.-f.x,f.x,q.x),mix(1.-f.x,f.x,q.x),q.y),0.,q.z);}return n;}
+vec3 R(vec3 p,float a){float s=sin(a),q=cos(a);return vec3(q*p.x-s*p.z,p.y,s*p.x+q*p.z);}
+vec3 env(vec3 d){
+ float h=0.5+0.5*d.y;float bands=0.5+0.5*sin(5.0*d.y+1.7*sin(2.0*d.x+t*.22)+law*.9);
+ vec3 a=mix(c0,c1,h);vec3 b=mix(c2,c3,0.5+0.5*d.x);return mix(a,b,.38+.42*bands);
+}
+void main(){
+ vec2 uv=(gl_FragCoord.xy-.5*res)/min(res.x,res.y);float rr=length(uv);float R=.39;
+ vec3 bg=mix(vec3(.001,.003,.007),c0,.10*exp(-rr*4.));
+ if(rr>R){float halo=exp(-(rr-R)*18.);bg+=mix(c0,c2,.5)*halo*.20;gl_FragColor=vec4(bg,1.);return;}
+ float z=sqrt(max(R*R-dot(uv,uv),0.));vec3 n=normalize(vec3(uv,z));
+ vec3 nw=R(R(n,rx),ry);
+ float deform=noise(nw*5.5+vec3(seed*.13))-0.5;
+ float wave=sin(nw.x*7.+sin(nw.z*5.+t*.32)*.7+t*.18+law*1.3)*sin(nw.y*5.-t*.15);
+ float bulge=(.012+law*.003)*deform+.009*wave;
+ nw=normalize(nw+bulge*vec3(nw.x,nw.y,nw.z));
+ vec3 v=vec3(0.,0.,1.);float ndv=max(dot(n,v),0.);float fres=pow(1.-ndv,4.);
+ vec3 refl=reflect(-v,nw);refl=R(refl,ry*.45+sin(t*.07)*.08);refl=R(refl,rx*.32);
+ vec3 e=env(normalize(refl));
+ float groove=pow(max(0.,1.-abs(nw.y+.18*sin(nw.x*4.+t*.12))),10.);
+ float glint=pow(max(dot(normalize(refl),normalize(vec3(-.35,.52,.78))),0.),72.);
+ float soft=pow(max(dot(nw,normalize(vec3(-.42,.38,.82))),0.),18.);
+ vec3 col=e*(.48+.62*fres)+e*glint*1.7;
+ col+=mix(c1,c3,.5+.5*sin(t*.12+nw.y*3.))*(soft*.38);
+ col+=vec3(1.)*(pow(glint,2.)*.72);
+ col*=.88+.18*groove;
+ col+=mix(c2,c0,.5)*fres*.24;
+ gl_FragColor=vec4(col,1.);
+}`;
+function sh(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))console.error(gl.getShaderInfoLog(s));return s}
+const p=gl.createProgram();gl.attachShader(p,sh(gl.VERTEX_SHADER,V));gl.attachShader(p,sh(gl.FRAGMENT_SHADER,F));gl.linkProgram(p);gl.useProgram(p);
+const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);const loc=gl.getAttribLocation(p,'p');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+const U={res:gl.getUniformLocation(p,'res'),t:gl.getUniformLocation(p,'t'),law:gl.getUniformLocation(p,'law'),seed:gl.getUniformLocation(p,'seed'),rx:gl.getUniformLocation(p,'rx'),ry:gl.getUniformLocation(p,'ry'),c0:gl.getUniformLocation(p,'c0'),c1:gl.getUniformLocation(p,'c1'),c2:gl.getUniformLocation(p,'c2'),c3:gl.getUniformLocation(p,'c3')};
+let W=0,H=0,d=1,law=0,seed=Math.random()*100.,rotX=0,rotY=0,tx=0,ty=0,last=performance.now();
+const pals=[[[.01,.07,.09],[.00,.72,.72],[.18,.05,.32],[.65,.25,.82]],[[.015,.045,.04],[.15,.95,.72],[.02,.35,.30],[.72,.92,.80]],[[.035,.02,.07],[.34,.10,.65],[.82,.20,.55],[.98,.70,.42]],[[.01,.03,.07],[.08,.28,.72],[.25,.04,.52],[.95,.48,.72]]];
+function resize(){d=Math.min(2,devicePixelRatio||1);W=innerWidth;H=innerHeight;c.width=W*d;c.height=H*d;gl.viewport(0,0,c.width,c.height)}addEventListener('resize',resize);resize();
+function draw(phase){let time=phase===null?performance.now()/1000:phase;let P=pals[law%pals.length];gl.uniform2f(U.res,c.width,c.height);gl.uniform1f(U.t,time);gl.uniform1f(U.law,law);gl.uniform1f(U.seed,seed);gl.uniform1f(U.rx,rotX);gl.uniform1f(U.ry,rotY);gl.uniform3fv(U.c0,P[0]);gl.uniform3fv(U.c1,P[1]);gl.uniform3fv(U.c2,P[2]);gl.uniform3fv(U.c3,P[3]);gl.drawArrays(gl.TRIANGLES,0,3)}
+function animate(now){let dt=Math.min(.05,(now-last)/1000);last=now;rotX+=(tx-rotX)*(1-Math.exp(-dt*1.7));rotY+=(ty-rotY)*(1-Math.exp(-dt*1.7));draw(null);requestAnimationFrame(animate)}
+function mutate(x,y){if(window.APKit&&APKit.isUI(x,y))return true;law=(law+1)%pals.length;seed=Math.random()*100.;tx=(y/innerHeight-.5)*1.2;ty=(x/innerWidth-.5)*1.2;return true}
+c.addEventListener('pointerdown',e=>mutate(e.clientX,e.clientY),{passive:true});
+c.addEventListener('pointermove',e=>{if(e.buttons){tx=(e.clientY/innerHeight-.5)*1.5;ty=(e.clientX/innerWidth-.5)*1.5}},{passive:true});
+APKit.init({canvas:c,gifName:'liquid-pearl-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:function(phase){draw(phase)},buttons:[{label:'✦',name:'mutate',onClick:function(){law=(law+1)%pals.length;seed=Math.random()*100.;}},{label:'↻',name:'reset',onClick:function(){law=0;seed=Math.random()*100.;rotX=rotY=tx=ty=0;}}]});
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>
