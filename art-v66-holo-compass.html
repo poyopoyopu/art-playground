@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="ja"><head>
+<!-- HOLO COMPASS — 2026-09-17 おっちゃん採用。prototypes/holo-thaw.html からルートへ昇格(ap-kit.jsの参照先のみ変更) --><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>HOLO COMPASS</title>
+<script src="ap-kit.js"></script>
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#04040a}canvas{display:block;width:100%;height:100%;touch-action:none}
+#msg{position:fixed;left:0;right:0;top:45%;text-align:center;color:#99a;font:14px/1.6 system-ui;display:none}</style>
+</head><body>
+<canvas id="c"></canvas><div id="msg">この端末ではWebGL2が使えません</div>
+<script>
+'use strict';
+/*
+  HOLO COMPASS — Claude(クロちゃん)作。ap-kit.js統合: Claude
+  (旧 HOLO THAW。2026-09-17 おっちゃんの依頼で、操作と変化を全面的に作り替え。ファイル名はそのまま)
+
+  世界のルール:
+  画面は3階層の折れ目(大きな面の中に小さな面、さらにその中に細かい面)でできたホログラム箔。
+  一枚一枚の面は「羅針盤の針」で、それぞれ勝手な方向を向いている。だから光が回ってもバラバラに瞬くだけ。
+  ・ドラッグ = なでた方向へ、面の向きを揃える。揃った面は一枚の鏡のように、同じ瞬間に一斉に光る。
+  ・タップ = 衝撃波。輪が広がりながら、通過した面の向きを外向きにはじき、虹色の閃光を走らせる。
+  ・長押し = 渦。指の周りの面の向きが回り続け、離すとその渦巻きのまま止まる。
+  書き換えた向きは元に戻らない。混沌の箔に、自分の描いた「秩序」だけが光として残っていく。
+*/
+const c=document.getElementById('c');
+const gl=c.getContext('webgl2',{antialias:false,alpha:false,preserveDrawingBuffer:true});
+if(!gl){document.getElementById('msg').style.display='block';throw Error('no webgl2');}
+
+const VS=`#version 300 es
+in vec2 p;void main(){gl_Position=vec4(p,0.,1.);}`;
+function sh(t,s){const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);
+  if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(o));return o}
+function prog(fs){const p=gl.createProgram();gl.attachShader(p,sh(gl.VERTEX_SHADER,VS));
+  gl.attachShader(p,sh(gl.FRAGMENT_SHADER,fs));gl.bindAttribLocation(p,0,'p');gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(p));
+  const u={};const n=gl.getProgramParameter(p,gl.ACTIVE_UNIFORMS);
+  for(let i=0;i<n;i++){const a=gl.getActiveUniform(p,i);u[a.name.replace('[0]','')]=gl.getUniformLocation(p,a.name)}
+  return {p,u}}
+const vb=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,vb);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+let FLOAT=!!gl.getExtension('EXT_color_buffer_float');
+function makeTarget(w,h){
+  const t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);
+  if(FLOAT)gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA16F,w,h,0,gl.RGBA,gl.HALF_FLOAT,null);
+  else gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+  for(const [k,v] of [[gl.TEXTURE_MIN_FILTER,gl.LINEAR],[gl.TEXTURE_MAG_FILTER,gl.LINEAR],[gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE],[gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE]])gl.texParameteri(gl.TEXTURE_2D,k,v);
+  const f=gl.createFramebuffer();gl.bindFramebuffer(gl.FRAMEBUFFER,f);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,t,0);
+  const ok=gl.checkFramebufferStatus(gl.FRAMEBUFFER)===gl.FRAMEBUFFER_COMPLETE;
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+  if(!ok&&FLOAT){FLOAT=false;return makeTarget(w,h)}
+  return {t,f,w,h}}
+
+// 状態: RG=面の向き(-1.3〜1.3) B=閃光
+const ENC=`
+vec4 enc(vec2 d,float f){ return FL ? vec4(d,f,1.) : vec4(d*.38+.5,f,1.); }
+vec4 dec(vec4 s){ return FL ? s : vec4((s.rg-.5)/.38,s.b,1.); }`;
+
+const NRING=6;
+const FS_SIM=`#version 300 es
+precision highp float;uniform sampler2D prev;uniform vec2 res,F0,F1,fDir;uniform float dt,fOn,fMode,fSpin;uniform bool FL;
+uniform vec4 ring[${NRING}];
+out vec4 o;${ENC}
+float segD(vec2 p,vec2 a,vec2 b){vec2 pa=p-a,ba=b-a;float h=clamp(dot(pa,ba)/max(dot(ba,ba),1e-6),0.,1.);return length(pa-ba*h);}
+vec2 rot(vec2 v,float a){float c=cos(a),s=sin(a);return vec2(c*v.x-s*v.y,s*v.x+c*v.y);}
+void main(){
+  vec2 uv=gl_FragCoord.xy/res;float S=min(res.x,res.y);
+  vec2 P=(gl_FragCoord.xy-.5*res)/S;
+  vec4 st=dec(texture(prev,uv));
+  vec2 d=st.xy;float fl=st.z*exp(-dt/.9);
+  for(int i=0;i<${NRING};i++){
+    vec4 r=ring[i];if(r.w<=0.)continue;
+    vec2 v=P-r.xy;float L=length(v)+1e-5;
+    float e=L-r.z;float w=exp(-e*e/(.022*.022))*r.w;
+    d+=v/L*w*dt*9.;                    // 外向きにはじく
+    d=rot(d,w*dt*7.);
+    fl+=w*dt*9.;
+  }
+  if(fOn>.5){
+    float e=segD(P,F0,F1);float w=exp(-e*e/(.07*.07));
+    if(fMode<.5){                        // なでる: 向きを揃える
+      d=mix(d,fDir*1.15,1.-exp(-w*dt*16.));
+      fl+=w*dt*1.5;
+    }else{                               // 渦: 回し続ける
+      vec2 v=P-F0;float L=length(v)+1e-5;
+      d=rot(d,w*dt*fSpin);
+      d+=vec2(-v.y,v.x)/L*w*dt*.9*sign(fSpin);
+      fl+=w*dt*.8;
+    }
+  }
+  float m=length(d);if(m>1.3)d*=1.3/m;
+  o=enc(d,min(fl,2.));
+}`;
+
+const FS_FIELD=`#version 300 es
+precision highp float;uniform sampler2D st;uniform vec2 res;uniform float seed;uniform bool FL;
+out vec4 o;${ENC}
+vec2 h2(vec2 p){p=vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3)));return fract(sin(p)*43758.5453);}
+// 面ごとに傾いた平面。面の中心で状態を読み、その面だけの向きにする(面は曲がらず、丸ごと向きを変える)
+vec4 facets(vec2 p,float sc,float off,inout vec2 vsum){
+  vec2 q=p*sc+off;
+  vec2 i=floor(q),f=fract(q);float best=9.;
+  float dd[9];vec2 ds[9];vec2 gs[9];float rx[9];float fl[9];float an[9];float ry[9];vec2 sv[9];int k=0;
+  for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){
+    vec2 g=vec2(x,y),r=h2(i+g+seed);vec2 cc=g+.15+.7*r;vec2 d=f-cc;
+    vec2 wc=((i+cc)-off)/sc;                                   // 面の中心(世界座標)
+    vec2 tuv=(wc*min(res.x,res.y)+.5*res)/res;
+    vec4 s=dec(texture(st,clamp(tuv,0.,1.)));
+    vec2 own=(h2(i+g+seed+7.3)-.5)*1.8;
+    float a=clamp(length(s.xy)/1.1,0.,1.);
+    dd[k]=dot(d,d);ds[k]=d;rx[k]=r.x;ry[k]=r.y;
+    gs[k]=mix(own,s.xy*.85,a);
+    fl[k]=s.z;an[k]=a;sv[k]=s.xy;
+    if(dd[k]<best)best=dd[k];
+    k++;
+  }
+  float hs=0.,ws=0.,id=0.,fla=0.,al=0.;
+  for(int j=0;j<9;j++){
+    float w=exp(-(dd[j]-best)/.0049);
+    hs+=w*(dot(ds[j],gs[j])+rx[j]*.3*(1.-an[j]));ws+=w;
+    id+=w*ry[j];fla+=w*fl[j];al+=w*an[j];vsum+=w*sv[j]/9.;
+  }
+  return vec4(hs/ws,id/ws,fla/ws,al/ws);
+}
+void main(){
+  vec2 P=(gl_FragCoord.xy-.5*res)/min(res.x,res.y);
+  vec2 vs=vec2(0.);
+  vec4 a=facets(P,2.8,0.,vs),b=facets(P,6.44,3.1,vs),c3=facets(P,14.84,9.7,vs);
+  float h=a.x*.60+b.x*.26+c3.x*.12;
+  float align=max(a.w,max(b.w,c3.w));
+  // 揃った面の色は「向いている方角」で決まる(渦や衝撃波の跡が虹の方位図になる)
+  float ang=atan(vs.y,vs.x)/6.2831+.5;
+  float film=mix(fract(a.y*.7+b.y*.3)*.8+h*.6,ang+h*.25,smoothstep(.2,.7,align));
+  float flash=clamp(max(a.z,max(b.z,c3.z))*.5,0.,1.);
+  float glint=step(.965,fract(c3.y*37.1+b.y*11.));
+  o=vec4(h*.5+.5,film,flash,glint*.55+align*.44);
+}`;
+
+const FS_SHADE=`#version 300 es
+precision highp float;uniform sampler2D fld;uniform vec2 fres,res;uniform float lp,hue,gain;
+out vec4 o;
+void main(){
+  vec2 uv=gl_FragCoord.xy/res;vec2 px=1./fres;
+  vec4 f=texture(fld,uv);
+  float hl=texture(fld,uv-vec2(px.x,0)).r,hr=texture(fld,uv+vec2(px.x,0)).r;
+  float hd=texture(fld,uv-vec2(0,px.y)).r,hu=texture(fld,uv+vec2(0,px.y)).r;
+  vec3 N=normalize(vec3((hl-hr)*gain,(hd-hu)*gain,1.));
+  float glint=step(.5,f.a),align=(f.a-glint*.55)/.44;
+  float flash=f.b;
+  vec3 L=normalize(vec3(cos(lp)*.75,sin(lp)*.75,.5));
+  vec3 R=reflect(vec3(0,0,-1),N);
+  float rl=max(dot(R,L),0.);
+  vec3 holo=.5+.5*cos(6.2831*(f.g*1.4+dot(N,L)*2.4+hue+vec3(0.,.33,.67)));holo=holo*holo;
+  vec3 L2=normalize(vec3(-.4,.6,.7));
+  float fl=pow(max(dot(N,L2),0.),3.);
+  vec3 col=vec3(.035,.038,.07)+vec3(.30,.31,.40)*fl*(.6+.4*fract(f.g*7.))
+          +holo*pow(rl,5.)*1.05+vec3(1.)*pow(rl,60.)*.8;
+  // 揃った面: 一枚の鏡として、広く強く光る
+  float am=smoothstep(.15,.7,align);
+  vec3 sat=.5+.5*cos(6.2831*(f.g+hue+vec3(0.,.33,.67)));
+  float sweep=.7+.3*sin(lp*2.-f.g*6.2831);
+  col=mix(col,vec3(.04,.04,.07)+sat*(.38+.8*pow(max(dot(N,L),0.),1.2))*sweep+vec3(1.)*pow(rl,18.)*.8,am*.9);
+  col+=holo*glint*(.5+.5*sin(lp*7.+f.g*40.))*.8;
+  // 衝撃波の閃光
+  vec3 fc=.5+.5*cos(6.2831*(f.g*3.+flash*1.5+hue+vec3(0.,.33,.67)));
+  col+=fc*flash*.9+vec3(1.)*flash*flash*.25;
+  col=col/(1.+col*.15);
+  float vg=1.-.3*dot(uv-.5,uv-.5)*2.;
+  o=vec4(pow(col*vg,vec3(.95)),1.);
+}`;
+const P_SIM=prog(FS_SIM),P_FIELD=prog(FS_FIELD),P_SHADE=prog(FS_SHADE);
+
+let W=0,H=0,MW=0,MH=0,A=null,B=null,fld=null;
+let seed=Math.random()*40,hue=Math.random();
+let paused=false,t0=performance.now(),last=t0,liveT=0,rings=[];
+const S=()=>Math.min(W,H);
+function blit(P,target,uni){
+  gl.useProgram(P.p);
+  if(target){gl.bindFramebuffer(gl.FRAMEBUFFER,target.f);gl.viewport(0,0,target.w,target.h)}
+  else{gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.viewport(0,0,c.width,c.height)}
+  uni();gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+}
+function clearState(){
+  for(const t of [A,B]){gl.bindFramebuffer(gl.FRAMEBUFFER,t.f);gl.viewport(0,0,t.w,t.h);
+    if(FLOAT)gl.clearColor(0,0,0,1);else gl.clearColor(.5,.5,0,1);gl.clear(gl.COLOR_BUFFER_BIT);}
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+}
+function resize(){
+  const d=Math.min(2,devicePixelRatio||1);
+  c.width=Math.round(innerWidth*d);c.height=Math.round(innerHeight*d);
+  if(innerWidth===W&&innerHeight===H&&A)return;
+  W=innerWidth;H=innerHeight;
+  const k=Math.min(.62,820/Math.max(W,H));MW=Math.round(W*k);MH=Math.round(H*k);
+  A=makeTarget(Math.round(MW/2),Math.round(MH/2));B=makeTarget(A.w,A.h);   // 向きの記憶は半分の解像度で十分
+  fld=makeTarget(MW,MH);clearState();
+}
+addEventListener('resize',resize);resize();
+
+/* ---------- 操作 ---------- */
+const toW=(x,y)=>[(x-W/2)/S(),(H/2-y)/S()];
+let ptr=null,spinSign=1;
+c.addEventListener('pointerdown',e=>{
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  e.preventDefault();c.setPointerCapture&&c.setPointerCapture(e.pointerId);
+  const p=toW(e.clientX,e.clientY);
+  ptr={id:e.pointerId,a:p,b:p,t:performance.now(),moved:0,dir:[0,0],hold:0};
+});
+c.addEventListener('pointermove',e=>{
+  if(!ptr||e.pointerId!==ptr.id)return;
+  const p=toW(e.clientX,e.clientY);
+  const dx=p[0]-ptr.b[0],dy=p[1]-ptr.b[1],d=Math.hypot(dx,dy);
+  ptr.moved+=d*S();
+  if(d>1e-4&&!ptr.hold){ptr.dir=[ptr.dir[0]*.6+dx/d*.4,ptr.dir[1]*.6+dy/d*.4];}
+  ptr.b=p;
+});
+function up(e){
+  if(!ptr||e.pointerId!==ptr.id)return;
+  const dt=performance.now()-ptr.t;
+  if(ptr.moved<=10&&!ptr.hold&&dt<350){
+    rings.push({c:ptr.b,t:liveT});if(rings.length>NRING)rings.shift();
+  }
+  if(ptr.hold)spinSign=-spinSign;       // 次の渦は逆回り
+  ptr=null;
+}
+c.addEventListener('pointerup',up);c.addEventListener('pointercancel',up);
+
+function sim(dt,now){
+  let on=0,mode=0,a=[0,0],b=[0,0],dir=[0,0];
+  if(ptr){
+    if(ptr.moved<=10&&now-ptr.t>350)ptr.hold=1;
+    if(ptr.hold){on=1;mode=1;a=ptr.b;b=ptr.b;}
+    else if(ptr.moved>10){
+      on=1;a=ptr.a;b=ptr.b;
+      const l=Math.hypot(ptr.dir[0],ptr.dir[1])||1;dir=[ptr.dir[0]/l,ptr.dir[1]/l];
+    }
+    ptr.a=ptr.b;
+  }
+  const rg=new Float32Array(NRING*4);
+  rings=rings.filter(r=>(liveT-r.t)*.62<2.2);
+  rings.forEach((r,i)=>{const rad=(liveT-r.t)*.62;rg.set([r.c[0],r.c[1],rad,Math.max(0,1-rad/2.2)],i*4)});
+  blit(P_SIM,B,()=>{const u=P_SIM.u;
+    gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,A.t);gl.uniform1i(u.prev,0);
+    gl.uniform2f(u.res,A.w,A.h);gl.uniform2f(u.F0,a[0],a[1]);gl.uniform2f(u.F1,b[0],b[1]);
+    gl.uniform2f(u.fDir,dir[0],dir[1]);gl.uniform1f(u.dt,dt);gl.uniform1f(u.fOn,on);
+    gl.uniform1f(u.fMode,mode);gl.uniform1f(u.fSpin,3.2*spinSign);
+    gl.uniform4fv(u.ring,rg);gl.uniform1i(u.FL,FLOAT?1:0)});
+  const t=A;A=B;B=t;
+}
+function render(lp){
+  blit(P_FIELD,fld,()=>{const u=P_FIELD.u;
+    gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,A.t);gl.uniform1i(u.st,0);
+    gl.uniform2f(u.res,MW,MH);gl.uniform1f(u.seed,seed);gl.uniform1i(u.FL,FLOAT?1:0)});
+  blit(P_SHADE,null,()=>{const u=P_SHADE.u;
+    gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,fld.t);gl.uniform1i(u.fld,0);
+    gl.uniform2f(u.fres,MW,MH);gl.uniform2f(u.res,c.width,c.height);
+    gl.uniform1f(u.lp,lp);gl.uniform1f(u.hue,hue);gl.uniform1f(u.gain,MW*.32)});
+}
+function frame(now){
+  const dt=Math.min(1/30,(now-last)/1000);last=now;
+  if(!paused){
+    liveT+=dt;
+    sim(dt,now);
+    render((liveT*.35)%(Math.PI*2));
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+APKit.init({
+  canvas:c,
+  gifName:'holo-compass-loop',
+  clockFormat:'spec',
+  dock:true,
+  autoHide:true,
+  fullscreenButton:false,
+  preroll:false,
+  // GIF中は向きの記憶を止め、光源をひと回りさせる(揃えた面が一斉に光る瞬間が入る)
+  loopFrame:function(phase){paused=true;render(phase);},
+  onExportEnd:function(){paused=false;last=performance.now();},
+  buttons:[
+    {label:'✦',name:'mutate',onClick:function(){
+      // 箔の折れ目と虹の位相を作り直す(揃えた向きの記憶はそのまま残る)
+      seed=Math.random()*40;hue=Math.random();
+    }},
+    {label:'↻',name:'reset',onClick:function(){clearState();rings=[];}}
+  ]
+});
+</script>
+</body></html>

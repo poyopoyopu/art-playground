@@ -12,7 +12,7 @@
 ## 現在の状態(変わったら書き換える)
 
 - CURRENT: COLOR BREATH(`archive/adopted/spiral-spectrum-200-v9.html`)
-- LOG先頭: ENCIRCLE(`art-v65-encircle.html`)
+- LOG先頭: SEVEN SLICE(`art-v67-seven-slice.html`)
 - 作業ルール: `AGENTS.md`(ギャラリー追加の手順と命名ルールは13章)
 - 運用メモ: `NOTES.md`(GitHub操作は可能性を確認してから実行)
 
@@ -20,6 +20,10 @@
 
 ## 履歴
 
+- 2026-09-17 クロード: HOLO COMPASS・SEVEN SLICEを採用・art-v66/v67として昇格、ギャラリーLOG先頭とPublished worksに追加(art-v66-holo-compass.html, art-v67-seven-slice.html, index.html)
+- 2026-09-17 しゅん: HOLO COMPASS(prototypes/holo-thaw.html)とSEVEN SLICE(prototypes/seven-slice.html)を採用決定
+- 2026-09-17 クロード: TAR CEILINGの起動時の雫と漏れ口の雫を中間の太さに統一(prototypes/tar-ceiling.html)
+- 2026-09-17 クロード: OPAL MARBLEの丸い滴をやめ、タップ=渦・長押し=かき混ぜに変更。乱れた模様は数秒で元の流れへ戻り、常時ゆっくり対流するように(prototypes/opal-marble.html)
 - 2026-09-17 クロード: SEVEN SLICEの数値表示(HUD)を非表示に(prototypes/seven-slice.html)
 - 2026-09-17 クロード: HOLO THAWを全面改修しHOLO COMPASSへ。融解をやめ、面を羅針盤の針とし、ドラッグ=向きを揃える・タップ=衝撃波ではじく・長押し=渦で回す(記憶は消えない)に変更。ファイル名は据え置き(prototypes/holo-thaw.html)
 - 2026-09-17 クロード: TAR CEILINGの漏れ口を細い糸状に変更、上限24個に。横になぞると12pxおきに細かい漏れ口が並ぶ(prototypes/tar-ceiling.html)

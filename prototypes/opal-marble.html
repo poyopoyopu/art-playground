@@ -20,7 +20,11 @@
   ドラッグ = 液に勢いを与える。模様は指に引っ張られ、離したあともヌルヌルと滑り続け、粘りでゆっくり止まる。
   触るたびに「面の座標そのもの」が書き換わっていく(内部では座標の写像テクスチャに累積している)。
   改修(2026-09-17): 1回の指の動きで何枚も描き直す方式をやめ、低解像度の流体(速度場+圧力)を
-  1フレーム1回だけ進める方式に変更。滴も一瞬ではなく0.4秒かけて広がる。
+  1フレーム1回だけ進める方式に変更。
+  改修2(2026-09-17 おっちゃんの依頼): 丸い絵の具の滴をやめ、触った所は「渦」でかき混ぜる形に。
+  乱された模様は数秒かけて元の流れへ自然に戻っていく(上のルールより優先)。
+  触っていない時も液面はゆっくり対流し、常にヌルヌル動く。
+  → タップ=小さな渦(回転は交互)、長押し=かき混ぜ続けて渦が育つ、ドラッグ=押し流す。
 */
 const c=document.getElementById('c');
 const gl=c.getContext('webgl2',{antialias:false,alpha:false,preserveDrawingBuffer:true});
@@ -100,8 +104,18 @@ const FS_SPLAT=`#version 300 es
 precision highp float;uniform sampler2D v;uniform vec2 res,C,F;uniform float rad,radial;out vec4 o;
 void main(){vec2 uv=gl_FragCoord.xy/res;vec2 P=(gl_FragCoord.xy-.5*res)/min(res.x,res.y);
   vec2 d=P-C;float w=exp(-dot(d,d)/(rad*rad));
-  vec2 f=radial>.5?normalize(d+1e-5)*F.x*smoothstep(0.,rad*.6,length(d)):F;
+  vec2 nd=normalize(d+1e-5);
+  vec2 f=radial>1.5?vec2(-nd.y,nd.x)*F.x*smoothstep(0.,rad*.5,length(d)):radial>.5?nd*F.x*smoothstep(0.,rad*.6,length(d)):F;
   o=vec4(texture(v,uv).xy+f*w,0.,1.);}`;
+const FS_AMB=`#version 300 es
+precision highp float;uniform sampler2D v;uniform vec2 res;uniform float t,amp;out vec4 o;
+float hh(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
+float nz(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
+  return mix(mix(hh(i),hh(i+vec2(1,0)),f.x),mix(hh(i+vec2(0,1)),hh(i+1.),f.x),f.y);}
+void main(){vec2 uv=gl_FragCoord.xy/res;vec2 P=(gl_FragCoord.xy-.5*res)/min(res.x,res.y);
+  vec2 q=P*2.2+vec2(t*.05,-t*.03);float e=.06;
+  vec2 cu=vec2(nz(q+vec2(0,e))-nz(q-vec2(0,e)),-(nz(q+vec2(e,0))-nz(q-vec2(e,0))))/(2.*e);
+  o=vec4(texture(v,uv).xy+cu*amp,0.,1.);}`;
 const FS_DIV=`#version 300 es
 precision highp float;uniform sampler2D v;uniform vec2 res;out vec4 o;
 void main(){vec2 uv=gl_FragCoord.xy/res,px=1./res;
@@ -119,12 +133,14 @@ void main(){vec2 uv=gl_FragCoord.xy/res,px=1./res;
   o=vec4(texture(v,uv).xy-g,0.,1.);}`;
 // 模様の座標を速度場で運ぶ
 const FS_MADV=`#version 300 es
-precision highp float;uniform sampler2D prev,v;uniform vec2 res;uniform float dt;uniform bool FL;out vec4 o;${ENC}
+precision highp float;uniform sampler2D prev,v;uniform vec2 res;uniform float dt,relax;uniform bool FL;out vec4 o;${ENC}
 void main(){vec2 uv=gl_FragCoord.xy/res;vec2 vel=texture(v,uv).xy;
-  if(dot(vel,vel)<1e-7){o=texture(prev,uv);return;}
+  vec2 P=(gl_FragCoord.xy-.5*res)/min(res.x,res.y);
   vec2 back=uv-vel*dt*min(res.x,res.y)/res;
-  if(back.x<0.||back.y<0.||back.x>1.||back.y>1.){vec2 Q=(back*res-.5*res)/min(res.x,res.y);o=enc(Q,0.);return;}
-  o=texture(prev,back);}`;
+  vec4 s;
+  if(back.x<0.||back.y<0.||back.x>1.||back.y>1.){vec2 Q=(back*res-.5*res)/min(res.x,res.y);s=enc(Q,0.);}
+  else s=texture(prev,back);
+  o=mix(s,enc(P,0.),relax);}`;
 
 const NOISE=`
 float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
@@ -209,7 +225,7 @@ void main(){
 }`;
 
 const P_INIT=prog(FS_INIT),P_OP=prog(FS_OP),P_FIELD=prog(FS_FIELD),P_SHADE=prog(FS_SHADE);
-const P_VADV=prog(FS_VADV),P_SPLAT=prog(FS_SPLAT),P_DIV=prog(FS_DIV),P_JAC=prog(FS_JAC),P_GRAD=prog(FS_GRAD),P_MADV=prog(FS_MADV);
+const P_AMB=prog(FS_AMB),P_VADV=prog(FS_VADV),P_SPLAT=prog(FS_SPLAT),P_DIV=prog(FS_DIV),P_JAC=prog(FS_JAC),P_GRAD=prog(FS_GRAD),P_MADV=prog(FS_MADV);
 
 /* ---------- state ---------- */
 let W=0,H=0,DPR=1,MW=0,MH=0,mapA=null,mapB=null,fld=null;
@@ -243,7 +259,9 @@ function fluidStep(dt){
     [velA,velB]=[velB,velA];
   }
   splats=[];
-  V(P_VADV,velB,u=>{tex(u,'v',velA,0);gl.uniform1f(u.dt,dt);gl.uniform1f(u.decay,Math.exp(-dt/1.7))});
+  V(P_AMB,velB,u=>{tex(u,'v',velA,0);gl.uniform1f(u.t,liveT);gl.uniform1f(u.amp,.05*dt)});
+  [velA,velB]=[velB,velA];
+  V(P_VADV,velB,u=>{tex(u,'v',velA,0);gl.uniform1f(u.dt,dt);gl.uniform1f(u.decay,Math.exp(-dt/2.2))});
   [velA,velB]=[velB,velA];
   V(P_DIV,divT,u=>tex(u,'v',velA,0));
   for(let i=0;i<14;i++){
@@ -253,7 +271,7 @@ function fluidStep(dt){
   V(P_GRAD,velB,u=>{tex(u,'v',velA,0);tex(u,'pr',prA,1)});
   [velA,velB]=[velB,velA];
   blit(P_MADV,mapB,()=>{const u=P_MADV.u;tex(u,'prev',mapA,0);tex(u,'v',velA,1);
-    gl.uniform2f(u.res,MW,MH);gl.uniform1f(u.dt,dt);gl.uniform1i(u.FL,FLOAT?1:0)});
+    gl.uniform2f(u.res,MW,MH);gl.uniform1f(u.dt,dt);gl.uniform1f(u.relax,1-Math.exp(-dt/4.5));gl.uniform1i(u.FL,FLOAT?1:0)});
   [mapA,mapB]=[mapB,mapA];
 }
 function resize(){
@@ -302,7 +320,7 @@ function toneFor(i){ // 暗い絵の具と真珠色の絵の具を交互気味�
   const h=Math.abs(Math.sin((i+seed)*12.9898)*43758.5453)%1;
   return i%2===0 ? .12+h*.28 : .55+h*.4;
 }
-let dropCount=0,pending=[];
+let dropCount=0,pending=[],swirlSign=1;
 c.addEventListener('pointerdown',e=>{
   if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
   e.preventDefault();c.setPointerCapture&&c.setPointerCapture(e.pointerId);
@@ -326,8 +344,8 @@ function up(e){
   if(!ptr||e.pointerId!==ptr.id)return;
   const dt=performance.now()-ptr.t;
   if(ptr.moved<=10&&!ptr.pour&&dt<400){
-    const r=.04+Math.random()*.05;
-    pending.push({C:toW(ptr.x,ptr.y),area:Math.PI*r*r,left:Math.PI*r*r,tone:toneFor(dropCount++)});
+    swirlSign=-swirlSign;
+    pending.push({C:toW(ptr.x,ptr.y),left:.35,sign:swirlSign,r:.07+Math.random()*.04});
   }
   if(ptr.pour)dropCount++;
   ptr=null;
@@ -343,27 +361,27 @@ function step(now){
       if(ptr.fx||ptr.fy){
         // 指の勢いを液へ(1フレーム1回)
         const k=1/Math.max(dt,1/120);
-        splats.push({C:toW(ptr.x,ptr.y),F:[ptr.fx*k*.9,ptr.fy*k*.9],r:.075});
+        splats.push({C:toW(ptr.x,ptr.y),F:[ptr.fx*k*.7,ptr.fy*k*.7],r:.1});
         ptr.fx=ptr.fy=0;
       }
       if(ptr.moved<=10&&held>260){
-        // 注ぐ: 面積を足し続け、色は0.45秒ごとに切り替わる
-        ptr.pour=1;
-        const band=Math.floor((held-260)/450);
-        const area=.05*dt*(1+Math.min(2,(held-260)/3000));
-        drop(toW(ptr.x,ptr.y),Math.sqrt(area/Math.PI),toneFor(dropCount+band));
-        if(FLOAT)splats.push({C:toW(ptr.x,ptr.y),F:[.25,0],r:.09,radial:1});
+        // 長押し: かき混ぜ続ける。押すほど渦が大きく強くなる
+        if(!ptr.pour){ptr.pour=1;swirlSign=-swirlSign;}
+        const g=Math.min(1,(held-260)/2500);
+        if(FLOAT)splats.push({C:toW(ptr.x,ptr.y),F:[swirlSign*dt*(2.2+3*g),0],r:.08+.07*g,radial:2});
+        else drop(toW(ptr.x,ptr.y),Math.sqrt(.02*dt/Math.PI),toneFor(dropCount));
       }
     }
     for(const q of pending){
-      const a=Math.min(q.left,q.area*dt/.4);q.left-=a;
-      drop(q.C,Math.sqrt(a/Math.PI),q.tone);
-      if(FLOAT)splats.push({C:q.C,F:[.35,0],r:.08,radial:1});
+      // タップの渦は0.35秒かけて回し入れる(形がカクッとしないように)
+      const k=Math.min(q.left,dt);q.left-=k;
+      if(FLOAT)splats.push({C:q.C,F:[q.sign*k*5.5,0],r:q.r,radial:2});
+      else if(k>0)op(1,q.C,[q.sign,0],k*.3,q.r);
     }
-    pending=pending.filter(q=>q.left>1e-7);
+    pending=pending.filter(q=>q.left>1e-6);
     fluidStep(dt);
     liveT+=dt;
-    render((liveT*.16)%(Math.PI*2));
+    render((liveT*.2)%(Math.PI*2));
   }
   requestAnimationFrame(step);
 }

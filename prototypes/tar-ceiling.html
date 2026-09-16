@@ -18,6 +18,7 @@
   触れた場所は「漏れ口」になり、二度と塞がらない。漏れ口からは雫が育ち、ちぎれて床へ落ちる。
   長押しすると漏れ口が重くなり、速く垂れる。指で横になぞると、通り道に細かい漏れ口が並ぶ。
   改修(2026-09-17): 漏れ口を細い糸状に変更し、数の上限を24に増やした。
+  改修2: 起動時の雫と漏れ口の雫の太さを、両者の中間に統一。
   天井の液が尽きると、世界がひっくり返る。溜まった床が新しい天井になり、漏れ口はそのまま残る。
 */
 const c=document.getElementById('c');
@@ -82,7 +83,7 @@ float liquid(vec2 p){
     vec4 q=drip[i];if(q.z<1.)continue;
     vec2 a=vec2(q.x,q.y-6.),b=vec2(q.x,q.y+q.z);
     float h;float s=sdSeg(p,a,b,h);
-    float fn=fine[i];
+    float fn=fine[i]*0.+.5;   // 起動時の雫と漏れ口の雫を同じ太さ(中間)に揃える
     float r=mix(mix(12.+q.w*.4,3.8+q.w*.3,fn),mix(3.4+q.w*.22,1.1+q.w*.12,fn),pow(h,.5));
     float dd=s-r;
     dd=smin(dd,length(p-b-vec2(0.,q.w*.35))-q.w,5.);
@@ -178,7 +179,7 @@ function seedWorld(){
   }
   vol0=volume();pool=20;weights=[];drops=[];rips=[];drips=[];
   const n=4+Math.floor(Math.random()*3);
-  for(let i=0;i<n;i++)drips.push({x:rnd(MARGIN+30,W-MARGIN-30),len:rnd(20,Math.min(260,H*.3)),bulb:rnd(8,13),w:null,ph:Math.random()*6});
+  for(let i=0;i<n;i++)drips.push({x:rnd(MARGIN+30,W-MARGIN-30),len:rnd(20,Math.min(200,H*.24)),bulb:rnd(5.5,8),w:null,ph:Math.random()*6});
 }
 function volume(){let s=0;for(let i=0;i<NC;i++)s+=th[i];return s*(W-2*MARGIN)/(NC-1);}
 function colOf(x){return Math.max(0,Math.min(NC-1,(x-MARGIN)/(W-2*MARGIN)*(NC-1)));}
@@ -244,8 +245,8 @@ function sim(dt){
     if(!q.w){q.ph+=dt;continue}
     const s=q.w.str,avail=Math.min(1,thickAt(q.x)/40);
     q.len+=dt*(34+30*s)*avail*(.45+q.len/110);
-    q.bulb=Math.min(3.6+1.6*s,2.6+q.len*.03+.3*s);
-    if(!q.max)q.max=rnd(45,Math.min(190,H*.26))*(.85+.08*s);
+    q.bulb=Math.min(5+1.2*s,3.8+q.len*.04+.3*s);
+    if(!q.max)q.max=rnd(60,Math.min(220,H*.28))*(.85+.08*s);
     if(q.len>q.max&&avail>.05){
       const root=MARGIN+thickAt(q.x);
       const v=drain(q.x,Math.PI*q.bulb*q.bulb*1.4+q.len*.9);
