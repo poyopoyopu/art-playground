@@ -20,6 +20,7 @@
 
 ## 履歴
 
+- 2026-09-17 チャッピー: TENFOLD MEMBRANE新規プロトタイプ追加。10本の膜が圧力場で互いに曲げ合う構造を軽量Canvasで実装(prototypes/tenfold-membrane.html)
 - 2026-09-16 チャッピー: LIVING FOLDを10本の関係性重視へ再設計。描画負荷を抑えつつ位相差・干渉・背景反応を強化(prototypes/living-fold.html)
 - 2026-09-16 チャッピー: LIVING FOLDを10本化したままiPhone向けに描画点数・DPR・発光処理を軽量化(prototypes/living-fold.html)
 - 2026-09-16 チャッピー: LIVING FOLDを10本の液体リボンへ拡張。各リボンに位相差と個別変形を与え、密度を上げた(prototypes/living-fold.html)
