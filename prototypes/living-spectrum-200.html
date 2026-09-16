@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="ja"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>LIVING SPECTRUM 200</title><script src="../ap-kit.js"></script>
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#f8f5ef}canvas{display:block;width:100%;height:100%;touch-action:none}</style>
+</head><body><canvas id="c"></canvas><script>
+'use strict';
+const canvas=document.getElementById('c'),ctx=canvas.getContext('2d',{alpha:false});
+let W=0,H=0,DPR=1,seed=Math.random()*10000,mx=.18,my=.34,tx=.18,ty=.34,press=0,pt=0,hue=0,ht=0,last=performance.now();
+const TAU=Math.PI*2,clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),hs=(h,s,l,a=1)=>`hsla(${((h%360)+360)%360},${s}%,${l}%,${a})`;
+const hash=n=>{const x=Math.sin(n*127.1+seed*.017)*43758.5453;return x-Math.floor(x)};
+function resize(){DPR=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;canvas.width=W*DPR;canvas.height=H*DPR;ctx.setTransform(DPR,0,0,DPR,0,0)}addEventListener('resize',resize,{passive:true});resize();
+function strand(i,z,phase,S){const q=i/34,center=H*(.52+.22*Math.sin(q*TAU+phase*.08)),drift=S*(.11*Math.sin(z*TAU*(.62+q)+i*.37+phase*.12)),pinch=Math.exp(-Math.pow((z-mx)/.16,2))*press,neck=(my*H-center)*.26*pinch;return center+drift+neck+S*.018*Math.sin(z*TAU*2.4+q*9-phase*.07)}
+function drawStrand(i,phase,S){const q=i/34,N=190,pts=[];for(let j=0;j<=N;j++){const z=-.05+j/N*1.1;pts.push([z*W,strand(i,z,phase,S)])}const h=185+q*210+hue,g=ctx.createLinearGradient(0,0,W,0);g.addColorStop(0,hs(h-40,58,66,.45));g.addColorStop(.22,hs(h,68,62,.88));g.addColorStop(.5,hs(h+90,52,73,.82));g.addColorStop(.76,hs(h+180,65,62,.88));g.addColorStop(1,hs(h+220,50,58,.42));ctx.strokeStyle=g;ctx.lineWidth=.9+1.1*Math.sin(q*Math.PI);ctx.beginPath();pts.forEach((p,k)=>k?ctx.lineTo(...p):ctx.moveTo(...p));ctx.stroke()}
+function draw(phase=null){const t=phase===null?performance.now()/1000:phase,T=k=>APKit.T(k,phase,t),S=Math.min(W,H),X=mx*W,Y=my*H;const bg=ctx.createLinearGradient(0,0,W,H);bg.addColorStop(0,hs(42+hue*.08,32,97));bg.addColorStop(.5,hs(35+hue*.05,28,96));bg.addColorStop(1,hs(28+hue*.06,34,94));ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);const ph=T(1.05);for(let i=0;i<35;i++)drawStrand(i,ph,S);ctx.globalCompositeOperation='screen';const g=ctx.createRadialGradient(X,Y,0,X,Y,S*.44);g.addColorStop(0,'rgba(255,245,218,.44)');g.addColorStop(.24,'rgba(255,230,195,.12)');g.addColorStop(1,'rgba(255,242,220,0)');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);ctx.globalCompositeOperation='source-over';const z=clamp(mx,0,1);for(let i=0;i<12;i++){const q=i/11,y=strand(Math.floor(q*34),z,T(.3),S),r=S*(.003+.004*Math.sin(q*Math.PI)),a=.15+.55*Math.pow((Math.sin(T(.42)+i*1.7)+1)/2,8);ctx.fillStyle=`rgba(255,250,232,${a})`;ctx.beginPath();ctx.arc(z*W,y,r,0,TAU);ctx.fill()}}
+function frame(){const now=performance.now(),dt=Math.min(.05,(now-last)/1000);last=now;mx+=(tx-mx)*(1-Math.pow(.0005,dt));my+=(ty-my)*(1-Math.pow(.0005,dt));press+=(pt-press)*(1-Math.pow(.0001,dt));hue+=(ht-hue)*(1-Math.pow(.0008,dt));draw();requestAnimationFrame(frame)}frame();
+function setTouch(x,y,down){if(window.APKit&&APKit.isUI(x,y))return true;tx=clamp(x/W,0,1);ty=clamp(y/H,0,1);pt=down?1:0;return true}canvas.addEventListener('pointerdown',e=>{setTouch(e.clientX,e.clientY,true);canvas.setPointerCapture?.(e.pointerId)});canvas.addEventListener('pointermove',e=>{if(e.buttons)setTouch(e.clientX,e.clientY,true)});canvas.addEventListener('pointerup',e=>{setTouch(e.clientX,e.clientY,false)});
+function mutate(){seed=Math.random()*10000;ht=(ht+70+hash(seed)*120)%360}function reset(){mx=tx=.18;my=ty=.34;press=pt=0;hue=ht=0;seed=Math.random()*10000}
+APKit.init({canvas,gifName:'living-spectrum-200-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:function(phase){draw(phase)},buttons:[{label:'✦',name:'mutate',onClick:mutate},{label:'↻',name:'reset',onClick:reset}]});
+</script></body></html>
