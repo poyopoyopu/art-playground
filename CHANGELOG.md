@@ -20,6 +20,7 @@
 
 ## 履歴
 
+- 2026-09-17 チャッピー: EVENT HORIZONを再設計。触れた場所が恒久的な重力法則になり、3階層の自己相似変形へ作用するCanvas作品に改修(prototypes/event-horizon.html)
 - 2026-09-17 チャッピー: TENFOLD MEMBRANE新規プロトタイプ追加。10本の膜が圧力場で互いに曲げ合う構造を軽量Canvasで実装(prototypes/tenfold-membrane.html)
 - 2026-09-16 チャッピー: LIVING FOLDを10本の関係性重視へ再設計。描画負荷を抑えつつ位相差・干渉・背景反応を強化(prototypes/living-fold.html)
 - 2026-09-16 チャッピー: LIVING FOLDを10本化したままiPhone向けに描画点数・DPR・発光処理を軽量化(prototypes/living-fold.html)
@@ -28,7 +29,7 @@
 - 2026-09-16 チャッピー: PRISMATIC ENTANGLEMENTを再構成。2D Canvasで表示安定性を優先し、画面内に収まる三重の液体リボンと多層発光背景を実装(prototypes/prismatic-entanglement.html)
 - 2026-09-16 チャッピー: LIQUID ENTANGLEMENT プロトタイプ追加。画面内に収まる閉じた液体立体構造と動く多層背景を実装(prototypes/liquid-entanglement.html)
 - 2026-09-16 チャッピー: FLUX WEAVE プロトタイプ追加。球体ではなく二重に絡むトーラス状の立体構造をレイマーチングで実装(prototypes/flux-weave.html)
-- 2026-09-16 チャッピー: MORPHIC LOOP プロトタイプ追加。球体ではなく、変形する閉ループ立体メッシュと反射シェーディングで構成(prototypes/morphic-loop.html)
+- 2026-09-16 チャッピー: MORPHIC LOOP プロトタイプ追加。変形する閉ループ立体メッシュと反射シェーディングで構成(prototypes/morphic-loop.html)
 - 2026-09-16 チャッピー: LIQUID INVERSION プロトタイプ追加。滑らかな液体球に移動する深い陥没と反射色の変化を組み込んだWebGL作品(prototypes/liquid-inversion.html)
 - 2026-09-16 チャッピー: LIQUID PEARL V2 プロトタイプ追加。クローム膜・反射色・ゆっくりした形状変化をWebGLで実装(prototypes/liquid-pearl-v2.html)
 - 2026-09-16 クロード: ENCIRCLE を採用・art-v65として昇格、ギャラリーLOG先頭に追加(art-v65-encircle.html, index.html)
