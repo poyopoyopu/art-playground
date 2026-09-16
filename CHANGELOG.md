@@ -20,6 +20,7 @@
 
 ## 履歴
 
+- 2026-09-16 クロード: Published works欄にRGB MEMBRANEが抜けていた不整合を修正(index.html)
 - 2026-09-16 クロード: LIQUID LAW プロトタイプ追加(触れた場所に亀裂が残るクロム球, prototypes/liquid-law.html)
 - 2026-09-16 チャッピー: 採用済みCURRENTのap-kit.js参照パスを修正(archive/adopted/spiral-spectrum-200-v9.html)
 - 2026-09-16 チャッピー: CURRENTの旧参照先を復旧用ラッパーで接続( prototypes/spiral-spectrum-200-v9.html )
