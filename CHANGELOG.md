@@ -20,6 +20,7 @@
 
 ## 履歴
 
+- 2026-09-16 チャッピー: LIVING FOLD プロトタイプ追加。3本の液体リボンが互いの形態を侵食しながら変形する構造と多層背景を実装(prototypes/living-fold.html)
 - 2026-09-16 チャッピー: PRISMATIC ENTANGLEMENTを再構成。2D Canvasで表示安定性を優先し、画面内に収まる三重の液体リボンと多層発光背景を実装(prototypes/prismatic-entanglement.html)
 - 2026-09-16 チャッピー: LIQUID ENTANGLEMENT プロトタイプ追加。画面内に収まる閉じた液体立体構造と動く多層背景を実装(prototypes/liquid-entanglement.html)
 - 2026-09-16 チャッピー: FLUX WEAVE プロトタイプ追加。球体ではなく二重に絡むトーラス状の立体構造をレイマーチングで実装(prototypes/flux-weave.html)
