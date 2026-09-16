@@ -12,7 +12,7 @@
 ## 現在の状態(変わったら書き換える)
 
 - CURRENT: COLOR BREATH(`archive/adopted/spiral-spectrum-200-v9.html`)
-- LOG先頭: CHROMATIC FOLD(`art-v64-chromatic-fold.html`)
+- LOG先頭: ENCIRCLE(`art-v65-encircle.html`)
 - 作業ルール: `AGENTS.md`(ギャラリー追加の手順と命名ルールは13章)
 - 運用メモ: `NOTES.md`(GitHub操作は可能性を確認してから実行)
 
@@ -20,6 +20,7 @@
 
 ## 履歴
 
+- 2026-09-16 クロード: ENCIRCLE を採用・art-v65として昇格、ギャラリーLOG先頭に追加(art-v65-encircle.html, index.html)
 - 2026-09-16 チャッピー: LIQUID KNOTを立体的な液体チューブ表現へ全面改修(prototypes/liquid-knot.html)
 - 2026-09-16 クロード: LIQUID LAW の配色を滑らかなグラデーション3種(✦で切替)にし、背景もグラデ+ハローに(prototypes/liquid-law.html)
 - 2026-09-16 チャッピー: LIQUID KNOT プロトタイプ追加(prototypes/liquid-knot.html)
