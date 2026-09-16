@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>CHROMATIC TIDE</title>
-<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#02030a}body{touch-action:none}canvas{display:block;width:100%;height:100%}</style>
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#01030a}body{touch-action:none}canvas{display:block;width:100%;height:100%}</style>
 <script src="../ap-kit.js"></script>
 </head>
 <body><canvas id="c"></canvas><script>
@@ -12,70 +12,84 @@ const c=document.getElementById('c'),g=c.getContext('2d');
 let W=0,H=0,D=1,t0=performance.now(),seed=31,laws=[];const TAU=Math.PI*2;
 function size(){D=Math.min(devicePixelRatio||1,1.5);W=innerWidth;H=innerHeight;c.width=Math.floor(W*D);c.height=Math.floor(H*D);g.setTransform(D,0,0,D,0,0)}size();addEventListener('resize',size);
 function rnd(n){return (Math.sin(n*127.1+seed*311.7)*43758.5453%1+1)%1}
-function field(x,y,t){let a=0,mag=1,stretch=1;for(let i=0;i<laws.length;i++){const f=laws[i],dx=x-f.x,dy=y-f.y,d=Math.hypot(dx,dy)+.0001,q=Math.exp(-d/f.r);a+=f.s*q*(1+.3*Math.sin(t*.42+f.k));mag*=1-f.q*q*.64;stretch+=f.s*.18*q}return{a,mag,stretch}}
-function hueLerp(a,b,t){let d=((b-a+540)%360)-180;return(a+d*t+360)%360}
-const palettes=[[195,250,315,35],[170,215,285,340],[205,265,330,12],[145,205,275,320],[25,70,180,265],[185,235,305,55]];
-function pal(t){const P=palettes[Math.floor(((t/TAU)*2)%palettes.length)],Q=palettes[(Math.floor((t/TAU)*2)+1)%palettes.length],f=((t/TAU)*2)%1;return P.map((v,i)=>hueLerp(v,Q[i],f))}
-function glow(x,y,r,h,a){const z=g.createRadialGradient(x,y,0,x,y,r);z.addColorStop(0,`hsla(${h},95%,90%,${a})`);z.addColorStop(.22,`hsla(${(h+22)%360},92%,72%,${a*.28})`);z.addColorStop(.58,`hsla(${(h+55)%360},88%,58%,${a*.07})`);z.addColorStop(1,`hsla(${(h+90)%360},90%,50%,0)`);g.fillStyle=z;g.beginPath();g.arc(x,y,r,0,TAU);g.fill()}
-function background(t,S,cx,cy,P){
- const h=hueLerp(P[0],P[2],.35),q=hueLerp(P[1],P[3],.55);
- const bg=g.createRadialGradient(cx-S*.16*Math.sin(t*.12),cy-S*.16*Math.cos(t*.15),0,cx,cy,S*.92);
- bg.addColorStop(0,`hsla(${h},35%,14%,1)`);bg.addColorStop(.25,`hsla(${q},34%,9%,1)`);bg.addColorStop(.58,`hsla(${hueLerp(h,q,.55)},35%,5%,1)`);bg.addColorStop(1,'#010208');g.fillStyle=bg;g.fillRect(0,0,W,H);
+const palettes=[[185,225,275,320,15],[150,205,255,305,350],[205,250,300,350,55],[170,220,285,335,25],[30,75,170,250,315],[190,245,315,20,95],[135,190,260,325,15],[220,275,330,25,70]];
+function hue(a,b,t){let d=((b-a+540)%360)-180;return(a+d*t+360)%360}
+function palette(t){const z=t/TAU*1.35,k=Math.floor(z),f=z-k,A=palettes[((k%palettes.length)+palettes.length)%palettes.length],B=palettes[(k+1)%palettes.length];return A.map((v,i)=>hue(v,B[i],f))}
+function field(x,y,t){let rot=0,scale=1,warp=0;for(let i=0;i<laws.length;i++){const f=laws[i],dx=x-f.x,dy=y-f.y,d=Math.hypot(dx,dy)+1,q=Math.exp(-d/f.r);rot+=f.s*q*(1+.22*Math.sin(t*.46+f.k));scale*=1-f.q*q*.55;warp+=f.s*q}return{rot,scale,warp}}
+function glow(x,y,r,h,a){const z=g.createRadialGradient(x,y,0,x,y,r);z.addColorStop(0,`hsla(${h},100%,92%,${a})`);z.addColorStop(.22,`hsla(${(h+25)%360},96%,72%,${a*.3})`);z.addColorStop(.58,`hsla(${(h+65)%360},90%,55%,${a*.07})`);z.addColorStop(1,`hsla(${(h+100)%360},90%,50%,0)`);g.fillStyle=z;g.beginPath();g.arc(x,y,r,0,TAU);g.fill()}
+function background(t,S,P){
+ const h=P[0],q=P[3],mx=W*.5+Math.sin(t*.17)*W*.18,my=H*.5+Math.cos(t*.13)*H*.16;
+ const bg=g.createRadialGradient(mx,my,0,W*.5,H*.5,Math.max(W,H)*.78);
+ bg.addColorStop(0,`hsla(${h},42%,14%,1)`);bg.addColorStop(.24,`hsla(${q},34%,9%,1)`);bg.addColorStop(.52,`hsla(${P[2]},30%,5%,1)`);bg.addColorStop(1,'#010208');g.fillStyle=bg;g.fillRect(0,0,W,H);
  g.globalCompositeOperation='screen';
- glow(cx+S*.28*Math.cos(t*.11),cy+S*.2*Math.sin(t*.14),S*.58,P[1],.055);
- glow(cx-S*.32*Math.sin(t*.08),cy-S*.22*Math.cos(t*.13),S*.46,P[3],.045);
- glow(cx+S*.04*Math.sin(t*.19),cy+S*.32*Math.cos(t*.11),S*.34,P[0],.03);
+ glow(W*.18+W*.3*Math.sin(t*.11),H*.2+H*.24*Math.cos(t*.14),S*.72,P[1],.045);
+ glow(W*.82+W*.25*Math.cos(t*.09),H*.72+H*.2*Math.sin(t*.12),S*.65,P[4],.042);
+ glow(W*.48+W*.32*Math.sin(t*.07),H*.9+H*.12*Math.cos(t*.19),S*.48,P[2],.025);
  g.globalAlpha=.13;
- for(let k=0;k<10;k++){const rr=S*(.18+k*.105),rot=-t*(.01+k*.002)+k*.71,amp=.026+.012*Math.sin(t*.4+k);g.beginPath();for(let j=0;j<=140;j++){const u=j/140*TAU,w=1+amp*Math.sin(u*3+k*1.7+t*.17)+.014*Math.sin(u*7-k);const x=Math.cos(u+rot)*rr*w,y=Math.sin(u+rot)*rr*(.7+.045*Math.sin(t*.27+k));j?g.lineTo(cx+x,cy+y):g.moveTo(cx+x,cy+y)}g.strokeStyle=`hsla(${hueLerp(P[0],P[3],k/9)},70%,70%,.13)`;g.lineWidth=.42;g.stroke()}
+ for(let k=0;k<13;k++){
+   const rr=S*(.35+k*.115),ang=t*(.006+k*.001)+k*.37;
+   g.beginPath();
+   for(let j=0;j<=150;j++){const u=j/150*TAU,xx=Math.cos(u+ang)*rr*(1+.035*Math.sin(u*3+k+t*.12)),yy=Math.sin(u+ang)*rr*(.58+.07*Math.sin(t*.2+k));j?g.lineTo(W*.5+xx,H*.5+yy):g.moveTo(W*.5+xx,H*.5+yy)}
+   g.strokeStyle=`hsla(${hue(P[k%5],P[(k+2)%5],.5)},65%,70%,.11)`;g.lineWidth=.4;g.stroke();
+ }
  g.globalAlpha=1;
- for(let i=0;i<125;i++){const a=rnd(i+5000)*TAU,r=S*(.14+.78*rnd(i+6000)),x=cx+Math.cos(a)*r,y=cy+Math.sin(a)*r*.72,p=.5+.5*Math.sin(t*.62+i*1.73),hh=hueLerp(P[Math.floor(rnd(i+7200)*4)],P[(Math.floor(rnd(i+7300)*4)+1)%4],.5);g.fillStyle=`hsla(${hh},72%,${60+p*30}%,${.018+p*.095})`;g.fillRect(x,y,.45+p*.85,.45+p*.85)}
+ for(let i=0;i<150;i++){const x=rnd(i+5000)*W,y=rnd(i+6000)*H,p=.5+.5*Math.sin(t*.6+i*1.71),hh=hue(P[i%5],P[(i+2)%5],rnd(i+7100));g.fillStyle=`hsla(${hh},70%,${62+p*28}%,${.018+p*.085})`;g.fillRect(x,y,.45+p*.9,.45+p*.9)}
  g.globalCompositeOperation='source-over';
 }
 function draw(p){
- const t=p*TAU,S=Math.min(W,H),P=pal(t),cx=W*.5+Math.sin(t*.31)*S*.028,cy=H*.5+Math.cos(t*.27)*S*.02;
- const breath=.9+.11*Math.sin(t*.73)+.025*Math.sin(t*1.61),R=S*(.39+.045*Math.sin(t*.48));
- background(t,S,cx,cy,P);
- glow(cx,cy,R*.92,hueLerp(P[0],P[2],.4),.07);
+ const t=p*TAU,S=Math.min(W,H),P=palette(t),cx=W*.5,cy=H*.5;
+ background(t,S,P);
+ // Large-scale chromatic tides: the geometry deliberately crosses the entire viewport.
  g.globalCompositeOperation='lighter';
- for(let layer=0;layer<58;layer++){
-   const rr=R*(.045+layer/58*.97)*breath,phase=layer*.245,petal=3+(layer%4);
+ for(let band=0;band<38;band++){
+   const phase=band*.37,base=H*(band+0.5)/38,amp=H*(.055+.018*Math.sin(band*.9));
    g.beginPath();
-   for(let j=0;j<=240;j++){
-     const u=j/240*TAU;
-     const radial=1+.052*Math.sin(u*5-phase+t*.18)+.024*Math.sin(u*(9+layer%3)+phase-t*.12)+.018*Math.cos(u*petal+t*.23+layer*.09);
-     let x=Math.cos(u)*rr*radial,y=Math.sin(u)*rr*(.67+.1*Math.sin(t*.38+layer*.035))*radial;
-     const f=field(x,y,t),ang=f.a+.16*Math.sin(t*.2+rr/S*10)+.045*Math.sin(u*2+t*.11);
-     const cs=Math.cos(ang),sn=Math.sin(ang),xx=x*cs-y*sn,yy=x*sn+y*cs;
-     const bend=(1-f.mag)*S*(.11+.055*Math.sin(t*.9+layer*.17));
-     const len=Math.hypot(xx,yy)+1;x=xx+xx/len*bend;y=yy+yy/len*bend;
-     x*=1+.055*(f.stretch-1);y*=1-.035*(f.stretch-1);
-     x+=Math.sin(u*3+phase+t*.14)*S*.008;y+=Math.cos(u*4-phase-t*.1)*S*.007;
-     j?g.lineTo(cx+x,cy+y):g.moveTo(cx+x,cy+y);
+   for(let j=0;j<=260;j++){
+     const u=j/260, x=-W*.08+u*W*1.16;
+     let y=base+Math.sin(u*TAU*(1.2+band%4*.22)+t*.28+phase)*amp;
+     y+=Math.sin(u*TAU*3.1-t*.17+band*.31)*H*.018;
+     y+=Math.sin(u*TAU*.47+t*.12+band)*H*.035;
+     const dx=x-cx,dy=y-cy,f=field(dx,dy,t),a=f.rot+.1*Math.sin(t*.18+band*.2);
+     const cs=Math.cos(a),sn=Math.sin(a),rx=dx*cs-dy*sn,ry=dx*sn+dy*cs;
+     const spread=1+f.warp*.12;const xx=cx+rx*spread,yy=cy+ry*(1+f.warp*.08);
+     j?g.lineTo(xx,yy):g.moveTo(xx,yy);
    }
-   const base=P[layer%4],next=P[(layer+1)%4],hh=hueLerp(base,next,.5+.5*Math.sin(t*.7+layer*.11));
-   const sat=82+14*(.5+.5*Math.sin(t*.47+layer));const light=55+15*(.5+.5*Math.sin(t*.63+layer*.07));
-   g.strokeStyle=`hsla(${hh},${sat}%,${light}%,${.022+layer/58*.045})`;g.lineWidth=.42+layer/58*1.28;g.stroke();
+   const h1=P[band%5],h2=P[(band+1)%5],hh=hue(h1,h2,.5+.5*Math.sin(t*.55+band*.13));
+   const light=56+13*(.5+.5*Math.sin(t*.43+band*.17));
+   g.strokeStyle=`hsla(${hh},${82+12*Math.sin(t*.31+band)}%,${light}%,${.025+band/38*.045})`;
+   g.lineWidth=.55+band/38*1.15;g.stroke();
  }
- // inner currents: several differently phased rings create depth without a visible target/marker
- for(let k=0;k<17;k++){
-   const rr=R*(.09+k*.053),rot=t*(.015+k*.002)+k*.53;
+ // Cross-current ribbons turn the whole screen into one moving field rather than a central object.
+ for(let band=0;band<24;band++){
+   const phase=band*.61,base=W*(band+.5)/24;
    g.beginPath();
-   for(let j=0;j<=190;j++){const u=j/190*TAU,pet=1+.035*Math.sin(u*(4+k%3)+t*.31),x=Math.cos(u)*rr*pet,y=Math.sin(u)*rr*.7*pet,f=field(x,y,t),a=f.a*.92+rot,cs=Math.cos(a),sn=Math.sin(a);const xx=x*cs-y*sn,yy=x*sn+y*cs;j?g.lineTo(cx+xx,cy+yy):g.moveTo(cx+xx,cy+yy)}
-   const hh=hueLerp(P[(k+1)%4],P[(k+2)%4],.5+.5*Math.sin(t*.8+k));g.strokeStyle=`hsla(${hh},100%,78%,${.045+.02*Math.sin(t+k)})`;g.lineWidth=.55+.16*Math.sin(t*.7+k);g.stroke();
+   for(let j=0;j<=220;j++){
+     const u=j/220,y=-H*.1+u*H*1.2, x=base+Math.sin(u*TAU*(.8+band%5*.17)-t*.23+phase)*W*(.045+.012*Math.sin(band));
+     const f=field(x-cx,y-cy,t),a=f.rot*.7+.04*Math.sin(t+band),cs=Math.cos(a),sn=Math.sin(a),dx=x-cx,dy=y-cy;
+     const xx=cx+dx*cs-dy*sn,yy=cy+dx*sn+dy*cs;
+     j?g.lineTo(xx,yy):g.moveTo(xx,yy);
+   }
+   const hh=hue(P[(band+2)%5],P[(band+4)%5],.5+.5*Math.sin(t*.68+band));
+   g.strokeStyle=`hsla(${hh},90%,${61+12*Math.sin(t*.51+band*.2)}%,.025)`;g.lineWidth=.45+band/24*.75;g.stroke();
  }
- // particles follow the field, making the interior feel alive rather than static
- for(let i=0;i<380;i++){
-   const a=rnd(i)*TAU,r=R*(.035+.95*rnd(i+500));let x=Math.cos(a)*r,y=Math.sin(a)*r*.71,f=field(x,y,t);x*=f.mag;y*=f.mag;
-   const pulse=.5+.5*Math.sin(t*2.15+i*.173),hh=hueLerp(P[(i+1)%4],P[(i+2)%4],rnd(i+900));
-   g.fillStyle=`hsla(${hh},95%,${68+pulse*27}%,${.035+pulse*.39})`;const q=.5+f.mag*1.55;g.fillRect(cx+x,cy+y,q,q);
- }
- // A few slow chromatic embers orbit the perimeter, blending into the background.
+ // A wide breathing chromatic veil adds slow, screen-wide color movement.
  g.globalCompositeOperation='screen';
- for(let i=0;i<22;i++){const a=i/22*TAU+t*(.008+i*.0007),rr=R*(.84+.16*Math.sin(t*.67+i*.91)),x=cx+Math.cos(a)*rr,y=cy+Math.sin(a)*rr*.69;glow(x,y,S*.014,P[(i+1)%4],.105)}
+ for(let k=0;k<7;k++){
+   const x=W*(.1+.8*((k/7+.13*Math.sin(t*.12+k))%1)),y=H*(.15+.7*((k*.31+.11*Math.cos(t*.1+k))%1));
+   glow(x,y,S*(.55+.1*Math.sin(t*.3+k)),P[(k+1)%5],.028);
+ }
+ // Fine luminous grains are carried by the same field.
+ g.globalCompositeOperation='lighter';
+ for(let i=0;i<330;i++){
+   const x=rnd(i+1200)*W,y=rnd(i+2200)*H,f=field(x-cx,y-cy,t),pulse=.5+.5*Math.sin(t*2+i*.17),a=.04+pulse*.34;
+   const hh=hue(P[(i+1)%5],P[(i+3)%5],rnd(i+900));
+   g.fillStyle=`hsla(${hh},96%,${68+pulse*25}%,${a})`;
+   const q=.45+f.scale*1.45;g.fillRect(x,y,q,q);
+ }
  g.globalCompositeOperation='source-over';
- const v=g.createRadialGradient(cx,cy,S*.04,cx,cy,S*.86);v.addColorStop(0,'rgba(0,0,0,0)');v.addColorStop(.62,'rgba(0,0,0,.01)');v.addColorStop(1,'rgba(0,0,0,.54)');g.fillStyle=v;g.fillRect(0,0,W,H);
+ const v=g.createRadialGradient(cx,cy,S*.15,cx,cy,Math.max(W,H)*.76);v.addColorStop(0,'rgba(0,0,0,0)');v.addColorStop(.72,'rgba(0,0,0,.015)');v.addColorStop(1,'rgba(0,0,0,.42)');g.fillStyle=v;g.fillRect(0,0,W,H);
 }
-function loop(){draw(((performance.now()-t0)/13000)%1);requestAnimationFrame(loop)}loop();
-c.addEventListener('pointerdown',e=>{if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;const r=c.getBoundingClientRect(),S=Math.min(W,H),x=e.clientX-r.left-W*.5,y=e.clientY-r.top-H*.5;laws.push({x,y,r:S*(.085+.04*(laws.length%6)),s:(laws.length%2?-.9:.9),q:.78,k:laws.length*1.13});if(laws.length>10)laws.shift()});
+function loop(){draw(((performance.now()-t0)/14000)%1);requestAnimationFrame(loop)}loop();
+c.addEventListener('pointerdown',e=>{if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;const r=c.getBoundingClientRect(),x=e.clientX-r.left-W*.5,y=e.clientY-r.top-H*.5;laws.push({x,y,r:Math.min(W,H)*(.12+.035*(laws.length%6)),s:laws.length%2?-.95:.95,q:.72,k:laws.length*1.21});if(laws.length>10)laws.shift()});
 APKit.init({canvas:c,gifName:'chromatic-tide-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:draw,buttons:[{label:'✦',name:'mutate',onClick:()=>{seed=Math.random()*9999}},{label:'↻',name:'reset',onClick:()=>{seed=31;laws=[]}}]});
 </script></body></html>
