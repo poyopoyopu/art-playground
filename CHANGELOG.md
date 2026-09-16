@@ -20,6 +20,7 @@
 
 ## 履歴
 
+- 2026-09-16 チャッピー: INVERSE GARDENの色彩・背景を再設計し、タッチ痕跡を円形マーカーから光の裂け目へ変更(prototypes/violet-membrane.html)
 - 2026-09-16 チャッピー: VIOLET MEMBRANEを発想転換し、触れた場所で「内外」が反転する位相場の作品INVERSE GARDENへ全面再構築(prototypes/violet-membrane.html)
 - 2026-09-17 チャッピー: VIOLET MEMBRANEを本格再構築。球体中心の表現を廃し、連続する多層フィラメント膜・中央粒子核・周回軌道・脱出フィラメントで有機的な立体感を強化(prototypes/violet-membrane.html)
 - 2026-09-17 チャッピー: VIOLET MEMBRANEを再設計。参照映像の球体化を避け、縦長の有機フィールドと高密度フィラメント、前景ボリューム、周回ノードによる発光構造へ変更(prototypes/violet-membrane.html)
