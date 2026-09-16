@@ -28,33 +28,52 @@ const FRAG = [
 'uniform vec4 lawB[12];',
 'uniform int lawCount;',
 'uniform float baseFilm;',
+'uniform vec3 ramp[6];',
 
 'vec3 rotX(vec3 v,float a){float s=sin(a),co=cos(a);return vec3(v.x,co*v.y-s*v.z,s*v.y+co*v.z);}',
 'vec3 rotY(vec3 v,float a){float s=sin(a),co=cos(a);return vec3(co*v.x+s*v.z,v.y,-s*v.x+co*v.z);}',
 
-'vec3 film(float t){',
-'  float r=0.5+0.5*cos(6.2831853*t+0.0);',
-'  float g=0.5+0.5*cos(6.2831853*t+2.094);',
-'  float b=0.5+0.5*cos(6.2831853*t+4.188);',
-'  return vec3(r,g,b);',
+// 6色の止まり木をなめらかに循環補間する
+'vec3 grad(float t){',
+'  t=fract(t)*6.0;',
+'  float fi=floor(t);',
+'  float f=t-fi;',
+'  f=f*f*(3.0-2.0*f);',
+'  vec3 c0=ramp[0],c1=ramp[1];',
+'  for(int i=0;i<6;i++){',
+'    if(float(i)==fi) c0=ramp[i];',
+'    if(float(i)==mod(fi+1.0,6.0)) c1=ramp[i];',
+'  }',
+'  return mix(c0,c1,f);',
 '}',
+
+'float hash2(vec2 p){float v=sin(p.x*127.1+p.y*311.7)*43758.5453;return fract(v);}',
 
 'void main(){',
 '  vec2 uv=(gl_FragCoord.xy-0.5*res)/min(res.x,res.y)*2.0;',
 '  float r2=dot(uv,uv);',
-'  float R=0.88;',
+'  float rr=sqrt(r2);',
+'  float R=0.80;',
+
 '  if(r2>R*R){',
-'    gl_FragColor=vec4(vec3(0.015,0.015,0.022),1.0);',
+// 背景: 球の色系で中心から外へ滑らかに変わるグラデ + 漏れ光のハロー + 微粒子
+'    float halo=exp(-max(rr-R,0.0)/0.13);',
+'    float rad=pow(clamp(1.0-(rr-R)/1.4,0.0,1.0),2.0);',
+'    vec3 bg=mix(ramp[0],ramp[2],rad)*0.20;',
+'    bg+=grad(baseFilm*0.20+0.3)*(halo*0.34);',
+'    bg+=vec3(hash2(gl_FragCoord.xy)-0.5)*0.016;',
+'    gl_FragColor=vec4(max(bg,0.0),1.0);',
 '    return;',
 '  }',
+
 '  float z=sqrt(max(R*R-r2,0.0));',
 '  vec3 nView=normalize(vec3(uv,z));',
 '  vec3 nWorld=rotX(rotY(nView,-ay),-ax);',
-
 '  float ct=max(nView.z,0.02);',
 '  float ps=clamp(1.0/ct,1.0,2.4);',
-'  float glow=0.0;',
 
+'  float glow=0.0;',
+'  float flow=0.0;',
 '  for(int i=0;i<12;i++){',
 '    if(i>=lawCount) break;',
 '    vec3 axis=lawA[i].xyz;',
@@ -69,24 +88,27 @@ const FRAG = [
 '    vec3 e2=cross(axis,e1);',
 '    float th=atan(dot(nWorld,e2),dot(nWorld,e1));',
 '    dd-=tw*sin(tf*th+ph+phaseT);',
-'    glow+=exp(-(dd*dd)/(width*width))*wgt;',
+'    float b=exp(-(dd*dd)/(width*width));',
+'    glow+=b*wgt;',
+'    flow+=b*(0.5+0.5*sin(th));',
 '  }',
 
 '  float g=clamp(glow,0.0,3.0);',
 '  float gn=clamp(g,0.0,1.0);',
-'  float thick=baseFilm*0.55+(ps-1.0)*0.55+g*0.30;',
-'  vec3 irid=film(thick);',
+// 色座標をゆっくり動かす = 虹が何周もせず、帯に沿って色が流れる
+'  float t=baseFilm*0.20+(ps-1.0)*0.16+flow*0.20+phaseT*0.02;',
+'  vec3 irid=grad(t);',
 '  float fres=pow(1.0-ct,3.0);',
 '  float rim=smoothstep(R*R*0.93,R*R*0.999,r2);',
 '  float lum=g/(1.0+g*0.30);',
 '  float edge=clamp(4.0*gn*(1.0-gn),0.0,1.0);',
 
-'  vec3 col=irid*(lum*0.90);',
-'  col+=irid*(edge*0.55);',
-'  col+=vec3(1.0)*(pow(lum/2.6,7.0)*0.55);',
-'  col+=irid*(rim*(0.22+0.80*fres));',
-'  col+=vec3(0.82,0.88,1.0)*(rim*0.38);',
-'  col+=irid*(fres*0.12);',
+'  vec3 col=irid*lum;',
+'  col+=irid*(edge*0.35);',
+'  col+=vec3(1.0)*(pow(lum/2.6,7.0)*0.50);',
+'  col+=irid*(rim*(0.30+0.80*fres));',
+'  col+=irid*(fres*0.18);',
+'  col+=grad(t+0.5)*0.055;',
 
 '  gl_FragColor=vec4(col,1.0);',
 '}'
@@ -121,7 +143,8 @@ const U={
   lawA:gl.getUniformLocation(prog,'lawA'),
   lawB:gl.getUniformLocation(prog,'lawB'),
   lawCount:gl.getUniformLocation(prog,'lawCount'),
-  baseFilm:gl.getUniformLocation(prog,'baseFilm')
+  baseFilm:gl.getUniformLocation(prog,'baseFilm'),
+  ramp:gl.getUniformLocation(prog,'ramp')
 };
 
 let W,H,d=1;
@@ -132,6 +155,16 @@ function R(){
   gl.viewport(0,0,c.width,c.height);
 }
 addEventListener('resize',R);R();
+
+const PALETTES=[
+  // DEEP SEA — 深い藍からシアン、白、藤、菫へ
+  [0.02,0.04,0.14, 0.06,0.28,0.62, 0.20,0.72,0.86, 0.75,0.95,0.98, 0.92,0.72,0.92, 0.45,0.22,0.68],
+  // AURORA — 夜の緑からミント、生成り、珊瑚、紫へ
+  [0.03,0.05,0.12, 0.10,0.42,0.48, 0.35,0.88,0.72, 0.92,0.97,0.86, 0.96,0.62,0.55, 0.52,0.20,0.52],
+  // NEBULA — 紫紺から菫、薔薇、桃、金へ
+  [0.05,0.02,0.12, 0.32,0.10,0.48, 0.78,0.28,0.62, 0.99,0.72,0.66, 0.98,0.90,0.62, 0.28,0.14,0.42]
+];
+let palIndex=0;
 
 const MAX=12;
 let laws=[];
@@ -148,7 +181,7 @@ function screenToNormal(cx,cy){
   const min=Math.min(c.width,c.height);
   const sx=(cx*d-0.5*c.width)/min*2;
   const sy=-(cy*d-0.5*c.height)/min*2;
-  const RR=0.88;
+  const RR=0.80;
   const r2=sx*sx+sy*sy;
   if(r2>RR*RR) return null;
   const z=Math.sqrt(Math.max(RR*RR-r2,0));
@@ -268,6 +301,7 @@ function upload(){
   gl.uniform4fv(U.lawB,B);
   gl.uniform1i(U.lawCount,laws.length);
   gl.uniform1f(U.baseFilm,baseFilm);
+  gl.uniform3fv(U.ramp,PALETTES[palIndex]);
 }
 
 function render(ayVal,axVal,phaseVal){
@@ -302,6 +336,7 @@ APKit.init({
   loopFrame:loopFrame,
   buttons:[
     {label:'✦',name:'mutate',onClick:function(){
+      palIndex=(palIndex+1)%PALETTES.length;
       baseFilm=0.6+Math.random()*1.4;
       for(let i=0;i<laws.length;i++){
         const L=laws[i];
