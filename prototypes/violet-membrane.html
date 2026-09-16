@@ -4,124 +4,140 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>VIOLET MEMBRANE</title>
-<style>
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}
-body{touch-action:none;font-family:system-ui,-apple-system,sans-serif}
-canvas{display:block;width:100%;height:100%;touch-action:none}
-</style>
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}body{touch-action:none}canvas{display:block;width:100%;height:100%;touch-action:none}</style>
 <script src="../ap-kit.js"></script>
 </head>
 <body>
 <canvas id="c"></canvas>
 <script>
 'use strict';
-const canvas=document.getElementById('c');
-const gl=canvas.getContext('webgl2',{antialias:false,alpha:false,preserveDrawingBuffer:true});
-if(!gl){document.body.innerHTML='<div style="color:white;padding:2rem">WebGL2 is required.</div>';throw new Error('WebGL2 unavailable')}
+const canvas=document.getElementById('c'),ctx=canvas.getContext('2d',{alpha:false});
 const TAU=Math.PI*2;
-const V=`#version 300 es
-precision highp float;
-in vec3 aP; in float aSize; in float aSeed; in vec3 aCol;
-uniform float uT; uniform vec2 uR; uniform vec2 uTouch;
-out vec3 vCol; out float vA;
-void main(){
- vec3 p=aP; float t=uT;
- float wave=sin(p.y*5.2+t*.42+aSeed*7.0)+.55*sin(p.y*11.0-t*.23+aSeed*13.0);
- float pocket=exp(-dot(p.xy-uTouch*.52,p.xy-uTouch*.52)*5.0);
- p.x+=wave*.055+pocket*uTouch.x*.11;
- p.y+=sin(p.x*8.0+t*.31+aSeed*9.0)*.018+pocket*uTouch.y*.08;
- p.z+=cos(p.y*7.0-t*.27+aSeed*11.0)*.06;
- float ca=cos(t*.055),sa=sin(t*.055); p.xz=mat2(ca,-sa,sa,ca)*p.xz;
- float depth=3.05-p.z; float f=1.75/max(depth,.45);
- vec2 q=p.xy*f; q.x*=uR.y/uR.x;
- gl_Position=vec4(q,0.,1.);
- gl_PointSize=max(1.2,aSize*f*(uR.y/620.));
- vCol=aCol; vA=.58+.42*clamp(aSize/7.,0.,1.);
-}`;
-const F=`#version 300 es
-precision highp float;
-in vec3 vCol; in float vA; out vec4 o;
-void main(){
- vec2 q=gl_PointCoord-.5; float d=length(q)*2.; if(d>1.)discard;
- float core=pow(max(0.,1.-d),5.0); float halo=pow(max(0.,1.-d),1.65);
- o=vec4(vCol*(core*2.8+halo*.55),vA*(core+halo*.18));
-}`;
-function compile(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));return s}
-const prog=gl.createProgram();gl.attachShader(prog,compile(gl.VERTEX_SHADER,V));gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,F));gl.linkProgram(prog);if(!gl.getProgramParameter(prog,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(prog));
-const L={p:gl.getAttribLocation(prog,'aP'),size:gl.getAttribLocation(prog,'aSize'),seed:gl.getAttribLocation(prog,'aSeed'),col:gl.getAttribLocation(prog,'aCol'),t:gl.getUniformLocation(prog,'uT'),r:gl.getUniformLocation(prog,'uR'),touch:gl.getUniformLocation(prog,'uTouch')};
-
-let seed=Math.random()*1000;
-const pts=[];
-function add(x,y,z,size,s,c){pts.push(x,y,z,size,s,c[0],c[1],c[2])}
-const palette=[[.18,.05,.40],[.36,.08,.72],[.62,.14,.95],[.16,.38,.95],[.82,.28,1],[.18,.65,1]];
-function rnd(i){return (Math.sin(i*127.31+seed*3.17)*43758.5453)%1}
-
-// Main structure: a deep, vertical, hollow membrane rather than a sphere.
-// Hundreds of curved filaments share a common field, creating a single living body.
-for(let s=0;s<96;s++){
- const u=s/95, side=(u-.5)*2;
- const centerX=-.10+side*.18+.11*Math.sin(side*3.2);
- const baseZ=.10+.17*Math.cos(side*2.5);
- const half=.78+.16*Math.sin(u*Math.PI);
- for(let k=0;k<74;k++){
-  const v=k/73, y=(v-.5)*1.92;
-  const bulge=Math.sqrt(Math.max(.02,1-Math.pow(y/1.05,2)));
-  const bow=Math.sin(u*Math.PI)*.20;
-  const x=centerX+side*half*bulge+bow*Math.sin(v*Math.PI);
-  const z=baseZ+.22*Math.cos(side*2.7+v*3.4)+.10*Math.sin(v*TAU+u*8.0);
-  const size=1.5+1.7*(.5+.5*Math.sin(s*.71+k*.19));
-  add(x,y,z,size,s*.071+k*.013,palette[(s+Math.floor(k/9))%palette.length]);
- }
-}
-// Cross-current filaments give the membrane its tangled, fibrous interior.
-for(let s=0;s<62;s++){
- const a=s/61*TAU;
- for(let k=0;k<62;k++){
-  const q=k/61, y=(q-.5)*1.82;
-  const x=-.05+.68*Math.sin(a+y*2.6)*Math.cos(y*.7);
-  const z=.05+.34*Math.cos(a+y*3.2)+.15*Math.sin(q*TAU+a*2.0);
-  add(x,y,z,1.0+1.1*Math.sin(q*Math.PI),a+s*.037+q*.11,palette[(s*2+k)%palette.length]);
- }
-}
-// A compact foreground volume: this reads as a floating luminous organism, not a planet.
-for(let i=0;i<1500;i++){
- const a=i*2.399, r=.10+.34*Math.sqrt((i%97)/96), y=((i*37)%101)/100*1.18-.59;
- const x=.18+r*Math.cos(a)*(1.0-.18*Math.abs(y));
- const z=.47+r*Math.sin(a)*.72;
- add(x,y,z,1.3+(i%7)*.42,i*.017,palette[(i*5)%palette.length]);
-}
-// Sparse satellites, deliberately larger and brighter than the field.
-for(let j=0;j<7;j++){
- const a=j/7*TAU;
- const x=.15+.80*Math.cos(a),y=.58*Math.sin(a*1.37),z=.42+.45*Math.sin(a);
- for(let k=0;k<34;k++){
-  const q=k/33*TAU,r=.028+.018*Math.sin(k*.7);
-  add(x+Math.cos(q)*r,y+Math.sin(q)*r,z,2.2+(k%4)*.7,j*.31+k*.017,palette[(j+k)%palette.length]);
- }
-}
-const stride=8,arr=new Float32Array(pts),buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,arr,gl.STATIC_DRAW);
-gl.enableVertexAttribArray(L.p);gl.vertexAttribPointer(L.p,3,gl.FLOAT,false,stride*4,0);
-gl.enableVertexAttribArray(L.size);gl.vertexAttribPointer(L.size,1,gl.FLOAT,false,stride*4,12);
-gl.enableVertexAttribArray(L.seed);gl.vertexAttribPointer(L.seed,1,gl.FLOAT,false,stride*4,16);
-gl.enableVertexAttribArray(L.col);gl.vertexAttribPointer(L.col,3,gl.FLOAT,false,stride*4,20);
-
+let W=1,H=1,D=1,seed=13.73;
 let touch={x:0,y:0},target={x:0,y:0},drag=false;
-function resize(){const d=Math.min(devicePixelRatio||1,1.5),w=Math.max(1,Math.floor(innerWidth*d)),h=Math.max(1,Math.floor(innerHeight*d));if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;gl.viewport(0,0,w,h)}}
+const laws=[];
+function hash(n){const x=Math.sin(n*127.1+seed*31.7)*43758.5453;return x-Math.floor(x)}
+function resize(){D=Math.min(devicePixelRatio||1,1.65);W=Math.max(1,innerWidth);H=Math.max(1,innerHeight);canvas.width=Math.floor(W*D);canvas.height=Math.floor(H*D);ctx.setTransform(D,0,0,D,0,0)}
 addEventListener('resize',resize,{passive:true});resize();
-function setTouch(e){const r=canvas.getBoundingClientRect();target.x=((e.clientX-r.left)/r.width-.5)*1.55;target.y=-((e.clientY-r.top)/r.height-.5)*1.55}
-canvas.addEventListener('pointerdown',e=>{if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;drag=true;canvas.setPointerCapture?.(e.pointerId);setTouch(e)});
+function setTouch(e){const r=canvas.getBoundingClientRect();target.x=((e.clientX-r.left)/r.width-.5)*2;target.y=-((e.clientY-r.top)/r.height-.5)*2}
+canvas.addEventListener('pointerdown',e=>{if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;drag=true;canvas.setPointerCapture?.(e.pointerId);setTouch(e);laws.push({x:target.x,y:target.y,t:performance.now()/1000})});
 canvas.addEventListener('pointermove',e=>{if(drag)setTouch(e)});
 canvas.addEventListener('pointerup',e=>{drag=false;setTouch(e)});
 canvas.addEventListener('pointercancel',()=>drag=false);
-function draw(phase){
- resize();touch.x+=(target.x-touch.x)*.06;touch.y+=(target.y-touch.y)*.06;
- gl.useProgram(prog);gl.uniform1f(L.t,phase/TAU*TAU);gl.uniform2f(L.r,canvas.width,canvas.height);gl.uniform2f(L.touch,touch.x,touch.y);
- gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE);gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT);gl.drawArrays(gl.POINTS,0,arr.length/stride);
+function pal(x){
+ x=((x%1)+1)%1;
+ const stops=[[.54,.08,1],[.20,.38,1],[.82,.16,1],[1,.34,.86],[.28,.74,1]];
+ const p=x*(stops.length-1),i=Math.floor(p),f=p-i,a=stops[Math.min(i,stops.length-1)],b=stops[Math.min(i+1,stops.length-1)];
+ return `rgb(${Math.floor((a[0]+(b[0]-a[0])*f)*255)},${Math.floor((a[1]+(b[1]-a[1])*f)*255)},${Math.floor((a[2]+(b[2]-a[2])*f)*255)})`;
 }
-function frame(){draw(((performance.now()/1000)/6)%1*TAU);requestAnimationFrame(frame)}frame();
+function glowDot(x,y,r,c,a){const g=ctx.createRadialGradient(x,y,0,x,y,r);g.addColorStop(0,`rgba(${c},${a})`);g.addColorStop(.2,`rgba(${c},${a*.55})`);g.addColorStop(1,`rgba(${c},0)`);ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,r,0,TAU);ctx.fill()}
+function draw(phase){
+ const t=phase/TAU*12;
+ touch.x+=(target.x-touch.x)*.055;touch.y+=(target.y-touch.y)*.055;
+ ctx.fillStyle='#000';ctx.fillRect(0,0,W,H);
+ const cx=W*.5,cy=H*.5,S=Math.min(W,H),R=S*.34;
+ // Deep atmospheric shell.
+ for(let k=0;k<8;k++){
+  const rr=R*(1.20+k*.085),a=.018*(1-k/9);
+  ctx.strokeStyle=`rgba(75,30,160,${a})`;ctx.lineWidth=1;
+  ctx.beginPath();
+  for(let i=0;i<=180;i++){const q=i/180*TAU, wob=1+.018*Math.sin(q*7+t*.18+k)+.012*Math.sin(q*13-t*.11);const x=cx+Math.cos(q+t*.025)*rr*wob,y=cy+Math.sin(q)*rr*.73*wob;if(i)ctx.lineTo(x,y);else ctx.moveTo(x,y)}ctx.stroke();
+ }
+ // The membrane: hundreds of continuous, depth-layered strands folding around a central void.
+ ctx.globalCompositeOperation='lighter';
+ for(let layer=0;layer<34;layer++){
+  const z=(layer-16.5)/16.5;
+  const depth=1-Math.abs(z)*.72;
+  const rx=R*(.58+.34*depth), ry=R*(.98+.08*depth);
+  const skew=z*.30;
+  for(let strand=0;strand<13;strand++){
+   const base=strand/13*TAU+layer*.071;
+   const hue=layer*.027+strand*.013+seed*.001;
+   ctx.beginPath();
+   for(let j=0;j<=64;j++){
+    const u=j/64*TAU;
+    const fold=Math.sin(u*2+base*1.7+t*.31+layer*.13)*.10 + Math.sin(u*5-base+t*.17)*.035;
+    const pinch=.82+.18*Math.cos(u);
+    const bulge=1+.11*Math.sin(base*3+u*2.2-t*.22)+.045*Math.sin(base*9-u*4+t*.12);
+    let x=Math.cos(u+base*.055)*rx*bulge*pinch;
+    let y=Math.sin(u)*ry*(.93+.07*Math.cos(base*2+u));
+    x+=fold*R*(.72+depth*.35)+skew*R*Math.sin(u);
+    y+=Math.sin(base*2.1+u*3.0+t*.23)*R*.035;
+    // Permanent touch laws bend the whole membrane, not just the cursor.
+    for(let q=0;q<laws.length;q++){
+      const L=laws[q],lx=L.x*S*.5,ly=-L.y*S*.5;
+      const dx=x-(lx),dy=y-(ly),d=Math.sqrt(dx*dx+dy*dy)+1;
+      const force=Math.exp(-d/(S*.22))*.075;
+      x+=dx/d*force*S*.22;y+=dy/d*force*S*.22;
+    }
+    const wob=.5+.5*Math.sin(u*3-base*2+t*.18+layer*.09);
+    const px=cx+x+touch.x*S*.025*Math.exp(-Math.abs(z)*2)*Math.sin(u+base);
+    const py=cy+y+touch.y*S*.025*Math.exp(-Math.abs(z)*2)*Math.cos(u-base);
+    if(j===0)ctx.moveTo(px,py);else ctx.lineTo(px,py);
+   }
+   ctx.strokeStyle=pal(hue+wob*.11);
+   ctx.globalAlpha=.075+.055*depth;
+   ctx.lineWidth=.55+1.1*depth;
+   ctx.stroke();
+  }
+ }
+ // Bright seam where the membrane folds inward.
+ ctx.globalAlpha=.65;
+ for(let q=0;q<7;q++){
+  ctx.beginPath();
+  for(let j=0;j<=110;j++){
+   const u=-1.15+j/110*2.30;
+   const x=cx+Math.sin(u*2.2+q*.15+t*.12)*R*.19 + u*R*.34;
+   const y=cy+Math.sin(u*3.3+q+t*.25)*R*.78;
+   if(j===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+  }
+  ctx.strokeStyle=pal(.68+q*.025);ctx.lineWidth=1.1+q*.25;ctx.stroke();
+ }
+ // Central luminous orb, deliberately sparse and particulate.
+ const ox=cx+Math.sin(t*.09)*S*.025,oy=cy+Math.cos(t*.11)*S*.018;
+ glowDot(ox,oy,S*.15,'82,40,255',.16);
+ glowDot(ox,oy,S*.075,'174,100,255',.18);
+ ctx.save();ctx.translate(ox,oy);ctx.rotate(t*.045);
+ for(let i=0;i<420;i++){
+  const a=hash(i*2.31)*TAU, rr=Math.sqrt(hash(i*7.17))*S*.082;
+  const px=Math.cos(a)*rr*(.72+.28*Math.sin(a*3+t*.2)),py=Math.sin(a)*rr;
+  const bright=.25+.75*hash(i*9.3);
+  ctx.fillStyle=`rgba(190,145,255,${.12+.6*bright})`;ctx.fillRect(px,py,1,1);
+ }
+ ctx.restore();
+ // Orbiting translucent nodes and long elliptical traces.
+ for(let i=0;i<9;i++){
+  const a=i/9*TAU+t*(.055+i*.004),rx=R*(1.04+.17*Math.sin(i*2.4)),ry=R*(.46+.09*Math.cos(i));
+  const x=cx+Math.cos(a)*rx,y=cy+Math.sin(a)*ry;
+  const c=i%3===0?'95,185,255':i%3===1?'205,105,255':'142,92,255';
+  glowDot(x,y,S*(.025+.012*hash(i+33)),c,.22);
+  ctx.fillStyle=`rgba(${c},.72)`;ctx.beginPath();ctx.arc(x,y,S*.0045,0,TAU);ctx.fill();
+ }
+ for(let i=0;i<11;i++){
+  const a=i*.71+t*.025*(i%3+1),rx=R*(1.10+i*.055),ry=R*(.56+i*.025);
+  ctx.strokeStyle=`rgba(${i%2?'100,70,255':'150,120,255'},${.07-i*.003})`;ctx.lineWidth=.7;
+  ctx.beginPath();ctx.ellipse(cx,cy,rx,ry,a,0,TAU);ctx.stroke();
+ }
+ // Fine escaped filaments at the edge.
+ for(let i=0;i<150;i++){
+  const a=hash(i+200)*TAU,rr=R*(.9+hash(i+400)*.48),len=S*(.025+.10*hash(i+500));
+  const x=cx+Math.cos(a)*rr,y=cy+Math.sin(a)*rr*.73;
+  const dx=Math.cos(a+.9)*len,dy=Math.sin(a+.9)*len;
+  ctx.strokeStyle=pal(.55+hash(i)*.32);ctx.globalAlpha=.12*hash(i+50);ctx.lineWidth=.45;
+  ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+dx,y+dy);ctx.stroke();
+ }
+ // Touch laws leave a subtle permanent scar.
+ for(const L of laws){const x=cx+L.x*S*.5,y=cy-L.y*S*.5;glowDot(x,y,S*.055,'190,90,255',.08);ctx.strokeStyle='rgba(190,90,255,.22)';ctx.lineWidth=1;ctx.beginPath();ctx.arc(x,y,S*.04,0,TAU);ctx.stroke()}
+ ctx.globalAlpha=1;ctx.globalCompositeOperation='source-over';
+ // Final vignette.
+ const vg=ctx.createRadialGradient(cx,cy,S*.18,cx,cy,S*.78);vg.addColorStop(0,'rgba(0,0,0,0)');vg.addColorStop(.72,'rgba(0,0,0,.08)');vg.addColorStop(1,'rgba(0,0,0,.72)');ctx.fillStyle=vg;ctx.fillRect(0,0,W,H);
+}
+let start=performance.now();
+function frame(){draw(((performance.now()-start)/1000/8%1)*TAU);requestAnimationFrame(frame)}
+frame();
 APKit.init({canvas:canvas,gifName:'violet-membrane-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:function(phase){draw(phase)},buttons:[
- {label:'✦',name:'mutate',onClick:function(){seed=Math.random()*1000}},
- {label:'↻',name:'reset',onClick:function(){seed=17.31;target={x:0,y:0};touch={x:0,y:0}}}
+ {label:'✦',name:'mutate',onClick:function(){seed=Math.random()*1000;laws.length=0}},
+ {label:'↻',name:'reset',onClick:function(){seed=13.73;laws.length=0;touch={x:0,y:0};target={x:0,y:0}}}
 ]});
 </script>
 </body>
