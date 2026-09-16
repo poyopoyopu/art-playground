@@ -20,6 +20,7 @@
 
 ## 履歴
 
+- 2026-09-16 チャッピー: CHROMATIC TIDEを再設計。多色パレットの連続遷移、形状の多重変形、内外の流れ、背景光と周回光を強化(prototypes/violet-membrane.html)
 - 2026-09-16 チャッピー: CHROMATIC TIDEへ再設計。時間変化を増幅し、周期的な多色パレット変化・呼吸する輪郭・移動する中心・多層背景光と軌道を追加(prototypes/violet-membrane.html)
 - 2026-09-16 チャッピー: NOCTURNE FIELDへ再設計。タッチ痕跡を表示せず変化だけを継続させ、藍紫系の配色と多層の背景光を強化(prototypes/violet-membrane.html)
 - 2026-09-16 チャッピー: INVERSE GARDENの色彩・背景を再設計し、タッチ痕跡を円形マーカーから光の裂け目へ変更(prototypes/violet-membrane.html)
