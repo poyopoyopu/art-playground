@@ -20,6 +20,7 @@
 
 ## 履歴
 
+- 2026-09-17 クロード: SEVEN SLICE新規プロトタイプ追加。7次元格子の断面(de Bruijnの7方向グリッド)を線と交点で描き、ドラッグ=フェイゾンで組み替え、タップ=消えない転位、長押し=残る張力、✦=対称数(次元)変更のWebGL2作品(prototypes/seven-slice.html)
 - 2026-09-16 チャッピー: CHROMATIC TIDEを再構成。宇宙空間のような表現を廃し、画面全体を密度の高い多層の生体的な織物として動かす構造へ変更(prototypes/violet-membrane.html)
 - 2026-09-16 チャッピー: CHROMATIC TIDEを画面全体へ拡張。水平・垂直の大域的な潮流と多層色彩場を追加し、変化のスケールを全面化(prototypes/violet-membrane.html)
 - 2026-09-17 クロード: HOLO THAW新規プロトタイプ追加。3階層の折れ目を持つ凍ったホログラム箔が、触れた熱で溶けて二度と凍らず、温かい間だけ重力で流れて下の箔を溶かしていくWebGL2作品(prototypes/holo-thaw.html)
