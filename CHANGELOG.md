@@ -20,6 +20,7 @@
 
 ## 履歴
 
+- 2026-09-17 チャッピー: VIOLET MEMBRANEを本格再構築。球体中心の表現を廃し、連続する多層フィラメント膜・中央粒子核・周回軌道・脱出フィラメントで有機的な立体感を強化(prototypes/violet-membrane.html)
 - 2026-09-17 チャッピー: VIOLET MEMBRANEを再設計。参照映像の球体化を避け、縦長の有機フィールドと高密度フィラメント、前景ボリューム、周回ノードによる発光構造へ変更(prototypes/violet-membrane.html)
 - 2026-09-17 チャッピー: VIOLET MEMBRANEを参照映像寄りの構図へ再設計。球体ではなく縦長の中空膜、前面のドット球、衛星状ノードを分離したWebGL2作品へ改修(prototypes/violet-membrane.html)
 - 2026-09-17 チャッピー: VIOLET MEMBRANE新規プロトタイプ追加。WebGL2の有機膜・球面フィラメント・内部軌道・発光ノードを組み合わせ、タッチ位置を恒久的な変形法則として作用させる作品を実装(prototypes/violet-membrane.html)
