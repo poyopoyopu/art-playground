@@ -24,7 +24,14 @@
   改修2(2026-09-17 おっちゃんの依頼): 丸い絵の具の滴をやめ、触った所は「渦」でかき混ぜる形に。
   乱された模様は数秒かけて元の流れへ自然に戻っていく(上のルールより優先)。
   触っていない時も液面はゆっくり対流し、常にヌルヌル動く。
-  → タップ=小さな渦(回転は交互)、長押し=かき混ぜ続けて渦が育つ、ドラッグ=押し流す。
+  改修3(2026-09-17 おっちゃんの依頼で、触り方を根本から作り直し):
+  指は「重さ」。押した所だけ膜が沈み、沈んだ深さぶん膜の厚みが変わるので、
+  指の周りに虹の同心輪(ニュートンリング)が現れ、周りの模様が指へ吸い寄せられる。
+  ・タップ = ぷるんと一度沈んで跳ね返り、波紋が広がる
+  ・長押し = 深く沈み続け、虹の輪が増え、周りの模様が引き込まれていく
+  ・押したまま動かす = くぼみが液を引きずり、後ろに流れの跡(航跡)ができる
+  ・複数の指 = くぼみ同士の波紋が干渉する
+  離すと、ばねのように揺れながら元の平らな膜へヌルッと戻る。
 */
 const c=document.getElementById('c');
 const gl=c.getContext('webgl2',{antialias:false,alpha:false,preserveDrawingBuffer:true});
@@ -152,9 +159,28 @@ float fbm(vec2 p){float s=0.,a=.5;for(int i=0;i<4;i++){s+=a*vn(p);p=M*p+11.7;a*=
 // パスA: 写像 → 高さ・膜厚・暗部・星
 const FS_FIELD=`#version 300 es
 precision highp float;uniform sampler2D map;uniform vec2 res,tc;uniform float seed,stretch;uniform bool FL;
+uniform vec4 well[5];   // x, y, 沈み(ばねで揺れる), 半径
+uniform vec2 wave[5];   // 押してからの時間, 波の強さ
+uniform int nW;
 out vec4 o;${ENC}${NOISE}
 void main(){
   vec2 uv=gl_FragCoord.xy/res;vec2 px=1./res;
+  // 指のくぼみ: 膜が沈み、周りの模様が吸い寄せられ、波紋が外へ広がる
+  vec2 P=(gl_FragCoord.xy-.5*res)/min(res.x,res.y);
+  vec2 warp=vec2(0.);float dh=0.,dfilm=0.;
+  for(int i=0;i<5;i++){
+    if(i>=nW)break;
+    vec4 w=well[i];vec2 d=P-w.xy;float r=length(d);
+    float g=exp(-r*r/(w.w*w.w));
+    warp+=d*g*w.z*1.3;
+    dh-=w.z*g*3.2;
+    dfilm+=w.z*g*3.;
+    float front=wave[i].x*.55+.04;   // 波の先端(時間とともに外へ)
+    float ring=sin(r*80.-wave[i].x*10.)*exp(-r*6.)*smoothstep(0.,w.w*.6,r)*smoothstep(0.,.05,front-r);
+    dh+=ring*.11*wave[i].y;
+    dfilm+=ring*.25*wave[i].y;
+  }
+  uv+=warp*min(res.x,res.y)/res;
   vec4 m=dec(texture(map,uv));
   // 滴の縁(周囲とのインク差)
   float b0=texture(map,uv+vec2(px.x,0)).b,b1=texture(map,uv-vec2(px.x,0)).b,
@@ -179,12 +205,12 @@ void main(){
   float wv=vn(m.rg*22.)*.5+vn(m.rg*55.)*.25;
   float hI=.9+wv*.08,fI=t*2.+wv*.3;
   float h=mix(hB,hI,wI),film=mix(fB,fI,wI),dark=mix(dB,dI,wI);
-  h+=edge*.10;
+  h+=edge*.10+dh;film+=dfilm;
   // 暗部の星(絵の具と一緒に流される)
   float sp=0.;
   vec2 sg=m.rg*260.;float hh=hash(floor(sg)+seed);
   if(hh>.978){vec2 f=fract(sg)-.5;sp=smoothstep(.35,0.,length(f))*(.4+.6*fract(hh*91.));}
-  o=vec4(h*.5,clamp(film*.5,0.,1.),dark,sp*dark);
+  o=vec4(h*.5,FL?film*.5:clamp(film*.5,0.,1.),dark,sp*dark);
 }`;
 
 // パスB: 高さから法線 → 真珠光沢の陰影
@@ -213,7 +239,7 @@ void main(){
   vec3 irid=.5+.5*cos(6.2831*(film*1.7+N.x*.45-N.y*.3+hue+vec3(0.,.33,.67)));
   irid=mix(vec3(1.),irid,.62);
   vec3 silver=vec3(.60,.62,.71)*(.35+.65*diff)+env(R)*.32;
-  float ia=clamp(smoothstep(.10,.6,slope)*.35+sheen*.75,0.,1.)*.85;
+  float ia=clamp(smoothstep(.10,.5,slope)*.6+sheen*.75,0.,1.)*.9;
   vec3 col=mix(silver,silver*.45+irid*.75,ia);
   col+=spec*(vec3(1.,.97,.93)*1.1+irid*.5);
   vec3 dk=vec3(.02,.022,.04)+env(R)*.05+irid*sheen*.12+spec*.35+vec3(.9,.9,1.)*f.a*1.4;
@@ -306,79 +332,71 @@ function render(phase){
   blit(P_FIELD,fld,()=>{const u=P_FIELD.u;
     gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,mapA.t);gl.uniform1i(u.map,0);
     gl.uniform2f(u.res,MW,MH);gl.uniform2f(u.tc,tc[0],tc[1]);gl.uniform1f(u.seed,seed);
-    gl.uniform1f(u.stretch,stretch);gl.uniform1i(u.FL,FLOAT?1:0)});
+    gl.uniform1f(u.stretch,stretch);gl.uniform1i(u.FL,FLOAT?1:0);
+    const wl=new Float32Array(20),wv=new Float32Array(10);let n=0;
+    if(!paused)for(const w of wells.values()){if(n>=5)break;wl.set([w.p[0],w.p[1],w.depth,w.R],n*4);wv.set([w.age,w.energy],n*2);n++;}
+    gl.uniform4fv(u.well,wl);gl.uniform2fv(u.wave,wv);gl.uniform1i(u.nW,n);});
   blit(P_SHADE,null,()=>{const u=P_SHADE.u;
     gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,fld.t);gl.uniform1i(u.fld,0);
     gl.uniform2f(u.fres,MW,MH);gl.uniform2f(u.res,c.width,c.height);
     gl.uniform1f(u.lp,phase*1.0+.8);gl.uniform1f(u.hue,hue);gl.uniform1f(u.gain,MW*.018)});
 }
 
-/* ---------- touch: drop / pour / comb ---------- */
+/* ---------- touch: 指の重さ(くぼみ) ---------- */
 const toW=(x,y)=>[(x-W/2)/S(),(H/2-y)/S()];
-let ptr=null;
-function toneFor(i){ // 暗い絵の具と真珠色の絵の具を交互気味に
+function toneFor(i){ // 旧仕様(絵の具)の名残。流体が使えない端末の保険でだけ使う
   const h=Math.abs(Math.sin((i+seed)*12.9898)*43758.5453)%1;
   return i%2===0 ? .12+h*.28 : .55+h*.4;
 }
-let dropCount=0,pending=[],swirlSign=1;
+const wells=new Map();   // pointerId → くぼみ
+let dropCount=0;
 c.addEventListener('pointerdown',e=>{
   if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
   e.preventDefault();c.setPointerCapture&&c.setPointerCapture(e.pointerId);
-  ptr={id:e.pointerId,x:e.clientX,y:e.clientY,sx:e.clientX,sy:e.clientY,t:performance.now(),moved:0,pour:0,band:-1,fx:0,fy:0};
+  const p=toW(e.clientX,e.clientY);
+  wells.set(e.pointerId,{p,depth:0,vel:5.5,R:.06,held:true,t:performance.now(),age:0,energy:1,fx:0,fy:0});
 });
 c.addEventListener('pointermove',e=>{
-  if(!ptr||e.pointerId!==ptr.id)return;
-  const dx=e.clientX-ptr.x,dy=e.clientY-ptr.y,d=Math.hypot(dx,dy);
-  if(d<1)return;
-  ptr.moved+=d;
-  if(ptr.moved>10&&!ptr.pour){
-    if(FLOAT){ptr.fx+=dx/S();ptr.fy-=dy/S();}
-    else{ // 流体が使えない端末は従来の櫛
-      const n=Math.min(6,Math.ceil(d/12));
-      for(let i=1;i<=n;i++)op(1,toW(ptr.x+dx*i/n,ptr.y+dy*i/n),[dx/d,-dy/d],(d/n)/S()*.75,.06);
-    }
-  }
-  ptr.x=e.clientX;ptr.y=e.clientY;
+  const w=wells.get(e.pointerId);if(!w||!w.held)return;
+  const p=toW(e.clientX,e.clientY);
+  w.fx+=p[0]-w.p[0];w.fy+=p[1]-w.p[1];
+  w.p=p;
 });
 function up(e){
-  if(!ptr||e.pointerId!==ptr.id)return;
-  const dt=performance.now()-ptr.t;
-  if(ptr.moved<=10&&!ptr.pour&&dt<400){
-    swirlSign=-swirlSign;
-    pending.push({C:toW(ptr.x,ptr.y),left:.35,sign:swirlSign,r:.07+Math.random()*.04});
-  }
-  if(ptr.pour)dropCount++;
-  ptr=null;
+  const w=wells.get(e.pointerId);if(!w||!w.held)return;
+  w.held=false;
+  // 離したくぼみは別キーへ移して、同じ指の次のタッチと混ざらないようにする
+  wells.delete(e.pointerId);wells.set('r'+performance.now()+Math.random(),w);
 }
 c.addEventListener('pointerup',up);c.addEventListener('pointercancel',up);
+
+function updateWells(dt,now){
+  for(const [k,w] of wells){
+    const held=(now-w.t)/1000;
+    const target=w.held?Math.min(1.15,.3+held*.45):0;
+    // ばね(少し弱めの減衰で、ぷるんと揺れる)
+    const acc=62*(target-w.depth)-5.5*w.vel;
+    w.vel+=acc*dt;w.depth+=w.vel*dt;
+    w.R=.055+.075*Math.max(0,w.depth);
+    w.age+=dt;
+    w.energy=w.held?Math.min(1,.4+held*.4):w.energy*Math.exp(-dt/1.3);
+    if(w.held&&(w.fx||w.fy)&&FLOAT){
+      // くぼみが液を引きずる
+      const kk=1/Math.max(dt,1/120);
+      splats.push({C:w.p,F:[w.fx*kk*.55,w.fy*kk*.55],r:w.R*1.4});
+    }
+    w.fx=w.fy=0;
+    if(!w.held&&Math.abs(w.depth)<.004&&Math.abs(w.vel)<.02&&w.energy<.03)wells.delete(k);
+  }
+  // 5つまで(古いものから外す)
+  while(wells.size>5){const k=wells.keys().next().value;wells.delete(k);}
+}
 
 let lastT=performance.now(),liveT=0;
 function step(now){
   const dt=Math.min(1/30,(now-lastT)/1000);lastT=now;
   if(!paused){
-    if(ptr){
-      const held=now-ptr.t;
-      if(ptr.fx||ptr.fy){
-        // 指の勢いを液へ(1フレーム1回)
-        const k=1/Math.max(dt,1/120);
-        splats.push({C:toW(ptr.x,ptr.y),F:[ptr.fx*k*.7,ptr.fy*k*.7],r:.1});
-        ptr.fx=ptr.fy=0;
-      }
-      if(ptr.moved<=10&&held>260){
-        // 長押し: かき混ぜ続ける。押すほど渦が大きく強くなる
-        if(!ptr.pour){ptr.pour=1;swirlSign=-swirlSign;}
-        const g=Math.min(1,(held-260)/2500);
-        if(FLOAT)splats.push({C:toW(ptr.x,ptr.y),F:[swirlSign*dt*(2.2+3*g),0],r:.08+.07*g,radial:2});
-        else drop(toW(ptr.x,ptr.y),Math.sqrt(.02*dt/Math.PI),toneFor(dropCount));
-      }
-    }
-    for(const q of pending){
-      // タップの渦は0.35秒かけて回し入れる(形がカクッとしないように)
-      const k=Math.min(q.left,dt);q.left-=k;
-      if(FLOAT)splats.push({C:q.C,F:[q.sign*k*5.5,0],r:q.r,radial:2});
-      else if(k>0)op(1,q.C,[q.sign,0],k*.3,q.r);
-    }
-    pending=pending.filter(q=>q.left>1e-6);
+    updateWells(dt,now);
     fluidStep(dt);
     liveT+=dt;
     render((liveT*.2)%(Math.PI*2));
@@ -402,7 +420,7 @@ APKit.init({
       // 模様の種・流れの伸び・虹色の位相を変える(刻まれた写像はそのまま)
       seed=Math.random()*50;hue=Math.random();stretch=1.2+Math.random()*1.6;
     }},
-    {label:'↻',name:'reset',onClick:function(){clearMap();clearVel();pending=[];dropCount=0;}}
+    {label:'↻',name:'reset',onClick:function(){clearMap();clearVel();wells.clear();dropCount=0;}}
   ]
 });
 </script>
