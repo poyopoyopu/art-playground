@@ -20,6 +20,7 @@
 
 ## 履歴
 
+- 2026-09-16 チャッピー: LIQUID KNOT プロトタイプ追加(prototypes/liquid-knot.html)
 - 2026-09-16 クロード: チャッピーがindex.htmlへ直接push可能に変更(従来は出力してしゅんが手動反映)。AGENTS.md 13章更新
 - 2026-09-16 クロード: LIQUID LAW を全面書き直し。法を大円の帯として実装し直した(prototypes/liquid-law.html)
 - 2026-09-16 クロード: Published works欄にRGB MEMBRANEが抜けていた不整合を修正(index.html)
