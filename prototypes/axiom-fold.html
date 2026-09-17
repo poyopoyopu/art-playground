@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>AXIOM FOLD</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#eee9df;touch-action:none}
+canvas{display:block;width:100%;height:100%;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+</style>
+<script src="../ap-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+// AXIOM FOLD — a woven surface whose geometry remembers every touch.
+// WORLD RULE: a touch does not paint a mark; it rewrites the local coordinate law.
+// The altered law remains in the surface and bends every later autonomous cycle.
+const canvas=document.getElementById('c'),ctx=canvas.getContext('2d');
+let W=0,H=0,D=1,seed=Math.random()*1000,phase=0,last=performance.now();
+let laws=[],active=[];
+const TAU=Math.PI*2;
+function resize(){D=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;canvas.width=W*D;canvas.height=H*D;ctx.setTransform(D,0,0,D,0,0)}
+addEventListener('resize',resize,{passive:true});resize();
+function resetLaws(){laws=[];active=[]}
+function mutate(){seed=Math.random()*100000;resetLaws()}
+function addLaw(x,y,amount=1,angle=0){
+  const m=Math.hypot(x-W*.5,y-H*.5)/(Math.hypot(W,H)||1);
+  laws.push({x,y,a:angle+Math.sin(x*.01+seed)*.7,s:amount*(.7+.7*(1-m)),w:90+Math.min(W,H)*.16});
+  if(laws.length>22)laws.shift();
+}
+function field(x,y,t){
+  let dx=0,dy=0,turn=0,weight=0;
+  for(const q of laws){
+    const ax=x-q.x,ay=y-q.y,d=ax*ax+ay*ay,r=q.w*q.w;
+    if(d<r*5){const g=Math.exp(-d/(r*1.7))*q.s;turn+=g;dx+=Math.cos(q.a)*g;dy+=Math.sin(q.a)*g;weight+=g}
+  }
+  const a=.000003*(W*W+H*H);
+  const ca=Math.sin((x/W)*TAU*1.35+t*.8+seed*.01),cb=Math.cos((y/H)*TAU*1.15-t*.57);
+  dx+=ca*a;dy+=cb*a;
+  return {dx,dy,turn,weight};
+}
+function ribbon(y0,i,t){
+  const pts=[],steps=56;
+  for(let k=0;k<=steps;k++){
+    const x=k/steps*W;let y=y0;
+    const f=field(x,y0,t);
+    const weave=Math.sin(x*.012+i*.63+t*(.7+.015*i)+seed*.03)*(.7+f.weight*.9);
+    const bend=Math.sin(x*.0042-t*.42+i*.31)*H*.006;
+    y+=weave*9+f.dy*.002+bend;
+    pts.push([x,y]);
+  }
+  return pts;
+}
+function drawRibbon(pts,width,hue,alpha){
+  ctx.beginPath();ctx.moveTo(pts[0][0],pts[0][1]);
+  for(let j=1;j<pts.length;j++)ctx.lineTo(pts[j][0],pts[j][1]);
+  ctx.lineWidth=width;ctx.lineCap='round';ctx.lineJoin='round';
+  const g=ctx.createLinearGradient(0,0,W,0);
+  g.addColorStop(0,`hsla(${hue-32},72%,54%,${alpha*.82})`);
+  g.addColorStop(.3,`hsla(${hue+8},86%,61%,${alpha})`);
+  g.addColorStop(.62,`hsla(${hue+58},76%,58%,${alpha})`);
+  g.addColorStop(1,`hsla(${hue+105},74%,54%,${alpha*.78})`);
+  ctx.strokeStyle=g;ctx.stroke();
+}
+function drawContours(t){
+  ctx.lineWidth=.65;
+  for(let i=0;i<18;i++){
+    const y=H*(i+.5)/18;
+    ctx.beginPath();
+    for(let k=0;k<=70;k++){
+      const x=k/70*W,f=field(x,y,t),yy=y+Math.sin(x*.008+i*.7+t*.25)*4+f.turn*8;
+      if(k===0)ctx.moveTo(x,yy);else ctx.lineTo(x,yy);
+    }
+    ctx.strokeStyle=`hsla(${(seed*7+i*17)%360},28%,30%,.17)`;ctx.stroke();
+  }
+}
+function render(t){
+  phase=t%TAU;
+  const bg=ctx.createLinearGradient(0,0,W,H);
+  bg.addColorStop(0,'#f4efe5');bg.addColorStop(.48,'#e7e0d5');bg.addColorStop(1,'#f0eadf');
+  ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
+  const center=H*.5+Math.sin(t*.5)*H*.012;
+  for(let i=-5;i<31;i++){
+    const y=center+(i-13)*H*.036,pts=ribbon(y,i,t),hue=(seed*13+i*19+t*7)%360;
+    drawRibbon(pts,H*.018+(i%3)*.8,hue,.46);
+  }
+  drawContours(t);
+  for(let i=2;i<25;i+=3)drawRibbon(ribbon(H*(i/27),i,t),1.35,(seed*5+i*29)%360,.5);
+  for(const q of laws){
+    const span=q.w*2.4;
+    ctx.save();ctx.translate(q.x,q.y);ctx.rotate(q.a);
+    const grad=ctx.createLinearGradient(-span,0,span,0);
+    grad.addColorStop(0,'rgba(255,255,255,0)');grad.addColorStop(.5,`hsla(${(q.a*60+seed)%360},55%,96%,.16)`);grad.addColorStop(1,'rgba(255,255,255,0)');
+    ctx.fillStyle=grad;ctx.fillRect(-span,-q.w*.08,span*2,q.w*.16);ctx.restore();
+  }
+}
+function loopFrame(p){render(p)}
+function tick(now){const dt=Math.min(.04,(now-last)/1000);last=now;phase=(phase+dt*.34)%TAU;render(phase);requestAnimationFrame(tick)}
+function pointFromEvent(e){const r=canvas.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top}}
+canvas.addEventListener('pointerdown',e=>{
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return true;
+  const p=pointFromEvent(e);active.push({id:e.pointerId,x:p.x,y:p.y,baseAngle:Math.atan2(p.y-H*.5,p.x-W*.5)});canvas.setPointerCapture(e.pointerId);
+  addLaw(p.x,p.y,1.25,active[active.length-1].baseAngle+Math.PI*.5);e.preventDefault();return false;
+},{passive:false});
+canvas.addEventListener('pointermove',e=>{
+  const a=active.find(v=>v.id===e.pointerId);if(!a)return;
+  const p=pointFromEvent(e),dx=p.x-a.x,dy=p.y-a.y;
+  if(Math.hypot(dx,dy)>8){addLaw(p.x,p.y,.52,Math.atan2(dy,dx)+Math.PI*.5);a.x=p.x;a.y=p.y}
+  e.preventDefault();return false;
+},{passive:false});
+canvas.addEventListener('pointerup',e=>{active=active.filter(v=>v.id!==e.pointerId);e.preventDefault();return false},{passive:false});
+canvas.addEventListener('pointercancel',e=>{active=active.filter(v=>v.id!==e.pointerId);return false},{passive:false});
+APKit.init({canvas,gifName:'axiom-fold-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame,buttons:[
+  {label:'✦',name:'mutate',onClick:mutate},{label:'↻',name:'reset',onClick:resetLaws}
+]});
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
