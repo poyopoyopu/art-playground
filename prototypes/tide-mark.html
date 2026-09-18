@@ -28,6 +28,9 @@ function resize(){
   DPR=Math.min(window.devicePixelRatio||1,2);
   canvas.width=Math.round(W*DPR); canvas.height=Math.round(H*DPR);
   ctx.setTransform(DPR,0,0,DPR,0,0);
+  // 初回(まだ形や跡が定義される前)は物理ロープの再構築をスキップし、
+  // 定義済みになってから(セットアップの最後、および以後のリサイズ)で組み直す
+  if(nodes)initNodes();
 }
 addEventListener('resize',resize);
 addEventListener('orientationchange',resize);
@@ -66,16 +69,18 @@ function randomShape(){
 /* ---------- なぎさの形 ---------- */
 function gaussian(d,sigma){var v=d/sigma;return Math.exp(-0.5*v*v);}
 
-function baseY(s,ambient){
+function baseY(s,ambient,travel){
   var y=H*0.5 + shape.tilt*(s-0.5)*W;
   y += shape.amp[0]*Math.sin(shape.freq[0]*6.2832*s+shape.phase[0]);
   y += shape.amp[1]*Math.sin(shape.freq[1]*6.2832*s+shape.phase[1]);
   y += ambient*Math.sin(Math.PI*s);
+  // なぎさの上をずっと滑っていく小さなさざ波。触ってなくても水面みたいに生きて見えるように
+  y += 5*Math.sin(s*7.5-travel)+2.4*Math.sin(s*13-travel*1.7+1.2);
   return y;
 }
 
-function curveY(s,ambient){
-  var y=baseY(s,ambient);
+function curveY(s,ambient,travel){
+  var y=baseY(s,ambient,travel);
   for(var i=0;i<marks.length;i++){
     var m=marks[i];
     y += m.strength*gaussian(s-m.s,m.sigma);
@@ -84,31 +89,70 @@ function curveY(s,ambient){
   return y;
 }
 
+/* ---------- ロープ物理 ----------
+   最初は「触った場所にガウス山をそのまま足す」だけだったら見た目は正しくても、
+   動きとしては面白くなかった。なので曲線を質点の鎖(ロープ)として物理的に持たせ、
+   触るとゴムのように追従して揺れ、離すとバネで少し弾んでから落ち着くようにした。
+   永久の傷(marks)は「バネの目標値そのもの」を動かす形にしたので、傷が増えるたびに
+   その場所がボヨンと揺れてから新しい形に収まる。 */
+var nodes=[];
+var STIFF=62, COUPLE=170, DAMP=0.905;
+
+function initNodes(){
+  var n=Math.max(42,Math.min(90,Math.round(W/9)));
+  nodes=new Array(n);
+  for(var i=0;i<n;i++){
+    var s=i/(n-1);
+    nodes[i]={s:s,y:curveY(s,lastAmbient,lastTravel),vel:0};
+  }
+}
+
+function stepPhysics(ambient,travel){
+  var dt=1/60, n=nodes.length;
+  for(var i=0;i<n;i++){
+    var nd=nodes[i];
+    var target=curveY(nd.s,ambient,travel);
+    var left=i>0?nodes[i-1].y:nd.y;
+    var right=i<n-1?nodes[i+1].y:nd.y;
+    var acc=(target-nd.y)*STIFF + ((left-nd.y)+(right-nd.y))*COUPLE;
+    nd.vel=(nd.vel+acc*dt)*DAMP;
+    nd.y+=nd.vel*dt;
+  }
+}
+
+function nodeYAt(s){
+  var n=nodes.length;
+  var f=Math.max(0,Math.min(1,s))*(n-1);
+  var i0=Math.floor(f), i1=Math.min(n-1,i0+1);
+  var t=f-i0;
+  return nodes[i0].y+(nodes[i1].y-nodes[i0].y)*t;
+}
+
 /* ---------- 入力 ---------- */
 var pointerId=null;
 
 function toS(clientX){return Math.min(1,Math.max(0,clientX/W));}
 
-function updateActive(clientX,clientY,ambient){
+function updateActive(clientX,clientY,ambient,travel){
   var s=toS(clientX);
-  var by=baseY(s,ambient);
+  var by=baseY(s,ambient,travel);
   for(var i=0;i<marks.length;i++){
     var m=marks[i]; by+=m.strength*gaussian(s-m.s,m.sigma);
   }
-  active={s:s,strength:clientY-by,sigma:0.085};
+  active={s:s,strength:clientY-by,sigma:0.075};
 }
 
 canvas.addEventListener('pointerdown',function(e){
   if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
   e.preventDefault();
   pointerId=e.pointerId;
-  updateActive(e.clientX,e.clientY,lastAmbient);
+  updateActive(e.clientX,e.clientY,lastAmbient,lastTravel);
 },{passive:false});
 
 canvas.addEventListener('pointermove',function(e){
   if(pointerId===null||e.pointerId!==pointerId)return;
   e.preventDefault();
-  updateActive(e.clientX,e.clientY,lastAmbient);
+  updateActive(e.clientX,e.clientY,lastAmbient,lastTravel);
 },{passive:false});
 
 function release(e){
@@ -129,7 +173,7 @@ canvas.addEventListener('pointercancel',release);
    問題が出た(iOS Safariのcanvas blurフィルタでよく起きる既知の症状)。
    なのでfilterには頼らず、同じ曲線パスを「太く薄く」→「細く濃く」と複数回ストロークして
    疑似的なグロー(にじみ)を作る方式にした。色がずれる心配がない。 */
-var lastAmbient=0;
+var lastAmbient=0, lastTravel=0;
 
 function bgColor(t,offset){
   var h=(shape.hue+offset+Math.sin(t*0.06)*5+360)%360;
@@ -176,8 +220,12 @@ function render(time,phase){
   var T=(window.APKit?APKit.T:function(k,ph,tm){return tm*k}).bind(null);
   var breathe=T(0.5,phase,time);
   var glintPhase=T(0.11,phase,time);
+  var travel=T(0.9,phase,time);
   var ambient=Math.sin(breathe)*6;
-  lastAmbient=ambient;
+  lastAmbient=ambient; lastTravel=travel;
+
+  if(!nodes.length)initNodes();
+  stepPhysics(ambient,travel);
 
   // 背景: 暖かい側 / 冷たい側の淡いグラデーション
   var g=ctx.createLinearGradient(0,0,W,H);
@@ -187,13 +235,9 @@ function render(time,phase){
   ctx.fillStyle=g;
   ctx.fillRect(0,0,W,H);
 
-  // 曲線の点列を1回だけ作る
-  var N=Math.max(60,Math.round(W/4));
-  var pts=new Array(N+1);
-  for(var i=0;i<=N;i++){
-    var s=i/N;
-    pts[i]=[s*W,curveY(s,ambient)];
-  }
+  // 曲線の点列(ロープの質点をそのまま使う)
+  var pts=new Array(nodes.length);
+  for(var i=0;i<nodes.length;i++)pts[i]=[nodes[i].s*W,nodes[i].y];
 
   var bands=bandsFor(shape.hue);
   for(var b=0;b<bands.length;b++)drawBand(ctx,pts,bands[b]);
@@ -201,7 +245,7 @@ function render(time,phase){
   // 満ち引きの跡(傷)を薄く強調する小さな光点
   for(var k=0;k<marks.length;k++){
     var m=marks[k];
-    var mx=m.s*W, my=curveY(m.s,ambient);
+    var mx=m.s*W, my=nodeYAt(m.s);
     var r=16+Math.min(24,Math.abs(m.strength)*0.10);
     var rg=ctx.createRadialGradient(mx,my,0,mx,my,r);
     rg.addColorStop(0,'hsla('+shape.hue+',70%,80%,0.24)');
@@ -212,7 +256,7 @@ function render(time,phase){
 
   // 揺らめく光の点(生きている感じ)
   var gs=Math.sin(glintPhase)*0.5+0.5;
-  var gx=gs*W, gy=curveY(gs,ambient);
+  var gx=gs*W, gy=nodeYAt(gs);
   var glow=ctx.createRadialGradient(gx,gy,0,gx,gy,28);
   var glintHue=((shape.hue-140+360)%360);
   glow.addColorStop(0,'hsla('+glintHue+',50%,94%,0.45)');
@@ -234,10 +278,12 @@ requestAnimationFrame(tick);
 function mutate(){
   shape=randomShape();
   marks.length=0; active=null;
+  initNodes();
 }
 function resetAll(){
   shape=cloneShape(DEFAULT_SHAPE);
   marks.length=0; active=null;
+  initNodes();
 }
 
 window.APKit.init({
