@@ -38,10 +38,15 @@ var ctx=canvas.getContext('2d',{alpha:false});
 var W=0,H=0;
 
 // 低解像度バッファ。ここで色を作って、拡大時の補間でなめらかにする
-var LOW_W=168;
+var LOW_W=320;
 var low=document.createElement('canvas');
 var lctx=low.getContext('2d',{alpha:false});
 var lowImg=null, lowData=null, LW=0, LH=0;
+
+/* 4x4 Bayer。淡い部分は色の変化がゆるやかすぎて、8bitに丸める時に
+   10pxおきくらいの段(バンディング)が出る。1階調未満のゆらぎを混ぜてから
+   丸めることで、その段を目に見えない粒に散らす。 */
+var BAYER=[0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5];
 
 /* ---------- 形 ---------- */
 var DEFAULT_SHAPE={
@@ -92,7 +97,8 @@ function setupAxes(){
 function resize(){
   W=window.innerWidth; H=window.innerHeight;
   canvas.width=W; canvas.height=H;
-  LW=LOW_W; LH=Math.max(2,Math.round(LOW_W*H/W));
+  LW=Math.max(2,Math.min(LOW_W,Math.round(W)));
+  LH=Math.max(2,Math.round(LW*H/W));
   low.width=LW; low.height=LH;
   lowImg=lctx.createImageData(LW,LH);
   lowData=lowImg.data;
@@ -129,15 +135,20 @@ function targetV(s,travel,drift){
     var m=marks[i];
     v += m.strength*gaussian(s-m.s,m.sigma);
   }
-  if(active) v += active.strength*gaussian(s-active.s,active.sigma);
   return v;
 }
 
 /* ---------- ロープ物理 ----------
    なぎさを質点の鎖として持たせてあるので、触るとゴムのように追従して揺れ、
-   離すとバネで少し弾んでから落ち着く。跡が増えるたびにその場所が揺れて収まる。 */
+   離すとバネで少し弾んでから落ち着く。
+
+   指は「その列のvを指の位置に置き換える」のではなく、近くの質点を指へ引っ張る
+   “力”として効かせている。前者は掴んだ瞬間になぎさが指へ瞬間移動してしまい、
+   ゴムを引く手応えがまるで無かった。力にすると、引けば伸び、素早く動かせば
+   遅れてしなり、離せば戻ろうとして揺れる。 */
 var nodes=[];
 var STIFF=58, COUPLE=165, DAMP=0.907;
+var PULL=210, PULL_SIGMA=0.13;
 
 function initNodes(){
   var n=84;
@@ -156,6 +167,10 @@ function stepPhysics(travel,drift){
     var a=i>0?nodes[i-1].v:nd.v;
     var b=i<n-1?nodes[i+1].v:nd.v;
     var acc=(tgt-nd.v)*STIFF+((a-nd.v)+(b-nd.v))*COUPLE;
+    if(active){
+      var w=gaussian(nd.s-active.s,PULL_SIGMA);
+      acc += (active.v-nd.v)*PULL*w;
+    }
     nd.vel=(nd.vel+acc*dt)*DAMP;
     nd.v+=nd.vel*dt;
   }
@@ -222,36 +237,42 @@ function screenToSV(x,y){
   return [(u-uMin)/uSpan, v];
 }
 
-function updateActive(x,y,travel,drift){
-  var sv=screenToSV(x,y), s=sv[0], v=sv[1];
+// 指はただの位置。引っ張る力はstepPhysicsが受け持つ
+function setFinger(x,y){
+  var sv=screenToSV(x,y), s=sv[0];
   if(s<0)s=0; if(s>1)s=1;
-  var bv=baseV(s,travel,drift);
-  for(var i=0;i<marks.length;i++){
-    var m=marks[i]; bv+=m.strength*gaussian(s-m.s,m.sigma);
-  }
-  active={s:s,strength:v-bv,sigma:0.08};
+  active={s:s,v:sv[1]};
 }
 
 canvas.addEventListener('pointerdown',function(e){
   if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
   e.preventDefault();
   pointerId=e.pointerId;
-  updateActive(e.clientX,e.clientY,lastTravel,lastDrift);
+  setFinger(e.clientX,e.clientY);
 },{passive:false});
 
 canvas.addEventListener('pointermove',function(e){
   if(pointerId===null||e.pointerId!==pointerId)return;
   e.preventDefault();
-  updateActive(e.clientX,e.clientY,lastTravel,lastDrift);
+  setFinger(e.clientX,e.clientY);
 },{passive:false});
+
+/* 離した時、いま実際に曲がっている分の一部だけを消えない跡として残す。
+   引いた量をまるごと残すと数回なぞっただけで形がぐちゃぐちゃになったので、
+   世界に刻まれるのは手応えより控えめ、という配分にしてある。 */
+var KEEP=0.34;
 
 function release(e){
   if(pointerId===null||e.pointerId!==pointerId)return;
   pointerId=null;
   if(active){
-    marks.push(active);
-    if(marks.length>MAX_MARKS)marks.shift();
+    var s=active.s;
+    var held=nodeVAt(s)-targetV(s,lastTravel,lastDrift);
     active=null;
+    if(Math.abs(held)>vSpan*0.004){
+      marks.push({s:s,strength:held*KEEP,sigma:PULL_SIGMA});
+      if(marks.length>MAX_MARKS)marks.shift();
+    }
   }
 }
 canvas.addEventListener('pointerup',release);
@@ -274,16 +295,21 @@ function render(time,phase){
   for(var j=0;j<LH;j++){
     var y=(j+0.5)*stepY;
     var uy=y*sinD, vy=y*cosD;
+    var brow=(j&3)<<2;
     for(var i=0;i<LW;i++){
       var x=(i+0.5)*stepX;
       var s=(x*cosD+uy-uMin)/uSpan;
       var v=-x*sinD+vy;
       var d=(v-nodeVAt(s))*inv+0.5;
-      var idx=d<=0?0:d>=1?255:(d*255)|0;
-      idx*=3;
-      lowData[p  ]=LUT[idx];
-      lowData[p+1]=LUT[idx+1];
-      lowData[p+2]=LUT[idx+2];
+      if(d<=0)d=0; else if(d>=1)d=1;
+      // LUTを段で読まず、前後を混ぜて連続値にする(段そのものを作らない)
+      var f=d*255, i0=f|0, i1=i0<255?i0+1:255, t=f-i0;
+      i0*=3; i1*=3;
+      // 1階調未満のゆらぎを足してから丸め、残るバンディングを粒に散らす
+      var dith=(BAYER[brow+(i&3)]/16)-0.5;
+      lowData[p  ]=LUT[i0  ]+(LUT[i1  ]-LUT[i0  ])*t+dith;
+      lowData[p+1]=LUT[i0+1]+(LUT[i1+1]-LUT[i0+1])*t+dith;
+      lowData[p+2]=LUT[i0+2]+(LUT[i1+2]-LUT[i0+2])*t+dith;
       lowData[p+3]=255;
       p+=4;
     }
