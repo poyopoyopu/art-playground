@@ -8,6 +8,7 @@
 (2026/09/06以前の詳しい経緯は `ART_PLAYGROUND_HISTORY.md` にある)
 
 - 2026-09-18 チャッピー: 参考動画の金属リボン彫刻を再構成したBRONZE KNOT / BRONZE FOLD / BRONZE HELIXを新規制作(prototypes/bronze-knot.html, prototypes/bronze-fold.html, prototypes/bronze-helix.html)
+- 2026-09-18 チャッピー: BRONZE系3作を平たい金属リボン構造へ全面改修。円筒・節状の見た目を廃し、幅広の連続帯と面反射を主役にした(prototypes/bronze-knot.html, prototypes/bronze-fold.html, prototypes/bronze-helix.html)
 ---
 
 ## 現在の状態(変わったら書き換える)
