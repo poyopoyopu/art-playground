@@ -1,0 +1,247 @@
+<!-- TIDE MARK — クロちゃん(Claude)作。おっちゃん提供の動画(虹色の境界が斜めに走るグラデーション)を参考に、
+     「境界=なぎさ」という世界のルールで再構成。ap-kit.js統合: クロちゃん -->
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>TIDE MARK — なぎさの法則</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#f2ece2;overflow:hidden;
+    -webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+  canvas{display:block;position:fixed;inset:0;width:100vw;height:100vh;touch-action:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script src="../ap-kit.js"></script>
+<script>
+(function(){
+"use strict";
+
+var canvas=document.getElementById('c');
+var ctx=canvas.getContext('2d',{alpha:false});
+var W=0,H=0,DPR=1;
+
+function resize(){
+  W=window.innerWidth; H=window.innerHeight;
+  DPR=Math.min(window.devicePixelRatio||1,2);
+  canvas.width=Math.round(W*DPR); canvas.height=Math.round(H*DPR);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+}
+addEventListener('resize',resize);
+addEventListener('orientationchange',resize);
+resize();
+
+/* ---------- 世界のルール ----------
+   画面には二つの気配(暖かい側/冷たい側)を分ける虹色のなぎさが一本、斜めに走っている。
+   指でなぞると、その場所でなぎさが押し出され、新しい満ち引きの跡(傷)になる。
+   跡は消えない。なぞるたびに、なぎさの形そのものが積み重なって変わっていく。
+   ✦は新しい満潮(全く新しいなぎさの形と色)を呼ぶ。↻は最初の凪の状態に戻す。
+------------------------------------ */
+
+var MAX_MARKS=140;
+var marks=[];       // 恒久的な跡 {s, strength, sigma}
+var active=null;    // ドラッグ中の一時的な跡
+
+var DEFAULT_SHAPE={tilt:0.34,amp:[38,16],freq:[1.15,2.7],phase:[0.4,2.1],hue:322};
+var shape=cloneShape(DEFAULT_SHAPE);
+
+function cloneShape(s){return {tilt:s.tilt,amp:s.amp.slice(),freq:s.freq.slice(),phase:s.phase.slice(),hue:s.hue};}
+
+function rand(a,b){return a+Math.random()*(b-a);}
+
+function randomShape(){
+  return {
+    tilt: rand(-0.55,0.55),
+    amp:[rand(20,60),rand(6,26)],
+    freq:[rand(0.7,1.8),rand(1.8,3.6)],
+    phase:[rand(0,6.28),rand(0,6.28)],
+    hue: rand(0,360)
+  };
+}
+
+/* ---------- 帯(なぎさの断面)ストリップ ---------- */
+var BAND_PX=170;
+var strip=document.createElement('canvas');
+strip.width=2; strip.height=BAND_PX;
+var sctx=strip.getContext('2d');
+
+function buildStrip(hue){
+  // hueは虹の芯(マゼンタ)の色相。+120で暖色側(黄)、-120で寒色側の芯(シアン)、
+  // -90でさらに冷たい縁(青紫)になるよう、色相環上の距離で組み立てる。
+  var stops=[
+    {p:0.00,h:hue+120,s:65,l:90,a:0.00},
+    {p:0.15,h:hue+120,s:72,l:80,a:0.30},
+    {p:0.35,h:hue,     s:90,l:60,a:0.88},
+    {p:0.48,h:hue-120, s:55,l:96,a:0.95},
+    {p:0.57,h:hue-120, s:92,l:58,a:0.85},
+    {p:0.78,h:hue-90,  s:65,l:86,a:0.30},
+    {p:1.00,h:hue-90,  s:60,l:90,a:0.00}
+  ];
+  var g=sctx.createLinearGradient(0,0,0,BAND_PX);
+  stops.forEach(function(st){
+    var h=((st.h%360)+360)%360;
+    g.addColorStop(st.p,'hsla('+h+','+st.s+'%,'+st.l+'%,'+st.a+')');
+  });
+  sctx.clearRect(0,0,2,BAND_PX);
+  sctx.fillStyle=g; sctx.fillRect(0,0,2,BAND_PX);
+}
+buildStrip(shape.hue);
+
+/* ---------- なぎさの形 ---------- */
+function gaussian(d,sigma){var v=d/sigma;return Math.exp(-0.5*v*v);}
+
+function baseY(s,ambient){
+  var y=H*0.5 + shape.tilt*(s-0.5)*W;
+  y += shape.amp[0]*Math.sin(shape.freq[0]*6.2832*s+shape.phase[0]);
+  y += shape.amp[1]*Math.sin(shape.freq[1]*6.2832*s+shape.phase[1]);
+  y += ambient*Math.sin(Math.PI*s);
+  return y;
+}
+
+function curveY(s,ambient){
+  var y=baseY(s,ambient);
+  for(var i=0;i<marks.length;i++){
+    var m=marks[i];
+    y += m.strength*gaussian(s-m.s,m.sigma);
+  }
+  if(active) y += active.strength*gaussian(s-active.s,active.sigma);
+  return y;
+}
+
+/* ---------- 入力 ---------- */
+var pointerId=null;
+
+function toS(clientX){return Math.min(1,Math.max(0,clientX/W));}
+
+function updateActive(clientX,clientY,ambient){
+  var s=toS(clientX);
+  var by=baseY(s,ambient);
+  for(var i=0;i<marks.length;i++){
+    var m=marks[i]; by+=m.strength*gaussian(s-m.s,m.sigma);
+  }
+  active={s:s,strength:clientY-by,sigma:0.085};
+}
+
+canvas.addEventListener('pointerdown',function(e){
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  e.preventDefault();
+  pointerId=e.pointerId;
+  updateActive(e.clientX,e.clientY,lastAmbient);
+},{passive:false});
+
+canvas.addEventListener('pointermove',function(e){
+  if(pointerId===null||e.pointerId!==pointerId)return;
+  e.preventDefault();
+  updateActive(e.clientX,e.clientY,lastAmbient);
+},{passive:false});
+
+function release(e){
+  if(pointerId===null||e.pointerId!==pointerId)return;
+  pointerId=null;
+  if(active){
+    marks.push(active);
+    if(marks.length>MAX_MARKS)marks.shift();
+    active=null;
+  }
+}
+canvas.addEventListener('pointerup',release);
+canvas.addEventListener('pointercancel',release);
+
+/* ---------- 描画 ---------- */
+var lastAmbient=0;
+var glintX=0,glintY=0;
+
+function bgColor(t,offset){
+  var h=(shape.hue+offset+Math.sin(t*0.06)*5+360)%360;
+  return h;
+}
+
+function render(time,phase){
+  var T=(window.APKit?APKit.T:function(k,ph,tm){return tm*k}).bind(null);
+  var breathe=T(0.55,phase,time);
+  var glintPhase=T(0.12,phase,time);
+  var ambient=Math.sin(breathe)*7;
+  lastAmbient=ambient;
+
+  // 背景: 暖かい側 / 冷たい側の淡いグラデーション
+  var g=ctx.createLinearGradient(0,0,W,H);
+  g.addColorStop(0,'hsl('+bgColor(time,120)+',50%,90%)');
+  g.addColorStop(0.5,'hsl('+bgColor(time,15)+',18%,95%)');
+  g.addColorStop(1,'hsl('+bgColor(time,-90)+',45%,92%)');
+  ctx.fillStyle=g;
+  ctx.fillRect(0,0,W,H);
+
+  // なぎさの帯
+  var stepW=4;
+  ctx.globalCompositeOperation='screen';
+  for(var x=0;x<=W;x+=stepW){
+    var s=x/W;
+    var y=curveY(s,ambient);
+    ctx.drawImage(strip,0,0,2,BAND_PX,x,y-BAND_PX/2,stepW+1,BAND_PX);
+  }
+  ctx.globalCompositeOperation='source-over';
+
+  // 満ち引きの跡(傷)を薄く強調する小さな光点
+  ctx.globalCompositeOperation='lighter';
+  for(var i=0;i<marks.length;i++){
+    var m=marks[i];
+    var mx=m.s*W, my=curveY(m.s,ambient);
+    var r=18+Math.min(26,Math.abs(m.strength)*0.12);
+    var rg=ctx.createRadialGradient(mx,my,0,mx,my,r);
+    rg.addColorStop(0,'rgba(255,255,255,0.10)');
+    rg.addColorStop(1,'rgba(255,255,255,0)');
+    ctx.fillStyle=rg;
+    ctx.beginPath();ctx.arc(mx,my,r,0,6.2832);ctx.fill();
+  }
+
+  // 揺らめく光の点(生きている感じ)
+  var gs=Math.sin(glintPhase)*0.5+0.5;
+  var gx=gs*W, gy=curveY(gs,ambient);
+  var glow=ctx.createRadialGradient(gx,gy,0,gx,gy,46);
+  glow.addColorStop(0,'rgba(255,255,255,0.55)');
+  glow.addColorStop(1,'rgba(255,255,255,0)');
+  ctx.fillStyle=glow;
+  ctx.beginPath();ctx.arc(gx,gy,46,0,6.2832);ctx.fill();
+  ctx.globalCompositeOperation='source-over';
+}
+
+/* ---------- メインループ ---------- */
+var t0=performance.now();
+function tick(now){
+  render((now-t0)/1000,null);
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+/* ---------- ✦ / ↻ ---------- */
+function mutate(){
+  shape=randomShape();
+  buildStrip(shape.hue);
+  marks.length=0; active=null;
+}
+function resetAll(){
+  shape=cloneShape(DEFAULT_SHAPE);
+  buildStrip(shape.hue);
+  marks.length=0; active=null;
+}
+
+window.APKit.init({
+  canvas:canvas,
+  gifName:'tide-mark-loop',
+  clockFormat:'spec',
+  dock:true,
+  autoHide:true,
+  fullscreenButton:false,
+  loopFrame:function(phase){render(0,phase);},
+  buttons:[
+    {label:'✦',name:'mutate',onClick:mutate},
+    {label:'↻',name:'reset',onClick:resetAll}
+  ]
+});
+
+})();
+</script>
+</body>
+</html>
