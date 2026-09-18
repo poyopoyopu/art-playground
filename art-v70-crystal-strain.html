@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>CRYSTAL STRAIN — FATIGUE LAW</title>
+<script src="ap-kit.js"></script>
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#msg{position:fixed;left:0;right:0;top:45%;text-align:center;color:#888;font:14px/1.6 system-ui;display:none}</style>
+</head><body>
+<canvas id="c"></canvas><div id="msg">この端末ではWebGL2が使えません</div>
+<script>
+'use strict';
+/*
+  CRYSTAL STRAIN — Claude(クロちゃん)作。ap-kit.js統合: Claude
+  CRYSTAL FRACTURE と CRYSTAL PRISM を1つの法則に統合した作品。
+  参考: makeitrad の StyleGAN3 結晶アニメーション(おっちゃん提供の動画)
+
+  世界のルール — 「歪みは溜まり、限界で相を変えて受け継がれる」:
+  なぞって捻ると、結晶の格子に歪み(strain)が蓄積する。捻れは離しても戻らない。
+  歪んだ結晶はその分だけ脆くなり、割れるのに必要な力が下がっていく。
+  指を置いて止めると応力がたまり、貫入亀裂が走り、限界を超えると砕ける。
+  歪みきった結晶は、軽く触れただけで砕ける。
+  離すと破片が集まって再結晶するが、戻ってくるのは元の結晶ではない。
+  それまでに捻った総量が、新しい相の対称数・分散・色に変換されて引き継がれる。
+  捻れの値そのものは0に戻るが、割れた跡(傷)と相の履歴は結晶の中に残り、消えない。
+  世代を重ねた結晶は、生まれた時点ですでに少し脆い。
+*/
+const c=document.getElementById('c');
+const gl=c.getContext('webgl2',{antialias:false,alpha:false,preserveDrawingBuffer:true});
+if(!gl){document.getElementById('msg').style.display='block';throw Error('no webgl2');}
+
+const VS=`#version 300 es
+in vec2 p;void main(){gl_Position=vec4(p,0.,1.);}`;
+function sh(t,s){const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);
+  if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(o));return o}
+function prog(fs){const p=gl.createProgram();gl.attachShader(p,sh(gl.VERTEX_SHADER,VS));
+  gl.attachShader(p,sh(gl.FRAGMENT_SHADER,fs));gl.bindAttribLocation(p,0,'p');gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(p));
+  const u={};const n=gl.getProgramParameter(p,gl.ACTIVE_UNIFORMS);
+  for(let i=0;i<n;i++){const a=gl.getActiveUniform(p,i);u[a.name.replace('[0]','')]=gl.getUniformLocation(p,a.name)}
+  return {p,u}}
+const vb=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,vb);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+
+const NCUT=5,NSCAR=8;
+
+const FS=`#version 300 es
+precision highp float;
+out vec4 O;
+uniform vec2 res;
+uniform float k;
+uniform float tw;      /* いまの捻れ */
+uniform float disp;    /* 分散の強さ */
+uniform float strain;  /* 蓄積した歪み 0..1。高いほど脆い */
+uniform float burst;   /* 破片の離れ具合 */
+uniform float crack;   /* 貫入亀裂の太さ */
+uniform float hue,gen,sym,carry;
+uniform float seedA,seedB;
+uniform float nscar;
+uniform vec4 cut[${NCUT}];
+uniform vec4 scar[${NSCAR}];
+
+mat2 rot(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}
+float sdOcta(vec3 p,float s){p=abs(p);return (p.x+p.y+p.z-s)*0.57735;}
+vec3 pal(float x){return 0.5+0.5*cos(6.28318*(x+vec3(0.0,0.33,0.67)));}
+
+float body(vec3 p){
+  /* 捻れの法則。高さに沿って空間そのものがねじれる */
+  p.xz*=rot(tw*p.y*0.9);
+  float s=1.0,d=1e9;
+  vec3 q=p;
+  for(int i=0;i<5;i++){
+    q=abs(q);
+    if(q.x<q.y)q.xy=q.yx;
+    if(q.x<q.z)q.xz=q.zx;
+    if(q.y<q.z)q.yz=q.zy;
+    /* 深い階層ほど強く捻れる = 自己相似そのものが歪んでいく */
+    q.xz*=rot(seedA+0.62831*sym*0.08+0.1*float(i)+tw*0.13*float(i));
+    q=q*1.6-vec3(0.95,0.42,0.9)*0.6;
+    q.xy*=rot(seedB+0.04*float(i));
+    s*=1.6;
+    d=min(d,sdOcta(q,0.94+0.05*sin(k+float(i))+0.04*carry)/s);
+  }
+  return d;
+}
+
+float map(vec3 p){
+  /* 破片ごとに外へずれる */
+  vec3 o=vec3(0.0);
+  for(int i=0;i<${NCUT};i++){
+    float s=dot(p,cut[i].xyz)-cut[i].w;
+    o+=cut[i].xyz*(s>0.0?1.0:-1.0)*burst*(0.16+0.05*float(i));
+  }
+  float d=body(p-o);
+
+  /* 疲労のひび(クレージング)。歪みが溜まるほど細かい亀裂が体中に広がる */
+  if(strain>0.02){
+    float w1=abs(sin(dot(p,vec3(0.71,0.34,0.62))*15.0+seedA))/15.0;
+    float w2=abs(sin(dot(p,vec3(-0.42,0.78,0.46))*11.0+seedB))/11.0;
+    float cz=strain*0.016;
+    d=max(d,cz-w1);
+    d=max(d,cz*0.8-w2);
+  }
+  /* いま走っている貫入亀裂 */
+  for(int i=0;i<${NCUT};i++){
+    float s=abs(dot(p,cut[i].xyz)-cut[i].w);
+    d=max(d,crack-s);
+  }
+  /* 過去に割れた跡。世代をまたいで消えない */
+  for(int i=0;i<${NSCAR};i++){
+    if(float(i)>=nscar)break;
+    float s=abs(dot(p,scar[i].xyz)-scar[i].w);
+    d=max(d,0.008-s);
+  }
+  /* 捻れで距離が伸びるので、進みすぎないように縮める */
+  return d*0.86/(1.0+0.22*abs(tw));
+}
+vec3 nrm(vec3 p){
+  vec2 e=vec2(1.0,-1.0)*0.0015;
+  return normalize(e.xyy*map(p+e.xyy)+e.yyx*map(p+e.yyx)+e.yxy*map(p+e.yxy)+e.xxx*map(p+e.xxx));
+}
+
+void main(){
+  vec2 uv=(gl_FragCoord.xy*2.0-res)/res.y;
+  vec3 ro=vec3(0.0,0.05*sin(k*2.0),-4.4),rd=normalize(vec3(uv,1.75));
+  mat2 R=rot(k);
+  ro.xz*=R; rd.xz*=R;
+
+  float t=0.15;bool hit=false;
+  for(int i=0;i<96;i++){
+    vec3 p=ro+rd*t;float d=map(p);
+    if(d<0.0013*t){hit=true;break;}
+    t+=d; if(t>12.0)break;
+  }
+
+  float g=exp(-2.2*length(uv-vec2(0.0,-0.08)));
+  vec3 col=vec3(0.05,0.055,0.068)*g*3.4;
+  col+=pal(hue+0.3)*g*0.05*min(carry,3.0);
+  /* 応力がたまると背後が赤くにじむ。脆いほど早くにじむ */
+  col+=vec3(0.16,0.03,0.05)*g*crack*22.0;
+
+  if(hit){
+    vec3 p=ro+rd*t,n=nrm(p);
+    float fres=pow(1.0-max(dot(n,-rd),0.0),4.0);
+    vec3 rr=refract(rd,n,0.73-0.05*sin(tw));
+    if(dot(rr,rr)<0.001)rr=reflect(rd,n);
+    vec3 ip=p-n*0.012;float thick=0.0;
+    for(int i=0;i<12;i++){
+      float d=map(ip);
+      if(d>-0.001)break;
+      float st=max(0.025,-d);
+      ip+=rr*st;thick+=st;
+    }
+    /* 光の法則: 厚み・捻れに巻きついた角度・分散で虹の位相が決まる */
+    float ang=atan(n.z,n.x);
+    float ph=thick*(5.5+disp*9.0+gen*0.6)+ang*(1.0+tw*0.9)+n.y*tw*2.2;
+    float sep=1.0+disp*0.35;
+    vec3 d3=0.5+0.5*cos(vec3(ph,ph*(1.0+0.07*sep)+0.9,ph*(1.0+0.15*sep)+1.9));
+    vec3 base=pal(hue+thick*0.2+0.12*n.y+0.04*carry);
+    col=base*d3*(0.42+0.95*fres)+base*0.15;
+    vec3 L=normalize(vec3(0.55,0.85,-0.6));
+    col+=vec3(1.0)*pow(max(dot(reflect(rd,n),L),0.0),46.0)*0.85;
+    col+=pal(hue+0.52)*fres*0.4;
+    /* 疲労した結晶は内側が白く濁る。割れている最中は断面が熱を持つ */
+    col+=vec3(0.72,0.76,0.85)*strain*fres*0.35;
+    col+=vec3(1.0,0.45,0.35)*burst*fres*0.5;
+    col*=1.0-0.04*t;
+  }
+  col=pow(max(col,0.0),vec3(0.85));
+  O=vec4(col,1.0);
+}`;
+const P=prog(FS),U=P.u;
+
+/* ---------- 状態 ---------- */
+let W=0,H=0,DPR=1;
+let tw=0,disp=0,strain=0,floorStrain=0,carry=0;
+let stress=0,burst=0,crack=0,gen=0,sym=3;
+let hue=Math.random(),seedA=0.3,seedB=0.2,paused=false;
+let mode='calm';          /* calm / breaking / reform */
+let holding=false,speed=0;
+let cuts=[],scars=[];
+const cutBuf=new Float32Array(NCUT*4),scarBuf=new Float32Array(NSCAR*4);
+
+function resize(){
+  DPR=Math.min(window.devicePixelRatio||1,1.4);
+  W=window.innerWidth;H=window.innerHeight;
+  c.width=Math.max(1,Math.round(W*DPR));c.height=Math.max(1,Math.round(H*DPR));
+}
+window.addEventListener('resize',resize);resize();
+
+function rndDir(){
+  const z=Math.random()*2-1,a=Math.random()*6.28318,r=Math.sqrt(1-z*z);
+  return [r*Math.cos(a),z,r*Math.sin(a)];
+}
+function newCuts(){
+  cuts=[];
+  for(let i=0;i<NCUT;i++)cuts.push({n:rndDir(),w:(Math.random()-0.5)*0.8});
+}
+function seedWorld(){
+  tw=0;disp=0;strain=0;floorStrain=0;carry=0;
+  stress=0;burst=0;crack=0;gen=0;sym=3;mode='calm';
+  hue=Math.random();seedA=0.15+Math.random()*0.6;seedB=0.05+Math.random()*0.5;
+  scars=[];newCuts();
+}
+seedWorld();
+
+/* 割れるのに必要な力。歪んでいるほど小さい */
+function threshold(){return Math.max(0.1,1.0-0.82*strain)}
+
+function keepScars(){
+  for(const q of cuts.slice(0,3))scars.push({n:q.n.slice(),w:q.w});
+  while(scars.length>NSCAR)scars.shift();
+}
+function hairline(x,y){
+  let u=(2*x-W)/H, v=(H-2*y)/H;
+  const L=Math.hypot(u,v)||1;u/=L;v/=L;
+  const cs=Math.cos(phase),sn=Math.sin(phase);
+  scars.push({n:[u*cs,v,u*sn],w:(Math.random()-0.5)*0.5});
+  while(scars.length>NSCAR)scars.shift();
+}
+
+let ptr=null,downAt=0;
+c.addEventListener('pointerdown',e=>{
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  e.preventDefault();c.setPointerCapture&&c.setPointerCapture(e.pointerId);
+  if(mode==='reform')return;
+  ptr={id:e.pointerId,x:e.clientX,y:e.clientY};downAt=performance.now();holding=true;speed=0;
+});
+c.addEventListener('pointermove',e=>{
+  if(!ptr||e.pointerId!==ptr.id)return;
+  const dx=(e.clientX-ptr.x)/Math.max(1,W), dy=(e.clientY-ptr.y)/Math.max(1,H);
+  ptr.x=e.clientX;ptr.y=e.clientY;
+  speed=Math.min(1,speed*0.7+(Math.abs(dx)+Math.abs(dy))*14.0);
+  if(mode!=='calm')return;
+  /* 横 = 捻る。離しても戻らない */
+  tw+=dx*3.4;
+  /* 上へなぞる = 分散が強くなる */
+  disp=Math.max(0,Math.min(3.2,disp-dy*2.2));
+  /* 捻った分だけ格子が歪み、脆くなる */
+  strain=Math.min(1,strain+(Math.abs(dx)*2.0+Math.abs(dy)*0.5));
+  carry+=Math.abs(dx)*3.4+Math.abs(dy)*0.8;
+  hue=(hue+Math.abs(dx)*0.22)%1;
+});
+function up(e){
+  if(!ptr||e.pointerId!==ptr.id)return;
+  const held=performance.now()-downAt;
+  holding=false;ptr=null;speed=0;
+  if(mode==='breaking'){mode='reform';}
+  else if(held<220&&mode==='calm'){
+    /* 歪みきった結晶は、軽く触れただけで砕ける */
+    if(strain>0.8)mode='breaking';
+    else hairline(e.clientX,e.clientY);
+  }
+}
+c.addEventListener('pointerup',up);c.addEventListener('pointercancel',up);
+
+function sim(dt){
+  if(mode==='calm'){
+    /* 指を置いて止めているときだけ応力がたまる(動かしている間は捻り操作) */
+    if(holding)stress=Math.min(1.6,stress+dt*0.62*(1.0-speed));
+    else stress=Math.max(0,stress-dt*0.5);
+    const th=threshold();
+    crack=Math.max(0,stress-th*0.3)*0.06;
+    if(stress>=th)mode='breaking';
+  }else if(mode==='breaking'){
+    burst=Math.min(1,burst+dt*1.05);
+    crack=0.055+0.02*Math.sin(performance.now()*0.01);
+    if(!holding)mode='reform';
+  }else{
+    burst=Math.max(0,burst-dt*0.8);
+    crack=Math.max(0,crack-dt*0.06);
+    tw*=Math.pow(0.05,dt);   /* 捻れは破片と一緒にほどける */
+    if(burst<=0.001&&crack<=0.001){
+      /* 再結晶。捻った総量が新しい相の性質に変換されて引き継がれる */
+      keepScars();
+      gen+=1;
+      sym=3+Math.floor((carry*1.7+Math.random())%5);
+      disp=Math.min(3.2,disp*0.55+Math.min(1.6,carry*0.35));
+      hue=(hue+0.17+Math.min(0.35,carry*0.09))%1;
+      seedA=0.15+Math.random()*0.6;seedB=0.05+Math.random()*0.5;
+      newCuts();
+      tw=0;stress=0;
+      floorStrain=Math.min(0.5,floorStrain+0.06);  /* 世代を重ねるほど、生まれつき脆い */
+      strain=floorStrain;
+      mode='calm';
+    }
+  }
+}
+
+function render(k){
+  gl.useProgram(P.p);
+  gl.viewport(0,0,c.width,c.height);
+  gl.uniform2f(U.res,c.width,c.height);
+  gl.uniform1f(U.k,k);
+  gl.uniform1f(U.tw,tw);
+  gl.uniform1f(U.disp,disp);
+  gl.uniform1f(U.strain,strain);
+  gl.uniform1f(U.burst,burst);
+  gl.uniform1f(U.crack,crack);
+  gl.uniform1f(U.hue,hue);
+  gl.uniform1f(U.gen,gen);
+  gl.uniform1f(U.sym,sym);
+  gl.uniform1f(U.carry,carry);
+  gl.uniform1f(U.seedA,seedA);gl.uniform1f(U.seedB,seedB);
+  gl.uniform1f(U.nscar,scars.length);
+  cutBuf.fill(0);
+  cuts.forEach((q,i)=>{if(i<NCUT)cutBuf.set([q.n[0],q.n[1],q.n[2],q.w],i*4)});
+  gl.uniform4fv(U.cut,cutBuf);
+  scarBuf.fill(0);
+  scars.slice(0,NSCAR).forEach((q,i)=>{scarBuf.set([q.n[0],q.n[1],q.n[2],q.w],i*4)});
+  gl.uniform4fv(U.scar,scarBuf);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+}
+
+let phase=0,last=performance.now();
+function frame(now){
+  const dt=Math.min(0.05,(now-last)/1000);last=now;
+  if(!paused){
+    phase=(phase+dt*0.2)%(Math.PI*2);
+    speed*=Math.pow(0.02,dt);
+    sim(dt);
+    render(phase);
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+APKit.init({
+  canvas:c,
+  gifName:'crystal-strain-loop',
+  clockFormat:'spec',
+  dock:true,
+  autoHide:true,
+  fullscreenButton:false,
+  /* 割れと再結晶は物理なのでGIF中は止め、いまの状態のまま一回転させてループにする */
+  loopFrame:function(ph){paused=true;render(ph);},
+  onExportEnd:function(){paused=false;last=performance.now();},
+  buttons:[
+    {label:'✦',name:'mutate',onClick:function(){
+      /* 結晶の素性と割れ方の癖を変える。歪み・傷・世代(=触った履歴)はそのまま */
+      seedA=0.15+Math.random()*0.6;seedB=0.05+Math.random()*0.5;
+      sym=3+Math.floor(Math.random()*5);hue=Math.random();newCuts();
+    }},
+    {label:'↻',name:'reset',onClick:function(){seedWorld();}}
+  ]
+});
+</script>
+</body></html>
