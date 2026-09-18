@@ -124,27 +124,52 @@ canvas.addEventListener('pointerup',release);
 canvas.addEventListener('pointercancel',release);
 
 /* ---------- 帯(なぎさの断面) ----------
-   ラスタ画像を並べて敷き詰める方式だと、継ぎ目に縦縞のモアレが出てしまったので、
-   一本の曲線パス(オフセットストローク)を重ねる方式に描き直した。
-   細く鮮やかな線(マゼンタ/シアン)を、太く淡いグロー(暖色/寒色)の上に重ねる。
-   最後にオフスクリーンごとぼかして本体へ合成するので、継ぎ目は出ない。 */
+   ラスタ画像を敷き詰める方式は継ぎ目にモアレが出た。オフスクリーン+ctx.filter='blur()'に
+   直したら、今度は半透明の重なりの上でぼかした時に色相がずれる(マゼンタが緑に見える等の)
+   問題が出た(iOS Safariのcanvas blurフィルタでよく起きる既知の症状)。
+   なのでfilterには頼らず、同じ曲線パスを「太く薄く」→「細く濃く」と複数回ストロークして
+   疑似的なグロー(にじみ)を作る方式にした。色がずれる心配がない。 */
 var lastAmbient=0;
-var bandCanvas=document.createElement('canvas');
-var bctx=bandCanvas.getContext('2d');
 
 function bgColor(t,offset){
   var h=(shape.hue+offset+Math.sin(t*0.06)*5+360)%360;
   return h;
 }
 
+// hueは虹の芯(マゼンタ)の色相。色相環上の実際の距離で暖色/寒色を決める
+// (+82→金、-140→シアン、-76→青紫)。
 function bandsFor(hue){
   return [
-    {off:-52, width:118, h:hue+120, s:60, l:86, a:0.20}, // 暖色側の淡いグロー
-    {off: 52, width:118, h:hue-90,  s:55, l:87, a:0.20}, // 寒色側の淡いグロー
-    {off:-15, width:26,  h:hue,     s:92, l:58, a:0.82}, // マゼンタの芯
-    {off: 15, width:26,  h:hue-120, s:92, l:56, a:0.82}, // シアンの芯
-    {off:  0, width:9,   h:hue-120, s:35, l:97, a:0.90}  // 中心のハイライト線
+    {off:-52, width:104, h:hue+82,  s:58, l:85, a:0.16, glow:true},  // 暖色側(金)の淡い霞
+    {off: 52, width:104, h:hue-76,  s:52, l:86, a:0.16, glow:true},  // 寒色側(青紫)の淡い霞
+    {off:-14, width:22,  h:hue,     s:90, l:58, a:0.80, glow:false}, // マゼンタの芯
+    {off: 14, width:22,  h:hue-140, s:88, l:54, a:0.80, glow:false}, // シアンの芯
+    {off:  0, width:8,   h:hue-140, s:30, l:97, a:0.92, glow:false}  // 中心のハイライト線
   ];
+}
+
+function strokePath(ctx2,pts,off,hh,sat,light,width,alpha){
+  ctx2.beginPath();
+  ctx2.moveTo(pts[0][0],pts[0][1]+off);
+  for(var j=1;j<pts.length;j++)ctx2.lineTo(pts[j][0],pts[j][1]+off);
+  ctx2.lineJoin='round';ctx2.lineCap='round';
+  ctx2.lineWidth=width;
+  ctx2.strokeStyle='hsla('+hh+','+sat+'%,'+light+'%,'+alpha+')';
+  ctx2.stroke();
+}
+
+// glowバンドは太く薄い層を3枚重ねて縁をにじませ、最後に定義どおりの層を乗せる。
+// 芯のバンドも、ごく薄いひと回り太い層を1枚下に敷いて柔らかさを少しだけ足す。
+var GLOW_PASSES=[[2.6,0.28],[1.8,0.42],[1.25,0.65]];
+var CORE_PASSES=[[1.8,0.30]];
+
+function drawBand(ctx2,pts,band){
+  var hh=((band.h%360)+360)%360;
+  var passes=band.glow?GLOW_PASSES:CORE_PASSES;
+  for(var i=0;i<passes.length;i++){
+    strokePath(ctx2,pts,band.off,hh,band.s,band.l,band.width*passes[i][0],band.a*passes[i][1]);
+  }
+  strokePath(ctx2,pts,band.off,hh,band.s,band.l,band.width,band.a);
 }
 
 function render(time,phase){
@@ -156,9 +181,9 @@ function render(time,phase){
 
   // 背景: 暖かい側 / 冷たい側の淡いグラデーション
   var g=ctx.createLinearGradient(0,0,W,H);
-  g.addColorStop(0,'hsl('+bgColor(time,120)+',48%,88%)');
-  g.addColorStop(0.5,'hsl('+bgColor(time,15)+',20%,94%)');
-  g.addColorStop(1,'hsl('+bgColor(time,-90)+',42%,90%)');
+  g.addColorStop(0,'hsl('+bgColor(time,82)+',46%,89%)');
+  g.addColorStop(0.5,'hsl('+bgColor(time,0)+',16%,94%)');
+  g.addColorStop(1,'hsl('+bgColor(time,-76)+',40%,90%)');
   ctx.fillStyle=g;
   ctx.fillRect(0,0,W,H);
 
@@ -170,49 +195,32 @@ function render(time,phase){
     pts[i]=[s*W,curveY(s,ambient)];
   }
 
-  if(bandCanvas.width!==W||bandCanvas.height!==H){bandCanvas.width=W;bandCanvas.height=H;}
-  bctx.clearRect(0,0,W,H);
-
   var bands=bandsFor(shape.hue);
-  for(var b=0;b<bands.length;b++){
-    var band=bands[b];
-    var hh=((band.h%360)+360)%360;
-    bctx.beginPath();
-    bctx.moveTo(pts[0][0],pts[0][1]+band.off);
-    for(var j=1;j<pts.length;j++)bctx.lineTo(pts[j][0],pts[j][1]+band.off);
-    bctx.lineJoin='round';bctx.lineCap='round';
-    bctx.lineWidth=band.width;
-    bctx.strokeStyle='hsla('+hh+','+band.s+'%,'+band.l+'%,'+band.a+')';
-    bctx.stroke();
-  }
+  for(var b=0;b<bands.length;b++)drawBand(ctx,pts,bands[b]);
 
   // 満ち引きの跡(傷)を薄く強調する小さな光点
   for(var k=0;k<marks.length;k++){
     var m=marks[k];
     var mx=m.s*W, my=curveY(m.s,ambient);
     var r=16+Math.min(24,Math.abs(m.strength)*0.10);
-    var rg=bctx.createRadialGradient(mx,my,0,mx,my,r);
-    rg.addColorStop(0,'hsla('+shape.hue+',70%,80%,0.28)');
+    var rg=ctx.createRadialGradient(mx,my,0,mx,my,r);
+    rg.addColorStop(0,'hsla('+shape.hue+',70%,80%,0.24)');
     rg.addColorStop(1,'hsla('+shape.hue+',70%,80%,0)');
-    bctx.fillStyle=rg;
-    bctx.beginPath();bctx.arc(mx,my,r,0,6.2832);bctx.fill();
+    ctx.fillStyle=rg;
+    ctx.beginPath();ctx.arc(mx,my,r,0,6.2832);ctx.fill();
   }
 
   // 揺らめく光の点(生きている感じ)
   var gs=Math.sin(glintPhase)*0.5+0.5;
   var gx=gs*W, gy=curveY(gs,ambient);
-  var glow=bctx.createRadialGradient(gx,gy,0,gx,gy,30);
-  glow.addColorStop(0,'hsla('+((shape.hue-120+360)%360)+',55%,94%,0.5)');
-  glow.addColorStop(1,'hsla('+((shape.hue-120+360)%360)+',55%,94%,0)');
-  bctx.fillStyle=glow;
-  bctx.beginPath();bctx.arc(gx,gy,30,0,6.2832);bctx.fill();
-
-  // オフスクリーンをぼかして本体へ。継ぎ目のない柔らかい光になる
-  ctx.save();
-  ctx.filter='blur(13px)';
-  ctx.drawImage(bandCanvas,0,0,W,H);
-  ctx.restore();
+  var glow=ctx.createRadialGradient(gx,gy,0,gx,gy,28);
+  var glintHue=((shape.hue-140+360)%360);
+  glow.addColorStop(0,'hsla('+glintHue+',50%,94%,0.45)');
+  glow.addColorStop(1,'hsla('+glintHue+',50%,94%,0)');
+  ctx.fillStyle=glow;
+  ctx.beginPath();ctx.arc(gx,gy,28,0,6.2832);ctx.fill();
 }
+
 
 /* ---------- メインループ ---------- */
 var t0=performance.now();
