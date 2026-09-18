@@ -13,8 +13,8 @@
 
 ## 現在の状態(変わったら書き換える)
 
-- CURRENT: TAR CEILING(`art-v68-tar-ceiling.html`)
-- LOG先頭: TIDE MARK(`art-v71-tide-mark.html`)
+- CURRENT: TIDE MARK(`art-v71-tide-mark.html`)
+- LOG先頭: TAR CEILING(`art-v68-tar-ceiling.html`)
 - 作業ルール: `AGENTS.md`(ギャラリー追加の手順と命名ルールは13章)
 - 運用メモ: `NOTES.md`(GitHub操作は可能性を確認してから実行)
 
@@ -22,6 +22,7 @@
 
 ## 履歴
 
+- 2026-09-18 クロード: TIDE MARKをCURRENTに変更。それまでのCURRENTだったTAR CEILINGはLOG先頭へ移動、Published works先頭もTIDE MARKに(index.html)
 - 2026-09-18 クロード: TIDE MARKを採用。art-v71として昇格し(ap-kit.jsの相対パスをルート用に修正)、ギャラリーLOG先頭とPublished worksに追加。表示名はTIDE MARK(名前はクロードに一任)(art-v71-tide-mark.html, index.html)
 - 2026-09-18 クロード: TIDE MARKの法則をおっちゃんの案「タッチで溶ける」に変更。触れた場所は溶けて二度と戻らず、溶けた所は①色を束ねていられず虹が幅いっぱいに広がる②彩度を失って淡い灰へ濁る③自分の重みで垂れ下がる④柔らかくなって次はもっと簡単に引き伸ばせる。触り続けると虹はその場所から順に失われ、最後は色の分かれ目のないただの淡い場だけが残る。実装は距離を割るspreadを位置ごとに変える形(prototypes/tide-mark.html)
 - 2026-09-18 クロード: TIDE MARKの滑らかさとタッチ感を改善。①淡い部分に約10pxおきの色の段(バンディング)が出ていた原因は、256段のLUTを段のまま読んでいたこと→前後の値を混ぜた連続サンプリング+4x4ベイヤーディザで段を粒に散らし、バッファ解像度も上げた(検証で段数8→188に細分化、負荷2.5ms/frame)。②タッチが気持ち悪かった原因は、掴んだ瞬間になぎさが指の位置へ瞬間移動する実装だったこと→指を「近くの質点を引っ張る力」として効かせる方式に変更し、引けば伸び・素早く動かせばしなり・離せば揺れて戻るようにした。離した時に残る消えない跡は引いた量の34%だけにして、数回で形が崩壊しないよう配分(prototypes/tide-mark.html)
