@@ -174,37 +174,37 @@ function render(time,phase){
   ctx.fillRect(0,0,W,H);
 
   // なぎさの帯
+  // 背景がもともと明るいパステルなので、'screen'で重ねると色がほぼ白へ飛んでしまう
+  // (screenは暗い背景の上で光らせる合成で、明るい背景では効果がほぼ出ない)。
+  // 帯は通常合成(source-over)で乗せて、実際の色をそのまま見せる。
   var stepW=4;
-  ctx.globalCompositeOperation='screen';
   for(var x=0;x<=W;x+=stepW){
     var s=x/W;
     var y=curveY(s,ambient);
     ctx.drawImage(strip,0,0,2,BAND_PX,x,y-BAND_PX/2,stepW+1,BAND_PX);
   }
-  ctx.globalCompositeOperation='source-over';
 
-  // 満ち引きの跡(傷)を薄く強調する小さな光点
-  ctx.globalCompositeOperation='lighter';
+  // 満ち引きの跡(傷)を薄く強調する小さな光点(帯の色に寄せた淡い光にして、
+  // 白い円がぽつんと浮くのを避ける)
   for(var i=0;i<marks.length;i++){
     var m=marks[i];
     var mx=m.s*W, my=curveY(m.s,ambient);
-    var r=18+Math.min(26,Math.abs(m.strength)*0.12);
+    var r=16+Math.min(24,Math.abs(m.strength)*0.10);
     var rg=ctx.createRadialGradient(mx,my,0,mx,my,r);
-    rg.addColorStop(0,'rgba(255,255,255,0.10)');
-    rg.addColorStop(1,'rgba(255,255,255,0)');
+    rg.addColorStop(0,'hsla('+shape.hue+',70%,85%,0.20)');
+    rg.addColorStop(1,'hsla('+shape.hue+',70%,85%,0)');
     ctx.fillStyle=rg;
     ctx.beginPath();ctx.arc(mx,my,r,0,6.2832);ctx.fill();
   }
 
-  // 揺らめく光の点(生きている感じ)
+  // 揺らめく光の点(生きている感じ)。帯の芯の色に近い、控えめなきらめき
   var gs=Math.sin(glintPhase)*0.5+0.5;
   var gx=gs*W, gy=curveY(gs,ambient);
-  var glow=ctx.createRadialGradient(gx,gy,0,gx,gy,46);
-  glow.addColorStop(0,'rgba(255,255,255,0.55)');
-  glow.addColorStop(1,'rgba(255,255,255,0)');
+  var glow=ctx.createRadialGradient(gx,gy,0,gx,gy,34);
+  glow.addColorStop(0,'hsla('+(shape.hue-120+360)%360+',60%,92%,0.35)');
+  glow.addColorStop(1,'hsla('+(shape.hue-120+360)%360+',60%,92%,0)');
   ctx.fillStyle=glow;
-  ctx.beginPath();ctx.arc(gx,gy,46,0,6.2832);ctx.fill();
-  ctx.globalCompositeOperation='source-over';
+  ctx.beginPath();ctx.arc(gx,gy,34,0,6.2832);ctx.fill();
 }
 
 /* ---------- メインループ ---------- */
