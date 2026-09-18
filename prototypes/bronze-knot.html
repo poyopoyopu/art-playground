@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>BRONZE KNOT</title>
+<script src="../ap-kit.js"></script>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#e9e7e3}
+body{touch-action:none}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+/* BRONZE KNOT — ChatGPT作。ap-kit.js統合: ChatGPT
+   Reference study: polished bronze ribbon sculpture / continuous closed form.
+*/
+const canvas=document.getElementById('c'),ctx=canvas.getContext('2d');
+let W=0,H=0,D=1,seed=71,law=0,down=false,px=0,py=0,drag=0;
+const TAU=Math.PI*2, N=260, LOOP=6.0;
+
+function rnd(){const x=Math.sin(seed*12.9898)*43758.5453;seed=(seed+0.731)*1.137;return x-Math.floor(x)}
+function resize(){D=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;canvas.width=W*D;canvas.height=H*D;ctx.setTransform(D,0,0,D,0,0)}
+addEventListener('resize',resize);resize();
+
+function rotX(p,a){const c=Math.cos(a),s=Math.sin(a);return{x:p.x,y:p.y*c-p.z*s,z:p.y*s+p.z*c}}
+function rotY(p,a){const c=Math.cos(a),s=Math.sin(a);return{x:p.x*c+p.z*s,y:p.y,z:-p.x*s+p.z*c}}
+function rotZ(p,a){const c=Math.cos(a),s=Math.sin(a);return{x:p.x*c-p.y*s,y:p.x*s+p.y*c,z:p.z}}
+
+function center(u,phase){
+  const a=u*TAU;
+  const twist=0.22*Math.sin(phase);
+  const p=2,q=1;
+  const rr=1.45+0.72*Math.cos(q*a+twist);
+  let x=rr*Math.cos(p*a), y=rr*Math.sin(p*a), z=0.72*Math.sin(q*a+twist);
+  const breathe=1+0.035*Math.sin(phase*2+1.2*a);
+  x*=breathe;y*=breathe;
+  let v={x:x,y:y,z:z};
+  v=rotX(v,-0.32+0.12*Math.sin(phase));
+  v=rotY(v,0.15+0.18*Math.cos(phase));
+  v=rotZ(v,0.1);
+  return v;
+}
+function project(p){
+  const cam=4.7, s=Math.min(W,H)*0.235, k=cam/(cam-p.z);
+  return {x:W*.5+p.x*s*k,y:H*.5+p.y*s*k,z:p.z,k};
+}
+function shade(n,z,phase,band){
+  const Lx=Math.cos(-0.9+phase*.35),Ly=Math.sin(-0.9+phase*.35),Lz=.72;
+  const d=n.x*Lx+n.y*Ly+n.z*Lz;
+  const v=.5+.5*Math.max(-1,Math.min(1,d));
+  const warm=0.5+0.5*Math.sin(band*TAU*2.0+phase*.7+seed*.1);
+  const r=Math.round(40+150*v+38*warm),g=Math.round(25+105*v+22*warm),b=Math.round(18+62*v);
+  return [Math.min(255,r),Math.min(210,g),Math.min(150,b)];
+}
+function draw(phase){
+  ctx.clearRect(0,0,W,H);
+  const bg=ctx.createRadialGradient(W*.5,H*.45,0,W*.5,H*.5,Math.max(W,H)*.72);
+  bg.addColorStop(0,'#f6f4f0');bg.addColorStop(.65,'#e9e7e3');bg.addColorStop(1,'#d9d6d0');
+  ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
+
+  const pts=[];
+  for(let i=0;i<N;i++){
+    const u=i/N;
+    const p=center(u,phase);
+    const prev=center((u-.002+1)%1,phase), next=center((u+.002)%1,phase);
+    let tx=next.x-prev.x,ty=next.y-prev.y,tz=next.z-prev.z;
+    const tl=Math.hypot(tx,ty,tz)||1;tx/=tl;ty/=tl;tz/=tl;
+    // ribbon width direction: stable world-up frame, with a slow lawful roll
+    let nx=-ty,ny=tx,nz=0;
+    const nl=Math.hypot(nx,ny)||1;nx/=nl;ny/=nl;
+    const roll=0.55*Math.sin(phase+u*TAU*2+law)+0.22*Math.cos(u*TAU*3-phase*.6);
+    const bx=ty*nz-tz*ny, by=tz*nx-tx*nz, bz=tx*ny-ty*nx;
+    const cx=nx*Math.cos(roll)+bx*Math.sin(roll),cy=ny*Math.cos(roll)+by*Math.sin(roll),cz=nz*Math.cos(roll)+bz*Math.sin(roll);
+    const width=0.23*(1+0.14*Math.sin(u*TAU*3+phase*2));
+    const a={x:p.x+cx*width,y:p.y+cy*width,z:p.z+cz*width};
+    const b={x:p.x-cx*width,y:p.y-cy*width,z:p.z-cz*width};
+    pts.push({a:project(a),b:project(b),z:p.z,n:{x:cx,y:cy,z:cz},u});
+  }
+  // soft ground shadow
+  ctx.save();ctx.translate(W*.5,H*.69);ctx.scale(1,.24);
+  ctx.filter='blur(22px)';ctx.fillStyle='rgba(45,32,22,.20)';ctx.beginPath();ctx.ellipse(0,0,Math.min(W,H)*.28,Math.min(W,H)*.12,0,0,TAU);ctx.fill();ctx.restore();ctx.filter='none';
+
+  const segs=[];
+  for(let i=0;i<N;i++){const j=(i+1)%N;segs.push({i,j,z:(pts[i].z+pts[j].z)/2})}
+  segs.sort((a,b)=>a.z-b.z);
+  for(const s of segs){
+    const A=pts[s.i],B=pts[s.j];
+    const c=shade(A.n,A.z,phase,A.u);
+    const hi=[Math.min(255,c[0]+70),Math.min(230,c[1]+58),Math.min(180,c[2]+38)];
+    const lo=[Math.max(10,c[0]-28),Math.max(8,c[1]-22),Math.max(5,c[2]-14)];
+    const g=ctx.createLinearGradient(A.a.x,A.a.y,B.b.x,B.b.y);
+    g.addColorStop(0,'rgb('+lo+')');g.addColorStop(.18,'rgb('+c+')');g.addColorStop(.46,'rgb('+hi+')');g.addColorStop(.62,'rgb('+c+')');g.addColorStop(1,'rgb('+lo+')');
+    ctx.beginPath();ctx.moveTo(A.a.x,A.a.y);ctx.lineTo(B.a.x,B.a.y);ctx.lineTo(B.b.x,B.b.y);ctx.lineTo(A.b.x,A.b.y);ctx.closePath();
+    ctx.fillStyle=g;ctx.fill();
+    ctx.strokeStyle='rgba(44,25,14,.58)';ctx.lineWidth=Math.max(.7,Math.min(1.5,A.a.k));ctx.stroke();
+    // razor highlight along one edge
+    ctx.beginPath();ctx.moveTo(A.a.x,A.a.y);ctx.lineTo(B.a.x,B.a.y);
+    ctx.strokeStyle='rgba(255,244,220,.48)';ctx.lineWidth=.9;ctx.stroke();
+    // dark underside
+    ctx.beginPath();ctx.moveTo(A.b.x,A.b.y);ctx.lineTo(B.b.x,B.b.y);
+    ctx.strokeStyle='rgba(20,10,6,.62)';ctx.lineWidth=1.15;ctx.stroke();
+  }
+}
+function loopFrame(phase){draw(phase)}
+let t0=performance.now();
+function frame(now){const phase=((now-t0)/1000%LOOP)/LOOP*TAU;draw(phase);requestAnimationFrame(frame)}
+requestAnimationFrame(frame);
+
+canvas.addEventListener('pointerdown',e=>{if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;down=true;px=e.clientX;py=e.clientY;drag=0;canvas.setPointerCapture(e.pointerId)});
+canvas.addEventListener('pointermove',e=>{if(!down)return;drag+=Math.hypot(e.clientX-px,e.clientY-py);law+=(e.clientX-px)*.006;px=e.clientX;py=e.clientY});
+canvas.addEventListener('pointerup',e=>{if(!down)return;down=false;if(drag<12){law+=.9+(e.clientX/W-.5)*2.2}});
+canvas.addEventListener('pointercancel',()=>down=false);
+
+APKit.init({
+  canvas:canvas,gifName:'bronze-knot-loop',
+  clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,
+  loopFrame:loopFrame,
+  buttons:[
+    {label:'✦',name:'mutate',onClick:function(){seed=Math.floor(Math.random()*99999)+1;law=(Math.random()-.5)*4}},
+    {label:'↻',name:'reset',onClick:function(){seed=71;law=0}}
+  ]
+});
+</script>
+</body>
+</html>
