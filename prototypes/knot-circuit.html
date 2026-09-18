@@ -122,19 +122,22 @@ void main(){
       ip+=rr*st;thick+=st;
     }
     knot(ip,uu);   /* 管の反対側の位置。光は管の奥からも透けて見える */
-    /* 管そのものの色。結び目の長さに沿って、ゆっくり色が渡っていくグラデーション */
-    vec3 c0=pal(hue+u*0.85);
-    vec3 c1=pal(hue+u*0.85+0.22);
-    vec3 c2=pal(hue+u*0.85+0.46);
-    /* 柔らかい陰影。上から下へ、もう一段色が変わる */
-    float sh=0.5+0.5*dot(n,normalize(vec3(0.25,0.92,-0.3)));
-    float sd=0.5+0.5*dot(n,normalize(vec3(-0.6,-0.4,-0.7)));
-    col=mix(c2*0.10,c0,sh*sh)+c1*sd*sd*0.30;
-    /* 縁が明るく抜ける */
-    col+=pal(hue+u*0.85+0.6)*fres*0.85;
-    /* 管の奥を通った分だけ、色が深くなる */
-    col*=1.0-0.35*smoothstep(0.0,0.5,thick);
-    col+=c1*smoothstep(0.0,0.5,thick)*0.22;
+    /* 管の色。結び目の長さに沿って渡っていくグラデーション */
+    float gu=u*0.85+hue;
+    vec3 c0=pal(gu),c1=pal(gu+0.20),c2=pal(gu+0.45);
+    float ndv=max(dot(n,-rd),0.0);
+    float rim=pow(1.0-ndv,2.0);
+    /* ガラスらしさは「中心が暗く、縁が抜けて明るい」ことで出る */
+    col=c0*(0.10+1.25*rim);
+    col+=c1*pow(1.0-ndv,6.0)*0.95;
+    /* 上からの強いハイライトが1本、管に沿って走る */
+    float s1=pow(max(dot(n,normalize(vec3(-0.42,0.86,-0.30))),0.0),40.0);
+    col+=vec3(1.0,0.99,0.96)*s1*1.5;
+    /* 下からの弱い光が、反対側の面に色を返す */
+    float s2=pow(max(dot(n,normalize(vec3(0.62,-0.34,-0.55))),0.0),12.0);
+    col+=c2*s2*0.55;
+    /* 管の奥を長く通った所は深く沈む */
+    col*=1.0-0.45*smoothstep(0.0,0.45,thick);
     /* 流れている光。手前と奥の両方が光る */
     float e=lit(u)+lit(uu)*0.55;
     col+=pal(hue+0.15+u*0.4)*e*(1.1+1.6*thick);
