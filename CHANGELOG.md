@@ -7,6 +7,7 @@
 新しいものほど上。1作業1行、短く。古くなったら月ごとに数行へまとめてよい。
 (2026/09/06以前の詳しい経緯は `ART_PLAYGROUND_HISTORY.md` にある)
 
+- 2026-09-18 チャッピー: 参考動画の金属リボン彫刻を再構成したBRONZE KNOT / BRONZE FOLD / BRONZE HELIXを新規制作(prototypes/bronze-knot.html, prototypes/bronze-fold.html, prototypes/bronze-helix.html)
 ---
 
 ## 現在の状態(変わったら書き換える)
