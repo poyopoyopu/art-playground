@@ -20,6 +20,7 @@
 
 ## 履歴
 
+- 2026-09-18 クロード: 虹色ガラス管の絡み合い(おっちゃん提供画像)を元にトーラス結び目の新作3本を制作。UNKNOT LAW=引いてもほどけず、押さえ続けると管が通り抜けて別の結び目に変わり溝が残る / PRESENCE LAW=触れた所だけが実体になり、触れない所は痩せて消える / CIRCUIT LAW=管を流れる光の順番(配線)が、触れた場所を入口に組み直される(prototypes/knot-unknot.html, prototypes/knot-presence.html, prototypes/knot-circuit.html)
 - 2026-09-18 クロード: CRYSTAL STRAINをart-v70として昇格し、ギャラリー表示名をFATIGUE LAWとしてLOG先頭とPublished works(CURRENTの直後)に追加(art-v70-crystal-strain.html, index.html)
 - 2026-09-18 しゅん: CRYSTAL STRAINを採用決定
 - 2026-09-18 クロード: CRYSTAL FRACTUREとCRYSTAL PRISMを1つの法則に統合したCRYSTAL STRAINを制作。捻るほど格子が歪んで脆くなり、割れるのに必要な力が下がる。歪みきると軽く触れただけで砕け、再結晶時に捻れの総量が新しい相の対称数・分散・色へ変換されて引き継がれる。世代を重ねるほど生まれつき脆くなる(prototypes/crystal-strain.html)
