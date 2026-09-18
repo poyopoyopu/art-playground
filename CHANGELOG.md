@@ -20,6 +20,7 @@
 
 ## 履歴
 
+- 2026-09-18 クロード: CRYSTAL FRACTUREとCRYSTAL PRISMを1つの法則に統合したCRYSTAL STRAINを制作。捻るほど格子が歪んで脆くなり、割れるのに必要な力が下がる。歪みきると軽く触れただけで砕け、再結晶時に捻れの総量が新しい相の対称数・分散・色へ変換されて引き継がれる。世代を重ねるほど生まれつき脆くなる(prototypes/crystal-strain.html)
 - 2026-09-18 クロード: 結晶モチーフの新作3本を制作(おっちゃん提供のmakeitrad動画が参考)。CRYSTAL AXIS=触った方向が新しい鏡面(対称の軸)になり法則が積み上がる / CRYSTAL FRACTURE=長押しで砕き、離すと別の対称数・別の色で再結晶し割れた跡が世代を越えて残る / CRYSTAL PRISM=なぞると屈折の法則自体が捻れ、戻らず、捻りすぎると相転移する(prototypes/crystal-axis.html, prototypes/crystal-fracture.html, prototypes/crystal-prism.html)
 - 2026-09-17 チャッピー: AXIOM FOLDを新規制作。触れるたび局所の座標法則を書き換え、以後の自律変形に恒久的な折り癖として残る作品を追加(prototypes/axiom-fold.html)
 - 2026-09-17 クロード: OPAL MARBLEをart-v69として昇格、ギャラリーLOG先頭とPublished works(CURRENTの直後)に追加(art-v69-opal-marble.html, index.html)
