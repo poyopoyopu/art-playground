@@ -20,6 +20,7 @@
 
 ## 履歴
 
+- 2026-09-18 クロード: ネオン看板のNEON SIGNを制作。4文字×16本のネオン管で今言える言葉を表示し、触れた管は焼き切れて二度と点かない。看板は残った管で綴れる別の言葉に切り替わり、管が減るほど言える言葉が減って最後は何も言えなくなる(prototypes/neon-sign.html)
 - 2026-09-18 クロード: ネオン管モチーフのNEON ONE PATHを制作。管の網のうち電気が通るのは常に一本道だけで、交点に触れるとスイッチが切り替わり経路が変わる。電気の通らない管は冷えてやがて切れ、二度と点かないため、触るほど網が痩せて最後に一本道だけが残る(prototypes/neon-one-path.html)
 - 2026-09-18 クロード: 虹色ガラス管の絡み合い(おっちゃん提供画像)を元にトーラス結び目の新作3本を制作。UNKNOT LAW=引いてもほどけず、押さえ続けると管が通り抜けて別の結び目に変わり溝が残る / PRESENCE LAW=触れた所だけが実体になり、触れない所は痩せて消える / CIRCUIT LAW=管を流れる光の順番(配線)が、触れた場所を入口に組み直される(prototypes/knot-unknot.html, prototypes/knot-presence.html, prototypes/knot-circuit.html)
 - 2026-09-18 クロード: CRYSTAL STRAINをart-v70として昇格し、ギャラリー表示名をFATIGUE LAWとしてLOG先頭とPublished works(CURRENTの直後)に追加(art-v70-crystal-strain.html, index.html)
