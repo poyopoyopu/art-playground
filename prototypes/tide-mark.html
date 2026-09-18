@@ -22,8 +22,13 @@
 /* ---------- 世界のルール ----------
    画面ぜんぶが、暖かい側と冷たい側の二つの光でできている。その境目(なぎさ)に
    色が押し集められて、虹の一本線になって画面を斜めに横切っている。
-   指でなぞると、その場所でなぎさが押し出される。押した跡は消えない。
-   なぎさが動くと、画面全体の色の分かれ方そのものが変わる。
+
+   指で触れた場所は、そこから溶ける。溶けた所は色を束ねていられなくなって、
+   虹が幅いっぱいに広がり、白っぽく濁り、重みで垂れ下がる。
+   そして溶けた所ほど柔らかいので、次はもっと簡単に引き伸ばせる。
+   一度溶けた境目は二度と結び直せない。触り続ければ、虹はその場所から順に
+   失われていき、最後には色の分かれ目のない、ただの淡い場だけが残る。
+
    ✦は新しい満潮(まったく別の傾き・形・色)を呼ぶ。↻は最初の凪に戻す。
 
    描き方について: 参考動画のように「画面全体が色の場で、境目に色が圧縮されている」
@@ -31,6 +36,7 @@
    なので各ピクセルで「なぎさからの符号つき距離」を求め、その距離をグラデーションの
    ランプに通して色を決める方式にした。低解像度バッファに描いて拡大合成するので、
    ぼかしフィルタを使わずに(=色相がずれずに)なめらかな階調になる。
+   「溶け」は、この距離を割るspreadを場所ごとに変えることで表している。
 ------------------------------------ */
 
 var canvas=document.getElementById('c');
@@ -135,6 +141,8 @@ function targetV(s,travel,drift){
     var m=marks[i];
     v += m.strength*gaussian(s-m.s,m.sigma);
   }
+  // 溶けた分は自分の重みで垂れ下がる
+  v += meltAt(s)*MELT_SAG*vSpan;
   return v;
 }
 
@@ -145,7 +153,43 @@ function targetV(s,travel,drift){
    指は「その列のvを指の位置に置き換える」のではなく、近くの質点を指へ引っ張る
    “力”として効かせている。前者は掴んだ瞬間になぎさが指へ瞬間移動してしまい、
    ゴムを引く手応えがまるで無かった。力にすると、引けば伸び、素早く動かせば
-   遅れてしなり、離せば戻ろうとして揺れる。 */
+   遅れてしなり、離せば戻ろうとして揺れる。
+   溶けた所は柔らかいので、引く力がよく効き、形を保とうとする力は弱くなる。 */
+/* ---------- 溶け ----------
+   なぎさに沿った位置sごとに「どれだけ溶けたか」を0〜1で持つ。触れている間だけ増え、
+   決して減らない。溶けは三つの形で効く:
+     ・色を束ねる力が緩む(spreadが広がって虹が薄く広がる)
+     ・色そのものが濁る(彩度を失って淡い灰へ寄る)
+     ・自分の重みで垂れる(vが下がる)
+   さらに溶けた所ほど柔らかくなり、引っ張りに弱くなる。 */
+var MELT_N=128;
+var melt=new Float32Array(MELT_N);
+var MELT_RATE=1.45;      // 触れ続けた時、1秒でどれだけ溶けるか
+var MELT_SIGMA=0.075;    // 指の周りの溶ける広がり
+var MELT_SPREAD=3.4;     // 溶けきった所で色が何倍に広がるか
+var MELT_WASH=0.72;      // 溶けきった所でどれだけ色を失うか
+var MELT_SAG=0.16;       // 溶けきった所でどれだけ垂れ下がるか(vSpan比)
+
+function meltAt(s){
+  var f=(s<0?0:s>1?1:s)*(MELT_N-1);
+  var i0=f|0, i1=i0<MELT_N-1?i0+1:MELT_N-1;
+  var t=f-i0;
+  return melt[i0]+(melt[i1]-melt[i0])*t;
+}
+
+function applyMelt(centerS,dt){
+  var reach=MELT_SIGMA*3.2;
+  var lo=Math.max(0,Math.floor((centerS-reach)*(MELT_N-1)));
+  var hi=Math.min(MELT_N-1,Math.ceil((centerS+reach)*(MELT_N-1)));
+  for(var i=lo;i<=hi;i++){
+    var s=i/(MELT_N-1);
+    var add=MELT_RATE*dt*gaussian(s-centerS,MELT_SIGMA);
+    var m=melt[i]+add;
+    melt[i]=m>1?1:m;
+  }
+}
+
+function clearMelt(){for(var i=0;i<MELT_N;i++)melt[i]=0;}
 var nodes=[];
 var STIFF=58, COUPLE=165, DAMP=0.907;
 var PULL=210, PULL_SIGMA=0.13;
@@ -161,15 +205,19 @@ function initNodes(){
 
 function stepPhysics(travel,drift){
   var dt=1/60,n=nodes.length;
+  if(active)applyMelt(active.s,dt);
   for(var i=0;i<n;i++){
     var nd=nodes[i];
+    var m=meltAt(nd.s);
     var tgt=targetV(nd.s,travel,drift);
     var a=i>0?nodes[i-1].v:nd.v;
     var b=i<n-1?nodes[i+1].v:nd.v;
-    var acc=(tgt-nd.v)*STIFF+((a-nd.v)+(b-nd.v))*COUPLE;
+    // 溶けるほど元の形へ戻ろうとする力が弱まる
+    var acc=(tgt-nd.v)*STIFF*(1-m*0.72)+((a-nd.v)+(b-nd.v))*COUPLE;
     if(active){
       var w=gaussian(nd.s-active.s,PULL_SIGMA);
-      acc += (active.v-nd.v)*PULL*w;
+      // 溶けるほど指によく付いてくる
+      acc += (active.v-nd.v)*PULL*(0.4+m*1.6)*w;
     }
     nd.vel=(nd.vel+acc*dt)*DAMP;
     nd.v+=nd.vel*dt;
@@ -258,9 +306,9 @@ canvas.addEventListener('pointermove',function(e){
 },{passive:false});
 
 /* 離した時、いま実際に曲がっている分の一部だけを消えない跡として残す。
-   引いた量をまるごと残すと数回なぞっただけで形がぐちゃぐちゃになったので、
-   世界に刻まれるのは手応えより控えめ、という配分にしてある。 */
-var KEEP=0.34;
+   引いた量をまるごと残すと数回なぞっただけで形がぐちゃぐちゃになる。溶けによる垂れ下がりも
+   別に効くので、引っ張りの残りはさらに控えめにしてある。 */
+var KEEP=0.22;
 
 function release(e){
   if(pointerId===null||e.pointerId!==pointerId)return;
@@ -289,8 +337,9 @@ function render(time,phase){
   stepPhysics(travel,drift);
 
   var spread=shape.spread*vSpan;
-  var inv=0.5/spread;
   var stepX=W/LW, stepY=H/LH, p=0;
+  // 溶けきった所が寄っていく、色を失った淡い灰
+  var WASH_R=233, WASH_G=231, WASH_B=233;
 
   for(var j=0;j<LH;j++){
     var y=(j+0.5)*stepY;
@@ -300,16 +349,27 @@ function render(time,phase){
       var x=(i+0.5)*stepX;
       var s=(x*cosD+uy-uMin)/uSpan;
       var v=-x*sinD+vy;
-      var d=(v-nodeVAt(s))*inv+0.5;
+      var m=meltAt(s);
+      // 溶けた所は色を束ねていられないので、同じ距離でもランプの中央付近に
+      // 留まる = 虹が幅いっぱいに広がって薄くなる
+      var d=(v-nodeVAt(s))*(0.5/(spread*(1+MELT_SPREAD*m)))+0.5;
       if(d<=0)d=0; else if(d>=1)d=1;
       // LUTを段で読まず、前後を混ぜて連続値にする(段そのものを作らない)
       var f=d*255, i0=f|0, i1=i0<255?i0+1:255, t=f-i0;
       i0*=3; i1*=3;
+      var r=LUT[i0  ]+(LUT[i1  ]-LUT[i0  ])*t;
+      var g2=LUT[i0+1]+(LUT[i1+1]-LUT[i0+1])*t;
+      var b2=LUT[i0+2]+(LUT[i1+2]-LUT[i0+2])*t;
+      // 溶けた分だけ色そのものを失う
+      if(m>0){
+        var w=m*MELT_WASH;
+        r+=(WASH_R-r)*w; g2+=(WASH_G-g2)*w; b2+=(WASH_B-b2)*w;
+      }
       // 1階調未満のゆらぎを足してから丸め、残るバンディングを粒に散らす
       var dith=(BAYER[brow+(i&3)]/16)-0.5;
-      lowData[p  ]=LUT[i0  ]+(LUT[i1  ]-LUT[i0  ])*t+dith;
-      lowData[p+1]=LUT[i0+1]+(LUT[i1+1]-LUT[i0+1])*t+dith;
-      lowData[p+2]=LUT[i0+2]+(LUT[i1+2]-LUT[i0+2])*t+dith;
+      lowData[p  ]=r+dith;
+      lowData[p+1]=g2+dith;
+      lowData[p+2]=b2+dith;
       lowData[p+3]=255;
       p+=4;
     }
@@ -332,13 +392,13 @@ function tick(now){
 function mutate(){
   shape=randomShape();
   buildLUT(shape.hue);
-  marks.length=0; active=null;
+  marks.length=0; active=null; clearMelt();
   setupAxes(); initNodes();
 }
 function resetAll(){
   shape=cloneShape(DEFAULT_SHAPE);
   buildLUT(shape.hue);
-  marks.length=0; active=null;
+  marks.length=0; active=null; clearMelt();
   setupAxes(); initNodes();
 }
 
