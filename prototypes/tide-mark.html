@@ -34,7 +34,7 @@ addEventListener('orientationchange',resize);
 resize();
 
 /* ---------- 世界のルール ----------
-   画面には二つの気配(暖かい側/冷たい側)を分ける虹色のなぎさが一本、斜めに走っている。
+   画面には二つの気配(暖かい側/冷たい側)を分ける虹色のなぎさが一本、ゆるやかに弧を描いている。
    指でなぞると、その場所でなぎさが押し出され、新しい満ち引きの跡(傷)になる。
    跡は消えない。なぞるたびに、なぎさの形そのものが積み重なって変わっていく。
    ✦は新しい満潮(全く新しいなぎさの形と色)を呼ぶ。↻は最初の凪の状態に戻す。
@@ -44,7 +44,9 @@ var MAX_MARKS=140;
 var marks=[];       // 恒久的な跡 {s, strength, sigma}
 var active=null;    // ドラッグ中の一時的な跡
 
-var DEFAULT_SHAPE={tilt:0.34,amp:[38,16],freq:[1.15,2.7],phase:[0.4,2.1],hue:322};
+// 弧は基本1つのゆるいうねり(amp[0]/freq[0])に、ごく小さな副うねりを1つ添えるだけ。
+// 参考動画のような「画面を一度だけ大きく弧を描いて横切る帯」に寄せてある。
+var DEFAULT_SHAPE={tilt:0.30,amp:[64,7],freq:[0.55,1.7],phase:[0.5,3.4],hue:326};
 var shape=cloneShape(DEFAULT_SHAPE);
 
 function cloneShape(s){return {tilt:s.tilt,amp:s.amp.slice(),freq:s.freq.slice(),phase:s.phase.slice(),hue:s.hue};}
@@ -53,41 +55,13 @@ function rand(a,b){return a+Math.random()*(b-a);}
 
 function randomShape(){
   return {
-    tilt: rand(-0.55,0.55),
-    amp:[rand(20,60),rand(6,26)],
-    freq:[rand(0.7,1.8),rand(1.8,3.6)],
+    tilt: rand(-0.42,0.42),
+    amp:[rand(42,78),rand(3,12)],
+    freq:[rand(0.4,0.8),rand(1.3,2.1)],
     phase:[rand(0,6.28),rand(0,6.28)],
     hue: rand(0,360)
   };
 }
-
-/* ---------- 帯(なぎさの断面)ストリップ ---------- */
-var BAND_PX=170;
-var strip=document.createElement('canvas');
-strip.width=2; strip.height=BAND_PX;
-var sctx=strip.getContext('2d');
-
-function buildStrip(hue){
-  // hueは虹の芯(マゼンタ)の色相。+120で暖色側(黄)、-120で寒色側の芯(シアン)、
-  // -90でさらに冷たい縁(青紫)になるよう、色相環上の距離で組み立てる。
-  var stops=[
-    {p:0.00,h:hue+120,s:65,l:90,a:0.00},
-    {p:0.15,h:hue+120,s:72,l:80,a:0.30},
-    {p:0.35,h:hue,     s:90,l:60,a:0.88},
-    {p:0.48,h:hue-120, s:55,l:96,a:0.95},
-    {p:0.57,h:hue-120, s:92,l:58,a:0.85},
-    {p:0.78,h:hue-90,  s:65,l:86,a:0.30},
-    {p:1.00,h:hue-90,  s:60,l:90,a:0.00}
-  ];
-  var g=sctx.createLinearGradient(0,0,0,BAND_PX);
-  stops.forEach(function(st){
-    var h=((st.h%360)+360)%360;
-    g.addColorStop(st.p,'hsla('+h+','+st.s+'%,'+st.l+'%,'+st.a+')');
-  });
-  sctx.clearRect(0,0,2,BAND_PX);
-  sctx.fillStyle=g; sctx.fillRect(0,0,2,BAND_PX);
-}
-buildStrip(shape.hue);
 
 /* ---------- なぎさの形 ---------- */
 function gaussian(d,sigma){var v=d/sigma;return Math.exp(-0.5*v*v);}
@@ -149,62 +123,95 @@ function release(e){
 canvas.addEventListener('pointerup',release);
 canvas.addEventListener('pointercancel',release);
 
-/* ---------- 描画 ---------- */
+/* ---------- 帯(なぎさの断面) ----------
+   ラスタ画像を並べて敷き詰める方式だと、継ぎ目に縦縞のモアレが出てしまったので、
+   一本の曲線パス(オフセットストローク)を重ねる方式に描き直した。
+   細く鮮やかな線(マゼンタ/シアン)を、太く淡いグロー(暖色/寒色)の上に重ねる。
+   最後にオフスクリーンごとぼかして本体へ合成するので、継ぎ目は出ない。 */
 var lastAmbient=0;
-var glintX=0,glintY=0;
+var bandCanvas=document.createElement('canvas');
+var bctx=bandCanvas.getContext('2d');
 
 function bgColor(t,offset){
   var h=(shape.hue+offset+Math.sin(t*0.06)*5+360)%360;
   return h;
 }
 
+function bandsFor(hue){
+  return [
+    {off:-52, width:118, h:hue+120, s:60, l:86, a:0.20}, // 暖色側の淡いグロー
+    {off: 52, width:118, h:hue-90,  s:55, l:87, a:0.20}, // 寒色側の淡いグロー
+    {off:-15, width:26,  h:hue,     s:92, l:58, a:0.82}, // マゼンタの芯
+    {off: 15, width:26,  h:hue-120, s:92, l:56, a:0.82}, // シアンの芯
+    {off:  0, width:9,   h:hue-120, s:35, l:97, a:0.90}  // 中心のハイライト線
+  ];
+}
+
 function render(time,phase){
   var T=(window.APKit?APKit.T:function(k,ph,tm){return tm*k}).bind(null);
-  var breathe=T(0.55,phase,time);
-  var glintPhase=T(0.12,phase,time);
-  var ambient=Math.sin(breathe)*7;
+  var breathe=T(0.5,phase,time);
+  var glintPhase=T(0.11,phase,time);
+  var ambient=Math.sin(breathe)*6;
   lastAmbient=ambient;
 
   // 背景: 暖かい側 / 冷たい側の淡いグラデーション
   var g=ctx.createLinearGradient(0,0,W,H);
-  g.addColorStop(0,'hsl('+bgColor(time,120)+',50%,90%)');
-  g.addColorStop(0.5,'hsl('+bgColor(time,15)+',18%,95%)');
-  g.addColorStop(1,'hsl('+bgColor(time,-90)+',45%,92%)');
+  g.addColorStop(0,'hsl('+bgColor(time,120)+',48%,88%)');
+  g.addColorStop(0.5,'hsl('+bgColor(time,15)+',20%,94%)');
+  g.addColorStop(1,'hsl('+bgColor(time,-90)+',42%,90%)');
   ctx.fillStyle=g;
   ctx.fillRect(0,0,W,H);
 
-  // なぎさの帯
-  // 背景がもともと明るいパステルなので、'screen'で重ねると色がほぼ白へ飛んでしまう
-  // (screenは暗い背景の上で光らせる合成で、明るい背景では効果がほぼ出ない)。
-  // 帯は通常合成(source-over)で乗せて、実際の色をそのまま見せる。
-  var stepW=4;
-  for(var x=0;x<=W;x+=stepW){
-    var s=x/W;
-    var y=curveY(s,ambient);
-    ctx.drawImage(strip,0,0,2,BAND_PX,x,y-BAND_PX/2,stepW+1,BAND_PX);
+  // 曲線の点列を1回だけ作る
+  var N=Math.max(60,Math.round(W/4));
+  var pts=new Array(N+1);
+  for(var i=0;i<=N;i++){
+    var s=i/N;
+    pts[i]=[s*W,curveY(s,ambient)];
   }
 
-  // 満ち引きの跡(傷)を薄く強調する小さな光点(帯の色に寄せた淡い光にして、
-  // 白い円がぽつんと浮くのを避ける)
-  for(var i=0;i<marks.length;i++){
-    var m=marks[i];
+  if(bandCanvas.width!==W||bandCanvas.height!==H){bandCanvas.width=W;bandCanvas.height=H;}
+  bctx.clearRect(0,0,W,H);
+
+  var bands=bandsFor(shape.hue);
+  for(var b=0;b<bands.length;b++){
+    var band=bands[b];
+    var hh=((band.h%360)+360)%360;
+    bctx.beginPath();
+    bctx.moveTo(pts[0][0],pts[0][1]+band.off);
+    for(var j=1;j<pts.length;j++)bctx.lineTo(pts[j][0],pts[j][1]+band.off);
+    bctx.lineJoin='round';bctx.lineCap='round';
+    bctx.lineWidth=band.width;
+    bctx.strokeStyle='hsla('+hh+','+band.s+'%,'+band.l+'%,'+band.a+')';
+    bctx.stroke();
+  }
+
+  // 満ち引きの跡(傷)を薄く強調する小さな光点
+  for(var k=0;k<marks.length;k++){
+    var m=marks[k];
     var mx=m.s*W, my=curveY(m.s,ambient);
     var r=16+Math.min(24,Math.abs(m.strength)*0.10);
-    var rg=ctx.createRadialGradient(mx,my,0,mx,my,r);
-    rg.addColorStop(0,'hsla('+shape.hue+',70%,85%,0.20)');
-    rg.addColorStop(1,'hsla('+shape.hue+',70%,85%,0)');
-    ctx.fillStyle=rg;
-    ctx.beginPath();ctx.arc(mx,my,r,0,6.2832);ctx.fill();
+    var rg=bctx.createRadialGradient(mx,my,0,mx,my,r);
+    rg.addColorStop(0,'hsla('+shape.hue+',70%,80%,0.28)');
+    rg.addColorStop(1,'hsla('+shape.hue+',70%,80%,0)');
+    bctx.fillStyle=rg;
+    bctx.beginPath();bctx.arc(mx,my,r,0,6.2832);bctx.fill();
   }
 
-  // 揺らめく光の点(生きている感じ)。帯の芯の色に近い、控えめなきらめき
+  // 揺らめく光の点(生きている感じ)
   var gs=Math.sin(glintPhase)*0.5+0.5;
   var gx=gs*W, gy=curveY(gs,ambient);
-  var glow=ctx.createRadialGradient(gx,gy,0,gx,gy,34);
-  glow.addColorStop(0,'hsla('+(shape.hue-120+360)%360+',60%,92%,0.35)');
-  glow.addColorStop(1,'hsla('+(shape.hue-120+360)%360+',60%,92%,0)');
-  ctx.fillStyle=glow;
-  ctx.beginPath();ctx.arc(gx,gy,34,0,6.2832);ctx.fill();
+  var glow=bctx.createRadialGradient(gx,gy,0,gx,gy,30);
+  glow.addColorStop(0,'hsla('+((shape.hue-120+360)%360)+',55%,94%,0.5)');
+  glow.addColorStop(1,'hsla('+((shape.hue-120+360)%360)+',55%,94%,0)');
+  bctx.fillStyle=glow;
+  bctx.beginPath();bctx.arc(gx,gy,30,0,6.2832);bctx.fill();
+
+  // オフスクリーンをぼかして本体へ。継ぎ目のない柔らかい光になる
+  ctx.save();
+  ctx.filter='blur(13px)';
+  ctx.drawImage(bandCanvas,0,0,W,H);
+  ctx.restore();
 }
 
 /* ---------- メインループ ---------- */
@@ -218,12 +225,10 @@ requestAnimationFrame(tick);
 /* ---------- ✦ / ↻ ---------- */
 function mutate(){
   shape=randomShape();
-  buildStrip(shape.hue);
   marks.length=0; active=null;
 }
 function resetAll(){
   shape=cloneShape(DEFAULT_SHAPE);
-  buildStrip(shape.hue);
   marks.length=0; active=null;
 }
 
