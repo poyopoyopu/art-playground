@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>CRYSTAL PRISM — TWIST LAW</title>
+<script src="../ap-kit.js"></script>
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#msg{position:fixed;left:0;right:0;top:45%;text-align:center;color:#888;font:14px/1.6 system-ui;display:none}</style>
+</head><body>
+<canvas id="c"></canvas><div id="msg">この端末ではWebGL2が使えません</div>
+<script>
+'use strict';
+/*
+  CRYSTAL PRISM — Claude(クロちゃん)作。ap-kit.js統合: Claude
+  参考: makeitrad の StyleGAN3 結晶アニメーション(おっちゃん提供の動画)
+
+  世界のルール:
+  ここでは「光の屈折の仕方」そのものが、指でねじれる。
+  横になぞると、結晶を通る光の道が高さに沿って捻れる(幾何も虹の帯も一緒に捻れる)。
+  縦になぞると、分散が強くなり、虹が細かく分かれていく。
+  ねじれは指を離しても戻らない。累積し、捻るほど結晶は別の物質になっていく。
+  一定量を超えて捻ると、結晶は捻れに耐えきれず「ほどけて」新しい相に転移する
+  (捻れの総量は記録として残り、相が変わっても色と密度に受け継がれる)。
+*/
+const c=document.getElementById('c');
+const gl=c.getContext('webgl2',{antialias:false,alpha:false,preserveDrawingBuffer:true});
+if(!gl){document.getElementById('msg').style.display='block';throw Error('no webgl2');}
+
+const VS=`#version 300 es
+in vec2 p;void main(){gl_Position=vec4(p,0.,1.);}`;
+function sh(t,s){const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);
+  if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(o));return o}
+function prog(fs){const p=gl.createProgram();gl.attachShader(p,sh(gl.VERTEX_SHADER,VS));
+  gl.attachShader(p,sh(gl.FRAGMENT_SHADER,fs));gl.bindAttribLocation(p,0,'p');gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(p));
+  const u={};const n=gl.getProgramParameter(p,gl.ACTIVE_UNIFORMS);
+  for(let i=0;i<n;i++){const a=gl.getActiveUniform(p,i);u[a.name.replace('[0]','')]=gl.getUniformLocation(p,a.name)}
+  return {p,u}}
+const vb=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,vb);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+
+const FS=`#version 300 es
+precision highp float;
+out vec4 O;
+uniform vec2 res;
+uniform float k;
+uniform float tw;     /* 累積した捻れ */
+uniform float disp;   /* 累積した分散 */
+uniform float total;  /* 捻った総量(消えない記録) */
+uniform float phaseShift; /* 相転移の途中を表す 0..1 */
+uniform float hue,seedA,seedB;
+
+mat2 rot(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}
+float sdOcta(vec3 p,float s){p=abs(p);return (p.x+p.y+p.z-s)*0.57735;}
+vec3 pal(float x){return 0.5+0.5*cos(6.28318*(x+vec3(0.0,0.33,0.67)));}
+
+float map(vec3 p){
+  /* 捻れの法則。高さに沿って空間そのものがねじれる */
+  p.xz*=rot(tw*p.y*0.9+phaseShift*3.0*exp(-2.0*length(p)));
+  float s=1.0,d=1e9;
+  vec3 q=p;
+  for(int i=0;i<5;i++){
+    q=abs(q);
+    if(q.x<q.y)q.xy=q.yx;
+    if(q.x<q.z)q.xz=q.zx;
+    if(q.y<q.z)q.yz=q.zy;
+    /* 捻れは階層ごとにも効く。深い階層ほど強く捻れる = 自己相似が歪む */
+    q.xz*=rot(seedA+0.1*float(i)+tw*0.14*float(i));
+    q=q*1.59-vec3(0.94,0.43,0.92)*0.59;
+    q.xy*=rot(seedB+0.04*float(i));
+    s*=1.59;
+    d=min(d,sdOcta(q,0.93+0.06*sin(k+float(i)*1.4)+0.05*total)/s);
+  }
+  return d*0.88;
+}
+vec3 nrm(vec3 p){
+  vec2 e=vec2(1.0,-1.0)*0.0015;
+  return normalize(e.xyy*map(p+e.xyy)+e.yyx*map(p+e.yyx)+e.yxy*map(p+e.yxy)+e.xxx*map(p+e.xxx));
+}
+
+void main(){
+  vec2 uv=(gl_FragCoord.xy*2.0-res)/res.y;
+  vec3 ro=vec3(0.0,0.05*sin(k*2.0),-4.4),rd=normalize(vec3(uv,1.75));
+  mat2 R=rot(k);
+  ro.xz*=R; rd.xz*=R;
+
+  float t=0.15;bool hit=false;
+  for(int i=0;i<92;i++){
+    vec3 p=ro+rd*t;float d=map(p);
+    if(d<0.0013*t){hit=true;break;}
+    t+=d; if(t>12.0)break;
+  }
+
+  float g=exp(-2.2*length(uv-vec2(0.0,-0.08)));
+  vec3 col=vec3(0.05,0.055,0.068)*g*3.4;
+  col+=pal(hue+0.3)*g*0.05*min(total,3.0);
+
+  if(hit){
+    vec3 p=ro+rd*t,n=nrm(p);
+    float fres=pow(1.0-max(dot(n,-rd),0.0),4.0);
+    vec3 rr=refract(rd,n,0.73-0.05*sin(tw));
+    if(dot(rr,rr)<0.001)rr=reflect(rd,n);
+    vec3 ip=p-n*0.012;float thick=0.0;
+    for(int i=0;i<12;i++){
+      float d=map(ip);
+      if(d>-0.001)break;
+      float st=max(0.025,-d);
+      ip+=rr*st;thick+=st;
+    }
+    /* 光の法則: 厚みと、捻れに巻きついた角度で虹の位相が決まる */
+    float ang=atan(n.z,n.x);
+    float ph=thick*(5.0+disp*9.0)+ang*(1.0+tw*0.9)+n.y*tw*2.2;
+    float sep=1.0+disp*0.35;
+    vec3 d3=0.5+0.5*cos(vec3(ph,ph*(1.0+0.07*sep)+0.9,ph*(1.0+0.15*sep)+1.9));
+    vec3 base=pal(hue+thick*0.2+0.12*n.y+0.04*total);
+    col=base*d3*(0.42+0.95*fres)+base*0.15;
+    vec3 L=normalize(vec3(0.55,0.85,-0.6));
+    col+=vec3(1.0)*pow(max(dot(reflect(rd,n),L),0.0),46.0)*0.85;
+    col+=pal(hue+0.52)*fres*0.4;
+    col+=pal(hue+0.15)*phaseShift*fres*0.6;
+    col*=1.0-0.04*t;
+  }
+  col=pow(max(col,0.0),vec3(0.85));
+  O=vec4(col,1.0);
+}`;
+const P=prog(FS),U=P.u;
+
+/* ---------- 状態 ---------- */
+let W=0,H=0,DPR=1;
+let tw=0,disp=0,total=0,phaseShift=0,shifting=false;
+let hue=Math.random(),seedA=0.3,seedB=0.2,paused=false;
+
+function resize(){
+  DPR=Math.min(window.devicePixelRatio||1,1.4);
+  W=window.innerWidth;H=window.innerHeight;
+  c.width=Math.max(1,Math.round(W*DPR));c.height=Math.max(1,Math.round(H*DPR));
+}
+window.addEventListener('resize',resize);resize();
+
+function seedWorld(){
+  tw=0;disp=0;total=0;phaseShift=0;shifting=false;
+  hue=Math.random();seedA=0.15+Math.random()*0.6;seedB=0.05+Math.random()*0.5;
+}
+seedWorld();
+
+let ptr=null;
+c.addEventListener('pointerdown',e=>{
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  e.preventDefault();c.setPointerCapture&&c.setPointerCapture(e.pointerId);
+  ptr={id:e.pointerId,x:e.clientX,y:e.clientY};
+});
+c.addEventListener('pointermove',e=>{
+  if(!ptr||e.pointerId!==ptr.id||shifting)return;
+  const dx=(e.clientX-ptr.x)/Math.max(1,W), dy=(e.clientY-ptr.y)/Math.max(1,H);
+  ptr.x=e.clientX;ptr.y=e.clientY;
+  tw+=dx*3.4;                       /* 横 = 捻れ。符号あり。離しても戻らない */
+  disp=Math.max(0,Math.min(3.2,disp-dy*2.2));  /* 上へなぞる = 分散が強くなる */
+  total+=Math.abs(dx)*3.4+Math.abs(dy)*0.8;
+  hue=(hue+Math.abs(dx)*0.28)%1;
+  if(Math.abs(tw)>7.5&&!shifting){shifting=true;}  /* 捻りすぎ → 相転移 */
+});
+function up(e){if(ptr&&e.pointerId===ptr.id)ptr=null}
+c.addEventListener('pointerup',up);c.addEventListener('pointercancel',up);
+
+function sim(dt){
+  if(shifting){
+    /* ほどけて、別の相へ。捻れは0に戻るが、記録(total)は残る */
+    phaseShift+=dt/1.4;
+    tw*=Math.pow(0.02,dt);
+    if(phaseShift>=1){
+      phaseShift=0;shifting=false;tw=0;
+      seedA=0.15+Math.random()*0.6;seedB=0.05+Math.random()*0.5;
+      hue=(hue+0.23)%1;
+      disp=Math.min(3.2,disp*0.6+0.3);
+    }
+  }
+}
+
+function render(k){
+  gl.useProgram(P.p);
+  gl.viewport(0,0,c.width,c.height);
+  gl.uniform2f(U.res,c.width,c.height);
+  gl.uniform1f(U.k,k);
+  gl.uniform1f(U.tw,tw);
+  gl.uniform1f(U.disp,disp);
+  gl.uniform1f(U.total,total);
+  gl.uniform1f(U.phaseShift,Math.sin(Math.min(1,phaseShift)*Math.PI));
+  gl.uniform1f(U.hue,hue);
+  gl.uniform1f(U.seedA,seedA);gl.uniform1f(U.seedB,seedB);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+}
+
+let phase=0,last=performance.now();
+function frame(now){
+  const dt=Math.min(0.05,(now-last)/1000);last=now;
+  if(!paused){
+    phase=(phase+dt*0.2)%(Math.PI*2);
+    sim(dt);
+    render(phase);
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+APKit.init({
+  canvas:c,
+  gifName:'crystal-prism-loop',
+  clockFormat:'spec',
+  dock:true,
+  autoHide:true,
+  fullscreenButton:false,
+  loopFrame:function(ph){paused=true;render(ph);},
+  onExportEnd:function(){paused=false;last=performance.now();},
+  buttons:[
+    {label:'✦',name:'mutate',onClick:function(){
+      /* 結晶の素性を変える。捻れと分散(=これまで触った履歴)はそのまま */
+      seedA=0.15+Math.random()*0.6;seedB=0.05+Math.random()*0.5;hue=Math.random();
+    }},
+    {label:'↻',name:'reset',onClick:function(){seedWorld();}}
+  ]
+});
+</script>
+</body></html>
