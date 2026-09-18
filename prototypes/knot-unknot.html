@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>KNOT — UNKNOT LAW</title>
+<script src="../ap-kit.js"></script>
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#msg{position:fixed;left:0;right:0;top:45%;text-align:center;color:#888;font:14px/1.6 system-ui;display:none}</style>
+</head><body>
+<canvas id="c"></canvas><div id="msg">この端末ではWebGL2が使えません</div>
+<script>
+'use strict';
+/*
+  KNOT — UNKNOT LAW / Claude(クロちゃん)作。ap-kit.js統合: Claude
+  参考: 虹色のガラス管が絡み合う画像(おっちゃん提供)
+
+  世界のルール — 「結び目はほどけない。通り抜けたときだけ、別の結び目になる」:
+  なぞると管が引っ張られ、そこにふくらみが生まれて結び目の上を滑っていく。
+  どれだけ引っ張っても位相(結び目の種類)は変わらない。ほどけない。
+  ただし一点を押さえ続けると、その場所で管が管を「通り抜ける」。
+  通り抜けが起きた瞬間、結び目は別の種類(p,q)に変わる。
+  変わった位相は元に戻らず、通り抜けた回数だけ管の表面に溝が刻まれて残る。
+*/
+const c=document.getElementById('c');
+const gl=c.getContext('webgl2',{antialias:false,alpha:false,preserveDrawingBuffer:true});
+if(!gl){document.getElementById('msg').style.display='block';throw Error('no webgl2');}
+
+const VS=`#version 300 es
+in vec2 p;void main(){gl_Position=vec4(p,0.,1.);}`;
+function sh(t,s){const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);
+  if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(o));return o}
+function prog(fs){const p=gl.createProgram();gl.attachShader(p,sh(gl.VERTEX_SHADER,VS));
+  gl.attachShader(p,sh(gl.FRAGMENT_SHADER,fs));gl.bindAttribLocation(p,0,'p');gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(p));
+  const u={};const n=gl.getProgramParameter(p,gl.ACTIVE_UNIFORMS);
+  for(let i=0;i<n;i++){const a=gl.getActiveUniform(p,i);u[a.name.replace('[0]','')]=gl.getUniformLocation(p,a.name)}
+  return {p,u}}
+const vb=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,vb);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+
+const NB=6;
+
+const FS=`#version 300 es
+precision highp float;
+out vec4 O;
+uniform vec2 res;
+uniform float k,hue;
+uniform float pf,qf,qinv;     /* 結び目の種類(p,q)と、pを法としたqの逆元 */
+uniform float R,r2,tube;
+uniform float grooves;        /* 通り抜けた回数。管に溝として残る */
+uniform float flash;          /* 通り抜けの瞬間 0..1 */
+uniform vec3 bulge[${NB}];    /* x=位置u y=強さ z=幅 */
+
+const float TAU=6.28318530718;
+mat2 rot(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}
+vec3 pal(float x){return 0.5+0.5*cos(TAU*(x+vec3(0.0,0.33,0.67)));}
+
+/* 結び目までの距離と、その場所の曲線パラメータ u(0..1) */
+float knot(vec3 p,out float u){
+  float ang=atan(p.z,p.x);
+  vec2 cs=vec2(length(p.xz)-R,p.y);
+  cs*=rot(ang*qf/pf);
+  float a2=atan(cs.y,cs.x);
+  float sec=TAU/pf;
+  float idx=floor((a2+sec*0.5)/sec);
+  float a3=a2-idx*sec;
+  float L=length(cs);
+  vec2 cf=L*vec2(cos(a3),sin(a3));
+  float m=mod(idx*qinv,pf);
+  u=fract((ang/TAU+m)/pf+1.0);
+  return length(cf-vec2(r2,0.0));
+}
+float radiusAt(float u){
+  float r=tube;
+  for(int i=0;i<${NB};i++){
+    float du=abs(u-bulge[i].x);du=min(du,1.0-du);
+    r+=bulge[i].y*exp(-du*du/max(1e-4,bulge[i].z*bulge[i].z));
+  }
+  /* 通り抜けの跡。溝は消えない */
+  r-=0.012*grooves*(0.5+0.5*sin(u*TAU*(6.0+3.0*grooves)));
+  return max(0.02,r*(1.0+0.55*flash));
+}
+float map(vec3 p){
+  float u;
+  float d=knot(p,u)-radiusAt(u);
+  return d*0.45;   /* 座標をねじっているので、進みすぎないよう縮める */
+}
+vec3 nrm(vec3 p){
+  vec2 e=vec2(1.0,-1.0)*0.0016;
+  return normalize(e.xyy*map(p+e.xyy)+e.yyx*map(p+e.yyx)+e.yxy*map(p+e.yxy)+e.xxx*map(p+e.xxx));
+}
+
+/* 反射に映り込む、色のついた環境 */
+vec3 env(vec3 d){
+  float a=atan(d.z,d.x);
+  vec3 c=vec3(0.015,0.02,0.045);
+  c+=vec3(0.18,0.5,1.0)*pow(max(0.0,sin(a+1.0)*0.5+0.5),6.0)*(0.55+0.45*d.y);
+  c+=vec3(1.0,0.55,0.16)*pow(max(0.0,cos(a*1.3-0.5)*0.5+0.5),12.0);
+  c+=vec3(0.75,0.3,1.0)*pow(max(0.0,sin(a*0.7-2.0)*0.5+0.5),8.0);
+  c+=vec3(1.0)*pow(max(0.0,d.y),26.0)*1.6;
+  return c;
+}
+/* 背景: ピントの外れた暗い球と、その縁の光 */
+vec3 bg(vec2 uv){
+  vec3 c=vec3(0.012,0.016,0.032);
+  for(int i=0;i<6;i++){
+    float f=float(i);
+    vec2 ctr=vec2(sin(f*2.3+0.4)*1.5,cos(f*1.7+1.1)*0.95);
+    float rr=0.30+0.22*fract(f*0.37+0.2);
+    float d=length(uv-ctr)-rr;
+    vec3 tint=pal(hue+0.12*f+0.4);
+    c+=tint*exp(-abs(d)*7.0)*0.32;          /* 縁の光 */
+    c*=mix(1.0,0.12,smoothstep(0.02,-0.02,d)); /* 中は暗い */
+  }
+  return c;
+}
+
+void main(){
+  vec2 uv=(gl_FragCoord.xy*2.0-res)/res.y;
+  vec3 ro=vec3(0.0,0.06*sin(k*2.0),-3.6),rd=normalize(vec3(uv,1.8));
+  mat2 Rm=rot(k);
+  ro.xz*=Rm; rd.xz*=Rm;
+  ro.yz*=rot(0.32); rd.yz*=rot(0.32);
+
+  float t=0.1;bool hit=false;
+  for(int i=0;i<130;i++){
+    vec3 p=ro+rd*t;float d=map(p);
+    if(d<0.0012*t){hit=true;break;}
+    t+=d; if(t>9.0)break;
+  }
+
+  vec3 col=bg(uv);
+  if(hit){
+    vec3 p=ro+rd*t,n=nrm(p);
+    float u;knot(p,u);
+    float fres=pow(1.0-max(dot(n,-rd),0.0),3.5);
+    /* 管の中を通る光。厚みが虹の位相になる */
+    vec3 rr=refract(rd,n,0.72);
+    if(dot(rr,rr)<0.001)rr=reflect(rd,n);
+    vec3 ip=p-n*0.01;float thick=0.0;
+    for(int i=0;i<10;i++){
+      float d=map(ip);
+      if(d>-0.001)break;
+      float st=max(0.02,-d);
+      ip+=rr*st;thick+=st;
+    }
+    float ph=thick*9.0+dot(n,vec3(0.6,0.4,0.7))*1.8;
+    vec3 iri=0.5+0.5*cos(vec3(ph,ph*1.08+0.9,ph*1.18+1.9));
+    vec3 base=pal(hue+u*0.6+0.1*n.y);
+    col=base*iri*0.55;
+    col+=env(reflect(rd,n))*(0.25+0.85*fres);
+    col+=vec3(1.0)*pow(max(dot(reflect(rd,n),normalize(vec3(0.4,0.9,-0.4))),0.0),60.0)*1.1;
+    col+=pal(hue+0.5)*fres*0.35;
+    col+=vec3(1.0,0.92,0.85)*flash*flash*(0.35+fres);
+    col*=1.0-0.05*t;
+  }
+  col=pow(max(col,0.0),vec3(0.86));
+  O=vec4(col,1.0);
+}`;
+const P=prog(FS),U=P.u;
+
+/* ---------- 状態 ---------- */
+let W=0,H=0,DPR=1,paused=false;
+let hue=Math.random();
+let R=1.0,r2=0.42,tube=0.20;
+let pq=[2,3],grooves=0,flash=0;
+let press=0,holding=false,speed=0,through=false;
+let bulges=[];
+const bulgeBuf=new Float32Array(NB*3);
+
+function resize(){
+  DPR=Math.min(window.devicePixelRatio||1,1.4);
+  W=window.innerWidth;H=window.innerHeight;
+  c.width=Math.max(1,Math.round(W*DPR));c.height=Math.max(1,Math.round(H*DPR));
+}
+window.addEventListener('resize',resize);resize();
+
+function egcdInv(a,m){for(let i=1;i<m;i++)if((a*i)%m===1)return i;return 1}
+/* 互いに素な(p,q)だけが結び目になる */
+const KNOTS=[[2,3],[2,5],[3,4],[3,5],[2,7],[4,5],[3,7],[5,6]];
+function nextKnot(){
+  let n=pq;
+  while(n[0]===pq[0]&&n[1]===pq[1])n=KNOTS[Math.floor(Math.random()*KNOTS.length)];
+  pq=n;
+}
+function seedWorld(){
+  pq=[2,3];grooves=0;flash=0;press=0;through=false;bulges=[];
+  hue=Math.random();r2=0.40+Math.random()*0.08;tube=0.19+Math.random()*0.03;
+}
+seedWorld();
+
+let ptr=null;
+c.addEventListener('pointerdown',e=>{
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  e.preventDefault();c.setPointerCapture&&c.setPointerCapture(e.pointerId);
+  ptr={id:e.pointerId,x:e.clientX,y:e.clientY};holding=true;speed=0;
+});
+c.addEventListener('pointermove',e=>{
+  if(!ptr||e.pointerId!==ptr.id)return;
+  const dx=(e.clientX-ptr.x)/Math.max(1,W),dy=(e.clientY-ptr.y)/Math.max(1,H);
+  ptr.x=e.clientX;ptr.y=e.clientY;
+  const mv=Math.abs(dx)+Math.abs(dy);
+  speed=Math.min(1,speed*0.7+mv*16.0);
+  if(mv>0.004&&!through){
+    /* 引っ張った分だけ、管にふくらみが生まれて滑っていく */
+    const b={u:Math.random(),amp:Math.min(0.13,mv*1.6),w:0.05+Math.random()*0.05,v:(dx>0?1:-1)*(0.18+mv*3.0)};
+    bulges.push(b);
+    if(bulges.length>NB)bulges.shift();
+  }
+});
+function up(e){if(ptr&&e.pointerId===ptr.id){ptr=null;holding=false;speed=0;}}
+c.addEventListener('pointerup',up);c.addEventListener('pointercancel',up);
+
+function sim(dt){
+  /* ふくらみは結び目の上を滑り、やがて均される */
+  for(const b of bulges){b.u=(b.u+b.v*dt+1)%1;b.amp*=Math.pow(0.45,dt);}
+  bulges=bulges.filter(b=>b.amp>0.004);
+
+  if(through){
+    /* 通り抜けの最中。膨らんで光り、頂点で位相が入れ替わる */
+    flash+=dt*2.2;
+    if(flash>=1&&!through.swapped){
+      nextKnot();grooves=Math.min(6,grooves+1);hue=(hue+0.19)%1;through.swapped=true;
+    }
+    if(flash>=2){flash=0;through=false;press=0;}
+  }else{
+    if(holding)press=Math.min(1.2,press+dt*0.5*(1.0-speed));
+    else press=Math.max(0,press-dt*0.6);
+    if(press>=1.0){through={swapped:false};flash=0;}
+  }
+}
+
+function render(kk){
+  gl.useProgram(P.p);
+  gl.viewport(0,0,c.width,c.height);
+  gl.uniform2f(U.res,c.width,c.height);
+  gl.uniform1f(U.k,kk);
+  gl.uniform1f(U.hue,hue);
+  gl.uniform1f(U.pf,pq[0]);gl.uniform1f(U.qf,pq[1]);
+  gl.uniform1f(U.qinv,egcdInv(pq[1]%pq[0]||1,pq[0]));
+  gl.uniform1f(U.R,R);gl.uniform1f(U.r2,r2);gl.uniform1f(U.tube,tube);
+  gl.uniform1f(U.grooves,grooves);
+  /* 押している間もわずかに膨らませて、限界が近いことを見せる */
+  gl.uniform1f(U.flash,through?Math.sin(Math.min(flash,2.0)*Math.PI*0.5):press*0.12);
+  bulgeBuf.fill(0);
+  bulges.slice(0,NB).forEach((b,i)=>bulgeBuf.set([b.u,b.amp,b.w],i*3));
+  gl.uniform3fv(U.bulge,bulgeBuf);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+}
+
+let phase=0,last=performance.now();
+function frame(now){
+  const dt=Math.min(0.05,(now-last)/1000);last=now;
+  if(!paused){
+    phase=(phase+dt*0.18)%(Math.PI*2);
+    speed*=Math.pow(0.02,dt);
+    sim(dt);
+    render(phase);
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+APKit.init({
+  canvas:c,
+  gifName:'knot-unknot-loop',
+  clockFormat:'spec',
+  dock:true,
+  autoHide:true,
+  fullscreenButton:false,
+  loopFrame:function(ph){paused=true;render(ph);},
+  onExportEnd:function(){paused=false;last=performance.now();},
+  buttons:[
+    {label:'✦',name:'mutate',onClick:function(){
+      /* 管の太さ・輪の大きさ・色を変える。結び目の種類と溝(履歴)はそのまま */
+      r2=0.34+Math.random()*0.16;tube=0.15+Math.random()*0.09;hue=Math.random();
+    }},
+    {label:'↻',name:'reset',onClick:function(){seedWorld();}}
+  ]
+});
+</script>
+</body></html>
