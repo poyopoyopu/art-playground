@@ -1,4 +1,4 @@
-<!-- POLAR FOLD — ChatGPT作。描画安定版。2D Canvas / mirrored square-fold field. -->
+<!-- POLAR FOLD — ChatGPT作。第7構成。WebGL2 square-fold field. -->
 <!doctype html>
 <html lang="ja">
 <head>
@@ -16,135 +16,149 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 <script>
 (()=>{"use strict";
 const canvas=document.getElementById("c");
-const ctx=canvas.getContext("2d",{alpha:false});
-let W=0,H=0,D=1,t0=performance.now(),phaseShift=0;
-const touch={x:0,y:0,active:false};
+const gl=canvas.getContext("webgl2",{alpha:false,antialias:false,preserveDrawingBuffer:true});
+let W=0,H=0,D=1,t0=performance.now(),shift=0;
+
+const VS=`#version 300 es
+in vec2 a_position;
+void main(){gl_Position=vec4(a_position,0.0,1.0);}
+`;
+
+const FS=`#version 300 es
+precision highp float;
+out vec4 outColor;
+uniform vec2 u_res;
+uniform float u_phase;
+const float PI=3.14159265359;
+const float TAU=6.28318530718;
+
+vec3 hsv(vec3 c){
+  vec3 p=abs(fract(c.xxx+vec3(0.0,.6666667,.3333333))*6.0-3.0);
+  return c.z*mix(vec3(1.0),clamp(p-1.0,0.0,1.0),c.y);
+}
+float sq(vec2 p){return max(abs(p.x),abs(p.y));}
+float ring(float d,float w){
+  float x=abs(d)/max(w,.0001);
+  return exp(-x*x*1.7);
+}
+vec2 rot(vec2 p,float a){
+  float c=cos(a),s=sin(a);
+  return vec2(c*p.x-s*p.y,s*p.x+c*p.y);
+}
+
+void main(){
+  vec2 p=(gl_FragCoord.xy-.5*u_res)/min(u_res.x,u_res.y);
+  p.y=-p.y;
+  float t=u_phase*TAU;
+
+  /* 座標系そのものを大きく呼吸させる。 */
+  float zoom=exp(1.72*sin(t-.72));
+  vec2 q=p*zoom;
+
+  /* 中央の一点を「ヒンジ」にして空間を折る。 */
+  vec2 hinge=vec2(.18*sin(t+.4),-.06+.14*sin(t-.3));
+  vec2 h=q-hinge;
+  float local=exp(-dot(h,h)/.075);
+  float bend=.92*sin(t-.15)*local;
+  q=rot(h,bend)+hinge;
+
+  /* ヒンジの近傍だけ正方形の一辺を横へ引き込む。 */
+  float nearEdge=exp(-pow(q.x-.025,2.0)/.018);
+  float lower=1.0-smoothstep(-.5,.35,q.y);
+  q.x+=.22*sin(t+.7)*nearEdge*lower;
+
+  /* 円ではなくL∞距離。これが四角い入れ子を作る。 */
+  float r=sq(q);
+  float a=atan(q.y,q.x);
+  float spiral=.18+.06*sin(t*.5);
+  float rr=r*exp(spiral*sin(a*2.0+t*.12));
+  float z=log2(max(rr,.0009));
+
+  /* 少数の太い自己相似輪郭。 */
+  float d0=fract(z*.52+.08)-.5;
+  float d1=fract(z*.52+.31)-.5;
+  float d2=fract(z*.52+.55)-.5;
+  float line=ring(d0,.042)+.72*ring(d1,.034)+.42*ring(d2,.027);
+
+  /* 輪郭の間も色面として存在させる。 */
+  float cell=fract(z*.52+.08);
+  float field=pow(sin(PI*cell),1.6);
+  float hue=.02+cell*.92+a/TAU*.16+.08*sin(t*.5)+.055*sin(a*2.0-t);
+  vec3 c=hsv(vec3(hue,.66,1.0));
+  vec3 c2=hsv(vec3(hue+.055,.52,1.0));
+  vec3 fieldColor=mix(c,c2,.45);
+  vec3 color=mix(vec3(1.0),fieldColor,.22+field*.42);
+  color=mix(color,c,clamp(line*.95,0.0,.98));
+
+  /* 中央下側の折り目。単なる縦線ではなく、白い谷。 */
+  float seam=exp(-q.x*q.x/.0009)*(1.0-smoothstep(-.48,.42,q.y));
+  color=mix(color,vec3(1.0),seam*.92);
+
+  float edge=smoothstep(.78,1.02,length(p));
+  color=mix(color,vec3(1.0),edge*.32);
+  outColor=vec4(color,1.0);
+}
+`;
+
+function compile(type,src){
+  const s=gl.createShader(type);
+  gl.shaderSource(s,src);
+  gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+if(!gl)throw new Error("WebGL2 unavailable");
+
+const program=gl.createProgram();
+gl.attachShader(program,compile(gl.VERTEX_SHADER,VS));
+gl.attachShader(program,compile(gl.FRAGMENT_SHADER,FS));
+gl.linkProgram(program);
+if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(program));
+gl.useProgram(program);
+
+const buffer=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,buffer);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+const position=gl.getAttribLocation(program,"a_position");
+gl.enableVertexAttribArray(position);
+gl.vertexAttribPointer(position,2,gl.FLOAT,false,0,0);
+
+const uRes=gl.getUniformLocation(program,"u_res");
+const uPhase=gl.getUniformLocation(program,"u_phase");
 
 function resize(){
-  D=Math.min(2,window.devicePixelRatio||1);
+  D=Math.min(2,devicePixelRatio||1);
   W=innerWidth;H=innerHeight;
   canvas.width=Math.max(1,Math.round(W*D));
   canvas.height=Math.max(1,Math.round(H*D));
-  ctx.setTransform(D,0,0,D,0,0);
+  gl.viewport(0,0,canvas.width,canvas.height);
 }
-addEventListener("resize",resize,{passive:true});resize();
-
-function hsv(h,s,v){
-  h=((h%1)+1)%1;
-  const i=Math.floor(h*6),f=h*6-i,p=v*(1-s),q=v*(1-f*s),t=v*(1-(1-f)*s);
-  switch(i%6){
-    case 0:return[v,t,p];case 1:return[q,v,p];case 2:return[p,v,t];
-    case 3:return[p,q,v];case 4:return[t,p,v];default:return[v,p,q];
-  }
-}
-function rgb(c,a=1){
-  return"rgba("+Math.round(c[0]*255)+","+Math.round(c[1]*255)+","+Math.round(c[2]*255)+","+a+")";
-}
-
-/* 左右それぞれの正方形。内側の一辺だけが中央ヒンジへ折れる。 */
-function squarePath(side,scale,phase){
-  const min=H,cx=side*min*.285,cy=H*.5,s=scale*min*.62;
-  const tilt=.055*Math.sin(phase+side*.7),co=Math.cos(tilt),si=Math.sin(tilt);
-  const pts=[[-s,-s],[s,-s],[s,s],[-s,s]].map(([x,y])=>[
-    cx+x*co-y*si,cy+x*si+y*co
-  ]);
-  let a,b,outer1,outer2;
-  if(side>0){
-    a=pts[0];b=pts[3];outer1=pts[1];outer2=pts[2];
-  }else{
-    a=pts[1];b=pts[2];outer1=pts[0];outer2=pts[3];
-  }
-  const pull=(.22+.18*Math.sin(phase*.5))*s;
-  const mid=[W*.5+side*pull*.16,cy+s*.18*Math.sin(phase+side)];
-
-  ctx.beginPath();
-  ctx.moveTo(outer1[0],outer1[1]);
-  ctx.lineTo(a[0],a[1]);
-  ctx.quadraticCurveTo(mid[0],mid[1],b[0],b[1]);
-  ctx.lineTo(outer2[0],outer2[1]);
-  ctx.closePath();
-}
-
-function strokeFold(side,scale,phase,idx){
-  squarePath(side,scale,phase);
-  const hueBase=(idx*.115+side*.12+phase*.055)%1;
-  const line=ctx.createLinearGradient(side<0?W:0,0,side<0?0:W,H);
-  const stops=[
-    [0,hsv(hueBase,.72,1)],[.25,hsv(hueBase+.18,.78,1)],
-    [.5,hsv(hueBase+.36,.74,1)],[.75,hsv(hueBase+.55,.76,1)],
-    [1,hsv(hueBase+.72,.70,1)]
-  ];
-  for(const [p,c] of stops)line.addColorStop(p,rgb(c,.92));
-  ctx.lineJoin="round";ctx.lineCap="round";
-
-  ctx.save();
-  ctx.strokeStyle=line;ctx.lineWidth=Math.max(12,scale*H*.035);
-  ctx.globalAlpha=.075;ctx.stroke();ctx.restore();
-
-  ctx.save();
-  ctx.strokeStyle=line;ctx.lineWidth=Math.max(4,scale*H*.014);
-  ctx.globalAlpha=.34;ctx.stroke();ctx.restore();
-
-  ctx.save();
-  ctx.strokeStyle=line;ctx.lineWidth=Math.max(1.5,scale*H*.0048);
-  ctx.globalAlpha=.96;ctx.stroke();ctx.restore();
-}
+addEventListener("resize",resize,{passive:true});
+resize();
 
 function draw(phase){
-  const p=phase+phaseShift,zoom=Math.exp(1.48*Math.sin(p-.55));
-  const bg=ctx.createLinearGradient(0,0,0,H);
-  bg.addColorStop(0,"#fff");bg.addColorStop(.5,"#fffefe");bg.addColorStop(1,"#fafafa");
-  ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
-
-  const base=[1.34,1.05,.79,.58,.40,.27,.17];
-  for(let i=0;i<base.length;i++){
-    const sc=base[i]/zoom;
-    if(sc<.018)continue;
-    strokeFold(-1,sc,p,i);strokeFold(1,sc,p,i);
-  }
-
-  const seam=ctx.createLinearGradient(W*.5-18,0,W*.5+18,0);
-  seam.addColorStop(0,"rgba(255,255,255,0)");
-  seam.addColorStop(.42,"rgba(255,255,255,.78)");
-  seam.addColorStop(.5,"rgba(255,255,255,1)");
-  seam.addColorStop(.58,"rgba(255,255,255,.78)");
-  seam.addColorStop(1,"rgba(255,255,255,0)");
-  ctx.fillStyle=seam;ctx.fillRect(W*.5-18,0,36,H);
-
-  const shadow=ctx.createLinearGradient(0,H*.34,0,H);
-  shadow.addColorStop(0,"rgba(255,255,255,0)");
-  shadow.addColorStop(1,"rgba(255,255,255,.28)");
-  ctx.fillStyle=shadow;ctx.fillRect(W*.5-5,H*.30,10,H*.70);
-
-  if(touch.active){
-    const dx=(touch.x-W*.5)/Math.min(W,H);
-    ctx.save();ctx.globalAlpha=.035;ctx.beginPath();
-    ctx.arc(touch.x,touch.y,Math.min(W,H)*.12,0,Math.PI*2);
-    ctx.fillStyle=rgb(hsv(.55+dx*.15,.5,1));ctx.fill();ctx.restore();
-  }
+  gl.useProgram(program);
+  gl.uniform2f(uRes,canvas.width,canvas.height);
+  gl.uniform1f(uPhase,phase+shift);
+  gl.drawArrays(gl.TRIANGLES,0,3);
 }
-
 function animate(now){
-  draw(((now-t0)/9000)%1);requestAnimationFrame(animate);
+  draw(((now-t0)/9000)%1);
+  requestAnimationFrame(animate);
 }
 requestAnimationFrame(animate);
 
-function setTouch(e){touch.x=e.clientX;touch.y=e.clientY}
-canvas.addEventListener("pointerdown",e=>{
-  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
-  touch.active=true;setTouch(e);
-  canvas.setPointerCapture&&canvas.setPointerCapture(e.pointerId);
-});
-canvas.addEventListener("pointermove",e=>{if(touch.active)setTouch(e)});
-canvas.addEventListener("pointerup",()=>touch.active=false);
-canvas.addEventListener("pointercancel",()=>touch.active=false);
-
-function mutate(){phaseShift+=.21+Math.random()*.47}
-function reset(){phaseShift=0;t0=performance.now()}
+function mutate(){shift+=.17+Math.random()*.6}
+function reset(){shift=0;t0=performance.now()}
 
 APKit.init({
-  canvas,gifName:"polar-fold-loop",clockFormat:"spec",dock:true,autoHide:true,
-  fullscreenButton:false,loopFrame:function(phase){draw(phase)},
+  canvas,
+  gifName:"polar-fold-loop",
+  clockFormat:"spec",
+  dock:true,
+  autoHide:true,
+  fullscreenButton:false,
+  loopFrame:function(phase){draw(phase)},
   buttons:[
     {label:"✦",name:"mutate",onClick:mutate},
     {label:"↻",name:"reset",onClick:reset}
