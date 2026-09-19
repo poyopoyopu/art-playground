@@ -1,0 +1,578 @@
+<!doctype html>
+<!-- KOI POND — SHOAL LAW / クロード(クロちゃん)作。参考: おっちゃんが共有したオンボーディング動画(鯉の池) -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
+<title>KOI POND — SHOAL LAW</title>
+<script src="../ap-kit.js"></script>
+<style>
+  html,body{margin:0;height:100%;background:#09151d;overflow:hidden}
+  canvas{display:block;width:100vw;height:100vh;touch-action:none}
+  #hint{position:fixed;left:0;right:0;bottom:13%;text-align:center;
+        color:rgba(255,255,255,.62);
+        font:500 11px/1.9 ui-sans-serif,system-ui,-apple-system,"Helvetica Neue",sans-serif;
+        letter-spacing:.24em;pointer-events:none;z-index:3;
+        transition:opacity 1.4s ease}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">TAP TO GATHER &nbsp;·&nbsp; HOLD TO FEED</div>
+<script>
+(function(){
+'use strict';
+
+/* ------------------------------------------------------------------
+   KOI POND — SHOAL LAW
+   世界のルール: 群れのスケールは触り方で決まる。
+     HOLD(餌)  … 集まった鯉は餌を食べて「半分の鯉 2匹」に分かれる(最大4階層)
+     TAP(波紋) … 散った同世代の鯉どうしがぶつかると、一段上のスケールに戻る
+   泳ぎ・揺れ・群れの法則はどの階層でも同一。同じ法則が入れ子になっている。
+------------------------------------------------------------------- */
+
+var cvs = document.getElementById('c');
+var ctx = cvs.getContext('2d');
+var hintEl = document.getElementById('hint');
+
+var W = 0, H = 0, DPR = 1;
+var TS = 30, cols = 0, rows = 0, tiles = [];
+var koi = [], pads = [], ripples = [], crumbs = [];
+var feed = null;
+var T = 0;
+var CAP = 46;
+var P = {};
+
+function rand(a, b){ return a + Math.random() * (b - a); }
+function pick(a){ return a[(Math.random() * a.length) | 0]; }
+function angDiff(a, b){
+  var d = a - b;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return d;
+}
+
+/* ---------- palette ---------- */
+function newPalette(){
+  P = {
+    hue:    205 + rand(-9, 9),
+    sat:    rand(40, 52),
+    lum:    rand(31, 38),
+    koiHue: rand(4, 22),
+    koiSat: rand(60, 84),
+    padHue: rand(96, 136)
+  };
+}
+
+/* ---------- water tiles ---------- */
+function buildTiles(){
+  cols = Math.ceil(W / TS) + 1;
+  rows = Math.ceil(H / TS) + 1;
+  tiles = [];
+  for (var j = 0; j < rows; j++){
+    for (var i = 0; i < cols; i++){
+      tiles.push({
+        x: i * TS, y: j * TS,
+        dh: rand(-4.5, 4.5), ds: rand(-6, 6), dl: rand(-2.8, 2.8),
+        ph: rand(0, 6.283), sp: rand(0.22, 0.62)
+      });
+    }
+  }
+}
+
+function edgeShade(x, y){
+  var m = 46;
+  var e = Math.min(x, y, W - x, H - y) / m;
+  if (e > 1) e = 1;
+  if (e < 0) e = 0;
+  return e * e * (3 - 2 * e); // smoothstep
+}
+
+function drawWater(){
+  var i, k, r, d, l, tl, cx, cy;
+  for (i = 0; i < tiles.length; i++){
+    tl = tiles[i];
+    cx = tl.x + TS * 0.5; cy = tl.y + TS * 0.5;
+    l = P.lum + tl.dl + Math.sin(T * tl.sp + tl.ph) * 1.5
+        + Math.sin(cx * 0.009 + T * 0.18) * 2.6
+        + Math.sin(cy * 0.0072 - T * 0.13 + 1.7) * 2.6
+        + Math.sin((cx + cy) * 0.0045 + T * 0.09) * 2.0;
+    for (k = 0; k < ripples.length; k++){
+      r = ripples[k];
+      d = Math.abs(Math.hypot(cx - r.x, cy - r.y) - r.r);
+      if (d < r.band) l += (1 - d / r.band) * 11 * r.life;
+    }
+    if (feed){
+      d = Math.hypot(cx - feed.x, cy - feed.y);
+      if (d < 70) l += (1 - d / 70) * 4.5 * (0.6 + 0.4 * Math.sin(T * 6));
+    }
+    l -= (1 - edgeShade(cx, cy)) * 13;
+    ctx.fillStyle = 'hsl(' + (P.hue + tl.dh) + ',' + (P.sat + tl.ds) + '%,' + l + '%)';
+    ctx.fillRect(tl.x, tl.y, TS + 1.2, TS + 1.2);
+  }
+}
+
+/* ---------- lily pads ---------- */
+function buildPads(){
+  pads = [];
+  var n = 5 + (Math.random() * 3 | 0);
+  for (var i = 0; i < n; i++){
+    pads.push({
+      x: rand(0.1, 0.9) * W,
+      y: rand(0.08, 0.92) * H,
+      r: rand(16, 27),
+      a: rand(0, 6.283),
+      ph: rand(0, 6.283),
+      flower: Math.random() < 0.65,
+      fr: rand(6, 9)
+    });
+  }
+}
+
+function drawPads(){
+  for (var i = 0; i < pads.length; i++){
+    var p = pads[i];
+    var bx = p.x + Math.sin(T * 0.45 + p.ph) * 2.2;
+    var by = p.y + Math.cos(T * 0.37 + p.ph) * 2.0;
+    ctx.save();
+    ctx.translate(bx, by);
+    ctx.fillStyle = 'rgba(2,24,36,.26)';
+    ctx.beginPath();
+    ctx.arc(2.5, 3.5, p.r, 0, 6.283);
+    ctx.fill();
+    ctx.rotate(p.a + Math.sin(T * 0.2 + p.ph) * 0.07);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.arc(0, 0, p.r, 0.26, 6.283 - 0.26);
+    ctx.closePath();
+    ctx.fillStyle = 'hsl(' + P.padHue + ',36%,30%)';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(0, 0, p.r * 0.68, 0.4, 5.5);
+    ctx.strokeStyle = 'hsla(' + P.padHue + ',40%,44%,.45)';
+    ctx.lineWidth = 1.1;
+    ctx.stroke();
+    ctx.restore();
+
+    if (p.flower){
+      var fx = bx + Math.cos(p.a + 2.2) * (p.r + 7);
+      var fy = by + Math.sin(p.a + 2.2) * (p.r + 7);
+      ctx.save();
+      ctx.translate(fx, fy);
+      ctx.rotate(p.ph);
+      for (var k = 0; k < 7; k++){
+        ctx.rotate(6.283 / 7);
+        ctx.beginPath();
+        ctx.ellipse(p.fr * 0.62, 0, p.fr * 0.62, p.fr * 0.26, 0, 0, 6.283);
+        ctx.fillStyle = 'rgba(255,253,250,.94)';
+        ctx.fill();
+      }
+      ctx.beginPath();
+      ctx.arc(0, 0, p.fr * 0.24, 0, 6.283);
+      ctx.fillStyle = 'rgba(255,226,150,.95)';
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+}
+
+/* ---------- koi ---------- */
+function Koi(x, y, gen, white, hueShift){
+  this.gen = gen;
+  this.sc = Math.pow(0.68, gen);
+  this.len = 42 * this.sc;
+  this.w = 6.3 * this.sc;
+  this.x = x; this.y = y;
+  this.dir = rand(0, 6.283);
+  this.spd = (25 + rand(-5, 8)) * (0.78 + 0.22 * this.sc);
+  this.wigPh = rand(0, 6.283);
+  this.wigSp = 5.4 + 3.4 * (1 - this.sc);
+  this.fed = 0;
+  this.flee = 0;
+  this.slow = 0;
+  this.white = (white === undefined) ? (Math.random() < 0.3) : white;
+  this.hue = P.koiHue + (hueShift === undefined ? rand(-6, 8) : hueShift);
+  this.spots = [];
+  var ns = 2 + (Math.random() * 3 | 0);
+  for (var i = 0; i < ns; i++){
+    this.spots.push({ p: rand(0.1, 0.82), o: rand(-0.42, 0.42), r: rand(0.5, 1.05) });
+  }
+  this.hist = [];
+  for (var j = 0; j < 12; j++){
+    this.hist.push({ x: x - Math.cos(this.dir) * j * this.len / 10,
+                     y: y - Math.sin(this.dir) * j * this.len / 10 });
+  }
+}
+
+Koi.prototype.step = function(dt){
+  var i, r, d, dx, dy, want;
+
+  // 自律の揺らぎ(どの階層でも同じ法則)
+  this.dir += Math.sin(T * 0.7 + this.wigPh) * 0.9 * dt + rand(-1, 1) * 1.2 * dt;
+
+  // 餌に寄る
+  if (feed){
+    dx = feed.x - this.x; dy = feed.y - this.y;
+    d = Math.hypot(dx, dy) + 0.001;
+    if (d < 300){
+      want = Math.atan2(dy, dx);
+      this.dir += angDiff(want, this.dir) * Math.min(1, (1 - d / 300) * 2.6) * dt * 2.8;
+      if (d < 52){
+        this.fed += dt * (1.5 - d / 90);
+        this.slow = 1;
+      }
+    }
+  }
+
+  // 波紋から逃げる
+  for (i = 0; i < ripples.length; i++){
+    r = ripples[i];
+    dx = this.x - r.x; dy = this.y - r.y;
+    d = Math.hypot(dx, dy) + 0.001;
+    if (Math.abs(d - r.r) < 54 && r.life > 0.15){
+      want = Math.atan2(dy, dx);
+      this.dir += angDiff(want, this.dir) * 3.4 * dt * r.life;
+      this.flee = Math.max(this.flee, r.life);
+    }
+  }
+
+  // 壁
+  var m = 30;
+  if (this.x < m)      this.dir += angDiff(0, this.dir) * 3 * dt;
+  if (this.x > W - m)  this.dir += angDiff(Math.PI, this.dir) * 3 * dt;
+  if (this.y < m)      this.dir += angDiff(Math.PI / 2, this.dir) * 3 * dt;
+  if (this.y > H - m)  this.dir += angDiff(-Math.PI / 2, this.dir) * 3 * dt;
+
+  this.flee *= Math.pow(0.24, dt);
+  this.slow *= Math.pow(0.02, dt);
+  var sp = this.spd * (1 + this.flee * 2.3) * (1 - this.slow * 0.55);
+  this.x += Math.cos(this.dir) * sp * dt;
+  this.y += Math.sin(this.dir) * sp * dt;
+  this.x = Math.max(6, Math.min(W - 6, this.x));
+  this.y = Math.max(6, Math.min(H - 6, this.y));
+
+  var h0 = this.hist[0];
+  if (Math.hypot(this.x - h0.x, this.y - h0.y) > this.len / 10){
+    this.hist.unshift({ x: this.x, y: this.y });
+    if (this.hist.length > 12) this.hist.pop();
+  }
+};
+
+function bodyW(f){
+  var v = Math.pow(Math.max(0, Math.sin(Math.PI * Math.min(1, 0.22 + 0.78 * f))), 0.8);
+  return Math.max(0.05, v);
+}
+
+Koi.prototype.draw = function(){
+  var n = this.hist.length, i, f, a, off, amp;
+  var mid = [], nx = [], ny = [];
+  for (i = 0; i < n; i++){
+    var p = this.hist[i];
+    var q = this.hist[Math.min(i + 1, n - 1)];
+    var pv = this.hist[Math.max(i - 1, 0)];
+    a = Math.atan2(q.y - pv.y, q.x - pv.x);
+    f = i / (n - 1);
+    amp = this.w * 0.62 * f * f * (1 + this.flee * 0.8);
+    off = Math.sin(T * this.wigSp - i * 0.8 + this.wigPh) * amp;
+    mid.push({ x: p.x + Math.cos(a + Math.PI / 2) * off,
+               y: p.y + Math.sin(a + Math.PI / 2) * off,
+               w: bodyW(f) * this.w, a: a, f: f });
+    nx.push(Math.cos(a + Math.PI / 2));
+    ny.push(Math.sin(a + Math.PI / 2));
+  }
+
+  function outline(dx, dy){
+    ctx.beginPath();
+    var j, m0;
+    for (j = 0; j < n; j++){
+      m0 = mid[j];
+      var px = m0.x + nx[j] * m0.w + dx, py = m0.y + ny[j] * m0.w + dy;
+      if (j === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    for (j = n - 1; j >= 0; j--){
+      m0 = mid[j];
+      ctx.lineTo(m0.x - nx[j] * m0.w + dx, m0.y - ny[j] * m0.w + dy);
+    }
+    ctx.closePath();
+  }
+
+  // 水中の影
+  ctx.fillStyle = 'rgba(2,22,36,.30)';
+  outline(3.2 * this.sc, 4.4 * this.sc);
+  ctx.fill();
+
+  // 尾びれ
+  var tail = mid[n - 1], ref = mid[Math.max(0, n - 4)];
+  var ta = Math.atan2(tail.y - ref.y, tail.x - ref.x);
+  ctx.save();
+  ctx.translate(tail.x, tail.y);
+  ctx.rotate(ta);
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.quadraticCurveTo(-this.w * 1.2, -this.w * 1.15, -this.w * 2.0, -this.w * 0.45);
+  ctx.quadraticCurveTo(-this.w * 1.25, 0, -this.w * 2.0, this.w * 0.45);
+  ctx.quadraticCurveTo(-this.w * 1.2, this.w * 1.15, 0, 0);
+  ctx.fillStyle = this.white ? 'rgba(252,248,244,.55)' : 'hsla(' + this.hue + ',' + P.koiSat + '%,58%,.5)';
+  ctx.fill();
+  ctx.restore();
+
+  // 胸びれ
+  var pec = mid[Math.min(3, n - 1)];
+  ctx.save();
+  ctx.translate(pec.x, pec.y);
+  ctx.rotate(pec.a + Math.sin(T * this.wigSp + this.wigPh) * 0.35);
+  ctx.globalAlpha = 0.5;
+  ctx.fillStyle = this.white ? '#fbf6f2' : 'hsl(' + this.hue + ',' + P.koiSat + '%,62%)';
+  ctx.beginPath(); ctx.ellipse(0, this.w * 1.15, this.w * 0.95, this.w * 0.4, 0.5, 0, 6.283); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(0, -this.w * 1.15, this.w * 0.95, this.w * 0.4, -0.5, 0, 6.283); ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.restore();
+
+  // 体
+  var base = this.white ? 'hsl(28,26%,94%)' : 'hsl(' + this.hue + ',' + P.koiSat + '%,47%)';
+  var spot = this.white ? 'hsl(' + this.hue + ',' + P.koiSat + '%,48%)' : 'hsl(30,30%,95%)';
+  outline(0, 0);
+  ctx.fillStyle = base;
+  ctx.fill();
+
+  ctx.save();
+  outline(0, 0);
+  ctx.clip();
+  for (i = 0; i < this.spots.length; i++){
+    var s = this.spots[i];
+    var idx = Math.min(n - 1, Math.max(0, Math.round(s.p * (n - 1))));
+    var m1 = mid[idx];
+    ctx.beginPath();
+    ctx.ellipse(m1.x + nx[idx] * m1.w * s.o, m1.y + ny[idx] * m1.w * s.o,
+                m1.w * s.r * 1.15, m1.w * s.r * 0.95, m1.a, 0, 6.283);
+    ctx.fillStyle = spot;
+    ctx.fill();
+  }
+  // 背のハイライト
+  ctx.globalAlpha = 0.18;
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = this.w * 0.42;
+  ctx.beginPath();
+  for (i = 0; i < n; i++){ if (i === 0) ctx.moveTo(mid[i].x, mid[i].y); else ctx.lineTo(mid[i].x, mid[i].y); }
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.restore();
+};
+
+/* ---------- ripples / crumbs ---------- */
+function addRipple(x, y, str){
+  ripples.push({ x: x, y: y, r: 6, rMax: 150 * str, band: 16 * str, life: 1, sp: 130 * str });
+  if (ripples.length > 7) ripples.shift();
+}
+function stepRipples(dt){
+  for (var i = ripples.length - 1; i >= 0; i--){
+    var r = ripples[i];
+    r.r += r.sp * dt;
+    r.life = 1 - r.r / r.rMax;
+    if (r.life <= 0) ripples.splice(i, 1);
+  }
+}
+function drawRipples(){
+  for (var i = 0; i < ripples.length; i++){
+    var r = ripples[i];
+    ctx.beginPath(); ctx.arc(r.x, r.y, r.r, 0, 6.283);
+    ctx.strokeStyle = 'rgba(255,255,255,' + (0.20 * r.life) + ')';
+    ctx.lineWidth = 1.6; ctx.stroke();
+    ctx.beginPath(); ctx.arc(r.x, r.y, r.r * 0.72, 0, 6.283);
+    ctx.strokeStyle = 'rgba(255,255,255,' + (0.09 * r.life) + ')';
+    ctx.lineWidth = 1.1; ctx.stroke();
+  }
+}
+function addCrumbs(x, y, n){
+  for (var i = 0; i < n; i++){
+    crumbs.push({ x: x + rand(-8, 8), y: y + rand(-8, 8),
+                  vx: rand(-14, 14), vy: rand(-14, 14), life: 1, r: rand(1.1, 2.3) });
+  }
+}
+function stepCrumbs(dt){
+  for (var i = crumbs.length - 1; i >= 0; i--){
+    var c = crumbs[i];
+    c.x += c.vx * dt; c.y += c.vy * dt;
+    c.vx *= Math.pow(0.2, dt); c.vy *= Math.pow(0.2, dt);
+    c.life -= dt * 0.75;
+    if (c.life <= 0) crumbs.splice(i, 1);
+  }
+}
+function drawCrumbs(){
+  for (var i = 0; i < crumbs.length; i++){
+    var c = crumbs[i];
+    ctx.beginPath(); ctx.arc(c.x, c.y, c.r, 0, 6.283);
+    ctx.fillStyle = 'rgba(255,240,215,' + (0.8 * c.life) + ')';
+    ctx.fill();
+  }
+}
+
+/* ---------- 世界のルール: 分裂と合体 ---------- */
+function resolveSplits(){
+  var born = [];
+  for (var i = koi.length - 1; i >= 0; i--){
+    var k = koi[i];
+    if (k.fed > 1.25 && k.gen < 3 && koi.length + born.length < CAP){
+      var a = k.dir + Math.PI / 2, off = k.len * 0.3;
+      for (var s = -1; s <= 1; s += 2){
+        var c = new Koi(k.x + Math.cos(a) * off * s, k.y + Math.sin(a) * off * s,
+                        k.gen + 1, k.white, k.hue - P.koiHue);
+        c.dir = k.dir + s * 0.7;
+        born.push(c);
+      }
+      addRipple(k.x, k.y, 0.45);
+      addCrumbs(k.x, k.y, 6);
+      koi.splice(i, 1);
+    } else if (k.fed > 1.25){
+      k.fed = 1.0; // 満員/最小スケールなら分裂しない
+    }
+  }
+  for (var j = 0; j < born.length; j++) koi.push(born[j]);
+}
+
+function mergeInside(x, y, rad){
+  var merged = 0;
+  for (var i = 0; i < koi.length && merged < 4; i++){
+    var a = koi[i];
+    if (!a || a.gen === 0) continue;
+    if (Math.hypot(a.x - x, a.y - y) > rad) continue;
+    for (var j = i + 1; j < koi.length; j++){
+      var b = koi[j];
+      if (!b || b.gen !== a.gen) continue;
+      if (Math.hypot(b.x - x, b.y - y) > rad) continue;
+      if (Math.hypot(a.x - b.x, a.y - b.y) > 90 * a.sc + 42) continue;
+      var big = new Koi((a.x + b.x) / 2, (a.y + b.y) / 2, a.gen - 1, a.white, a.hue - P.koiHue);
+      big.dir = a.dir;
+      koi.splice(j, 1);
+      koi.splice(i, 1, big);
+      addRipple(big.x, big.y, 0.55);
+      merged++;
+      break;
+    }
+  }
+  return merged;
+}
+
+/* ---------- interaction ---------- */
+var holding = false, downT = 0, downX = 0, downY = 0, hintOff = false;
+
+function hideHint(){
+  if (hintOff) return;
+  hintOff = true;
+  hintEl.style.opacity = '0';
+}
+
+function onDown(e){
+  var x = e.clientX, y = e.clientY;
+  if (window.APKit && APKit.isUI && APKit.isUI(x, y)) return;
+  e.preventDefault();
+  holding = true; downT = performance.now(); downX = x; downY = y;
+  hideHint();
+}
+function onMove(e){
+  if (!holding) return;
+  e.preventDefault();
+  if (performance.now() - downT > 200){
+    feed = { x: e.clientX, y: e.clientY };
+  }
+}
+function onUp(e){
+  if (!holding) return;
+  holding = false;
+  var dt = performance.now() - downT;
+  var x = (e.clientX === undefined) ? downX : e.clientX;
+  var y = (e.clientY === undefined) ? downY : e.clientY;
+  if (dt < 260 && Math.hypot(x - downX, y - downY) < 18){
+    addRipple(x, y, 1);
+    mergeInside(x, y, 130);
+  }
+  feed = null;
+}
+
+cvs.addEventListener('pointerdown', onDown, { passive: false });
+window.addEventListener('pointermove', onMove, { passive: false });
+window.addEventListener('pointerup', onUp);
+window.addEventListener('pointercancel', onUp);
+
+/* ---------- setup / loop ---------- */
+function reset(){
+  koi = []; ripples = []; crumbs = []; feed = null;
+  for (var i = 0; i < 9; i++) koi.push(new Koi(rand(0.15, 0.85) * W, rand(0.15, 0.85) * H, 0));
+}
+function mutate(){
+  newPalette();
+  buildTiles();
+  buildPads();
+  for (var i = 0; i < koi.length; i++){
+    koi[i].hue = P.koiHue + rand(-6, 8);
+    koi[i].x = rand(0.1, 0.9) * W;
+    koi[i].y = rand(0.1, 0.9) * H;
+    koi[i].dir = rand(0, 6.283);
+  }
+}
+function resize(){
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = window.innerWidth; H = window.innerHeight;
+  cvs.width = Math.round(W * DPR); cvs.height = Math.round(H * DPR);
+  cvs.style.width = W + 'px'; cvs.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  buildTiles();
+}
+
+function frame(dt){
+  T += dt;
+  if (feed && Math.random() < dt * 8) addCrumbs(feed.x, feed.y, 1);
+  stepRipples(dt);
+  stepCrumbs(dt);
+  for (var i = 0; i < koi.length; i++) koi[i].step(dt);
+  if (feed) resolveSplits();
+  drawWater();
+  drawRipples();
+  for (var j = 0; j < koi.length; j++) koi[j].draw();
+  drawCrumbs();
+  drawPads();
+  if (feed){
+    ctx.beginPath();
+    ctx.arc(feed.x, feed.y, 14 + Math.sin(T * 7) * 3, 0, 6.283);
+    ctx.strokeStyle = 'rgba(255,240,210,.38)';
+    ctx.lineWidth = 1.4; ctx.stroke();
+  }
+}
+
+var last = performance.now();
+function loop(now){
+  var dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  frame(dt);
+  requestAnimationFrame(loop);
+}
+
+window.addEventListener('resize', resize);
+newPalette();
+resize();
+buildPads();
+reset();
+requestAnimationFrame(loop);
+setTimeout(hideHint, 7000);
+
+/* GIF: 蓄積する群れなので完全なシームレスループにはならない(AGENTS.md 8章の例外) */
+if (window.APKit && APKit.init){
+  APKit.init({
+    canvas: cvs,
+    gifName: 'koi-pond-loop',
+    clockFormat: 'spec',
+    dock: true,
+    autoHide: true,
+    fullscreenButton: false,
+    loopFrame: function(phase){ frame(1 / 30); },
+    buttons: [
+      { label: '✦', name: 'mutate', onClick: mutate },
+      { label: '↻', name: 'reset',  onClick: reset }
+    ]
+  });
+}
+
+})();
+</script>
+</body>
+</html>
