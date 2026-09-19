@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>DESCENT — BLACK ORCHID B</title>
+<script src="../ap-kit.js"></script>
+<script src="orchid-engine.js"></script>
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#05070a}
+canvas{display:block;width:100%;height:100%;touch-action:none}</style>
+</head><body>
+<canvas id="c"></canvas>
+<script>
+'use strict';
+/*
+  DESCENT — Claude(クロちゃん)作。ap-kit.js統合: Claude / 描画は orchid-engine.js
+  案B。おっちゃん提供の黒い蘭の写真から。
+
+  世界のルール — 「花の中心には、同じ花がある」:
+  唇弁の奥を覗くと、同じ蘭がもう一輪咲いている。触ると一段内側へ落ちる。
+  落ちた先にもまた中心があり、そこにもまた花がある。どこまで行っても終わらない。
+  ただし一段潜るごとに花はわずかに形質を変え、深いところでは
+  もう蘭とは呼べない別の生き物になっている。外側へは戻れない。
+  長押しすると落ち続ける。手を離したところが、その人の深さになる。
+*/
+const O=Orchid,c=document.getElementById('c'),ctx=c.getContext('2d');
+let W=0,H=0,DPR=1,R=1,CX=0,CY=0,bg=null;
+const K=4.8;                       /* 階層ごとの縮小率 */
+let u=0,uT=0,holding=false,holdT=0,sess=20260919,levels=[],hint=1,flash=0;
+
+function geneOf(i){
+  while(levels.length<=i){
+    const n=levels.length;
+    const prev=n===0?O.clone(O.WILD):levels[n-1].base;
+    const r=O.mulberry32((sess+n*977)>>>0);
+    const base=n===0?prev:O.mutate(prev,0.10,r);
+    const gs=[];for(let k=0;k<O.N;k++)gs.push(O.mutate(base,0.045,r));
+    levels.push({base:base,gs:gs,hi:null,lo:null});
+  }
+  return levels[i];
+}
+function geoOf(i,detail){
+  const L=geneOf(i);
+  if(detail==='hi'){if(!L.hi)L.hi=O.buildGeo(L.gs,R);return L.hi}
+  if(!L.lo){
+    const s=L.gs.map(function(g){const q=O.clone(g);
+      q.depth=Math.max(1.2,g.depth-2.0);q.ray=Math.max(8,g.ray*0.5);return q});
+    L.lo=O.buildGeo(s,R);
+  }
+  return L.lo;
+}
+function clearGeo(){for(const L of levels){L.hi=null;L.lo=null}}
+
+function draw(bp){
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.drawImage(bg,0,0);
+  const i0=Math.max(0,Math.floor(u)-1);
+  for(let i=i0;i<i0+7;i++){
+    const s=Math.pow(K,u-i);
+    if(s<0.018||s>3.4)continue;
+    let a=1;
+    if(s>1.9)a=Math.max(0,1-(s-1.9)/1.5);
+    if(s<0.06)a=Math.max(0,(s-0.018)/0.042);
+    if(a<=0.01)continue;
+    O.drawFlower(ctx,geoOf(i,s<0.22?'lo':'hi'),
+      {cx:CX,cy:CY,bp:bp+i*0.9,scale:s,alpha:a,lipOff:0});
+  }
+  if(flash>0){ctx.save();ctx.globalAlpha=flash*0.10;ctx.fillStyle='#fff';
+    ctx.fillRect(0,0,W,H);ctx.restore()}
+  O.label(ctx,W,H,R,'DEPTH '+String(Math.floor(u)).padStart(2,'0'));
+  if(hint>0)O.label(ctx,W,H,R,'TAP TO FALL INWARD',true,0.38*hint);
+}
+
+let last=performance.now();
+function tick(){
+  const now=performance.now(),dt=Math.min(0.05,(now-last)/1000);last=now;
+  if(holding&&now-holdT>420){u+=dt*1.35;uT=u;hint=0}
+  else if(uT>u){u+=(uT-u)*Math.min(1,dt*4.2);if(uT-u<0.002)u=uT}
+  if(flash>0)flash=Math.max(0,flash-dt*2.4);
+  if(hint>0&&now>7000)hint=Math.max(0,hint-dt*0.5);
+  draw(now/1000*0.55);
+  requestAnimationFrame(tick);
+}
+
+c.addEventListener('pointerdown',function(e){
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  holding=true;holdT=performance.now();
+});
+function up(){
+  if(!holding)return;holding=false;
+  if(performance.now()-holdT<=420){uT=Math.floor(u)+1;flash=1;hint=0}
+  else uT=u;
+}
+c.addEventListener('pointerup',up);
+c.addEventListener('pointercancel',function(){holding=false;uT=u});
+c.addEventListener('contextmenu',function(e){e.preventDefault()});
+
+function resize(){
+  DPR=Math.min(2,window.devicePixelRatio||1);
+  W=Math.floor(innerWidth*DPR);H=Math.floor(innerHeight*DPR);
+  c.width=W;c.height=H;c.style.width=innerWidth+'px';c.style.height=innerHeight+'px';
+  R=Math.min(W,H)*0.34;CX=W/2;CY=H*0.47;
+  bg=O.makeBG(W,H,7777);clearGeo();
+}
+window.addEventListener('resize',resize);
+resize();geneOf(0);requestAnimationFrame(tick);
+
+APKit.init({
+  canvas:c,gifName:'orchid-descent-loop',clockFormat:'spec',dock:true,autoHide:true,
+  fullscreenButton:false,
+  loopFrame:function(phase){draw(phase)},
+  buttons:[
+    {label:'✦',name:'mutate',onClick:function(){
+      /* ここから先の系統を別物にする(通ってきた階層は変わらない) */
+      sess=(Date.now()&0x7fffffff)||7;
+      levels=levels.slice(0,Math.floor(u)+1);flash=1;
+    }},
+    {label:'↻',name:'reset',onClick:function(){
+      u=0;uT=0;sess=20260919;levels=[];geneOf(0);hint=1;
+    }}
+  ]
+});
+</script>
+</body></html>
