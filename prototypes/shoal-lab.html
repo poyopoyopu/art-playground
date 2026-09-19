@@ -1,0 +1,562 @@
+<!doctype html>
+<!-- SHOAL LAB — 5 WORLDS / クロード(クロちゃん)作 2026-09-20
+     koi-pond-b.html の水中表現をそのままに、「何が泳いでいるか」だけ差し替えて見比べる実験台。
+     シミュレーション(泳ぎ・分裂合体・深さ)は prototypes/koi-pond-engine.js 共通。
+     ⚙ボタンで世界の切替と、水の濃さ・ぼけ・光の網・数を手元で調整できる。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
+<title>SHOAL LAB — 5 WORLDS</title>
+<script src="../ap-kit.js"></script>
+<script src="koi-pond-engine.js"></script>
+<style>
+  html,body{margin:0;height:100%;background:#06101a;overflow:hidden}
+  canvas{display:block;width:100vw;height:100vh;touch-action:none}
+  #tag{position:fixed;left:14px;top:calc(14px + env(safe-area-inset-top,0px));z-index:3;
+       color:rgba(255,255,255,.42);letter-spacing:.2em;pointer-events:none;
+       font:500 10px/1.6 ui-sans-serif,system-ui,-apple-system,sans-serif}
+  #hint{position:fixed;left:0;right:0;bottom:15%;text-align:center;color:rgba(255,255,255,.55);
+        font:500 11px/1.9 ui-sans-serif,system-ui,-apple-system,sans-serif;letter-spacing:.24em;
+        pointer-events:none;z-index:3;transition:opacity 1.4s ease}
+  #panel{position:fixed;left:10px;right:10px;bottom:calc(84px + env(safe-area-inset-bottom,0px));
+         z-index:6;background:rgba(10,18,26,.88);border:1px solid rgba(255,255,255,.1);
+         border-radius:16px;padding:12px 14px 14px;backdrop-filter:blur(12px);
+         font:500 11px/1.5 ui-sans-serif,system-ui,-apple-system,sans-serif;color:rgba(255,255,255,.8);
+         display:none}
+  #panel.on{display:block}
+  #modes{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+  .chip{flex:1 1 auto;text-align:center;padding:7px 4px;border-radius:9px;letter-spacing:.12em;
+        background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.08);font-size:10px}
+  .chip.on{background:rgba(255,255,255,.9);color:#0a121a;border-color:transparent}
+  .row{display:flex;align-items:center;gap:10px;margin:7px 0}
+  .row span{width:74px;font-size:10px;letter-spacing:.06em;opacity:.75}
+  .row input{flex:1;accent-color:#9fd6ff}
+  #panel .note{margin-top:8px;font-size:9.5px;opacity:.45;letter-spacing:.05em}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="tag">SHOAL LAB</div>
+<div id="hint">TAP TO GATHER &nbsp;·&nbsp; HOLD TO FEED &nbsp;·&nbsp; ⚙ FOR WORLDS</div>
+<div id="panel">
+  <div id="modes">
+    <div class="chip on" id="m0">POND</div>
+    <div class="chip" id="m1">ABYSS</div>
+    <div class="chip" id="m2">FLOCK</div>
+    <div class="chip" id="m3">CULTURE</div>
+    <div class="chip" id="m4">NESTED</div>
+  </div>
+  <div class="row"><span>水の濃さ</span><input id="sTint" type="range" min="0" max="80" value="42"></div>
+  <div class="row"><span>ぼけ</span><input id="sBlur" type="range" min="0" max="70" value="28"></div>
+  <div class="row"><span>光の網</span><input id="sCaus" type="range" min="0" max="45" value="17"></div>
+  <div class="row"><span>数</span><input id="sNum" type="range" min="3" max="26" value="9"></div>
+  <div class="note">気に入った数値が決まったら、それを初期値に焼き込む</div>
+</div>
+<script>
+(function(){
+'use strict';
+
+var S = window.KoiSim;
+var cvs = document.getElementById('c');
+var ctx = cvs.getContext('2d');
+var hintEl = document.getElementById('hint');
+
+var W = 0, H = 0, DPR = 1;
+var buf = document.createElement('canvas'), bctx = buf.getContext('2d');
+var CW = 112, CH = 112;
+var caus = document.createElement('canvas'), cctx;
+caus.width = CW; caus.height = CH;
+cctx = caus.getContext('2d');
+var causImg = cctx.createImageData(CW, CH);
+var grain = document.createElement('canvas');
+var stars = document.createElement('canvas');
+var canFilter = (typeof ctx.filter === 'string');
+
+var PARAM = { tint: 0.42, blur: 2.8, caus: 0.17, num: 9 };
+var mode = 0;
+
+/* ================= 生き物の描き方(ここだけが世界ごとに違う) ================= */
+
+function altHue(k, base, span){
+  return base + ((k.wigPh * 41) % span);
+}
+
+/* 1. 鯉 */
+function drawKoi(c, k){ k.draw(c); }
+function shadowKoi(c, k){ k.drawShadow(c); }
+
+/* 2. 深海の発光生物 */
+function drawGlow(c, k){
+  var sp = k.spine(), mid = sp.mid, n = sp.n, i;
+  var h = altHue(k, 168, 110);
+  c.save();
+  c.globalCompositeOperation = 'lighter';
+  c.strokeStyle = 'hsla(' + h + ',92%,64%,.22)';
+  c.lineWidth = Math.max(0.6, k.w * 0.5);
+  c.beginPath();
+  for (i = 1; i < n; i++){ if (i === 1) c.moveTo(mid[i].x, mid[i].y); else c.lineTo(mid[i].x, mid[i].y); }
+  c.stroke();
+  c.lineWidth = Math.max(0.4, k.w * 0.16);
+  c.strokeStyle = 'hsla(' + (h + 24) + ',95%,74%,.3)';
+  for (i = 3; i < n; i += 3){
+    var w = mid[i].w * 1.4;
+    c.beginPath();
+    c.moveTo(mid[i].x + sp.nx[i] * w, mid[i].y + sp.ny[i] * w);
+    c.lineTo(mid[i].x - sp.nx[i] * w, mid[i].y - sp.ny[i] * w);
+    c.stroke();
+  }
+  var hd = mid[0], r = k.len * 0.55;
+  var g = c.createRadialGradient(hd.x, hd.y, 0, hd.x, hd.y, r);
+  g.addColorStop(0, 'hsla(' + (h + 30) + ',95%,86%,.8)');
+  g.addColorStop(0.35, 'hsla(' + h + ',95%,62%,.34)');
+  g.addColorStop(1, 'hsla(' + h + ',95%,50%,0)');
+  c.fillStyle = g;
+  c.beginPath(); c.arc(hd.x, hd.y, r, 0, 6.283); c.fill();
+  c.restore();
+}
+
+/* 3. 夜空の群れ(ムクドリ) */
+function drawBird(c, k){
+  var s = k.len * 0.46;
+  var flap = Math.abs(Math.sin(S.T * k.wigSp * 0.75 + k.wigPh));
+  c.save();
+  c.translate(k.x, k.y);
+  c.rotate(k.dir);
+  var wy = s * (0.22 + 0.5 * flap);
+  c.beginPath();
+  c.moveTo(s * 0.62, 0);
+  c.quadraticCurveTo(s * 0.1, -wy * 0.5, -s * 0.34, -wy);
+  c.quadraticCurveTo(-s * 0.12, -wy * 0.2, -s * 0.42, 0);
+  c.quadraticCurveTo(-s * 0.12, wy * 0.2, -s * 0.34, wy);
+  c.quadraticCurveTo(s * 0.1, wy * 0.5, s * 0.62, 0);
+  c.closePath();
+  c.fillStyle = 'rgba(10,12,22,.94)';
+  c.fill();
+  c.restore();
+}
+
+/* 4. 顕微鏡の中の細胞 */
+function drawCell(c, k){
+  var sp = k.spine(), mid = sp.mid, n = sp.n, i;
+  c.save();
+  c.strokeStyle = 'rgba(96,122,92,.4)';
+  c.lineWidth = Math.max(0.5, k.w * 0.16);
+  c.beginPath();
+  for (i = 2; i < n; i++){ if (i === 2) c.moveTo(mid[i].x, mid[i].y); else c.lineTo(mid[i].x, mid[i].y); }
+  c.stroke();
+  var hd = mid[0];
+  c.translate(hd.x, hd.y);
+  c.rotate(hd.a);
+  var g = c.createRadialGradient(-k.len * 0.1, -k.w * 0.5, k.w * 0.2, 0, 0, k.len * 0.42);
+  g.addColorStop(0, 'rgba(226,240,214,.8)');
+  g.addColorStop(1, 'rgba(150,186,146,.42)');
+  c.beginPath();
+  c.ellipse(0, 0, k.len * 0.42, k.w * 1.5, 0, 0, 6.283);
+  c.fillStyle = g; c.fill();
+  c.strokeStyle = 'rgba(86,114,84,.5)';
+  c.lineWidth = Math.max(0.5, k.w * 0.16);
+  c.stroke();
+  c.beginPath();
+  c.ellipse(k.len * 0.06, 0, k.w * 0.85, k.w * 0.62, 0.4, 0, 6.283);
+  c.fillStyle = 'rgba(92,124,92,.55)';
+  c.fill();
+  c.restore();
+}
+
+/* 5. 階層ごとに姿が変わる(魚→小魚→オタマジャクシ→微生物) */
+function drawMinnow(c, k){
+  var sp = k.spine(), mid = sp.mid, n = sp.n, i;
+  c.save();
+  c.beginPath();
+  for (i = 0; i < n; i++){
+    var m = mid[i];
+    var px = m.x + sp.nx[i] * m.w * 0.85, py = m.y + sp.ny[i] * m.w * 0.85;
+    if (i === 0) c.moveTo(px, py); else c.lineTo(px, py);
+  }
+  for (i = n - 1; i >= 0; i--){
+    c.lineTo(mid[i].x - sp.nx[i] * mid[i].w * 0.85, mid[i].y - sp.ny[i] * mid[i].w * 0.85);
+  }
+  c.closePath();
+  var hd = mid[0];
+  var g = c.createLinearGradient(hd.x - sp.nx[0] * k.w * 2, hd.y - sp.ny[0] * k.w * 2,
+                                 hd.x + sp.nx[0] * k.w * 2, hd.y + sp.ny[0] * k.w * 2);
+  g.addColorStop(0, 'rgba(226,234,240,.95)');
+  g.addColorStop(0.5, 'rgba(176,192,204,.9)');
+  g.addColorStop(1, 'rgba(104,124,140,.9)');
+  c.fillStyle = g; c.fill();
+  var t = mid[n - 1];
+  c.beginPath();
+  c.moveTo(t.x, t.y);
+  c.lineTo(t.x - Math.cos(t.a) * k.w * 1.8 - sp.nx[n - 1] * k.w, t.y - Math.sin(t.a) * k.w * 1.8 - sp.ny[n - 1] * k.w);
+  c.lineTo(t.x - Math.cos(t.a) * k.w * 1.8 + sp.nx[n - 1] * k.w, t.y - Math.sin(t.a) * k.w * 1.8 + sp.ny[n - 1] * k.w);
+  c.closePath();
+  c.fillStyle = 'rgba(190,206,218,.6)';
+  c.fill();
+  c.restore();
+}
+function drawTadpole(c, k){
+  var sp = k.spine(), mid = sp.mid, n = sp.n, i;
+  c.save();
+  c.strokeStyle = 'rgba(38,46,42,.82)';
+  c.lineCap = 'round';
+  c.beginPath();
+  for (i = 1; i < n; i++){
+    c.lineWidth = Math.max(0.6, k.w * (1.1 - i / n));
+    if (i === 1) c.moveTo(mid[i].x, mid[i].y); else c.lineTo(mid[i].x, mid[i].y);
+  }
+  c.stroke();
+  var hd = mid[0];
+  c.beginPath();
+  c.ellipse(hd.x, hd.y, k.w * 1.5, k.w * 1.15, hd.a, 0, 6.283);
+  c.fillStyle = 'rgba(30,38,34,.9)';
+  c.fill();
+  c.restore();
+}
+function drawMicrobe(c, k){
+  var hd = k.hist[0];
+  c.save();
+  c.translate(hd.x, hd.y);
+  c.rotate(k.dir);
+  c.beginPath();
+  c.ellipse(0, 0, k.len * 0.35, k.w * 1.2, 0, 0, 6.283);
+  c.fillStyle = 'rgba(214,226,206,.6)';
+  c.fill();
+  c.strokeStyle = 'rgba(120,140,110,.55)';
+  c.lineWidth = 0.5;
+  c.stroke();
+  for (var i = 0; i < 7; i++){
+    var a = i / 7 * 6.283;
+    var ci = Math.sin(S.T * 9 + i + k.wigPh) * 0.5;
+    c.beginPath();
+    c.moveTo(Math.cos(a) * k.len * 0.3, Math.sin(a) * k.w * 1.1);
+    c.lineTo(Math.cos(a + ci) * k.len * 0.45, Math.sin(a + ci) * k.w * 1.8);
+    c.stroke();
+  }
+  c.restore();
+}
+function drawNested(c, k){
+  if (k.gen === 0) k.draw(c);
+  else if (k.gen === 1) drawMinnow(c, k);
+  else if (k.gen === 2) drawTadpole(c, k);
+  else drawMicrobe(c, k);
+}
+
+/* ================= 背景 ================= */
+function bgPond(){
+  S.drawBottom(ctx);
+}
+function bgAbyss(){
+  var g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#04131c');
+  g.addColorStop(0.55, '#020a12');
+  g.addColorStop(1, '#01060b');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+}
+function bgFlock(){
+  var g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#0b1430');
+  g.addColorStop(0.6, '#131d3d');
+  g.addColorStop(1, '#2a2340');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+  ctx.drawImage(stars, 0, 0, W, H);
+}
+function bgCulture(){
+  var g = ctx.createRadialGradient(W * 0.45, H * 0.4, Math.min(W, H) * 0.1, W * 0.5, H * 0.5, Math.max(W, H) * 0.62);
+  g.addColorStop(0, '#f2f3e4');
+  g.addColorStop(0.7, '#dfe4cf');
+  g.addColorStop(1, '#c3ccb2');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+  ctx.save();
+  ctx.globalAlpha = 0.5;
+  ctx.drawImage(grain, 0, 0, W, H);
+  ctx.restore();
+}
+
+var MODES = [
+  { name: 'POND',    bg: bgPond,    draw: drawKoi,    shadow: shadowKoi, tint: 'pond',    caus: 1,   pads: 1, ring: 'water' },
+  { name: 'ABYSS',   bg: bgAbyss,   draw: drawGlow,   shadow: null,      tint: 'abyss',   caus: 0,   pads: 0, ring: 'shock' },
+  { name: 'FLOCK',   bg: bgFlock,   draw: drawBird,   shadow: null,      tint: 'flock',   caus: 0,   pads: 0, ring: 'gust'  },
+  { name: 'CULTURE', bg: bgCulture, draw: drawCell,   shadow: null,      tint: 'culture', caus: 0.3, pads: 0, ring: 'soft'  },
+  { name: 'NESTED',  bg: bgPond,    draw: drawNested, shadow: shadowKoi, tint: 'pond',    caus: 1,   pads: 1, ring: 'water' }
+];
+
+function tintColor(a){
+  var t = MODES[mode].tint;
+  if (t === 'pond')    return 'hsla(' + S.P.hue + ',' + S.P.sat + '%,' + (S.P.lum + 6) + '%,' + a + ')';
+  if (t === 'abyss')   return 'rgba(1,8,14,' + a + ')';
+  if (t === 'flock')   return 'rgba(16,24,50,' + a + ')';
+  return 'rgba(238,240,226,' + a + ')';
+}
+
+/* ================= 描画 ================= */
+function paintCaustics(t){
+  var d = causImg.data, x, y, i = 0, u, v, a, b, c;
+  for (y = 0; y < CH; y++){
+    v = y / 9;
+    for (x = 0; x < CW; x++){
+      u = x / 9;
+      a = Math.sin(u * 1.6 + t * 0.85 + Math.sin(v * 1.1 - t * 0.5) * 1.5);
+      b = Math.sin(v * 1.8 - t * 0.65 + Math.sin(u * 1.25 + t * 0.55) * 1.5);
+      c = 1 - Math.abs(a * b);
+      c = c * c; c = c * c; c = c * c;
+      d[i] = 210; d[i + 1] = 245; d[i + 2] = 255;
+      d[i + 3] = (c * 165) | 0;
+      i += 4;
+    }
+  }
+  cctx.putImageData(causImg, 0, 0);
+}
+
+function drawBand(lo, hi, blurPx, tintA){
+  var M = MODES[mode], i, k;
+  bctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  bctx.clearRect(0, 0, W, H);
+  for (i = 0; i < S.koi.length; i++){
+    k = S.koi[i];
+    if (k.dep < lo || k.dep >= hi) continue;
+    if (M.shadow) M.shadow(bctx, k);
+    M.draw(bctx, k);
+  }
+  if (tintA > 0){
+    bctx.save();
+    bctx.globalCompositeOperation = 'source-atop';
+    bctx.fillStyle = tintColor(tintA);
+    bctx.fillRect(0, 0, W, H);
+    bctx.restore();
+  }
+  if (canFilter && blurPx > 0) ctx.filter = 'blur(' + blurPx + 'px)';
+  ctx.drawImage(buf, 0, 0, W, H);
+  if (canFilter) ctx.filter = 'none';
+}
+
+function drawRings(){
+  var M = MODES[mode], R = S.ripples, i, r;
+  for (i = 0; i < R.length; i++){
+    r = R[i];
+    if (M.ring === 'water'){
+      ctx.beginPath(); ctx.arc(r.x, r.y, r.r, 0, 6.283);
+      ctx.strokeStyle = 'rgba(255,255,255,' + (0.22 * r.life) + ')';
+      ctx.lineWidth = 2.2; ctx.stroke();
+      ctx.beginPath(); ctx.arc(r.x, r.y, r.r + 4, 0, 6.283);
+      ctx.strokeStyle = 'rgba(4,26,38,' + (0.2 * r.life) + ')';
+      ctx.lineWidth = 3; ctx.stroke();
+    } else if (M.ring === 'shock'){
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.beginPath(); ctx.arc(r.x, r.y, r.r, 0, 6.283);
+      ctx.strokeStyle = 'rgba(120,210,255,' + (0.3 * r.life) + ')';
+      ctx.lineWidth = 1.6; ctx.stroke();
+      ctx.restore();
+    } else if (M.ring === 'gust'){
+      ctx.beginPath(); ctx.arc(r.x, r.y, r.r, 0, 6.283);
+      ctx.strokeStyle = 'rgba(210,220,255,' + (0.1 * r.life) + ')';
+      ctx.lineWidth = 1; ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.arc(r.x, r.y, r.r, 0, 6.283);
+      ctx.strokeStyle = 'rgba(110,130,105,' + (0.16 * r.life) + ')';
+      ctx.lineWidth = 1.2; ctx.stroke();
+    }
+  }
+}
+
+function frame(dt){
+  S.step(dt);
+  var M = MODES[mode], T = S.T;
+
+  M.bg();
+  drawBand(0.5, 2, PARAM.blur, PARAM.tint);
+  drawBand(-1, 0.5, PARAM.blur * 0.2, PARAM.tint * 0.15);
+
+  if (mode !== 2) S.drawCrumbs(ctx);
+
+  var ca = PARAM.caus * M.caus;
+  if (ca > 0.001){
+    paintCaustics(T);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = ca;
+    ctx.drawImage(caus, Math.sin(T * 0.08) * 40 - 30, Math.cos(T * 0.07) * 40 - 30, W + 60, H + 60);
+    ctx.globalAlpha = ca * 0.55;
+    ctx.drawImage(caus, -W * 0.15 + Math.cos(T * 0.05) * 30, -H * 0.1 + Math.sin(T * 0.06) * 30, W * 1.5, H * 1.4);
+    ctx.restore();
+  }
+
+  drawRings();
+
+  if (M.pads) S.drawSurface(ctx);
+  else if (S.feed){
+    ctx.beginPath();
+    ctx.arc(S.feed.x, S.feed.y, 14 + Math.sin(T * 7) * 3, 0, 6.283);
+    ctx.strokeStyle = 'rgba(255,240,210,.3)';
+    ctx.lineWidth = 1.2; ctx.stroke();
+  }
+
+  var vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.32, W / 2, H / 2, Math.max(W, H) * 0.72);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, mode === 3 ? 'rgba(40,46,32,.5)' : 'rgba(2,10,18,.55)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W, H);
+}
+
+/* ================= 素材 ================= */
+function buildStars(){
+  stars.width = 256; stars.height = 512;
+  var g = stars.getContext('2d');
+  g.clearRect(0, 0, 256, 512);
+  for (var i = 0; i < 260; i++){
+    var x = Math.random() * 256, y = Math.random() * 512, r = Math.random() * 1.1 + 0.2;
+    g.beginPath(); g.arc(x, y, r, 0, 6.283);
+    g.fillStyle = 'rgba(255,255,255,' + (0.15 + Math.random() * 0.5) + ')';
+    g.fill();
+  }
+}
+function buildGrain(){
+  grain.width = 160; grain.height = 160;
+  var g = grain.getContext('2d');
+  g.clearRect(0, 0, 160, 160);
+  for (var i = 0; i < 900; i++){
+    g.fillStyle = 'rgba(120,132,100,' + (Math.random() * 0.16) + ')';
+    g.fillRect(Math.random() * 160, Math.random() * 160, 1.4, 1.4);
+  }
+}
+
+/* ================= UI ================= */
+function el(id){
+  var n = document.getElementById(id);
+  if (!n) n = { style: {} };
+  if (!n.addEventListener) n.addEventListener = function(){};
+  if (!n.classList) n.classList = { add: function(){}, remove: function(){} };
+  return n;
+}
+var panel = el('panel');
+function setMode(i){
+  mode = i;
+  for (var j = 0; j < MODES.length; j++){
+    var chip = el('m' + j);
+    if (j === i) chip.classList.add('on'); else chip.classList.remove('on');
+  }
+  el('tag').textContent = MODES[i].name;
+  save();
+}
+function respawn(n){
+  S.koi = []; S.ripples = []; S.crumbs = []; S.clearFeed();
+  for (var i = 0; i < n; i++){
+    S.koi.push(new S.Koi(0.15 * W + Math.random() * 0.7 * W, 0.15 * H + Math.random() * 0.7 * H, 0));
+  }
+}
+function save(){
+  try { localStorage.setItem('shoal-lab', JSON.stringify({ m: mode, p: PARAM })); } catch (e){}
+}
+function load(){
+  try {
+    var v = JSON.parse(localStorage.getItem('shoal-lab'));
+    if (v && v.p){
+      PARAM = v.p;
+      mode = v.m || 0;
+      el('sTint').value = Math.round(PARAM.tint * 100);
+      el('sBlur').value = Math.round(PARAM.blur * 10);
+      el('sCaus').value = Math.round(PARAM.caus * 100);
+      el('sNum').value = PARAM.num;
+    }
+  } catch (e){}
+}
+function bindSliders(){
+  el('sTint').addEventListener('input', function(e){ PARAM.tint = e.target.value / 100; save(); });
+  el('sBlur').addEventListener('input', function(e){ PARAM.blur = e.target.value / 10; save(); });
+  el('sCaus').addEventListener('input', function(e){ PARAM.caus = e.target.value / 100; save(); });
+  el('sNum').addEventListener('input', function(e){
+    PARAM.num = e.target.value | 0; respawn(PARAM.num); save();
+  });
+  for (var i = 0; i < MODES.length; i++){
+    (function(j){ el('m' + j).addEventListener('click', function(){ setMode(j); }); })(i);
+  }
+}
+
+/* ================= interaction ================= */
+var holding = false, downT = 0, downX = 0, downY = 0, hintOff = false;
+function hideHint(){ if (!hintOff){ hintOff = true; hintEl.style.opacity = '0'; } }
+function onDown(e){
+  var x = e.clientX, y = e.clientY;
+  if (window.APKit && APKit.isUI && APKit.isUI(x, y)) return;
+  e.preventDefault();
+  holding = true; downT = performance.now(); downX = x; downY = y;
+  hideHint();
+}
+function onMove(e){
+  if (!holding) return;
+  e.preventDefault();
+  if (performance.now() - downT > 200) S.setFeed(e.clientX, e.clientY);
+}
+function onUp(e){
+  if (!holding) return;
+  holding = false;
+  var dur = performance.now() - downT;
+  var x = (e.clientX === undefined) ? downX : e.clientX;
+  var y = (e.clientY === undefined) ? downY : e.clientY;
+  if (dur < 260 && Math.hypot(x - downX, y - downY) < 18) S.tap(x, y);
+  S.clearFeed();
+}
+cvs.addEventListener('pointerdown', onDown, { passive: false });
+window.addEventListener('pointermove', onMove, { passive: false });
+window.addEventListener('pointerup', onUp);
+window.addEventListener('pointercancel', onUp);
+
+function resize(){
+  DPR = Math.min(1.5, window.devicePixelRatio || 1);
+  W = window.innerWidth; H = window.innerHeight;
+  cvs.width = Math.round(W * DPR); cvs.height = Math.round(H * DPR);
+  cvs.style.width = W + 'px'; cvs.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  buf.width = cvs.width; buf.height = cvs.height;
+  bctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  S.resize(W, H);
+}
+window.addEventListener('resize', resize);
+
+buildStars();
+buildGrain();
+load();
+bindSliders();
+resize();
+S.buildPads();
+respawn(PARAM.num);
+setMode(mode);
+
+var last = performance.now();
+function loop(now){
+  var dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  frame(dt);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+setTimeout(hideHint, 8000);
+
+/* GIF: 群れが蓄積する作品なのでシームレスループにはならない(AGENTS.md 8章の例外) */
+if (window.APKit && APKit.init){
+  APKit.init({
+    canvas: cvs,
+    gifName: 'shoal-lab-loop',
+    clockFormat: 'spec',
+    dock: true,
+    autoHide: true,
+    fullscreenButton: false,
+    loopFrame: function(phase){ frame(1 / 30); },
+    buttons: [
+      { label: '✦', name: 'mutate', onClick: function(){ S.mutate(); } },
+      { label: '↻', name: 'reset',  onClick: function(){ respawn(PARAM.num); } },
+      { label: '⚙', name: 'panel',  onClick: function(){
+          if (panel.classList && panel.classList.toggle) panel.classList.toggle('on');
+        } }
+    ]
+  });
+}
+
+})();
+</script>
+</body>
+</html>
