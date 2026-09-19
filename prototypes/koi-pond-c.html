@@ -1,0 +1,291 @@
+<!doctype html>
+<!-- KOI POND C — REFRACTION / クロード(クロちゃん)作。WebGL2で水面の法線を作り、下の層を屈折させる版 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
+<title>KOI POND C — REFRACTION</title>
+<script src="../ap-kit.js"></script>
+<script src="koi-pond-engine.js"></script>
+<style>
+  html,body{margin:0;height:100%;background:#08141c;overflow:hidden}
+  canvas{display:block;width:100vw;height:100vh;touch-action:none}
+  #tag{position:fixed;left:14px;top:calc(14px + env(safe-area-inset-top,0px));z-index:3;
+       color:rgba(255,255,255,.4);letter-spacing:.2em;pointer-events:none;
+       font:500 10px/1.6 ui-sans-serif,system-ui,-apple-system,sans-serif}
+  #hint{position:fixed;left:0;right:0;bottom:13%;text-align:center;color:rgba(255,255,255,.6);
+        font:500 11px/1.9 ui-sans-serif,system-ui,-apple-system,sans-serif;letter-spacing:.24em;
+        pointer-events:none;z-index:3;transition:opacity 1.4s ease}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="tag">C · WEBGL</div>
+<div id="hint">TAP TO GATHER &nbsp;·&nbsp; HOLD TO FEED</div>
+<script>
+(function(){
+'use strict';
+
+var S = window.KoiSim;
+var cvs = document.getElementById('c');
+var hintEl = document.getElementById('hint');
+var gl = cvs.getContext('webgl2', { antialias: false, alpha: false, preserveDrawingBuffer: true });
+var fallback = !gl;
+var ctx2d = fallback ? cvs.getContext('2d') : null;
+
+var W = 0, H = 0, DPR = 1;
+var scene = document.createElement('canvas'), sctx = scene.getContext('2d');
+var surf  = document.createElement('canvas'), fctx = surf.getContext('2d');
+
+var VS = [
+'#version 300 es',
+'in vec2 aPos;',
+'void main(){ gl_Position = vec4(aPos, 0.0, 1.0); }'
+].join('\n');
+
+var FS = [
+'#version 300 es',
+'precision highp float;',
+'uniform sampler2D uScene;',
+'uniform sampler2D uSurf;',
+'uniform vec2 uRes;',
+'uniform float uT;',
+'uniform int uRipN;',
+'uniform vec4 uRip[8];',   // x, y(上向き), 半径, life
+'out vec4 outColor;',
+'',
+'float waveH(vec2 p){',
+'  float h = 0.0;',
+'  h += sin(p.x * 0.031 + uT * 1.05) * 0.85;',
+'  h += sin(p.y * 0.026 - uT * 0.88) * 0.85;',
+'  h += sin((p.x + p.y) * 0.019 + uT * 0.62) * 0.60;',
+'  h += sin((p.x - p.y * 0.7) * 0.052 - uT * 1.7) * 0.32;',
+'  h += sin((p.x * 0.7 + p.y * 1.3) * 0.085 + uT * 2.3) * 0.16;',
+'  return h;',
+'}',
+'float ripH(vec2 p){',
+'  float h = 0.0;',
+'  for (int i = 0; i < 8; i++){',
+'    if (i >= uRipN) break;',
+'    vec4 r = uRip[i];',
+'    float x = distance(p, r.xy) - r.z;',
+'    h += exp(-x * x / 900.0) * sin(x * 0.2) * r.w * 0.9;',
+'  }',
+'  return h;',
+'}',
+'float Hf(vec2 p){ return waveH(p) + ripH(p); }',
+'',
+'void main(){',
+'  vec2 p = gl_FragCoord.xy;',
+'  float e = 1.6;',
+'  float hR = Hf(p + vec2(e, 0.0));',
+'  float hL = Hf(p - vec2(e, 0.0));',
+'  float hU = Hf(p + vec2(0.0, e));',
+'  float hD = Hf(p - vec2(0.0, e));',
+'  float hC = Hf(p);',
+'  vec2 grad = vec2(hR - hL, hU - hD) / (2.0 * e);',
+'  vec3 n = normalize(vec3(-grad * 42.0, 1.0));',
+'  vec2 off = grad * 180.0;',
+'  vec2 uv = clamp((p + off) / uRes, vec2(0.002), vec2(0.998));',
+'  vec3 col = texture(uScene, uv).rgb;',
+'',
+'  float lap = (hR + hL + hU + hD - 4.0 * hC) / (e * e);',
+'  float caus = clamp(-lap * 900.0, 0.0, 1.0);',
+'  col += vec3(0.55, 0.80, 0.88) * pow(caus, 1.7) * 0.45;',
+'',
+'  vec3 L = normalize(vec3(0.34, 0.46, 0.82));',
+'  float spec = pow(max(dot(n, L), 0.0), 40.0);',
+'  col += vec3(0.92, 0.97, 1.0) * spec * 0.5;',
+'  float sky = pow(1.0 - n.z, 2.0);',
+'  col = mix(col, vec3(0.30, 0.45, 0.56), clamp(sky * 0.55, 0.0, 0.35));',
+'',
+'  vec4 s = texture(uSurf, p / uRes);',
+'  col = mix(col, s.rgb, s.a);',
+'',
+'  vec2 q = (p / uRes - 0.5) * 2.0;',
+'  col *= 1.0 - dot(q, q) * 0.17;',
+'  outColor = vec4(col, 1.0);',
+'}'
+].join('\n');
+
+var prog = null, uni = {}, texScene = null, texSurf = null;
+
+function mkShader(type, src){
+  var s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) console.warn(gl.getShaderInfoLog(s));
+  return s;
+}
+function mkTex(){
+  var t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  return t;
+}
+function initGL(){
+  prog = gl.createProgram();
+  gl.attachShader(prog, mkShader(gl.VERTEX_SHADER, VS));
+  gl.attachShader(prog, mkShader(gl.FRAGMENT_SHADER, FS));
+  gl.bindAttribLocation(prog, 0, 'aPos');
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) console.warn(gl.getProgramInfoLog(prog));
+  gl.useProgram(prog);
+  var vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  var vb = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, vb);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  uni.res  = gl.getUniformLocation(prog, 'uRes');
+  uni.t    = gl.getUniformLocation(prog, 'uT');
+  uni.ripN = gl.getUniformLocation(prog, 'uRipN');
+  uni.rip  = gl.getUniformLocation(prog, 'uRip');
+  gl.uniform1i(gl.getUniformLocation(prog, 'uScene'), 0);
+  gl.uniform1i(gl.getUniformLocation(prog, 'uSurf'), 1);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+  texScene = mkTex();
+  texSurf = mkTex();
+}
+
+function resize(){
+  DPR = Math.min(1.5, window.devicePixelRatio || 1);
+  W = window.innerWidth; H = window.innerHeight;
+  var pw = Math.round(W * DPR), ph = Math.round(H * DPR);
+  cvs.width = pw; cvs.height = ph;
+  cvs.style.width = W + 'px'; cvs.style.height = H + 'px';
+  scene.width = pw; scene.height = ph;
+  surf.width = pw; surf.height = ph;
+  sctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  fctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  if (gl) gl.viewport(0, 0, pw, ph);
+  if (fallback && ctx2d) ctx2d.setTransform(DPR, 0, 0, DPR, 0, 0);
+  S.resize(W, H);
+}
+
+var ripBuf = new Float32Array(32);
+
+function frame(dt){
+  S.step(dt);
+
+  // 水の下の層
+  sctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  S.drawBottom(sctx);
+  S.drawKoiBand(sctx, 0.5, 2, true);
+  sctx.save();
+  sctx.globalCompositeOperation = 'source-over';
+  sctx.fillStyle = 'hsla(' + S.P.hue + ',' + S.P.sat + '%,' + (S.P.lum + 5) + '%,.34)';
+  sctx.fillRect(0, 0, W, H);
+  sctx.restore();
+  S.drawKoiBand(sctx, -1, 0.5, true);
+  S.drawCrumbs(sctx);
+
+  // 水面に浮く層(屈折させない)
+  fctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  fctx.clearRect(0, 0, W, H);
+  S.drawSurface(fctx);
+
+  if (fallback){
+    ctx2d.drawImage(scene, 0, 0, W, H);
+    ctx2d.drawImage(surf, 0, 0, W, H);
+    return;
+  }
+
+  var R = S.ripples, i, n = Math.min(8, R.length);
+  for (i = 0; i < 8; i++){
+    var b = i * 4;
+    if (i < n){
+      ripBuf[b]     = R[i].x * DPR;
+      ripBuf[b + 1] = (H - R[i].y) * DPR;
+      ripBuf[b + 2] = R[i].r * DPR;
+      ripBuf[b + 3] = R[i].life;
+    } else {
+      ripBuf[b] = 0; ripBuf[b + 1] = 0; ripBuf[b + 2] = 0; ripBuf[b + 3] = 0;
+    }
+  }
+
+  gl.useProgram(prog);
+  gl.uniform2f(uni.res, cvs.width, cvs.height);
+  gl.uniform1f(uni.t, S.T);
+  gl.uniform1i(uni.ripN, n);
+  gl.uniform4fv(uni.rip, ripBuf);
+
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, texScene);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, scene);
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, texSurf);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, surf);
+
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
+/* ---------- interaction ---------- */
+var holding = false, downT = 0, downX = 0, downY = 0, hintOff = false;
+function hideHint(){ if (!hintOff){ hintOff = true; hintEl.style.opacity = '0'; } }
+function onDown(e){
+  var x = e.clientX, y = e.clientY;
+  if (window.APKit && APKit.isUI && APKit.isUI(x, y)) return;
+  e.preventDefault();
+  holding = true; downT = performance.now(); downX = x; downY = y;
+  hideHint();
+}
+function onMove(e){
+  if (!holding) return;
+  e.preventDefault();
+  if (performance.now() - downT > 200) S.setFeed(e.clientX, e.clientY);
+}
+function onUp(e){
+  if (!holding) return;
+  holding = false;
+  var el = performance.now() - downT;
+  var x = (e.clientX === undefined) ? downX : e.clientX;
+  var y = (e.clientY === undefined) ? downY : e.clientY;
+  if (el < 260 && Math.hypot(x - downX, y - downY) < 18) S.tap(x, y);
+  S.clearFeed();
+}
+cvs.addEventListener('pointerdown', onDown, { passive: false });
+window.addEventListener('pointermove', onMove, { passive: false });
+window.addEventListener('pointerup', onUp);
+window.addEventListener('pointercancel', onUp);
+window.addEventListener('resize', resize);
+
+if (gl) initGL();
+resize();
+S.buildPads();
+S.reset();
+var last = performance.now();
+function loop(now){
+  var dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  frame(dt);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+setTimeout(hideHint, 7000);
+
+/* GIF: 群れが蓄積する作品なのでシームレスループにはならない(AGENTS.md 8章の例外) */
+if (window.APKit && APKit.init){
+  APKit.init({
+    canvas: cvs,
+    gifName: 'koi-pond-c-loop',
+    clockFormat: 'spec',
+    dock: true,
+    autoHide: true,
+    fullscreenButton: false,
+    loopFrame: function(phase){ frame(1 / 30); },
+    buttons: [
+      { label: '✦', name: 'mutate', onClick: function(){ S.mutate(); } },
+      { label: '↻', name: 'reset',  onClick: function(){ S.reset(); } }
+    ]
+  });
+}
+
+})();
+</script>
+</body>
+</html>
