@@ -1,0 +1,209 @@
+<!doctype html>
+<!-- KOI POND B — DEEP WATER / クロード(クロちゃん)作。Canvas2Dだけで水中感(深度ぼかし・光の網・影のズレ)を出す版 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
+<title>KOI POND B — DEEP WATER</title>
+<script src="../ap-kit.js"></script>
+<script src="koi-pond-engine.js"></script>
+<style>
+  html,body{margin:0;height:100%;background:#08141c;overflow:hidden}
+  canvas{display:block;width:100vw;height:100vh;touch-action:none}
+  #tag{position:fixed;left:14px;top:calc(14px + env(safe-area-inset-top,0px));z-index:3;
+       color:rgba(255,255,255,.4);letter-spacing:.2em;pointer-events:none;
+       font:500 10px/1.6 ui-sans-serif,system-ui,-apple-system,sans-serif}
+  #hint{position:fixed;left:0;right:0;bottom:13%;text-align:center;color:rgba(255,255,255,.6);
+        font:500 11px/1.9 ui-sans-serif,system-ui,-apple-system,sans-serif;letter-spacing:.24em;
+        pointer-events:none;z-index:3;transition:opacity 1.4s ease}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="tag">B · CANVAS</div>
+<div id="hint">TAP TO GATHER &nbsp;·&nbsp; HOLD TO FEED</div>
+<script>
+(function(){
+'use strict';
+
+var S = window.KoiSim;
+var cvs = document.getElementById('c');
+var ctx = cvs.getContext('2d');
+var hintEl = document.getElementById('hint');
+
+var W = 0, H = 0, DPR = 1;
+var buf = document.createElement('canvas'), bctx = buf.getContext('2d');
+var CW = 112, CH = 112;
+var caus = document.createElement('canvas'), cctx;
+caus.width = CW; caus.height = CH;
+cctx = caus.getContext('2d');
+var causImg = cctx.createImageData(CW, CH);
+var canFilter = (typeof ctx.filter === 'string');
+
+function resize(){
+  DPR = Math.min(1.5, window.devicePixelRatio || 1);
+  W = window.innerWidth; H = window.innerHeight;
+  cvs.width = Math.round(W * DPR); cvs.height = Math.round(H * DPR);
+  cvs.style.width = W + 'px'; cvs.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  buf.width = cvs.width; buf.height = cvs.height;
+  bctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  S.resize(W, H);
+}
+
+/* 水面が集める光の網(コースティクス)。毎フレーム低解像度で計算して引き伸ばす */
+function paintCaustics(t){
+  var d = causImg.data, x, y, i = 0, u, v, a, b, c;
+  for (y = 0; y < CH; y++){
+    v = y / 9;
+    for (x = 0; x < CW; x++){
+      u = x / 9;
+      a = Math.sin(u * 1.6 + t * 0.85 + Math.sin(v * 1.1 - t * 0.5) * 1.5);
+      b = Math.sin(v * 1.8 - t * 0.65 + Math.sin(u * 1.25 + t * 0.55) * 1.5);
+      c = 1 - Math.abs(a * b);
+      c = c * c; c = c * c; c = c * c;          // pow(c,8) 相当で細い筋にする
+      d[i] = 210; d[i + 1] = 245; d[i + 2] = 255;
+      d[i + 3] = (c * 165) | 0;
+      i += 4;
+    }
+  }
+  cctx.putImageData(causImg, 0, 0);
+}
+
+function drawBand(lo, hi, blurPx, tint){
+  bctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  bctx.clearRect(0, 0, W, H);
+  S.drawKoiBand(bctx, lo, hi, true);
+  if (tint > 0){
+    bctx.save();
+    bctx.globalCompositeOperation = 'source-atop';
+    bctx.fillStyle = 'hsla(' + S.P.hue + ',' + S.P.sat + '%,' + (S.P.lum + 6) + '%,' + tint + ')';
+    bctx.fillRect(0, 0, W, H);
+    bctx.restore();
+  }
+  if (canFilter && blurPx > 0) ctx.filter = 'blur(' + blurPx + 'px)';
+  ctx.drawImage(buf, 0, 0, W, H);
+  if (canFilter) ctx.filter = 'none';
+}
+
+function frame(dt){
+  S.step(dt);
+  var T = S.T;
+
+  S.drawBottom(ctx);
+
+  // 深い鯉: ぼかして青くかぶせる / 浅い鯉: くっきり
+  drawBand(0.5, 2, 2.8, 0.42);
+  drawBand(-1, 0.5, 0.6, 0.06);
+
+  S.drawCrumbs(ctx);
+
+  // 光の網(2枚を別スケール・別方向で重ねる)
+  paintCaustics(T);
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = 0.17;
+  ctx.drawImage(caus, Math.sin(T * 0.08) * 40 - 30, Math.cos(T * 0.07) * 40 - 30, W + 60, H + 60);
+  ctx.globalAlpha = 0.09;
+  ctx.drawImage(caus, -W * 0.15 + Math.cos(T * 0.05) * 30, -H * 0.1 + Math.sin(T * 0.06) * 30, W * 1.5, H * 1.4);
+  ctx.restore();
+
+  // 波紋(水面の高まりを光と影で)
+  var R = S.ripples, i, r;
+  for (i = 0; i < R.length; i++){
+    r = R[i];
+    ctx.beginPath(); ctx.arc(r.x, r.y, r.r, 0, 6.283);
+    ctx.strokeStyle = 'rgba(255,255,255,' + (0.22 * r.life) + ')';
+    ctx.lineWidth = 2.2; ctx.stroke();
+    ctx.beginPath(); ctx.arc(r.x, r.y, r.r + 4, 0, 6.283);
+    ctx.strokeStyle = 'rgba(4,26,38,' + (0.2 * r.life) + ')';
+    ctx.lineWidth = 3; ctx.stroke();
+    ctx.beginPath(); ctx.arc(r.x, r.y, r.r * 0.7, 0, 6.283);
+    ctx.strokeStyle = 'rgba(255,255,255,' + (0.1 * r.life) + ')';
+    ctx.lineWidth = 1.2; ctx.stroke();
+  }
+
+  // 水面のてかり
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  var sg = ctx.createLinearGradient(0, 0, W * 0.8, H);
+  sg.addColorStop(0, 'rgba(180,220,255,.13)');
+  sg.addColorStop(0.5, 'rgba(180,220,255,0)');
+  ctx.fillStyle = sg;
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+
+  S.drawSurface(ctx);
+
+  // 縁の落ち込み
+  var vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.72);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(2,14,22,.55)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W, H);
+}
+
+/* ---------- interaction ---------- */
+var holding = false, downT = 0, downX = 0, downY = 0, hintOff = false;
+function hideHint(){ if (!hintOff){ hintOff = true; hintEl.style.opacity = '0'; } }
+function onDown(e){
+  var x = e.clientX, y = e.clientY;
+  if (window.APKit && APKit.isUI && APKit.isUI(x, y)) return;
+  e.preventDefault();
+  holding = true; downT = performance.now(); downX = x; downY = y;
+  hideHint();
+}
+function onMove(e){
+  if (!holding) return;
+  e.preventDefault();
+  if (performance.now() - downT > 200) S.setFeed(e.clientX, e.clientY);
+}
+function onUp(e){
+  if (!holding) return;
+  holding = false;
+  var el = performance.now() - downT;
+  var x = (e.clientX === undefined) ? downX : e.clientX;
+  var y = (e.clientY === undefined) ? downY : e.clientY;
+  if (el < 260 && Math.hypot(x - downX, y - downY) < 18) S.tap(x, y);
+  S.clearFeed();
+}
+cvs.addEventListener('pointerdown', onDown, { passive: false });
+window.addEventListener('pointermove', onMove, { passive: false });
+window.addEventListener('pointerup', onUp);
+window.addEventListener('pointercancel', onUp);
+window.addEventListener('resize', resize);
+
+resize();
+S.buildPads();
+S.reset();
+var last = performance.now();
+function loop(now){
+  var dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  frame(dt);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+setTimeout(hideHint, 7000);
+
+/* GIF: 群れが蓄積する作品なのでシームレスループにはならない(AGENTS.md 8章の例外) */
+if (window.APKit && APKit.init){
+  APKit.init({
+    canvas: cvs,
+    gifName: 'koi-pond-b-loop',
+    clockFormat: 'spec',
+    dock: true,
+    autoHide: true,
+    fullscreenButton: false,
+    loopFrame: function(phase){ frame(1 / 30); },
+    buttons: [
+      { label: '✦', name: 'mutate', onClick: function(){ S.mutate(); } },
+      { label: '↻', name: 'reset',  onClick: function(){ S.reset(); } }
+    ]
+  });
+}
+
+})();
+</script>
+</body>
+</html>
