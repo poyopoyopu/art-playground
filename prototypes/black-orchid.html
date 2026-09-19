@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>BLACK ORCHID</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#030204}
+body{touch-action:none}
+canvas{display:block;width:100%;height:100%}
+</style>
+<script src="../ap-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+'use strict';
+
+/* BLACK ORCHID — ChatGPT作。ap-kit.js統合: ChatGPT
+   LAW: every touch becomes a permanent mutation of the flower's symmetry,
+   curl and spectral lineage. The flower does not receive a mark; its rules
+   are rewritten and the next generations inherit that change. */
+
+const c=document.getElementById('c');
+const g=c.getContext('2d',{alpha:false});
+let W=0,H=0,D=1,seed=Math.random()*10000,mutations=[],dragging=null,lastTouch=0;
+const TAU=Math.PI*2;
+
+function size(){
+  D=Math.min(devicePixelRatio||1,1.6);
+  W=innerWidth;H=innerHeight;
+  c.width=Math.floor(W*D);c.height=Math.floor(H*D);
+  g.setTransform(D,0,0,D,0,0);
+}
+addEventListener('resize',size,{passive:true});size();
+
+function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
+function hueDist(a,b){return ((b-a+540)%360)-180}
+function mixHue(a,b,t){return (a+hueDist(a,b)*t+360)%360}
+function hash(n){
+  const q=Math.sin(n*127.1+seed*311.7)*43758.5453;
+  return q-Math.floor(q);
+}
+function law(){
+  let curl=0,tilt=0,hue=0;
+  for(let i=0;i<mutations.length;i++){
+    const m=mutations[i],age=Math.min(1,(mutations.length-i)/10);
+    curl+=m.c*age;tilt+=m.t*age;hue+=m.h*age;
+  }
+  return {curl,tilt,hue};
+}
+function palette(t){
+  const L=law(),base=(276+L.hue+24*Math.sin(t*.5)+360)%360;
+  return {base:base,hot:(base+38+18*Math.sin(t*.37))%360,
+    cool:(base+300)%360,silver:(base+160)%360};
+}
+function hs(h,s,l,a){return 'hsla('+h+','+s+'%,'+l+'%,'+a+')'}
+
+function bg(t,P){
+  g.fillStyle='#030204';g.fillRect(0,0,W,H);
+  const S=Math.min(W,H),bx=W*(.5+.17*Math.sin(t*.11)),by=H*(.47+.19*Math.cos(t*.13));
+  const b=g.createRadialGradient(bx,by,0,W*.5,H*.5,S*(.72+.08*Math.sin(t*.17)));
+  b.addColorStop(0,hs(P.base,42,11,1));
+  b.addColorStop(.34,hs(P.cool,28,6,1));
+  b.addColorStop(.72,'rgba(7,5,9,.96)');b.addColorStop(1,'#020204');
+  g.fillStyle=b;g.fillRect(0,0,W,H);
+  g.globalCompositeOperation='screen';
+  for(let i=0;i<11;i++){
+    const a=i*TAU/11+t*.025,rr=S*(.30+.16*Math.sin(t*.09+i*1.7));
+    const x=W*.5+Math.cos(a)*rr,y=H*.5+Math.sin(a)*rr*.78;
+    const q=g.createRadialGradient(x,y,0,x,y,S*.20);
+    q.addColorStop(0,hs((P.cool+i*17)%360,50,45,.025));
+    q.addColorStop(1,hs(P.base,50,20,0));
+    g.fillStyle=q;g.beginPath();g.arc(x,y,S*.20,0,TAU);g.fill();
+  }
+  g.globalCompositeOperation='source-over';
+}
+
+function petalPoints(cx,cy,a,len,w,curl,phase,sector){
+  const pts=[],N=34,ca=Math.cos(a),sa=Math.sin(a);
+  for(let i=0;i<=N;i++){
+    const u=i/N,k=Math.sin(Math.PI*u),edge=Math.pow(k,.62);
+    let xx=u*len+curl*len*u*u*(.55+.45*k);
+    let yy=k*w*(.72+.28*Math.sin(phase+sector*.7));
+    yy*=1-.22*u;yy+=Math.sin(u*TAU*1.5+phase)*w*.035;
+    pts.push({x:cx+ca*xx-sa*yy,y:cy+sa*xx+ca*yy});
+  }
+  return pts;
+}
+function strokePath(pts,h,s,l,a,lw){
+  g.beginPath();g.moveTo(pts[0].x,pts[0].y);
+  for(let i=1;i<pts.length;i++)g.lineTo(pts[i].x,pts[i].y);
+  g.strokeStyle=hs(h,s,l,a);g.lineWidth=lw;g.lineCap='round';g.stroke();
+}
+function drawPetal(cx,cy,a,len,w,curl,phase,sector,P,depth){
+  const pts=petalPoints(cx,cy,a,len,w,curl,phase,sector);
+  g.beginPath();g.moveTo(pts[0].x,pts[0].y);
+  for(let i=1;i<pts.length;i++)g.lineTo(pts[i].x,pts[i].y);
+  for(let i=pts.length-2;i>=0;i--){
+    g.lineTo(pts[i].x+Math.cos(a+Math.PI/2)*w*.055,
+             pts[i].y+Math.sin(a+Math.PI/2)*w*.055);
+  }
+  g.closePath();
+  const tip=pts[pts.length-1],q=g.createLinearGradient(cx,cy,tip.x,tip.y);
+  q.addColorStop(0,hs(P.base,30,4,.98));
+  q.addColorStop(.38,hs(P.base+5,48,11,.98));
+  q.addColorStop(.72,hs(P.hot,58,17,.98));
+  q.addColorStop(1,hs(P.hot,78,38,.92));
+  g.fillStyle=q;g.fill();
+  strokePath(pts,P.hot,75,66,depth*.34,Math.max(1,depth*.8));
+  strokePath(pts,P.silver,40,78,.16,Math.max(.45,depth*.3));
+  for(let v=0;v<7;v++){
+    const side=v%2?-1:1;
+    g.beginPath();
+    for(let j=2;j<29;j++){
+      const u=j/30,k=Math.sin(Math.PI*u),xx=u*len;
+      const yy=side*k*w*(.10+v*.026);
+      const bend=curl*len*u*u*.55,ca=Math.cos(a),sa=Math.sin(a);
+      const px=cx+ca*(xx+bend)-sa*yy,py=cy+sa*(xx+bend)+ca*yy;
+      if(j===2)g.moveTo(px,py);else g.lineTo(px,py);
+    }
+    g.strokeStyle=hs((P.hot+v*9)%360,65,32+v*3,.18-v*.016);
+    g.lineWidth=.45;g.stroke();
+  }
+  if(depth>0){
+    for(let q=0;q<3;q++){
+      const u=.34+q*.18,p=pts[Math.floor(u*(pts.length-1))];
+      const aa=a+(q-1)*.13+Math.sin(phase+q)*.025;
+      const sub=petalPoints(p.x,p.y,aa,len*(.22-q*.025),w*(.24-q*.035),
+        curl*.75,phase+q,sector+q*13);
+      strokePath(sub,(P.base+q*22)%360,72,48,.16,.55);
+    }
+  }
+}
+
+function fringe(cx,cy,r,P,t,side){
+  const N=128;g.globalCompositeOperation='lighter';
+  for(let i=0;i<N;i++){
+    const u=i/N,a=u*TAU+Math.sin(t*.21)*.025;
+    const rr=r*(.76+.22*u)*(1+.10*Math.sin(t*1.7+i*.42)+.045*Math.sin(t*3.1-i*.17));
+    const x=cx+Math.cos(a)*rr,y=cy+Math.sin(a)*rr*.94;
+    const len=r*(.11+.075*Math.sin(u*Math.PI)*Math.sin(u*Math.PI));
+    const ex=x+Math.cos(a+side*.24)*len,ey=y+Math.sin(a+side*.24)*len;
+    g.beginPath();g.moveTo(x,y);
+    g.quadraticCurveTo(x+Math.cos(a+side*.7)*len*.55,
+      y+Math.sin(a+side*.7)*len*.55,ex,ey);
+    g.strokeStyle=hs(mixHue(P.base,P.hot,.5+.5*Math.sin(i*.21+t*.55)),
+      88,52+18*Math.sin(i*.13+t),.18+.22*(1-u));
+    g.lineWidth=.7+1.15*(1-u);g.stroke();
+  }
+  g.globalCompositeOperation='source-over';
+}
+
+function core(cx,cy,r,P,t){
+  const z=g.createRadialGradient(cx-r*.15,cy-r*.18,r*.05,cx,cy,r*1.18);
+  z.addColorStop(0,'rgba(2,1,3,1)');z.addColorStop(.45,hs(P.base,60,8,1));
+  z.addColorStop(.76,hs(P.hot,68,15,1));z.addColorStop(1,'rgba(0,0,0,0)');
+  g.fillStyle=z;g.beginPath();g.arc(cx,cy,r*1.18,0,TAU);g.fill();
+
+  g.beginPath();g.ellipse(cx,cy+r*.10,r*.48,r*.66,0,0,TAU);
+  const q=g.createLinearGradient(cx,cy-r*.4,cx,cy+r*.7);
+  q.addColorStop(0,'#010102');q.addColorStop(.55,hs(P.base,90,13,1));
+  q.addColorStop(.9,hs(P.hot,90,29,.9));q.addColorStop(1,'#020103');
+  g.fillStyle=q;g.fill();
+  fringe(cx,cy,r*.74,P,t,1);fringe(cx,cy,r*.58,P,t,-1);
+
+  const tongue=g.createLinearGradient(cx,cy,cx,cy+r*2.2);
+  tongue.addColorStop(0,hs(P.hot,72,25,1));tongue.addColorStop(.35,hs(P.base,62,12,1));
+  tongue.addColorStop(1,'rgba(1,0,2,0)');
+  g.fillStyle=tongue;g.beginPath();
+  g.moveTo(cx-r*.22,cy+r*.26);
+  g.bezierCurveTo(cx-r*.18,cy+r*.62,cx-r*.11,cy+r*1.05,cx,cy+r*1.72);
+  g.bezierCurveTo(cx+r*.11,cy+r*1.05,cx+r*.18,cy+r*.62,cx+r*.22,cy+r*.26);
+  g.closePath();g.fill();
+
+  for(let i=0;i<22;i++){
+    const px=cx+(i-10.5)*r*.035;
+    g.beginPath();g.moveTo(px,cy+r*.35);
+    g.quadraticCurveTo(px+Math.sin(t*1.2+i)*r*.025,cy+r*(.9+.05*Math.sin(i)),
+      px+(i-10.5)*r*.006,cy+r*(1.62+.07*Math.sin(t+i)));
+    g.strokeStyle=hs(mixHue(P.base,P.hot,i/22),85,35+i*.7,.32);
+    g.lineWidth=.65;g.stroke();
+  }
+}
+
+function render(t){
+  const P=palette(t);bg(t,P);
+  const S=Math.min(W,H),cx=W*.5,cy=H*.48,L=law(t);
+  const N=9+Math.min(6,mutations.length%7);
+  const breath=1+.045*Math.sin(t*.62)+.018*Math.sin(t*1.24);
+  const curl=.045*Math.sin(t*.41)+L.curl*.012;
+  const rot=t*.035+L.tilt*.018;
+  const len=S*(.31+.018*Math.sin(t*.37)),width=S*(.17+.014*Math.sin(t*.53));
+
+  for(let i=0;i<N;i++){
+    const a=rot+i*TAU/N;
+    drawPetal(cx,cy,a,len*(.94+.12*Math.sin(i*2.17+t*.24)),
+      width*(.72+.20*Math.sin(i*1.31+1)),curl*.72,t*.32+i*.51,i,P,1);
+  }
+  for(let i=0;i<N;i++){
+    const a=rot+i*TAU/N;
+    let local=0;
+    for(const m of mutations){
+      const d=Math.abs(hueDist(a*180/Math.PI,m.a));
+      local+=Math.exp(-d*d/(m.r*m.r))*m.s*.0007;
+    }
+    drawPetal(cx,cy,a+local,len*breath*(1+.10*Math.sin(i*1.77+t*.27)),
+      width*(.82+.17*Math.cos(i*2.11+t*.18)),curl+local*.8,
+      t*.28+i*.73,i,P,2);
+  }
+  core(cx,cy,S*.125,P,t);
+
+  g.globalCompositeOperation='screen';
+  for(let i=0;i<80;i++){
+    const u=hash(i*7.13),v=hash(i*11.71+3),a=u*TAU+t*(.035+.025*(i%3));
+    const rr=S*(.20+v*.49),px=cx+Math.cos(a)*rr,py=cy+Math.sin(a)*rr*.82;
+    const z=.45+.55*Math.sin(t*.9+i*1.7),r=.45+1.5*z;
+    g.fillStyle=hs(mixHue(P.cool,P.hot,u),80,58+25*z,.07+.12*z);
+    g.beginPath();g.arc(px,py,r,0,TAU);g.fill();
+  }
+  g.globalCompositeOperation='source-over';
+  const v=g.createRadialGradient(cx,cy,S*.15,cx,cy,S*.72);
+  v.addColorStop(0,'rgba(0,0,0,0)');v.addColorStop(.72,'rgba(0,0,0,.05)');
+  v.addColorStop(1,'rgba(0,0,0,.58)');g.fillStyle=v;g.fillRect(0,0,W,H);
+}
+
+function live(){render(performance.now()*.001);requestAnimationFrame(live)}
+requestAnimationFrame(live);
+
+function touchLaw(x,y){
+  if(APKit.isUI(x,y))return;
+  const dx=x-W*.5,dy=y-H*.48,a=(Math.atan2(dy,dx)*180/Math.PI+360)%360;
+  const rr=Math.hypot(dx,dy),S=Math.min(W,H),strength=clamp(1-rr/(S*.72),.18,1);
+  mutations.push({a:a,r:18+Math.random()*34,
+    s:(Math.random()>.5?1:-1)*(12+strength*28),
+    c:(Math.random()-.5)*2.2,t:(Math.random()-.5)*1.7,h:(Math.random()-.5)*95});
+  if(mutations.length>14)mutations.shift();
+}
+c.addEventListener('pointerdown',e=>{
+  if(APKit.isUI(e.clientX,e.clientY))return;
+  c.setPointerCapture(e.pointerId);dragging=e.pointerId;touchLaw(e.clientX,e.clientY);lastTouch=performance.now();
+});
+c.addEventListener('pointermove',e=>{
+  if(e.pointerId!==dragging||!e.buttons||APKit.isUI(e.clientX,e.clientY))return;
+  const now=performance.now();
+  if(now-lastTouch>90){touchLaw(e.clientX,e.clientY);lastTouch=now}
+});
+c.addEventListener('pointerup',e=>{if(e.pointerId===dragging)dragging=null});
+c.addEventListener('pointercancel',e=>{if(e.pointerId===dragging)dragging=null});
+
+APKit.init({
+  canvas:c,gifName:'black-orchid-loop',clockFormat:'spec',dock:true,autoHide:true,
+  fullscreenButton:false,loopFrame:phase=>render(phase),
+  buttons:[
+    {label:'✦',name:'mutate',onClick:()=>{
+      seed=Math.random()*10000;
+      touchLaw(W*.5+Math.cos(Math.random()*TAU)*W*.2,H*.48+Math.sin(Math.random()*TAU)*H*.2);
+    }},
+    {label:'↻',name:'reset',onClick:()=>{mutations=[];seed=Math.random()*10000}}
+  ]
+});
+</script>
+</body>
+</html>
