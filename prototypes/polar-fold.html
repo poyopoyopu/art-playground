@@ -1,4 +1,4 @@
-<!-- POLAR FOLD — ChatGPT作。第2構成。輪郭線ではなく画面全体を折り畳まれた色の膜として再構成。ap-kit.js統合: ChatGPT -->
+<!-- POLAR FOLD — ChatGPT作。第3構成。閉じた輪を廃し、画面を横断する一枚の連続膜として再構成。ap-kit.js統合: ChatGPT -->
 <!doctype html>
 <html lang="ja">
 <head>
@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
 <title>POLAR FOLD</title>
 <style>
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#f8f7f3;touch-action:none}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#faf9f5;touch-action:none}
 canvas{display:block;width:100%;height:100%;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 </style>
 <script src="../ap-kit.js"></script>
@@ -15,191 +15,275 @@ canvas{display:block;width:100%;height:100%;-webkit-touch-callout:none;-webkit-u
 <canvas id="c"></canvas>
 <script>
 (()=>{"use strict";
+
 const c=document.getElementById("c"),ctx=c.getContext("2d",{alpha:false});
-const TAU=Math.PI*2,LOW=260;
-let W=0,H=0,D=1,LW=0,LH=0,img,data;
-let seed=Math.random()*1000, hue=0, t0=performance.now();
-let folds=[],pointer=null;
+const TAU=Math.PI*2;
+let W=0,H=0,D=1,S=1,t0=performance.now();
+let seed=Math.random()*10000,hue=Math.random()*360;
+let creases=[],finger=null;
 
 function resize(){
-  D=Math.min(2,devicePixelRatio||1);W=innerWidth;H=innerHeight;
-  c.width=Math.round(W*D);c.height=Math.round(H*D);ctx.setTransform(D,0,0,D,0,0);
-  LW=Math.max(120,Math.min(LOW,Math.round(W*.58)));
-  LH=Math.max(120,Math.round(LW*H/W));
-  const b=document.createElement("canvas");b.width=LW;b.height=LH;
-  img=b.getContext("2d",{alpha:false}).createImageData(LW,LH);
-  data=img.data;
+  D=Math.min(2,devicePixelRatio||1);
+  W=innerWidth;H=innerHeight;S=Math.min(W,H);
+  c.width=Math.round(W*D);c.height=Math.round(H*D);
+  ctx.setTransform(D,0,0,D,0,0);
 }
 addEventListener("resize",resize,{passive:true});resize();
 
 function rnd(a,b){return a+Math.random()*(b-a)}
+
 function reset(){
-  seed=Math.random()*100000;hue=rnd(0,360);folds=[];
+  seed=Math.random()*10000;
+  hue=rnd(0,360);
+  creases=[];
 }
 function mutate(){
-  seed=Math.random()*100000;hue=rnd(0,360);
-  folds=[];
+  seed=Math.random()*10000;
+  hue=rnd(0,360);
+  creases=[];
 }
 
-/* 触れた場所は「線」ではなく、空間の折り目を追加する */
-function addFold(x,y){
-  const s=Math.min(W,H),px=(x-W/2)/s,py=(y-H/2)/s;
-  folds.push({x:px,y:py,a:Math.atan2(py,px)+rnd(-1.1,1.1),r:rnd(.08,.20),p:rnd(.25,.55),phase:rnd(0,TAU)});
-  if(folds.length>8)folds.shift();
+/*
+ WORLD RULE:
+ 一本の膜しか存在しない。
+ その膜には表裏がなく、折れた場所だけが色を圧縮する。
+ 膜は画面の外から入り、画面の外へ抜ける。
+ だから「輪」にはならない。
+ 触れた場所は永久的な折り癖になる。
+*/
+
+function addCrease(x,y){
+  const px=(x-W*.5)/S,py=(y-H*.5)/S;
+  creases.push({
+    x:px,y:py,
+    a:Math.atan2(py,px)+rnd(-1.2,1.2),
+    r:rnd(.08,.18),
+    p:rnd(.16,.38),
+    phase:rnd(0,TAU)
+  });
+  if(creases.length>7)creases.shift();
 }
+
 c.addEventListener("pointerdown",e=>{
   if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
-  e.preventDefault();pointer={id:e.pointerId,x:e.clientX,y:e.clientY};
-  addFold(e.clientX,e.clientY);c.setPointerCapture&&c.setPointerCapture(e.pointerId);
+  e.preventDefault();
+  finger={id:e.pointerId,x:e.clientX,y:e.clientY};
+  c.setPointerCapture&&c.setPointerCapture(e.pointerId);
+  addCrease(e.clientX,e.clientY);
 },{passive:false});
+
 c.addEventListener("pointermove",e=>{
-  if(!pointer||pointer.id!==e.pointerId)return;e.preventDefault();
-  const dx=e.clientX-pointer.x,dy=e.clientY-pointer.y;
-  if(dx*dx+dy*dy>900)addFold(e.clientX,e.clientY);
-  pointer.x=e.clientX;pointer.y=e.clientY;
+  if(!finger||finger.id!==e.pointerId)return;
+  e.preventDefault();
+  const dx=e.clientX-finger.x,dy=e.clientY-finger.y;
+  if(dx*dx+dy*dy>1100)addCrease(e.clientX,e.clientY);
+  finger.x=e.clientX;finger.y=e.clientY;
 },{passive:false});
-function up(e){if(pointer&&pointer.id===e.pointerId)pointer=null}
-c.addEventListener("pointerup",up);c.addEventListener("pointercancel",up);
 
-function noise(a,b,t){
-  return Math.sin(a*3.17+b*5.73+t*.17+seed*.0007)
-       +.48*Math.sin(a*7.91-b*4.13-t*.11+seed*.0013)
-       +.22*Math.cos(a*13.1+b*11.7+t*.23);
+function release(e){
+  if(finger&&finger.id===e.pointerId)finger=null;
 }
+c.addEventListener("pointerup",release);
+c.addEventListener("pointercancel",release);
 
-/* 膜の折れを計算。
-   rは単純な円ではなく、多重の角度成分で「四角→歪んだ多角形→有機体」を往復する。 */
-function field(x,y,time){
-  let X=x,Y=y;
-  const rr=Math.hypot(X,Y)+1e-6;
-  let ang=Math.atan2(Y,X);
+/* 一本の膜の中心線。
+   x方向に進みながら、複数の長い折りを通過する。 */
+function centerAt(u,time){
+  const x=-1.30+u*2.60;
+  let y=
+    .06*Math.sin(u*TAU*1.15+time*.42+seed*.0004)+
+    .13*Math.sin(u*TAU*2.15-time*.27+seed*.0008)+
+    .055*Math.sin(u*TAU*4.7+time*.18);
 
-  /* 3階層の座標折り */
-  for(let k=0;k<3;k++){
-    const f=.11*Math.sin(ang*(3+k*2)+time*(.22+k*.09)+seed*.001*(k+1));
-    const cs=Math.cos(ang+f),sn=Math.sin(ang+f);
-    const nx=X*cs-Y*sn,ny=X*sn+Y*cs;
-    X=nx+(Math.sin(ny*8-time*.3+k)*.014*(k+1));
-    Y=ny+(Math.cos(nx*7+time*.24-k)*.012*(k+1));
-    ang=Math.atan2(Y,X);
+  /* 大きな折り返しがゆっくり移動 */
+  const f1=.5+.24*Math.sin(time*.21+seed*.0002);
+  const d1=u-f1;
+  y+=.42*Math.exp(-(d1*d1)/.014)*Math.sin(time*.54+seed*.0007);
+
+  const f2=.27+.18*Math.cos(time*.17+seed*.0005);
+  const d2=u-f2;
+  y-=.25*Math.exp(-(d2*d2)/.022)*Math.sin(time*.39+1.3);
+
+  /* 端でも自然に画面外へ続く */
+  y+=.08*(u-.5)*Math.sin(time*.13);
+
+  /* タッチで局所的に膜が折れる */
+  for(const q of creases){
+    const qx=(q.x+1.3)/2.6;
+    const du=u-qx;
+    const g=Math.exp(-(du*du)/(q.r*q.r));
+    y+=q.p*g*Math.sin(du*18+q.phase+time*.72);
   }
 
-  const R=Math.hypot(X,Y);
-  const A=Math.atan2(Y,X);
-
-  /* 角を周期的に増減させる。単なる正多角形にならないよう高調波を混ぜる */
-  const square=Math.pow(Math.abs(Math.cos(A)),5)+Math.pow(Math.abs(Math.sin(A)),5);
-  const four=1/sqrtSafe(square);
-  let boundary=.73*four;
-  boundary+=.075*Math.sin(A*4-time*.53+seed*.002);
-  boundary+=.045*Math.sin(A*7+time*.31+seed*.004);
-  boundary+=.025*Math.cos(A*11-time*.21);
-
-  /* 大きな折り返し */
-  const foldCenter=.3*Math.sin(time*.19+seed*.0003);
-  const dA=Math.atan2(Math.sin(A-foldCenter),Math.cos(A-foldCenter));
-  const fold=Math.exp(-dA*dA/(.075+.035*Math.sin(time*.37)**2));
-  boundary-=.22*fold*(.5+.5*Math.sin(time*.57+seed*.001));
-
-  /* タッチで追加された局所的な折り目 */
-  let warp=0;
-  for(const q of folds){
-    const dx=x-q.x,dy=y-q.y;
-    const ca=Math.cos(q.a),sa=Math.sin(q.a);
-    const u=dx*ca+dy*sa,v=-dx*sa+dy*ca;
-    const g=Math.exp(-(u*u/(q.r*q.r*3)+v*v/(q.r*q.r)));
-    warp+=q.p*g*Math.sin(u*26-q.phase+time*.8);
-    boundary+=q.p*.055*g*Math.cos(v*31+q.phase);
-  }
-
-  /* signed distance-like value */
-  const sd=R-boundary;
-  return {sd,ang:A,R,warp,boundary};
-}
-function sqrtSafe(v){return Math.sqrt(Math.max(.0001,v))}
-
-/* 色相は距離だけでなく角度にも依存させる。
-   これで虹が「輪郭に貼った線」ではなく膜の中を流れる。 */
-function rgb(h,s,l){
-  h=((h%360)+360)%360/360;s/=100;l/=100;
-  const q=l<.5?l*(1+s):l+s-l*s,p=2*l-q;
-  const f=t=>{
-    if(t<0)t+=1;if(t>1)t-=1;
-    if(t<1/6)return p+(q-p)*6*t;
-    if(t<1/2)return q;
-    if(t<2/3)return p+(q-p)*(2/3-t)*6;
-    return p;
-  };
-  return [f(h+1/3)*255,f(h)*255,f(h-1/3)*255];
+  return [x,y];
 }
 
-function render(time){
-  const aspect=W/H;
-  let p=0;
-  for(let j=0;j<LH;j++){
-    const y=((j+.5)/LH-.5)*1.9;
-    for(let i=0;i<LW;i++){
-      const xx=((i+.5)/LW-.5)*1.9*aspect;
-      const f=field(xx,y,time);
-
-      /* sdの全領域を使う。中央も外側も同じ膜の一部 */
-      const band=Math.sin(f.sd*15.5-f.ang*1.4-time*.34+f.warp*7);
-      const band2=Math.sin(f.sd*31+f.ang*3.1+time*.23);
-      const interior=Math.exp(-Math.max(f.sd,0)*2.7);
-      const exterior=Math.exp(-Math.max(-f.sd,0)*2.0);
-
-      let h=hue
-        +f.ang*57
-        +time*18
-        +band*58
-        +band2*19
-        +noise(xx,yy,time)*7;
-
-      /* 境界だけ極端に彩度を上げ、内部は乳白色の色場にする */
-      const edge=Math.exp(-Math.abs(f.sd)/.045);
-      const deep=Math.exp(-Math.abs(f.sd)/.16);
-      let sat=16+edge*72+deep*18;
-      let light=97-edge*30-deep*4;
-
-      /* 折り重なった場所だけ色が一段深くなる */
-      const crease=Math.pow(Math.max(0,Math.abs(band)),9)*edge;
-      sat+=crease*17;light-=crease*8;
-
-      const col=rgb(h,sat,light);
-
-      /* ごく薄い白を混ぜて、ネオンではなく顔料/膜の質感へ */
-      const white=.18+(.32*(1-edge));
-      let r=col[0]*(1-white)+255*white;
-      let g=col[1]*(1-white)+255*white;
-      let b=col[2]*(1-white)+255*white;
-
-      /* 境界の両側に異なる色の薄い層を置く */
-      const glow=Math.exp(-Math.abs(f.sd)/.095);
-      r=Math.min(255,r+glow*18);
-      g=Math.min(255,g+glow*14);
-      b=Math.min(255,b+glow*24);
-
-      /* 画面端はわずかに落として、形が画面いっぱいに存在する感覚を出す */
-      const edgeV=Math.max(0,Math.hypot(xx/aspect,yy)-.63);
-      const vignette=Math.max(.84,1-edgeV*.18);
-
-      data[p++]=r*vignette;
-      data[p++]=g*vignette;
-      data[p++]=b*vignette;
-      data[p++]=255;
-    }
+function widthAt(u,time){
+  let w=.16
+    +.035*Math.sin(u*TAU*1.3-time*.21)
+    +.025*Math.sin(u*TAU*3.2+time*.17+seed);
+  /* 折れたところは膜が圧縮されて細くなる */
+  for(const q of creases){
+    const qx=(q.x+1.3)/2.6;
+    const g=Math.exp(-((u-qx)**2)/(q.r*q.r*1.5));
+    w-=q.p*.075*g;
   }
-  /* ImageDataはオフスクリーンCanvasが必要なので毎回作る */
-  if(!render.buf){render.buf=document.createElement("canvas");render.bctx=render.buf.getContext("2d",{alpha:false})}
-  render.buf.width=LW;render.buf.height=LH;
-  render.bctx.putImageData(img,0,0);
-  ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality="high";
-  ctx.drawImage(render.buf,0,0,LW,LH,0,0,W,H);
+  return Math.max(.075,w);
+}
+
+function tangent(u,time){
+  const e=.001;
+  const a=centerAt(Math.max(0,u-e),time),b=centerAt(Math.min(1,u+e),time);
+  const dx=b[0]-a[0],dy=b[1]-a[1],l=Math.hypot(dx,dy)||1;
+  return [dx/l,dy/l];
+}
+
+function normal(u,time){
+  const t=tangent(u,time);
+  return [-t[1],t[0]];
+}
+
+function screenPoint(p){
+  return [W*.5+p[0]*S*.5,H*.5+p[1]*S*.5];
+}
+
+/* 膜をポリゴンとして生成。閉じない。 */
+function ribbon(time,scale=1,offset=0){
+  const N=240,top=[],bottom=[];
+  for(let i=0;i<=N;i++){
+    const u=i/N;
+    const uu=(u+offset)%1;
+    const p=centerAt(uu,time);
+    const n=normal(uu,time);
+    const w=widthAt(uu,time)*scale;
+    top.push([p[0]+n[0]*w,p[1]+n[1]*w]);
+    bottom.push([p[0]-n[0]*w,p[1]-n[1]*w]);
+  }
+  return top.concat(bottom.reverse());
+}
+
+function gradient(time){
+  const g=ctx.createLinearGradient(0,0,W,H);
+  const h=(hue+time*16)%360;
+  const stops=[
+    [0,(h+185)%360,.68],
+    [.12,(h+220)%360,.76],
+    [.25,(h+270)%360,.84],
+    [.38,(h+320)%360,.92],
+    [.50,(h+8)%360,.94],
+    [.62,(h+48)%360,.90],
+    [.75,(h+92)%360,.84],
+    [.88,(h+135)%360,.74],
+    [1,(h+178)%360,.64]
+  ];
+  for(const s of stops)
+    g.addColorStop(s[0],`hsla(${s[1]},78%,63%,${s[2]})`);
+  return g;
+}
+
+function pathPoly(poly){
+  ctx.beginPath();
+  ctx.moveTo(W*.5+poly[0][0]*S*.5,H*.5+poly[0][1]*S*.5);
+  for(let i=1;i<poly.length;i++)
+    ctx.lineTo(W*.5+poly[i][0]*S*.5,H*.5+poly[i][1]*S*.5);
+  ctx.closePath();
+}
+
+function background(time){
+  const g=ctx.createRadialGradient(
+    W*.50+Math.sin(time*.11)*S*.18,
+    H*.50+Math.cos(time*.09)*S*.14,
+    0,
+    W*.5,H*.5,S*.82
+  );
+  const h=(hue+time*5)%360;
+  g.addColorStop(0,"rgb(255,255,253)");
+  g.addColorStop(.55,`hsl(${(h+55)%360},24%,97%)`);
+  g.addColorStop(1,`hsl(${(h+190)%360},20%,95%)`);
+  ctx.fillStyle=g;
+  ctx.fillRect(0,0,W,H);
+}
+
+function drawMembrane(time){
+  background(time);
+
+  /* 外側の薄い膜。線ではなく面なので、ここでも輪にならない */
+  for(let k=4;k>=1;k--){
+    const poly=ribbon(time,1+k*.035,k*.0017);
+    pathPoly(poly);
+    ctx.fillStyle=gradient(time);
+    ctx.globalAlpha=.018+k*.008;
+    ctx.fill();
+  }
+
+  /* 本体 */
+  const poly=ribbon(time,1,0);
+  pathPoly(poly);
+  ctx.globalAlpha=.34;
+  ctx.fillStyle=gradient(time);
+  ctx.fill();
+
+  /* 膜の内部に、折りによって圧縮された色の流れを作る */
+  ctx.save();
+  ctx.globalCompositeOperation="source-over";
+  for(let j=0;j<7;j++){
+    const p=ribbon(time+j*.035,1-j*.055,.006*j);
+    pathPoly(p);
+    ctx.globalAlpha=.035;
+    ctx.strokeStyle=gradient(time+j*.05);
+    ctx.lineWidth=2.5;
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  /* 中央の色圧縮帯。閉じない一本の流れ */
+  const N=240;
+  ctx.beginPath();
+  for(let i=0;i<=N;i++){
+    const u=i/N,p=centerAt(u,time),q=screenPoint(p);
+    if(i===0)ctx.moveTo(q[0],q[1]);else ctx.lineTo(q[0],q[1]);
+  }
+  ctx.strokeStyle=gradient(time);
+  ctx.globalAlpha=.78;
+  ctx.lineWidth=Math.max(2,S*.010);
+  ctx.lineCap="round";
+  ctx.stroke();
+
+  /* 折り目だけ少し白く反射 */
+  ctx.globalAlpha=.20;
+  ctx.lineWidth=Math.max(1,S*.0035);
+  ctx.strokeStyle="rgba(255,255,255,.9)";
+  ctx.beginPath();
+  for(let i=0;i<=N;i++){
+    const u=i/N,p=centerAt(u,time),q=screenPoint(p);
+    if(i===0)ctx.moveTo(q[0],q[1]);else ctx.lineTo(q[0],q[1]);
+  }
+  ctx.stroke();
+
+  /* タッチの記憶。点ではなく、膜の局所的な折れとして見える */
+  ctx.globalAlpha=1;
+  for(let i=0;i<creases.length;i++){
+    const q=creases[i];
+    const x=W*.5+q.x*S*.5;
+    const y=H*.5+q.y*S*.5;
+    const len=S*(.025+.045*q.p);
+    ctx.save();
+    ctx.translate(x,y);ctx.rotate(q.a);
+    const gg=ctx.createLinearGradient(-len,0,len,0);
+    gg.addColorStop(0,"rgba(255,255,255,0)");
+    gg.addColorStop(.5,`hsla(${(hue+180+i*29)%360},72%,67%,.18)`);
+    gg.addColorStop(1,"rgba(255,255,255,0)");
+    ctx.strokeStyle=gg;ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(-len,0);ctx.lineTo(len,0);ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.globalAlpha=1;
 }
 
 function frame(now,phase){
   const time=phase==null?(now-t0)/1000:phase;
-  render(time);
+  drawMembrane(time);
   if(phase==null)requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
@@ -211,7 +295,7 @@ APKit.init({
   dock:true,
   autoHide:true,
   fullscreenButton:false,
-  loopFrame:function(phase){render(phase);},
+  loopFrame:function(phase){drawMembrane(phase);},
   buttons:[
     {label:"✦",name:"mutate",onClick:mutate},
     {label:"↻",name:"reset",onClick:reset}
