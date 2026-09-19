@@ -113,6 +113,18 @@ function Koi(x, y, gen, white, hueShift){
 }
 E.Koi = Koi;
 
+/* 体の履歴(背骨)を今の位置で張り直す。瞬間移動させるときは必ずこれを使う。
+   これを忘れると、旧位置と新位置が1本の棒でつながった鯉が描かれる(2026/09/20のバグ) */
+Koi.prototype.place = function(x, y, dir){
+  this.x = x; this.y = y;
+  if (dir !== undefined) this.dir = dir;
+  this.hist = [];
+  for (var j = 0; j < 12; j++){
+    this.hist.push({ x: x - Math.cos(this.dir) * j * this.len / 11,
+                     y: y - Math.sin(this.dir) * j * this.len / 11 });
+  }
+};
+
 Koi.prototype.step = function(dt){
   var i, r, d, dx, dy, want;
   var T = E.T;
@@ -160,10 +172,22 @@ Koi.prototype.step = function(dt){
   this.x = Math.max(6, Math.min(E.W - 6, this.x));
   this.y = Math.max(6, Math.min(E.H - 6, this.y));
 
+  var need = this.len / 11;
   var h0 = this.hist[0];
-  if (Math.hypot(this.x - h0.x, this.y - h0.y) > this.len / 10){
-    this.hist.unshift({ x: this.x, y: this.y });
+  var gap = Math.hypot(this.x - h0.x, this.y - h0.y);
+  if (!isFinite(gap) || gap > this.len * 1.5){
+    this.place(this.x, this.y, this.dir);   // 飛んだときは張り直す
+    return;
+  }
+  var guard = 0;
+  while (gap > need && guard < 8){
+    var k = need / gap;
+    this.hist.unshift({ x: h0.x + (this.x - h0.x) * k,
+                        y: h0.y + (this.y - h0.y) * k });
     if (this.hist.length > 12) this.hist.pop();
+    h0 = this.hist[0];
+    gap = Math.hypot(this.x - h0.x, this.y - h0.y);
+    guard++;
   }
 };
 
@@ -392,9 +416,7 @@ E.mutate = function(){
   for (var i = 0; i < E.koi.length; i++){
     var k = E.koi[i];
     k.hue = E.P.koiHue + rand(-6, 8);
-    k.x = rand(0.1, 0.9) * E.W;
-    k.y = rand(0.1, 0.9) * E.H;
-    k.dir = rand(0, 6.283);
+    k.place(rand(0.1, 0.9) * E.W, rand(0.1, 0.9) * E.H, rand(0, 6.283));
   }
 };
 
