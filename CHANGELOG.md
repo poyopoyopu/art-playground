@@ -34,6 +34,7 @@
 
 ## 履歴
 
+- 2026-09-19 クロード: CULTIVARが「コンセプトがピンとこない」とのことで、黒い蘭の法則を3方向に作り分け。A=BLEED「黒は色を溜め込んだ状態。触れた花弁が色を噴き出し、色は空中に残って花は灰になる」、B=DESCENT「花の中心には同じ花がある。触ると一段内側へ落ち、潜るほど別の生き物に変質し外へは戻れない」、C=GAZE「見られていると気づくと咲く。指を置いてじっとしている間だけ開き、動かすと閉じる。開ききった花は押し花になって二度と咲かない」。花の幾何と描画は3作共通の prototypes/orchid-engine.js に切り出した(このjsは3作が依存しているので編集時は3作とも要確認)(prototypes/orchid-engine.js, prototypes/orchid-a-bleed.html, prototypes/orchid-b-descent.html, prototypes/orchid-c-gaze.html)
 - 2026-09-19 クロード: おっちゃん提供の黒い蘭の写真から CULTIVAR を新規制作。法則は「触れた花弁が次の世代すべての祖先になる」人工選抜(6器官が同じ遺伝子のズレとして育ち、選んだ花弁の形質を花全体が受け継いで咲き直す/長押しで強制変異/世代は戻らず背後に系統の影が残る)。花弁の縁は同じ切れ込み規則を4〜5階層くり返す自己相似フリンジ。チャッピーの prototypes/black-orchid.html とは別法則なので、そちらは触らず別ファイルにした(prototypes/black-orchid-cultivar.html)
 - 2026-09-18 クロード: TIDE MARKをCURRENTに変更。それまでのCURRENTだったTAR CEILINGはLOG先頭へ移動、Published works先頭もTIDE MARKに(index.html)
 - 2026-09-18 クロード: TIDE MARKを採用。art-v71として昇格し(ap-kit.jsの相対パスをルート用に修正)、ギャラリーLOG先頭とPublished worksに追加。表示名はTIDE MARK(名前はクロードに一任)(art-v71-tide-mark.html, index.html)
