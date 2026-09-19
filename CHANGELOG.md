@@ -7,6 +7,8 @@
 新しいものほど上。1作業1行、短く。古くなったら月ごとに数行へまとめてよい。
 (2026/09/06以前の詳しい経緯は `ART_PLAYGROUND_HISTORY.md` にある)
 
+- 2026-09-19 チャッピー: BLACK ORCHIDの描画ループ欠落を修正。requestAnimationFrameによる常時描画を追加(prototypes/black-orchid.html)
+
 - 2026-09-19 チャッピー: BLACK ORCHIDを再構築。円形・放射状のウニ的構造を廃し、6器官の非対称な有機膜と多階層の自己相似フリンジで黒紫の異形植物として再設計(prototypes/black-orchid.html)
 
 - 2026-09-19 チャッピー: BLACK ORCHIDを根本から再構築。花弁・触手の表現を廃し、入れ子膜・放射脈・中央器官による異形生命体として再設計(prototypes/black-orchid.html)
