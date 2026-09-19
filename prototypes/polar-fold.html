@@ -1,4 +1,4 @@
-<!-- POLAR FOLD — ChatGPT作。第6構成。WebGL2 / square-polar fold field。 -->
+<!-- POLAR FOLD — ChatGPT作。描画安定版。2D Canvas / mirrored square-fold field. -->
 <!doctype html>
 <html lang="ja">
 <head>
@@ -15,236 +15,136 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 <canvas id="c"></canvas>
 <script>
 (()=>{"use strict";
-
 const canvas=document.getElementById("c");
-let gl=canvas.getContext("webgl2",{antialias:false,alpha:false,preserveDrawingBuffer:true});
-let W=0,H=0,D=1,t0=performance.now(),phaseOverride=null;
-let touch={x:0,y:0,active:false};
-
-const VS=`#version 300 es
-in vec2 a_position;
-void main(){gl_Position=vec4(a_position,0.0,1.0);}
-`;
-
-const FS=`#version 300 es
-precision highp float;
-out vec4 outColor;
-uniform vec2 u_res;
-uniform float u_time;
-uniform vec2 u_pointer;
-
-const float PI=3.141592653589793;
-const float TAU=6.283185307179586;
-
-vec3 hsv2rgb(vec3 c){
-  vec3 p=abs(fract(c.xxx+vec3(0.0,2.0/3.0,1.0/3.0))*6.0-3.0);
-  return c.z*mix(vec3(1.0),clamp(p-1.0,0.0,1.0),c.y);
-}
-
-float wrapAngle(float a){
-  return atan(sin(a),cos(a));
-}
-
-float softBand(float z,float width){
-  float f=abs(fract(z)-0.5);
-  return exp(-(f*f)/(width*width));
-}
-
-float squareRadius(vec2 q){
-  return max(abs(q.x),abs(q.y));
-}
-
-/* 一枚の半正方形領域を作る。
-   左右は同じ幾何学を鏡映し、色相だけを少しずらす。 */
-vec4 halfField(vec2 p,float side,float t){
-  vec2 q=vec2(abs(p.x)*1.72,p.y);
-
-  /* 微小な回転。大きく回しすぎず「正方形」の読みを残す。 */
-  float rot=0.085*sin(t+side*0.72)+0.035*sin(t*0.5-side);
-  float cr=cos(rot),sr=sin(rot);
-  q=vec2(q.x*cr-q.y*sr,q.x*sr+q.y*cr);
-
-  float r=length(q)+1e-5;
-  float a=atan(q.y,q.x);
-
-  /*
-    square-polar warp:
-    r を基準に角度を少しだけ半径依存で回す。
-    極座標＋ワープで螺旋化できるという定石を、
-    円ではなく squareRadius に適用する。
-  */
-  float twist=0.34+0.075*sin(t*0.5+side);
-  float wa=a+twist*log(r);
-
-  float cw=cos(wa),sw=sin(wa);
-  vec2 wq=vec2(q.x*cw-q.y*sw,q.x*sw+q.y*cw);
-  float sradius=squareRadius(wq);
-
-  /*
-    中央の「折り」。
-    angle=0 は左右半分の内側、つまり中央のヒンジ方向。
-    時間でヒンジ位置が上下へ滑る。
-  */
-  float hinge=.22*sin(t+side*0.45);
-  float da=wrapAngle(a-hinge);
-  float fold=exp(-(da*da)/0.060);
-  float fold2=exp(-pow(abs(da-PI*0.72),2.0)/0.13);
-  float notch=(0.105+0.035*sin(t*0.5))*fold
-             +(0.045+0.025*cos(t))*fold2;
-
-  /* 折り込みを半径へ与える */
-  sradius=max(0.012,sradius-notch*exp(-sradius*1.6));
-
-  /*
-    ズーム。
-    exp(sin)なので0→1→0が滑らかにつながる。
-    参考動画の「巨大な四角→中心の小さな四角」を作る。
-  */
-  float zoom=exp(1.52*sin(t-0.55));
-  float z=log2(sradius*zoom+1e-5);
-
-  /* 3〜4本程度の主輪郭だけを見せる */
-  float line=softBand(z*0.92,0.052);
-  float broad=softBand(z*0.46,0.18);
-
-  /* 輪郭に沿った虹。赤緑青を微妙に別位相にして色収差を作る */
-  float hue=0.54
-    +a/TAU
-    +z*0.055
-    +t*0.030
-    +side*0.105;
-
-  float hr=hue+0.018;
-  float hg=hue;
-  float hb=hue-0.018;
-
-  vec3 rgbR=hsv2rgb(vec3(hr,0.82,0.97));
-  vec3 rgbG=hsv2rgb(vec3(hg,0.82,0.97));
-  vec3 rgbB=hsv2rgb(vec3(hb,0.82,0.97));
-
-  float chroma=0.72*line+0.12*broad;
-  vec3 col=vec3(rgbR.r,rgbG.g,rgbB.b);
-
-  /* 白い膜に色が染み込む感じ */
-  float alpha=clamp(chroma,0.0,0.88);
-  col=mix(vec3(1.0),col,alpha);
-
-  /* 輪郭の外側へ柔らかな色の残像 */
-  float halo=0.18*broad+0.08*line;
-  col=mix(col,vec3(1.0),clamp(0.28-halo,0.0,0.28));
-
-  return vec4(col,1.0);
-}
-
-void main(){
-  vec2 p=(gl_FragCoord.xy-0.5*u_res)/min(u_res.x,u_res.y);
-  p.y=-p.y;
-
-  float side=p.x<0.0?-1.0:1.0;
-  vec4 left=halfField(p,side,u_time);
-
-  /* 中央の折り目。上側はほぼ消え、中心より下に白いヒンジが残る。 */
-  float seam=smoothstep(0.018,0.0,abs(p.x));
-  float lower=smoothstep(0.18,-0.58,p.y);
-  float hinge=seam*lower;
-
-  vec3 color=left.rgb;
-
-  /* ほんの少しだけ中心を白へ抜く */
-  color=mix(color,vec3(1.0),hinge*0.78);
-
-  /* 画面端まで白い紙面 */
-  float vign=max(0.0,length(p)-0.78);
-  color=mix(color,vec3(0.985,0.983,0.975),clamp(vign*0.10,0.0,0.08));
-
-  /* ポインタは幾何学を壊さず、折りの位相だけをわずかに変える */
-  float pd=length(p-u_pointer);
-  color=mix(color,vec3(1.0),0.0*exp(-pd*pd*10.0));
-
-  outColor=vec4(color,1.0);
-}
-`;
-
-function compile(type,src){
-  const sh=gl.createShader(type);gl.shaderSource(sh,src);gl.compileShader(sh);
-  if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(sh));
-  return sh;
-}
-function build(){
-  const pr=gl.createProgram();
-  gl.attachShader(pr,compile(gl.VERTEX_SHADER,VS));
-  gl.attachShader(pr,compile(gl.FRAGMENT_SHADER,FS));
-  gl.linkProgram(pr);
-  if(!gl.getProgramParameter(pr,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(pr));
-  return pr;
-}
-const program=build();
-gl.useProgram(program);
-
-const buf=gl.createBuffer();
-gl.bindBuffer(gl.ARRAY_BUFFER,buf);
-gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
-const loc=gl.getAttribLocation(program,"a_position");
-gl.enableVertexAttribArray(loc);
-gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
-
-const uRes=gl.getUniformLocation(program,"u_res");
-const uTime=gl.getUniformLocation(program,"u_time");
-const uPointer=gl.getUniformLocation(program,"u_pointer");
+const ctx=canvas.getContext("2d",{alpha:false});
+let W=0,H=0,D=1,t0=performance.now(),phaseShift=0;
+const touch={x:0,y:0,active:false};
 
 function resize(){
-  D=Math.min(2,devicePixelRatio||1);
+  D=Math.min(2,window.devicePixelRatio||1);
   W=innerWidth;H=innerHeight;
-  canvas.width=Math.round(W*D);canvas.height=Math.round(H*D);
-  gl.viewport(0,0,canvas.width,canvas.height);
+  canvas.width=Math.max(1,Math.round(W*D));
+  canvas.height=Math.max(1,Math.round(H*D));
+  ctx.setTransform(D,0,0,D,0,0);
 }
 addEventListener("resize",resize,{passive:true});resize();
 
+function hsv(h,s,v){
+  h=((h%1)+1)%1;
+  const i=Math.floor(h*6),f=h*6-i,p=v*(1-s),q=v*(1-f*s),t=v*(1-(1-f)*s);
+  switch(i%6){
+    case 0:return[v,t,p];case 1:return[q,v,p];case 2:return[p,v,t];
+    case 3:return[p,q,v];case 4:return[t,p,v];default:return[v,p,q];
+  }
+}
+function rgb(c,a=1){
+  return"rgba("+Math.round(c[0]*255)+","+Math.round(c[1]*255)+","+Math.round(c[2]*255)+","+a+")";
+}
+
+/* 左右それぞれの正方形。内側の一辺だけが中央ヒンジへ折れる。 */
+function squarePath(side,scale,phase){
+  const min=H,cx=side*min*.285,cy=H*.5,s=scale*min*.62;
+  const tilt=.055*Math.sin(phase+side*.7),co=Math.cos(tilt),si=Math.sin(tilt);
+  const pts=[[-s,-s],[s,-s],[s,s],[-s,s]].map(([x,y])=>[
+    cx+x*co-y*si,cy+x*si+y*co
+  ]);
+  let a,b,outer1,outer2;
+  if(side>0){
+    a=pts[0];b=pts[3];outer1=pts[1];outer2=pts[2];
+  }else{
+    a=pts[1];b=pts[2];outer1=pts[0];outer2=pts[3];
+  }
+  const pull=(.22+.18*Math.sin(phase*.5))*s;
+  const mid=[W*.5+side*pull*.16,cy+s*.18*Math.sin(phase+side)];
+
+  ctx.beginPath();
+  ctx.moveTo(outer1[0],outer1[1]);
+  ctx.lineTo(a[0],a[1]);
+  ctx.quadraticCurveTo(mid[0],mid[1],b[0],b[1]);
+  ctx.lineTo(outer2[0],outer2[1]);
+  ctx.closePath();
+}
+
+function strokeFold(side,scale,phase,idx){
+  squarePath(side,scale,phase);
+  const hueBase=(idx*.115+side*.12+phase*.055)%1;
+  const line=ctx.createLinearGradient(side<0?W:0,0,side<0?0:W,H);
+  const stops=[
+    [0,hsv(hueBase,.72,1)],[.25,hsv(hueBase+.18,.78,1)],
+    [.5,hsv(hueBase+.36,.74,1)],[.75,hsv(hueBase+.55,.76,1)],
+    [1,hsv(hueBase+.72,.70,1)]
+  ];
+  for(const [p,c] of stops)line.addColorStop(p,rgb(c,.92));
+  ctx.lineJoin="round";ctx.lineCap="round";
+
+  ctx.save();
+  ctx.strokeStyle=line;ctx.lineWidth=Math.max(12,scale*H*.035);
+  ctx.globalAlpha=.075;ctx.stroke();ctx.restore();
+
+  ctx.save();
+  ctx.strokeStyle=line;ctx.lineWidth=Math.max(4,scale*H*.014);
+  ctx.globalAlpha=.34;ctx.stroke();ctx.restore();
+
+  ctx.save();
+  ctx.strokeStyle=line;ctx.lineWidth=Math.max(1.5,scale*H*.0048);
+  ctx.globalAlpha=.96;ctx.stroke();ctx.restore();
+}
+
 function draw(phase){
-  const t=phase*TAU;
-  gl.useProgram(program);
-  gl.uniform2f(uRes,canvas.width,canvas.height);
-  gl.uniform1f(uTime,t);
-  gl.uniform2f(uPointer,touch.x,touch.y);
-  gl.drawArrays(gl.TRIANGLES,0,3);
+  const p=phase+phaseShift,zoom=Math.exp(1.48*Math.sin(p-.55));
+  const bg=ctx.createLinearGradient(0,0,0,H);
+  bg.addColorStop(0,"#fff");bg.addColorStop(.5,"#fffefe");bg.addColorStop(1,"#fafafa");
+  ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
+
+  const base=[1.34,1.05,.79,.58,.40,.27,.17];
+  for(let i=0;i<base.length;i++){
+    const sc=base[i]/zoom;
+    if(sc<.018)continue;
+    strokeFold(-1,sc,p,i);strokeFold(1,sc,p,i);
+  }
+
+  const seam=ctx.createLinearGradient(W*.5-18,0,W*.5+18,0);
+  seam.addColorStop(0,"rgba(255,255,255,0)");
+  seam.addColorStop(.42,"rgba(255,255,255,.78)");
+  seam.addColorStop(.5,"rgba(255,255,255,1)");
+  seam.addColorStop(.58,"rgba(255,255,255,.78)");
+  seam.addColorStop(1,"rgba(255,255,255,0)");
+  ctx.fillStyle=seam;ctx.fillRect(W*.5-18,0,36,H);
+
+  const shadow=ctx.createLinearGradient(0,H*.34,0,H);
+  shadow.addColorStop(0,"rgba(255,255,255,0)");
+  shadow.addColorStop(1,"rgba(255,255,255,.28)");
+  ctx.fillStyle=shadow;ctx.fillRect(W*.5-5,H*.30,10,H*.70);
+
+  if(touch.active){
+    const dx=(touch.x-W*.5)/Math.min(W,H);
+    ctx.save();ctx.globalAlpha=.035;ctx.beginPath();
+    ctx.arc(touch.x,touch.y,Math.min(W,H)*.12,0,Math.PI*2);
+    ctx.fillStyle=rgb(hsv(.55+dx*.15,.5,1));ctx.fill();ctx.restore();
+  }
 }
 
 function animate(now){
-  const phase=((now-t0)/9000)%1;
-  draw(phase);
-  requestAnimationFrame(animate);
+  draw(((now-t0)/9000)%1);requestAnimationFrame(animate);
 }
 requestAnimationFrame(animate);
 
+function setTouch(e){touch.x=e.clientX;touch.y=e.clientY}
 canvas.addEventListener("pointerdown",e=>{
   if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
-  touch.active=true;
-  touch.x=(e.clientX-W/2)/Math.min(W,H);
-  touch.y=(H/2-e.clientY)/Math.min(W,H);
+  touch.active=true;setTouch(e);
   canvas.setPointerCapture&&canvas.setPointerCapture(e.pointerId);
 });
-canvas.addEventListener("pointermove",e=>{
-  if(!touch.active)return;
-  touch.x=(e.clientX-W/2)/Math.min(W,H);
-  touch.y=(H/2-e.clientY)/Math.min(W,H);
-});
+canvas.addEventListener("pointermove",e=>{if(touch.active)setTouch(e)});
 canvas.addEventListener("pointerup",()=>touch.active=false);
 canvas.addEventListener("pointercancel",()=>touch.active=false);
 
-function mutate(){
-  /* 色相はシェーダー内の周期に固定。ボタンは再生位相をずらすだけ。 */
-  t0=performance.now()+Math.random()*1800;
-}
-function reset(){t0=performance.now()}
+function mutate(){phaseShift+=.21+Math.random()*.47}
+function reset(){phaseShift=0;t0=performance.now()}
 
 APKit.init({
-  canvas,
-  gifName:"polar-fold-loop",
-  clockFormat:"spec",
-  dock:true,
-  autoHide:true,
-  fullscreenButton:false,
-  loopFrame:function(phase){draw(phase)},
+  canvas,gifName:"polar-fold-loop",clockFormat:"spec",dock:true,autoHide:true,
+  fullscreenButton:false,loopFrame:function(phase){draw(phase)},
   buttons:[
     {label:"✦",name:"mutate",onClick:mutate},
     {label:"↻",name:"reset",onClick:reset}
