@@ -1,5 +1,7 @@
 # CHANGELOG — ART PLAYGROUND 更新履歴
 
+- 2026-09-20 クロード: KOI POND B/Cの鯉が長い棒状に伸びるバグを修正。✦(mutate)で鯉を瞬間移動させた際に体の背骨履歴が旧位置に残っていたのが原因。Koi.place()で背骨を張り直すようにし、あわせて背骨の節間隔を常に体長/11に保つ処理を追加(低フレームレートでも伸びない)(prototypes/koi-pond-engine.js)
+
 - 2026-09-20 クロード: KOI PONDのリアル方向を2案制作して比較用に追加。共通シミュレーションを prototypes/koi-pond-engine.js に分離し、B=Canvas2Dで深度ぼかし・水中の青かぶり・光の網(コースティクス)・深さで動く影(prototypes/koi-pond-b.html)、C=WebGL2で水面の高さ場から法線を作り下の層を屈折させ、コースティクスと鏡面反射を加算(prototypes/koi-pond-c.html)。世界のルール(SHOAL LAW)は初版と同一
 
 - 2026-09-20 クロード: KOI POND (SHOAL LAW) を新規制作。おっちゃん共有の鯉の池アニメを元に、タップ=同世代の鯉が合体して一段大きく / 長押し=餌で半分のスケール2匹に分裂、という群れのスケール法則(4階層・自己相似)として再構成(prototypes/koi-pond.html)。GIFは群れが蓄積するためシームレスループにはならない
