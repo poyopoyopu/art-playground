@@ -1,4 +1,4 @@
-<!-- POLAR FOLD — ChatGPT作。第5構成。明快な有機形と虹色の膜を主役にした再設計。 -->
+<!-- POLAR FOLD — ChatGPT作。第6構成。WebGL2 / square-polar fold field。 -->
 <!doctype html>
 <html lang="ja">
 <head>
@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
 <title>POLAR FOLD</title>
 <style>
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#fbfaf7;touch-action:none}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#fff;touch-action:none}
 canvas{display:block;width:100%;height:100%;touch-action:none}
 </style>
 <script src="../ap-kit.js"></script>
@@ -16,208 +16,235 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 <script>
 (()=>{"use strict";
 
-const c=document.getElementById("c"),ctx=c.getContext("2d",{alpha:false});
-const TAU=Math.PI*2;
-let W=0,H=0,D=1,S=1;
-let t0=performance.now(),seed=Math.random()*TAU,hue=Math.random()*360;
-let touch=null,creases=[];
+const canvas=document.getElementById("c");
+let gl=canvas.getContext("webgl2",{antialias:false,alpha:false,preserveDrawingBuffer:true});
+let W=0,H=0,D=1,t0=performance.now(),phaseOverride=null;
+let touch={x:0,y:0,active:false};
+
+const VS=`#version 300 es
+in vec2 a_position;
+void main(){gl_Position=vec4(a_position,0.0,1.0);}
+`;
+
+const FS=`#version 300 es
+precision highp float;
+out vec4 outColor;
+uniform vec2 u_res;
+uniform float u_time;
+uniform vec2 u_pointer;
+
+const float PI=3.141592653589793;
+const float TAU=6.283185307179586;
+
+vec3 hsv2rgb(vec3 c){
+  vec3 p=abs(fract(c.xxx+vec3(0.0,2.0/3.0,1.0/3.0))*6.0-3.0);
+  return c.z*mix(vec3(1.0),clamp(p-1.0,0.0,1.0),c.y);
+}
+
+float wrapAngle(float a){
+  return atan(sin(a),cos(a));
+}
+
+float softBand(float z,float width){
+  float f=abs(fract(z)-0.5);
+  return exp(-(f*f)/(width*width));
+}
+
+float squareRadius(vec2 q){
+  return max(abs(q.x),abs(q.y));
+}
+
+/* 一枚の半正方形領域を作る。
+   左右は同じ幾何学を鏡映し、色相だけを少しずらす。 */
+vec4 halfField(vec2 p,float side,float t){
+  vec2 q=vec2(abs(p.x)*1.72,p.y);
+
+  /* 微小な回転。大きく回しすぎず「正方形」の読みを残す。 */
+  float rot=0.085*sin(t+side*0.72)+0.035*sin(t*0.5-side);
+  float cr=cos(rot),sr=sin(rot);
+  q=vec2(q.x*cr-q.y*sr,q.x*sr+q.y*cr);
+
+  float r=length(q)+1e-5;
+  float a=atan(q.y,q.x);
+
+  /*
+    square-polar warp:
+    r を基準に角度を少しだけ半径依存で回す。
+    極座標＋ワープで螺旋化できるという定石を、
+    円ではなく squareRadius に適用する。
+  */
+  float twist=0.34+0.075*sin(t*0.5+side);
+  float wa=a+twist*log(r);
+
+  float cw=cos(wa),sw=sin(wa);
+  vec2 wq=vec2(q.x*cw-q.y*sw,q.x*sw+q.y*cw);
+  float sradius=squareRadius(wq);
+
+  /*
+    中央の「折り」。
+    angle=0 は左右半分の内側、つまり中央のヒンジ方向。
+    時間でヒンジ位置が上下へ滑る。
+  */
+  float hinge=.22*sin(t+side*0.45);
+  float da=wrapAngle(a-hinge);
+  float fold=exp(-(da*da)/0.060);
+  float fold2=exp(-pow(abs(da-PI*0.72),2.0)/0.13);
+  float notch=(0.105+0.035*sin(t*0.5))*fold
+             +(0.045+0.025*cos(t))*fold2;
+
+  /* 折り込みを半径へ与える */
+  sradius=max(0.012,sradius-notch*exp(-sradius*1.6));
+
+  /*
+    ズーム。
+    exp(sin)なので0→1→0が滑らかにつながる。
+    参考動画の「巨大な四角→中心の小さな四角」を作る。
+  */
+  float zoom=exp(1.52*sin(t-0.55));
+  float z=log2(sradius*zoom+1e-5);
+
+  /* 3〜4本程度の主輪郭だけを見せる */
+  float line=softBand(z*0.92,0.052);
+  float broad=softBand(z*0.46,0.18);
+
+  /* 輪郭に沿った虹。赤緑青を微妙に別位相にして色収差を作る */
+  float hue=0.54
+    +a/TAU
+    +z*0.055
+    +t*0.030
+    +side*0.105;
+
+  float hr=hue+0.018;
+  float hg=hue;
+  float hb=hue-0.018;
+
+  vec3 rgbR=hsv2rgb(vec3(hr,0.82,0.97));
+  vec3 rgbG=hsv2rgb(vec3(hg,0.82,0.97));
+  vec3 rgbB=hsv2rgb(vec3(hb,0.82,0.97));
+
+  float chroma=0.72*line+0.12*broad;
+  vec3 col=vec3(rgbR.r,rgbG.g,rgbB.b);
+
+  /* 白い膜に色が染み込む感じ */
+  float alpha=clamp(chroma,0.0,0.88);
+  col=mix(vec3(1.0),col,alpha);
+
+  /* 輪郭の外側へ柔らかな色の残像 */
+  float halo=0.18*broad+0.08*line;
+  col=mix(col,vec3(1.0),clamp(0.28-halo,0.0,0.28));
+
+  return vec4(col,1.0);
+}
+
+void main(){
+  vec2 p=(gl_FragCoord.xy-0.5*u_res)/min(u_res.x,u_res.y);
+  p.y=-p.y;
+
+  float side=p.x<0.0?-1.0:1.0;
+  vec4 left=halfField(p,side,u_time);
+
+  /* 中央の折り目。上側はほぼ消え、中心より下に白いヒンジが残る。 */
+  float seam=smoothstep(0.018,0.0,abs(p.x));
+  float lower=smoothstep(0.18,-0.58,p.y);
+  float hinge=seam*lower;
+
+  vec3 color=left.rgb;
+
+  /* ほんの少しだけ中心を白へ抜く */
+  color=mix(color,vec3(1.0),hinge*0.78);
+
+  /* 画面端まで白い紙面 */
+  float vign=max(0.0,length(p)-0.78);
+  color=mix(color,vec3(0.985,0.983,0.975),clamp(vign*0.10,0.0,0.08));
+
+  /* ポインタは幾何学を壊さず、折りの位相だけをわずかに変える */
+  float pd=length(p-u_pointer);
+  color=mix(color,vec3(1.0),0.0*exp(-pd*pd*10.0));
+
+  outColor=vec4(color,1.0);
+}
+`;
+
+function compile(type,src){
+  const sh=gl.createShader(type);gl.shaderSource(sh,src);gl.compileShader(sh);
+  if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(sh));
+  return sh;
+}
+function build(){
+  const pr=gl.createProgram();
+  gl.attachShader(pr,compile(gl.VERTEX_SHADER,VS));
+  gl.attachShader(pr,compile(gl.FRAGMENT_SHADER,FS));
+  gl.linkProgram(pr);
+  if(!gl.getProgramParameter(pr,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(pr));
+  return pr;
+}
+const program=build();
+gl.useProgram(program);
+
+const buf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+const loc=gl.getAttribLocation(program,"a_position");
+gl.enableVertexAttribArray(loc);
+gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+
+const uRes=gl.getUniformLocation(program,"u_res");
+const uTime=gl.getUniformLocation(program,"u_time");
+const uPointer=gl.getUniformLocation(program,"u_pointer");
 
 function resize(){
   D=Math.min(2,devicePixelRatio||1);
-  W=innerWidth;H=innerHeight;S=Math.min(W,H);
-  c.width=W*D;c.height=H*D;
-  ctx.setTransform(D,0,0,D,0,0);
+  W=innerWidth;H=innerHeight;
+  canvas.width=Math.round(W*D);canvas.height=Math.round(H*D);
+  gl.viewport(0,0,canvas.width,canvas.height);
 }
 addEventListener("resize",resize,{passive:true});resize();
 
-function reset(){seed=Math.random()*TAU;hue=Math.random()*360;creases=[]}
-function mutate(){seed=Math.random()*TAU;hue=Math.random()*360;creases=[]}
-
-function addCrease(x,y){
-  creases.push({
-    x:(x-W/2)/S,y:(y-H/2)/S,
-    a:Math.atan2(y-H/2,x-W/2),
-    p:.05+Math.random()*.10
-  });
-  if(creases.length>5)creases.shift();
+function draw(phase){
+  const t=phase*TAU;
+  gl.useProgram(program);
+  gl.uniform2f(uRes,canvas.width,canvas.height);
+  gl.uniform1f(uTime,t);
+  gl.uniform2f(uPointer,touch.x,touch.y);
+  gl.drawArrays(gl.TRIANGLES,0,3);
 }
 
-c.addEventListener("pointerdown",e=>{
+function animate(now){
+  const phase=((now-t0)/9000)%1;
+  draw(phase);
+  requestAnimationFrame(animate);
+}
+requestAnimationFrame(animate);
+
+canvas.addEventListener("pointerdown",e=>{
   if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
-  touch={id:e.pointerId,x:e.clientX,y:e.clientY};
-  addCrease(e.clientX,e.clientY);
-  c.setPointerCapture&&c.setPointerCapture(e.pointerId);
-},{passive:true});
-c.addEventListener("pointermove",e=>{
-  if(!touch||touch.id!==e.pointerId)return;
-  if(Math.hypot(e.clientX-touch.x,e.clientY-touch.y)>45)addCrease(e.clientX,e.clientY);
-  touch.x=e.clientX;touch.y=e.clientY;
-},{passive:true});
-function release(e){if(touch&&touch.id===e.pointerId)touch=null}
-c.addEventListener("pointerup",release);
-c.addEventListener("pointercancel",release);
+  touch.active=true;
+  touch.x=(e.clientX-W/2)/Math.min(W,H);
+  touch.y=(H/2-e.clientY)/Math.min(W,H);
+  canvas.setPointerCapture&&canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener("pointermove",e=>{
+  if(!touch.active)return;
+  touch.x=(e.clientX-W/2)/Math.min(W,H);
+  touch.y=(H/2-e.clientY)/Math.min(W,H);
+});
+canvas.addEventListener("pointerup",()=>touch.active=false);
+canvas.addEventListener("pointercancel",()=>touch.active=false);
 
-/*
-  A single closed membrane.
-  形は「四角」ではなく、4つの大きな面と柔らかな角を持つ。
-  すべての変化は2π周期。
-*/
-function point(u,t,scale=1){
-  const a=u*TAU;
-  const m1=Math.sin(t*.72+seed);
-  const m2=Math.cos(t*.41-seed*.7);
-  const m3=Math.sin(t*.29+seed*1.8);
-
-  let r=
-    .53+
-    .075*Math.cos(4*a+t*.52)+
-    .038*Math.sin(3*a-t*.37)+
-    .025*Math.cos(7*a+t*.23)+
-    .018*Math.sin(9*a+seed);
-
-  /* 四隅の存在感をゆっくり変える */
-  r+=.055*Math.pow(Math.abs(Math.cos(a+Math.PI/4)),10)*(0.5+.5*m1);
-  r+=.045*Math.pow(Math.abs(Math.sin(a+Math.PI/4)),10)*(0.5+.5*m2);
-
-  /* 一箇所だけ大きく折れる。波にはせず、局所的な面の変形 */
-  const fc=.72+Math.sin(t*.31+seed)*.55;
-  let da=Math.atan2(Math.sin(a-fc),Math.cos(a-fc));
-  const fold=Math.exp(-da*da/.11);
-  r+=.11*fold*Math.sin(t*.63+seed);
-
-  let x=Math.cos(a)*r,y=Math.sin(a)*r;
-
-  /* タッチした場所に柔らかい折り癖 */
-  for(const q of creases){
-    const dx=x-q.x,dy=y-q.y;
-    const along=dx*Math.cos(q.a)+dy*Math.sin(q.a);
-    const side=-dx*Math.sin(q.a)+dy*Math.cos(q.a);
-    const g=Math.exp(-(along*along+side*side)/.045);
-    x+=Math.cos(q.a)*g*q.p*Math.sin(t*.5);
-    y+=Math.sin(q.a)*g*q.p*Math.sin(t*.5);
-  }
-
-  /* わずかな非円形の面移動 */
-  x+=.035*Math.sin(a*2+t*.26)*(.5+.5*m2);
-  y+=.028*Math.cos(a*3-t*.19)*(.5+.5*m3);
-
-  /* ゆっくりした全体回転 */
-  const rot=.10*Math.sin(t*.17+seed)+.07*t;
-  const ca=Math.cos(rot),sa=Math.sin(rot);
-  return [x*ca-y*sa,y*ca+x*sa];
+function mutate(){
+  /* 色相はシェーダー内の周期に固定。ボタンは再生位相をずらすだけ。 */
+  t0=performance.now()+Math.random()*1800;
 }
-
-function pts(t,scale=1,phase=0){
-  const out=[],N=320;
-  for(let i=0;i<N;i++)out.push(point((i/N+phase)%1,t,scale));
-  return out;
-}
-
-function screen(p){
-  return [W/2+p[0]*S,H/2+p[1]*S];
-}
-
-function path(ps){
-  ctx.beginPath();
-  let q=screen(ps[0]);ctx.moveTo(q[0],q[1]);
-  for(let i=1;i<ps.length;i++){q=screen(ps[i]);ctx.lineTo(q[0],q[1])}
-  ctx.closePath();
-}
-
-function rainbow(t,offset=0){
-  const g=ctx.createLinearGradient(0,0,W,H);
-  const h=(hue+t*13+offset)%360;
-  const stops=[
-    [0,(h+185)%360],[.12,(h+225)%360],[.25,(h+270)%360],
-    [.38,(h+320)%360],[.50,(h+8)%360],[.62,(h+48)%360],
-    [.75,(h+92)%360],[.88,(h+138)%360],[1,(h+180)%360]
-  ];
-  for(const z of stops)g.addColorStop(z[0],`hsla(${z[1]},82%,63%,.95)`);
-  return g;
-}
-
-function background(t){
-  const g=ctx.createRadialGradient(
-    W/2+Math.sin(t*.13)*S*.12,H/2+Math.cos(t*.11)*S*.10,0,
-    W/2,H/2,S*.78
-  );
-  g.addColorStop(0,"#fff");
-  g.addColorStop(.7,"#fbfaf8");
-  g.addColorStop(1,"#f2f1ed");
-  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
-}
-
-function draw(t){
-  background(t);
-
-  /* 柔らかな外側の色膜 */
-  for(let k=5;k>=1;k--){
-    const p=pts(t-k*.018,1+k*.018,k*.0004);
-    path(p);
-    ctx.fillStyle=rainbow(t,k*8);
-    ctx.globalAlpha=.012+k*.008;
-    ctx.fill();
-  }
-
-  /* 主膜 */
-  const p=pts(t,1,0);
-  path(p);
-  ctx.fillStyle=rainbow(t,0);
-  ctx.globalAlpha=.13;
-  ctx.fill();
-
-  /* 膜の内部に別の色層を薄く流す */
-  for(let k=1;k<=4;k++){
-    const q=pts(t+k*.035,1-k*.055,k*.001);
-    path(q);
-    ctx.fillStyle=rainbow(t,k*21);
-    ctx.globalAlpha=.022;
-    ctx.fill();
-  }
-
-  /* 主輪郭：太さを変えながら、虹が一周する */
-  ctx.globalAlpha=.10;
-  ctx.lineWidth=S*.026;
-  ctx.strokeStyle=rainbow(t,0);
-  ctx.stroke();
-
-  ctx.globalAlpha=.72;
-  ctx.lineWidth=S*.010;
-  ctx.strokeStyle=rainbow(t,18);
-  ctx.stroke();
-
-  /* 白いハイライト */
-  ctx.globalAlpha=.30;
-  ctx.lineWidth=S*.0028;
-  ctx.strokeStyle="rgba(255,255,255,.95)";
-  ctx.stroke();
-
-  /* 内側の境界。一本だけ。二重の輪に見せないため透明度を低くする */
-  const inner=pts(t+.12,.82,.002);
-  path(inner);
-  ctx.globalAlpha=.17;
-  ctx.lineWidth=S*.004;
-  ctx.strokeStyle=rainbow(t,55);
-  ctx.stroke();
-
-  ctx.globalAlpha=1;
-}
-
-function frame(now,phase){
-  const t=phase==null?((now-t0)/9000)*TAU:phase*TAU;
-  draw(t);
-  if(phase==null)requestAnimationFrame(frame);
-}
-requestAnimationFrame(frame);
+function reset(){t0=performance.now()}
 
 APKit.init({
-  canvas:c,
+  canvas,
   gifName:"polar-fold-loop",
   clockFormat:"spec",
   dock:true,
   autoHide:true,
   fullscreenButton:false,
-  loopFrame:function(phase){draw(phase*TAU)},
+  loopFrame:function(phase){draw(phase)},
   buttons:[
     {label:"✦",name:"mutate",onClick:mutate},
     {label:"↻",name:"reset",onClick:reset}
