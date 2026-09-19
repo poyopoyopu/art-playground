@@ -88,51 +88,83 @@ c.addEventListener("pointercancel",release);
 
 /* 一本の膜の中心線。
    x方向に進みながら、複数の長い折りを通過する。 */
+function foldEvent(u,time,index){
+  /* 3つの折り目が同じ世界を巡回する。周期はすべて整数。 */
+  const speeds=[1,2,3];
+  const base=[0.08,0.42,0.76][index];
+  const center=(base+time*speeds[index]/TAU)%1;
+  let d=u-center;
+  if(d>.5)d-=1;if(d<-.5)d+=1;
+  const width=[.075,.055,.09][index];
+  const g=Math.exp(-(d*d)/(width*width));
+  const wave=Math.sin(time*(index+2)+index*1.7);
+  return {center,d,g,wave};
+}
+
 function centerAt(u,time){
-  const x=-1.72+u*3.44;
+  /* 一本の膜。ただし折り目ではx方向も圧縮され、自己交差が起きる。 */
+  let x=-1.78+u*3.56;
   let y=
-    .11*Math.sin(u*TAU*1.15+time*.42+seed*.0004)+
-    .20*Math.sin(u*TAU*2.15-time*.27+seed*.0008)+
-    .09*Math.sin(u*TAU*4.7+time*.18);
+    .12*Math.sin(u*TAU*2+time)+
+    .09*Math.sin(u*TAU*5-time*2)+
+    .045*Math.sin(u*TAU*9+time*3);
 
-  /* 大きな折り返しがゆっくり移動 */
-  const f1=.5+.31*Math.sin(time*.21+seed*.0002);
-  const d1=u-f1;
-  y+=.62*Math.exp(-(d1*d1)/.014)*Math.sin(time*.54+seed*.0007);
+  let energy=0;
 
-  const f2=.27+.24*Math.cos(time*.17+seed*.0005);
-  const d2=u-f2;
-  y-=.40*Math.exp(-(d2*d2)/.022)*Math.sin(time*.39+1.3);
+  for(let k=0;k<3;k++){
+    const f=foldEvent(u,time,k);
+    const s=[1,-1,1][k];
+    const a=[.56,.43,.62][k];
 
-  /* 端でも自然に画面外へ続く */
-  y+=.13*(u-.5)*Math.sin(time*.13);
+    /* 折り目が膜を前後へ押し出す */
+    y+=s*a*f.g*(.42+.58*Math.sin(time*(k+2)+k));
+    /* 同じ場所をx方向にも圧縮して「重なる」瞬間を作る */
+    x+=s*.30*f.g*Math.sin(time*(k+1)+k*.9);
+    x+=s*.10*f.g*Math.sin(f.d*TAU*7+time*2);
 
-  /* タッチで局所的に膜が折れる */
-  for(const q of creases){
-    const qx=(q.x+1.72)/3.44;
-    const du=u-qx;
-    const g=Math.exp(-(du*du)/(q.r*q.r));
-    y+=q.p*g*Math.sin(du*18+q.phase+time*.72);
+    energy+=f.g*(.7+.3*Math.abs(f.wave));
   }
 
-  return [x,y];
+  /* 膜全体もゆっくり左右へ蛇行 */
+  y+=.16*Math.sin(u*TAU+time);
+  x+=.08*Math.sin(u*TAU*2-time);
+
+  /* タッチした折り癖 */
+  for(const q of creases){
+    const qx=(q.x+1.78)/3.56;
+    let du=u-qx;
+    if(du>.5)du-=1;if(du<-.5)du+=1;
+    const g=Math.exp(-(du*du)/(q.r*q.r));
+    y+=q.p*g*Math.sin(du*TAU*6+q.phase+time*2);
+    x+=q.p*.35*g*Math.cos(du*TAU*4+q.phase);
+  }
+
+  return [x,y,energy];
 }
 
 function widthAt(u,time){
-  let w=.24
-    +.055*Math.sin(u*TAU*1.3-time*.21)
-    +.038*Math.sin(u*TAU*3.2+time*.17+seed);
-  /* 折れたところは膜が圧縮されて細くなる */
-  for(const q of creases){
-    const qx=(q.x+1.3)/2.6;
-    const g=Math.exp(-((u-qx)**2)/(q.r*q.r*1.5));
-    w-=q.p*.105*g;
+  let w=.25
+    +.045*Math.sin(u*TAU*2-time)
+    +.035*Math.sin(u*TAU*6+time*2);
+
+  for(let k=0;k<3;k++){
+    const f=foldEvent(u,time,k);
+    /* 折り目が重なるほど膜が一瞬厚くなる */
+    w+=.11*f.g*(.45+.55*Math.abs(f.wave));
   }
-  return Math.max(.11,w);
+
+  for(const q of creases){
+    const qx=(q.x+1.78)/3.56;
+    let du=u-qx;
+    if(du>.5)du-=1;if(du<-.5)du+=1;
+    const g=Math.exp(-(du*du)/(q.r*q.r*1.5));
+    w-=q.p*.07*g;
+  }
+  return Math.max(.10,w);
 }
 
 function tangent(u,time){
-  const e=.001;
+  const e=.0015;
   const a=centerAt(Math.max(0,u-e),time),b=centerAt(Math.min(1,u+e),time);
   const dx=b[0]-a[0],dy=b[1]-a[1],l=Math.hypot(dx,dy)||1;
   return [dx/l,dy/l];
@@ -147,9 +179,8 @@ function screenPoint(p){
   return [W*.5+p[0]*S*.62,H*.5+p[1]*S*.62];
 }
 
-/* 膜をポリゴンとして生成。閉じない。 */
 function ribbon(time,scale=1,offset=0){
-  const N=240,top=[],bottom=[];
+  const N=280,top=[],bottom=[];
   for(let i=0;i<=N;i++){
     const u=i/N;
     const uu=(u+offset)%1;
@@ -164,20 +195,20 @@ function ribbon(time,scale=1,offset=0){
 
 function gradient(time){
   const g=ctx.createLinearGradient(0,0,W,H);
-  const h=(hue+time*16)%360;
+  const h=(hue+time*28)%360;
   const stops=[
-    [0,(h+185)%360,.68],
-    [.12,(h+220)%360,.76],
-    [.25,(h+270)%360,.84],
-    [.38,(h+320)%360,.92],
-    [.50,(h+8)%360,.94],
-    [.62,(h+48)%360,.90],
-    [.75,(h+92)%360,.84],
-    [.88,(h+135)%360,.74],
-    [1,(h+178)%360,.64]
+    [0,(h+190)%360,.68],
+    [.12,(h+225)%360,.78],
+    [.25,(h+270)%360,.86],
+    [.38,(h+320)%360,.94],
+    [.50,(h+8)%360,.96],
+    [.62,(h+52)%360,.93],
+    [.75,(h+96)%360,.86],
+    [.88,(h+140)%360,.76],
+    [1,(h+178)%360,.66]
   ];
   for(const s of stops)
-    g.addColorStop(s[0],`hsla(${s[1]},78%,63%,${s[2]})`);
+    g.addColorStop(s[0],`hsla(${s[1]},82%,61%,${s[2]})`);
   return g;
 }
 
@@ -187,6 +218,21 @@ function pathPoly(poly){
   for(let i=1;i<poly.length;i++)
     ctx.lineTo(W*.5+poly[i][0]*S*.5,H*.5+poly[i][1]*S*.5);
   ctx.closePath();
+}
+
+function strokeMembrane(time){
+  /* 中心線を細かく区切り、折り目のエネルギーが高い場所だけ色が濃くなる */
+  const N=260;
+  for(let i=0;i<N;i++){
+    const u0=i/N,u1=(i+1)/N;
+    const a=centerAt(u0,time),b=centerAt(u1,time);
+    const q0=screenPoint(a),q1=screenPoint(b);
+    const e=Math.min(1,(a[2]+b[2])*.28);
+    const h=(hue+u0*300+time*28)%360;
+    ctx.strokeStyle=`hsla(${h},88%,${58-e*12}%,${.35+e*.5})`;
+    ctx.lineWidth=Math.max(1.5,S*(.0065+e*.006));
+    ctx.beginPath();ctx.moveTo(q0[0],q0[1]);ctx.lineTo(q1[0],q1[1]);ctx.stroke();
+  }
 }
 
 function background(time){
@@ -207,71 +253,55 @@ function background(time){
 function drawMembrane(time){
   background(time);
 
-  /* 外側の薄い膜。線ではなく面なので、ここでも輪にならない */
-  for(let k=4;k>=1;k--){
-    const poly=ribbon(time,1.08+k*.045,k*.0017);
-    pathPoly(poly);
-    ctx.fillStyle=gradient(time);
-    ctx.globalAlpha=.018+k*.008;
-    ctx.fill();
-  }
+  /* 膜の影。重なった瞬間が読めるように、ほんの少しだけずらす */
+  const shadow=ribbon(time,1.20,0);
+  pathPoly(shadow);
+  ctx.globalAlpha=.045;
+  ctx.fillStyle="rgba(80,60,120,.8)";
+  ctx.fill();
 
   /* 本体 */
-  const poly=ribbon(time,1.08,0);
+  const poly=ribbon(time,1.10,0);
   pathPoly(poly);
-  ctx.globalAlpha=.34;
+  ctx.globalAlpha=.16;
   ctx.fillStyle=gradient(time);
   ctx.fill();
 
-  /* 膜の内部に、折りによって圧縮された色の流れを作る */
-  ctx.save();
-  ctx.globalCompositeOperation="source-over";
-  for(let j=0;j<7;j++){
-    const p=ribbon(time+j*.035,1.08-j*.060,.006*j);
+  /* 膜の内部に複数の色層。折り重なりが視覚的なイベントになる */
+  for(let j=5;j>=1;j--){
+    const p=ribbon(time+j*.035,1.04-j*.035,.002*j);
     pathPoly(p);
-    ctx.globalAlpha=.035;
-    ctx.strokeStyle=gradient(time+j*.05);
-    ctx.lineWidth=2.5;
-    ctx.stroke();
+    ctx.globalAlpha=.028+j*.004;
+    ctx.fillStyle=gradient(time+j*.07);
+    ctx.fill();
   }
-  ctx.restore();
 
-  /* 中央の色圧縮帯。閉じない一本の流れ */
-  const N=240;
-  ctx.beginPath();
-  for(let i=0;i<=N;i++){
-    const u=i/N,p=centerAt(u,time),q=screenPoint(p);
-    if(i===0)ctx.moveTo(q[0],q[1]);else ctx.lineTo(q[0],q[1]);
-  }
-  ctx.strokeStyle=gradient(time);
-  ctx.globalAlpha=.78;
-  ctx.lineWidth=Math.max(2,S*.013);
-  ctx.lineCap="round";
-  ctx.stroke();
-
-  /* 折り目だけ少し白く反射 */
-  ctx.globalAlpha=.20;
-  ctx.lineWidth=Math.max(1,S*.0035);
-  ctx.strokeStyle="rgba(255,255,255,.9)";
-  ctx.beginPath();
-  for(let i=0;i<=N;i++){
-    const u=i/N,p=centerAt(u,time),q=screenPoint(p);
-    if(i===0)ctx.moveTo(q[0],q[1]);else ctx.lineTo(q[0],q[1]);
-  }
-  ctx.stroke();
-
-  /* タッチの記憶。点ではなく、膜の局所的な折れとして見える */
   ctx.globalAlpha=1;
+  strokeMembrane(time);
+
+  /* 折り目の瞬間だけ、白い反射が走る */
+  const N=260;
+  ctx.lineCap="round";
+  for(let i=0;i<N;i++){
+    const u0=i/N,u1=(i+1)/N;
+    const a=centerAt(u0,time),b=centerAt(u1,time);
+    const e=Math.min(1,(a[2]+b[2])*.35);
+    if(e<.35)continue;
+    const q0=screenPoint(a),q1=screenPoint(b);
+    ctx.strokeStyle=`rgba(255,255,255,${e*.20})`;
+    ctx.lineWidth=Math.max(1,S*.003*e);
+    ctx.beginPath();ctx.moveTo(q0[0],q0[1]);ctx.lineTo(q1[0],q1[1]);ctx.stroke();
+  }
+
+  /* タッチの折り癖 */
   for(let i=0;i<creases.length;i++){
     const q=creases[i];
-    const x=W*.5+q.x*S*.5;
-    const y=H*.5+q.y*S*.5;
-    const len=S*(.025+.045*q.p);
-    ctx.save();
-    ctx.translate(x,y);ctx.rotate(q.a);
+    const x=W*.5+q.x*S*.5,y=H*.5+q.y*S*.5;
+    const len=S*(.03+.05*q.p);
+    ctx.save();ctx.translate(x,y);ctx.rotate(q.a);
     const gg=ctx.createLinearGradient(-len,0,len,0);
     gg.addColorStop(0,"rgba(255,255,255,0)");
-    gg.addColorStop(.5,`hsla(${(hue+180+i*29)%360},72%,67%,.18)`);
+    gg.addColorStop(.5,`hsla(${(hue+180+i*31)%360},88%,65%,.20)`);
     gg.addColorStop(1,"rgba(255,255,255,0)");
     ctx.strokeStyle=gg;ctx.lineWidth=2;
     ctx.beginPath();ctx.moveTo(-len,0);ctx.lineTo(len,0);ctx.stroke();
@@ -282,7 +312,7 @@ function drawMembrane(time){
 }
 
 function frame(now,phase){
-  const time=phase==null?(now-t0)/1000:phase;
+  const time=phase==null?((now-t0)/9000)*TAU:phase*TAU;
   drawMembrane(time);
   if(phase==null)requestAnimationFrame(frame);
 }
