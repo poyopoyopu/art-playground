@@ -1,4 +1,4 @@
-<!-- POLAR FOLD — ChatGPT作。第9構成。WebGL2 square-log-polar spiral field. -->
+<!-- POLAR FOLD — ChatGPT作。第10構成。一本の連続スクエア螺旋へ再設計。 -->
 <!doctype html>
 <html lang="ja">
 <head>
@@ -54,60 +54,65 @@ void main(){
 
   float t=u_phase*TAU;
 
-  /* The whole image is one field. There is no left/right split.
-     Zoom is exponential so the same square-spiral law survives scale changes. */
-  float zoom=exp2(1.52*sin(t-.72));
+  /* One continuous world: no mirror, no hinge, no left/right split.
+     The zoom is deliberately large, while the spiral law stays invariant. */
+  float zoom=exp2(1.30*sin(t-.72));
   p*=zoom;
 
-  /* Very small orbital drift keeps the center alive without changing the law. */
-  vec2 drift=.035*vec2(cos(t*.5+.8),sin(t*.5-.2));
+  /* A tiny drift prevents the pole from feeling mechanically pinned. */
+  vec2 drift=.025*vec2(cos(t*.5+.8),sin(t*.5-.2));
   p-=drift;
 
-  /* Square-polar radius: L-infinity geometry, softened only slightly at corners. */
+  /* Mostly square outside, increasingly rounded toward the central curl. */
   float rs=max(abs(p.x),abs(p.y));
-  float rr=pow(pow(abs(p.x),8.0)+pow(abs(p.y),8.0),.125);
-  float r=mix(rs,rr,.075);
+  float rr=pow(pow(abs(p.x),10.0)+pow(abs(p.y),10.0),.1);
+  float innerRound=smoothstep(.24,.025,rs);
+  float r=mix(rs,rr,.045+.22*innerRound);
 
   float theta=angle01(p);
+  float logR=log2(max(r,.0012));
 
-  /* A single logarithmic square spiral.
-     log2(r) gives scale invariance; theta winds the square field around the pole. */
-  float twist=.91+.055*sin(t*.5-.2)+u_twist;
-  float spiral=log2(max(r,.0012))-twist*theta;
+  /* The decisive change: one broad logarithmic spiral, with a stronger
+     winding rate and a gentle angular/radial warp so it reads as a spiral,
+     not as concentric square rings. */
+  theta+=.028*sin(TAU*theta*4.0+logR*2.1-t*.12);
+  float radialBulge=.105*sin(TAU*theta-.55+.28*sin(t*.5));
+  logR+=radialBulge*(smoothstep(.02,.82,r));
 
-  /* Tiny non-axisymmetric breathing, strongest away from the pole. */
-  spiral+=.055*sin(TAU*theta*1.35-t*.35)*(smoothstep(.025,.9,r));
+  float twist=1.64+.11*sin(t*.5-.2)+u_twist;
+  twist+=.22*exp(-r*8.0);
+  float spiral=logR-twist*theta;
 
-  /* Four broad color generations are enough; each is a continuous field,
-     not a stack of independently drawn lines. */
-  float density=.72;
-  float level=spiral*density+u_phase*.055;
-  float cell=fract(level+.12);
+  /* A low-amplitude second warp breaks geometric regularity while preserving
+     one connected square-polar field. */
+  spiral+=.075*sin(TAU*(theta+.17*logR)-t*.18)*(smoothstep(.015,.9,r));
 
-  vec3 rainbow=palette(.57+cell*.92+.055*theta+u_hue);
-  vec3 pastel=mix(vec3(1.0),rainbow,.72);
+  /* Broad color bands follow the spiral coordinate itself. */
+  float level=spiral*.82+u_phase*.07;
+  float cell=fract(level+.08);
+  float hue=.53+cell*.96+.10*theta+.035*sin(logR*1.7-t*.12)+u_hue;
+  vec3 rainbow=palette(hue);
+  vec3 pastel=mix(vec3(1.0),rainbow,.78);
 
-  float softCell=sin(PI*cell);
-  float body=pow(max(softCell,0.0),1.12);
-  vec3 color=mix(vec3(1.0),pastel,.18+.64*body);
+  float body=pow(max(sin(PI*cell),0.0),.92);
+  vec3 color=mix(vec3(1.0),pastel,.13+.69*body);
 
-  /* The transitions become slightly denser and more chromatic at each
-     square contour, producing the soft bands visible in the reference. */
-  float bandDist=abs(fract(level+.12)-.5);
-  float aa=max(fwidth(level)*1.8,.003);
-  float band=1.0-smoothstep(.035+aa,.095+aa,bandDist);
-  color=mix(color,rainbow,band*.34);
+  /* Soft chromatic ridges make each spiral turn legible without becoming
+     hard outlines. */
+  float bandDist=abs(fract(level+.08)-.5);
+  float aa=max(fwidth(level)*1.6,.0025);
+  float band=1.0-smoothstep(.018+aa,.085+aa,bandDist);
+  color=mix(color,rainbow,band*.42);
 
-  /* The branch cut is a fold seam, not a division of the artwork.
-     It fades into white while remaining continuous through the center. */
-  float seamWidth=.042+.012*sin(t*.5);
+  /* One narrow downward seam exposes the branch cut. It is not a split. */
+  float seamWidth=.018+.005*sin(t*.5);
   float seam=exp(-pow(angularDistance(theta,0.0)/seamWidth,2.0));
-  seam*=smoothstep(.025,.13,r);
-  color=mix(color,vec3(1.0),seam*.68);
+  seam*=smoothstep(.018,.10,r);
+  color=mix(color,vec3(1.0),seam*.34);
 
-  /* Slightly brighter center: the spiral terminates into a tiny luminous pole. */
-  float core=1.0-smoothstep(.0,.055,r);
-  color=mix(color,vec3(1.0),core*.72);
+  /* The final turn closes into a rounded luminous hook. */
+  float core=1.0-smoothstep(.0,.045,r);
+  color=mix(color,vec3(1.0),core*.78);
 
   /* Let the largest generations dissolve into white at the viewport edge. */
   float edge=smoothstep(.82,1.12,length(p)/max(zoom,.0001));
