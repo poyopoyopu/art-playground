@@ -1,5 +1,7 @@
 # CHANGELOG — ART PLAYGROUND 更新履歴
 
+- 2026-09-20 クロード: SHOAL LABを新規制作。koi-pond-engine.jsの群れシミュレーションはそのままに、描く生き物と背景だけを差し替えて見比べる実験台。POND(鯉)/ABYSS(深海の発光生物)/FLOCK(夜空の群れ)/CULTURE(顕微鏡の細胞)/NESTED(階層ごとに魚→小魚→オタマジャクシ→微生物と姿が変わる)の5世界を⚙パネルで切替、水の濃さ・ぼけ・光の網・数をスライダーで調整可(値はlocalStorageに保存)(prototypes/shoal-lab.html)
+
 - 2026-09-20 クロード: KOI POND B/Cの鯉が長い棒状に伸びるバグを修正。✦(mutate)で鯉を瞬間移動させた際に体の背骨履歴が旧位置に残っていたのが原因。Koi.place()で背骨を張り直すようにし、あわせて背骨の節間隔を常に体長/11に保つ処理を追加(低フレームレートでも伸びない)(prototypes/koi-pond-engine.js)
 
 - 2026-09-20 クロード: KOI PONDのリアル方向を2案制作して比較用に追加。共通シミュレーションを prototypes/koi-pond-engine.js に分離し、B=Canvas2Dで深度ぼかし・水中の青かぶり・光の網(コースティクス)・深さで動く影(prototypes/koi-pond-b.html)、C=WebGL2で水面の高さ場から法線を作り下の層を屈折させ、コースティクスと鏡面反射を加算(prototypes/koi-pond-c.html)。世界のルール(SHOAL LAW)は初版と同一
