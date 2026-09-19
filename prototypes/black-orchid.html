@@ -13,231 +13,178 @@
 'use strict';
 
 /* BLACK ORCHID — ChatGPT作。ap-kit.js統合: ChatGPT
-   ORGANIC REBUILD: no radial spokes, no circular shell.
-   LAW: a dark botanical body unfolds through six inherited organs.
-   Every organ is a deformed ribbon with its own genealogy; descendants inherit
-   the parent's bend, width and spectral phase. Touch selects a new ancestor
-   and permanently changes the morphology of the whole specimen. */
+   NEW CORE: the specimen is grown from a single deformable botanical spine.
+   No radial spokes, no rings, no particles as structure. Broad petals unfurl
+   from a living stem; each petal contains recursively smaller copies of its
+   own edge. The entire silhouette breathes as one organism. */
 
-const c=document.getElementById('c'),ctx=c.getContext('2d',{alpha:false});
-let W=0,H=0,D=1,seed=Math.random()*999999,genes=[],drag=null,last=0;
+const c=document.getElementById('c'),g=c.getContext('2d',{alpha:false});
+let W=0,H=0,D=1,seed=Math.random()*99999,genes=[],drag=null,last=0;
 const TAU=Math.PI*2;
-
-function resize(){D=Math.min(devicePixelRatio||1,1.5);W=innerWidth;H=innerHeight;c.width=W*D;c.height=H*D;ctx.setTransform(D,0,0,D,0,0)}
+function resize(){D=Math.min(devicePixelRatio||1,1.5);W=innerWidth;H=innerHeight;c.width=W*D;c.height=H*D;g.setTransform(D,0,0,D,0,0)}
 addEventListener('resize',resize,{passive:true});resize();
 function hs(h,s,l,a){return 'hsla('+((h%360)+360)%360+','+s+'%,'+l+'%,'+a+')'}
 function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
-function rnd(n){const q=Math.sin(n*91.17+seed*17.13)*43758.5453;return q-Math.floor(q)}
-function hmix(a,b,t){return(a+((b-a+540)%360-180)*t+360)%360}
+function rnd(n){const q=Math.sin(n*83.17+seed*11.71)*43758.5453;return q-Math.floor(q)}
+function mix(a,b,t){return(a+((b-a+540)%360-180)*t+360)%360}
 
-function genome(){
-  let bend=0,lean=0,spread=0,depth=0,chrom=0;
-  for(let i=0;i<genes.length;i++){
-    const m=genes[i],w=(i+1)/genes.length;
-    bend+=m.b*w;lean+=m.l*w;spread+=m.s*w;depth+=m.d*w;chrom+=m.c*w;
-  }
-  return {bend:bend*.16,lean:lean*.13,spread:spread*.10,depth:depth*.06,chrom:chrom*.5};
+function law(){
+  let curl=0,tilt=0,flare=0,color=0;
+  for(let i=0;i<genes.length;i++){const m=genes[i],w=(i+1)/genes.length;curl+=m.c*w;tilt+=m.t*w;flare+=m.f*w;color+=m.h*w}
+  return{curl:curl*.12,tilt:tilt*.09,flare:flare*.055,color:color*.55}
 }
 
-function background(t,p,S){
-  ctx.fillStyle='#020105';ctx.fillRect(0,0,W,H);
-  const q=ctx.createRadialGradient(W*.48,H*.46,0,W*.5,H*.48,S*.82);
-  q.addColorStop(0,hs(p,45,10,.72));q.addColorStop(.28,hs(p+325,34,5,.9));
-  q.addColorStop(.7,'rgba(3,2,7,.98)');q.addColorStop(1,'#010104');
-  ctx.fillStyle=q;ctx.fillRect(0,0,W,H);
-  ctx.globalCompositeOperation='screen';
-  for(let i=0;i<28;i++){
-    const a=rnd(i*3.1)*TAU+t*.006,r=S*(.28+rnd(i*9)*.78);
-    const px=W*.5+Math.cos(a)*r,py=H*.47+Math.sin(a)*r*.72;
-    ctx.fillStyle=hs(p+30+rnd(i)*100,70,58,.025);
-    ctx.beginPath();ctx.arc(px,py,.35+rnd(i*2)*1.2,0,TAU);ctx.fill();
+function bg(t,p,S){
+  g.fillStyle='#020105';g.fillRect(0,0,W,H);
+  const q=g.createRadialGradient(W*.48,H*.46,0,W*.5,H*.5,S*.82);
+  q.addColorStop(0,hs(p,48,11,.76));q.addColorStop(.35,hs(p+315,28,5,.94));
+  q.addColorStop(.75,'rgba(3,2,7,.98)');q.addColorStop(1,'#010104');
+  g.fillStyle=q;g.fillRect(0,0,W,H);
+  g.globalCompositeOperation='screen';
+  for(let i=0;i<22;i++){
+    const a=rnd(i*3.7)*TAU+t*.004,r=S*(.38+rnd(i*7.2)*.7);
+    g.fillStyle=hs(mix(p,p+100,rnd(i)),55,55,.018);
+    g.beginPath();g.arc(W*.5+Math.cos(a)*r,H*.48+Math.sin(a)*r*.78,.4,0,TAU);g.fill()
   }
-  ctx.globalCompositeOperation='source-over';
+  g.globalCompositeOperation='source-over'
 }
 
-/* One botanical organ. Its silhouette is a tapered ribbon, not a line.
-   The return edge creates the dark mass seen in a real petal/sepal. */
-function organ(cx,cy,angle,length,width,phase,index,p,G,level,mirror){
-  const N=54,top=[],bot=[];
-  const ca=Math.cos(angle),sa=Math.sin(angle);
+/* A cubic spine gives the work its non-radial silhouette. */
+function spine(t,S,L){
+  const pts=[],n=64;
+  for(let i=0;i<=n;i++){
+    const u=i/n,y=H*.78-u*S*.69;
+    const x=W*.5 + Math.sin(u*2.7+t*.12+L.tilt)*S*(.12*u*(1-u)+.025*Math.sin(u*8+t*.2));
+    pts.push([x,y])
+  }
+  return pts
+}
+
+function ribbon(points,w,p,phase,depth){
+  g.beginPath();g.moveTo(points[0][0],points[0][1]);
+  for(let i=1;i<points.length;i++)g.lineTo(points[i][0],points[i][1]);
+  const end=points[points.length-1];
+  const gr=g.createLinearGradient(points[0][0],points[0][1],end[0],end[1]);
+  gr.addColorStop(0,hs(p+330,72,5,.98));gr.addColorStop(.5,hs(p,62,12,.98));
+  gr.addColorStop(1,hs(p+35,76,28,.94));g.strokeStyle=gr;g.lineWidth=w;g.lineCap='round';g.stroke();
+  g.strokeStyle=hs(p+55,76,52,.28);g.lineWidth=Math.max(.5,w*.035);g.stroke()
+}
+
+/* Broad petal, built as a filled curved membrane rather than a tube. */
+function petal(cx,cy,ang,len,w,phase,p,level,side,L){
+  const N=44,top=[],bot=[],ca=Math.cos(ang),sa=Math.sin(ang);
   for(let i=0;i<=N;i++){
-    const u=i/N,k=Math.sin(Math.PI*u);
-    const taper=Math.pow(k,.42);
-    const flare=.72+.28*Math.sin(Math.PI*u);
-    const localB=G.bend*(.4+u*u)+.035*Math.sin(phase+u*3.2+index);
-    const side=mirror*(width*.5*flare+width*.08*Math.sin(phase+u*5));
-    const forward=length*(u+.055*Math.sin(phase)*u*u);
-    const px=cx+ca*(forward-localB*length*u*u)-sa*side;
-    const py=cy+sa*(forward-localB*length*u*u)+ca*side;
-    top.push([px,py,taper]);
+    const u=i/N,k=Math.sin(Math.PI*u),curl=L.curl+side*.035*Math.sin(phase);
+    const forward=len*(u+.08*Math.sin(phase)*u*u);
+    const bow=curl*len*u*u + .045*len*Math.sin(u*Math.PI*1.2+phase)*u;
+    const width=w*Math.pow(k,.48)*(1-.12*u);
+    const off=side*(width+bow*.12);
+    top.push([cx+ca*(forward-bow)-sa*off,cy+sa*(forward-bow)+ca*off])
   }
   for(let i=N;i>=0;i--){
-    const u=i/N,k=Math.sin(Math.PI*u),flare=.72+.28*k;
-    const side=mirror*(width*.5*flare-width*.055*(1-u));
-    const forward=length*(u+.055*Math.sin(phase)*u*u);
-    const localB=G.bend*(.4+u*u)+.035*Math.sin(phase+u*3.2+index);
-    bot.push([cx+ca*(forward-localB*length*u*u)-sa*side,
-      cy+sa*(forward-localB*length*u*u)+ca*side]);
+    const u=i/N,k=Math.sin(Math.PI*u),curl=L.curl-side*.028*Math.sin(phase);
+    const forward=len*(u+.08*Math.sin(phase)*u*u),bow=curl*len*u*u;
+    const width=w*.72*Math.pow(k,.48)*(1-.12*u),off=side*(-width+bow*.08);
+    bot.push([cx+ca*(forward-bow)-sa*off,cy+sa*(forward-bow)+ca*off])
   }
+  g.beginPath();g.moveTo(top[0][0],top[0][1]);
+  for(const q of top)g.lineTo(q[0],q[1]);for(const q of bot)g.lineTo(q[0],q[1]);g.closePath();
+  const tip=top[N],gr=g.createLinearGradient(cx,cy,tip[0],tip[1]);
+  gr.addColorStop(0,hs(p+330,35,4,.99));gr.addColorStop(.48,hs(p+level*7,57,10,.99));
+  gr.addColorStop(.82,hs(p+22,72,19,.98));gr.addColorStop(1,hs(p+65,80,38,.88));
+  g.fillStyle=gr;g.fill();
 
-  ctx.beginPath();ctx.moveTo(top[0][0],top[0][1]);
-  for(let i=1;i<top.length;i++)ctx.lineTo(top[i][0],top[i][1]);
-  for(const q of bot)ctx.lineTo(q[0],q[1]);ctx.closePath();
+  /* organic edge */
+  g.beginPath();g.moveTo(top[0][0],top[0][1]);for(const q of top)g.lineTo(q[0],q[1]);
+  g.strokeStyle=hs(p+55,83,60,.48);g.lineWidth=.9+level*.12;g.stroke();
 
-  const tip=top[N],grad=ctx.createLinearGradient(cx,cy,tip[0],tip[1]);
-  grad.addColorStop(0,hs(p+level*8,38,5,.98));
-  grad.addColorStop(.48,hs(p+level*11,58,10,.98));
-  grad.addColorStop(.82,hs(p+25,72,18,.98));
-  grad.addColorStop(1,hs(hmix(p+20,p+100,.35),80,36,.92));
-  ctx.fillStyle=grad;ctx.fill();
-
-  /* one wet rim and one buried rim: gives volume without neon tubes */
-  ctx.beginPath();ctx.moveTo(top[0][0],top[0][1]);
-  for(let i=1;i<top.length;i++)ctx.lineTo(top[i][0],top[i][1]);
-  ctx.strokeStyle=hs(p+55,82,61,.42);ctx.lineWidth=.8+level*.18;ctx.stroke();
-  ctx.beginPath();ctx.moveTo(bot[N][0],bot[N][1]);
-  for(let i=N-1;i>=0;i--)ctx.lineTo(bot[i][0],bot[i][1]);
-  ctx.strokeStyle=hs(p+315,68,30,.28);ctx.lineWidth=.65;ctx.stroke();
-
-  /* veins follow the ribbon surface and converge toward its birth point */
-  for(let v=0;v<7;v++){
-    const side=mirror*(v%2?1:-1),off=(v+1)/8;
-    ctx.beginPath();
-    for(let j=2;j<51;j++){
-      const u=j/54,k=Math.sin(Math.PI*u),forward=length*u;
-      const lateral=side*width*(.06+off*.18)*Math.pow(k,.65);
-      const bend=G.bend*length*u*u;
-      const px=cx+ca*(forward-bend)-sa*lateral;
-      const py=cy+sa*(forward-bend)+ca*lateral;
-      if(j===2)ctx.moveTo(px,py);else ctx.lineTo(px,py);
+  /* folds: curved, long, sparse */
+  for(let v=1;v<7;v++){
+    const frac=v/7,pts=[];
+    for(let j=2;j<40;j++){
+      const u=j/44,k=Math.sin(Math.PI*u),forward=len*u;
+      const lateral=side*w*(.08+frac*.36)*Math.pow(k,.62);
+      const bow=(L.curl+side*.02*Math.sin(phase))*len*u*u;
+      pts.push([cx+ca*(forward-bow)-sa*lateral,cy+sa*(forward-bow)+ca*lateral])
     }
-    ctx.strokeStyle=hs(hmix(p+10,p+115,(v+1)/8),75,35+v*3,.16);
-    ctx.lineWidth=.42+.08*v;ctx.stroke();
+    g.beginPath();g.moveTo(pts[0][0],pts[0][1]);for(const q of pts)g.lineTo(q[0],q[1]);
+    g.strokeStyle=hs(mix(p+5,p+105,frac),72,28+frac*14,.14);g.lineWidth=.42+frac*.18;g.stroke()
   }
 
-  /* serrated inherited fringe at the outer third */
+  /* self-similar fringe */
   if(level<3){
-    for(let q=0;q<9;q++){
-      const u=.48+q*.045,idx=Math.floor(u*N),P=top[idx];
-      const a=angle+mirror*(.34+.06*Math.sin(q+phase));
-      const L=length*(.08+.025*Math.sin(q*2.1+phase));
-      ctx.beginPath();ctx.moveTo(P[0],P[1]);
-      ctx.quadraticCurveTo(P[0]+Math.cos(a)*L*.5,P[1]+Math.sin(a)*L*.5,
-        P[0]+Math.cos(a)*L,P[1]+Math.sin(a)*L);
-      ctx.strokeStyle=hs(p+65+q*5,76,48,.24);ctx.lineWidth=.55;ctx.stroke();
-    }
-  }
-
-  /* three nested descendants, each a smaller version of the same organ law */
-  if(level<3){
-    for(let k=0;k<3;k++){
-      const u=.28+k*.22,idx=Math.floor(u*N),P=top[idx];
-      const a=angle+mirror*(.16+k*.11)+G.lean*.25*Math.sin(k+phase);
-      organ(P[0],P[1],a,length*(.20+.025*k),width*(.34-.035*k),
-        phase*1.17+k*1.9,index+k+level*7,p,G,level+1,mirror);
+    for(let j=0;j<7;j++){
+      const u=.42+j*.065,k=Math.floor(u*N),q=top[k];
+      const aa=ang+side*(.25+.08*Math.sin(j+phase));
+      const ll=len*(.07+.025*Math.sin(j*1.7+phase));
+      const child=[];
+      for(let z=0;z<=14;z++){const zt=z/14,rr=ll*zt;child.push([q[0]+Math.cos(aa)*rr,q[1]+Math.sin(aa)*rr])}
+      ribbon(child,.7+level*.15,mix(p+20,p+100,j/7),phase+j,level)
     }
   }
 }
 
-function centralBud(cx,cy,R,p,t,G){
-  /* not a circle: a vertical, folded throat */
-  const open=.20+.045*Math.sin(t*.72)+G.spread*.015;
-  ctx.save();ctx.translate(cx,cy);ctx.rotate(G.lean*.08);
-  ctx.beginPath();
-  ctx.moveTo(-R*.42,0);
-  ctx.bezierCurveTo(-R*.50,-R*.34,-R*.34,-R*.62,0,-R*.70);
-  ctx.bezierCurveTo(R*.34,-R*.62,R*.50,-R*.34,R*.42,0);
-  ctx.bezierCurveTo(R*.31,R*.25,R*.20,R*.55,0,R*1.48);
-  ctx.bezierCurveTo(-R*.20,R*.55,-R*.31,R*.25,-R*.42,0);
-  ctx.closePath();
-  const q=ctx.createLinearGradient(0,-R,0,R*1.5);
-  q.addColorStop(0,hs(p+20,65,18,.96));q.addColorStop(.32,hs(p+315,78,7,1));
-  q.addColorStop(.7,hs(p,74,12,.98));q.addColorStop(1,'rgba(1,0,3,0)');
-  ctx.fillStyle=q;ctx.fill();
+function flower(t){
+  const S=Math.min(W,H),L=law(),p=(282+L.color+20*Math.sin(t*.15)+360)%360;
+  bg(t,p,S);
+  const sp=spine(t,S,L);
 
-  /* black throat */
-  ctx.beginPath();ctx.ellipse(0,-R*.10,R*(.20+open),R*(.31+open*.4),0,0,TAU);
-  const dark=ctx.createRadialGradient(0,-R*.14,0,0,0,R*.5);
-  dark.addColorStop(0,'#000');dark.addColorStop(.72,hs(p+325,80,4,.98));dark.addColorStop(1,'rgba(0,0,0,0)');
-  ctx.fillStyle=dark;ctx.fill();
+  /* Stem first: the anatomy is born from one continuous spine. */
+  ribbon(sp,S*.018,p,t*.15,0);
 
-  for(let i=0;i<32;i++){
-    const a=-Math.PI*.85+i/31*Math.PI*1.7;
-    const r1=R*(.28+.03*Math.sin(i+t)),r2=R*(.46+.05*Math.sin(i*1.7+t));
-    ctx.beginPath();ctx.moveTo(Math.cos(a)*r1,-R*.10+Math.sin(a)*r1);
-    ctx.quadraticCurveTo(Math.cos(a)*r2*.9,-R*.10+Math.sin(a)*r2*.8,
-      Math.cos(a)*r2,-R*.10+Math.sin(a)*r2);
-    ctx.strokeStyle=hs(hmix(p,p+100,i/31),82,50,.28);ctx.lineWidth=.6;ctx.stroke();
-  }
-  for(let i=0;i<15;i++){
-    const xx=(i-7)*R*.025;
-    ctx.beginPath();ctx.moveTo(xx,R*.25);
-    ctx.quadraticCurveTo(xx+Math.sin(t+i)*R*.02,R*.75,xx*.72,R*1.38);
-    ctx.strokeStyle=hs(p+35+i*2,76,36,.27);ctx.lineWidth=.55;ctx.stroke();
-  }
-  ctx.restore();
-}
-
-function render(t){
-  const G=genome(),p=(276+G.chrom+16*Math.sin(t*.18)+360)%360,S=Math.min(W,H);
-  background(t,p,S);
-  const cx=W*.50,cy=H*.46,R=S*.105;
-
-  /* Six unequal organs: the silhouette is intentionally off-axis and botanical. */
+  /* Unequal organs along the spine. This creates the reference-like vertical
+     growth and prevents the circular/urchin silhouette of previous versions. */
   const organs=[
-    [-1.52,.46,1.00],[-.78,.84,.82],[-.25,1.05,.92],[.37,.96,.88],
-    [.92,.73,1.02],[1.57,.51,.78]
+    {u:.15,a:-2.70,len:.34,w:.17,s:-1},
+    {u:.29,a:-2.18,len:.39,w:.20,s:-1},
+    {u:.42,a:-1.62,len:.45,w:.24,s:-1},
+    {u:.55,a:-1.02,len:.52,w:.27,s:1},
+    {u:.68,a:-.48,len:.45,w:.22,s:1},
+    {u:.79,a:.16,len:.37,w:.18,s:1},
+    {u:.89,a:.70,len:.28,w:.15,s:1}
   ];
   for(let i=0;i<organs.length;i++){
-    const q=organs[i],a=q[0]+.035*Math.sin(t*.21+i)+G.lean*.10;
-    const len=S*q[1]*(.88+.08*Math.sin(t*.29+i*1.7))+G.spread*S*.008;
-    const w=S*.17*q[2]*(1+.05*Math.sin(t*.43+i));
-    const mx=i%2?1:-1;
-    organ(cx,cy,a,len,w,t*.16+i*.71,i,p,G,0,mx);
+    const o=organs[i],k=Math.floor(o.u*(sp.length-1)),q=sp[k];
+    const sway=.13*Math.sin(t*.22+i*1.3)+L.tilt*.7;
+    const a=o.a+sway;
+    petal(q[0],q[1],a,S*o.len*(1+.07*Math.sin(t*.31+i)),S*o.w*(1+.05*Math.sin(t*.47+i)),t*.18+i*.93,p,0,o.s,L);
   }
 
-  /* A second, lower set forms the long drooping sepals of the reference. */
+  /* lower hanging organs: they share the same stem, not a central hub */
   for(let i=0;i<3;i++){
-    const a=1.95+i*.42+.04*Math.sin(t*.17+i);
-    organ(cx,cy,a,S*(.30+.05*Math.sin(i+t*.2)),S*.10,
-      t*.13+i*1.4,i+20,p,G,1,i%2?1:-1);
+    const q=sp[Math.floor((.38+i*.11)*sp.length)],a=1.55+i*.23+.08*Math.sin(t*.2+i);
+    petal(q[0],q[1],a,S*(.25+.035*i),S*(.11-.012*i),t*.2+i,p,1,1,L)
   }
 
-  centralBud(cx,cy,R,p,t,G);
+  /* central dark throat where the stem terminates */
+  const q=sp[sp.length-1],R=S*.10;
+  g.beginPath();g.moveTo(q[0]-R*.55,q[1]);g.bezierCurveTo(q[0]-R*.7,q[1]-R*.8,q[0]+R*.7,q[1]-R*.8,q[0]+R*.55,q[1]);
+  g.bezierCurveTo(q[0]+R*.35,q[1]+R*1.0,q[0]-R*.35,q[1]+R*1.0,q[0]-R*.55,q[1]);g.closePath();
+  const dark=g.createRadialGradient(q[0],q[1]-R*.2,0,q[0],q[1],R);
+  dark.addColorStop(0,'#000');dark.addColorStop(.6,hs(p+320,82,6,1));dark.addColorStop(1,hs(p+20,72,22,.8));
+  g.fillStyle=dark;g.fill();
 
-  /* restrained atmospheric dust; never the subject */
-  ctx.globalCompositeOperation='screen';
-  for(let i=0;i<42;i++){
-    const a=rnd(i*5.3)*TAU+t*.01,r=S*(.20+rnd(i*8)*.70);
-    const px=cx+Math.cos(a)*r,py=cy+Math.sin(a)*r*.75;
-    ctx.fillStyle=hs(hmix(p,p+100,rnd(i)),78,58,.025);
-    ctx.beginPath();ctx.arc(px,py,.35+rnd(i*3)*.9,0,TAU);ctx.fill();
-  }
-  ctx.globalCompositeOperation='source-over';
-  const v=ctx.createRadialGradient(cx,cy,S*.08,cx,cy,S*.75);
-  v.addColorStop(0,'rgba(0,0,0,0)');v.addColorStop(.75,'rgba(0,0,0,.05)');
-  v.addColorStop(1,'rgba(0,0,0,.70)');ctx.fillStyle=v;ctx.fillRect(0,0,W,H);
+  /* slow chromatic breathing over the whole specimen */
+  g.globalCompositeOperation='screen';
+  const glow=g.createRadialGradient(W*.5,H*.45,0,W*.5,H*.45,S*.45);
+  glow.addColorStop(0,hs(p+15,75,30,.035+.018*Math.sin(t*.5)));
+  glow.addColorStop(1,'rgba(0,0,0,0)');g.fillStyle=glow;g.fillRect(0,0,W,H);
+  g.globalCompositeOperation='source-over';
 }
 
-let animationStart=performance.now();
-function animate(){render((performance.now()-animationStart)*.001);requestAnimationFrame(animate)}
+function render(t){flower(t)}
+let start=performance.now();
+function animate(){render((performance.now()-start)*.001);requestAnimationFrame(animate)}
 requestAnimationFrame(animate);
 
 function mutate(px,py){
   if(APKit.isUI(px,py))return;
-  const dx=px-W*.5,dy=py-H*.46,q=clamp(1-Math.hypot(dx,dy)/(Math.min(W,H)*.72),.12,1);
-  genes.push({b:(Math.random()-.5)*2.4*q,l:(Math.random()-.5)*2.0*q,
-    s:(Math.random()-.5)*3.0*q,d:(Math.random()-.5)*2.5*q,c:(Math.random()-.5)*120*q});
-  if(genes.length>16)genes.shift();
+  const S=Math.min(W,H),q=clamp(1-Math.hypot(px-W*.5,py-H*.47)/(S*.75),.12,1);
+  genes.push({c:(Math.random()-.5)*2.2*q,t:(Math.random()-.5)*2.4*q,f:(Math.random()-.5)*2*q,h:(Math.random()-.5)*120*q});
+  if(genes.length>18)genes.shift()
 }
-c.addEventListener('pointerdown',e=>{
-  if(APKit.isUI(e.clientX,e.clientY))return;
-  c.setPointerCapture(e.pointerId);drag=e.pointerId;mutate(e.clientX,e.clientY);last=performance.now();
-});
-c.addEventListener('pointermove',e=>{
-  if(e.pointerId!==drag||!e.buttons||APKit.isUI(e.clientX,e.clientY))return;
-  const n=performance.now();if(n-last>115){mutate(e.clientX,e.clientY);last=n}
-});
+c.addEventListener('pointerdown',e=>{if(APKit.isUI(e.clientX,e.clientY))return;c.setPointerCapture(e.pointerId);drag=e.pointerId;mutate(e.clientX,e.clientY);last=performance.now()});
+c.addEventListener('pointermove',e=>{if(e.pointerId!==drag||!e.buttons||APKit.isUI(e.clientX,e.clientY))return;const n=performance.now();if(n-last>110){mutate(e.clientX,e.clientY);last=n}});
 c.addEventListener('pointerup',e=>{if(e.pointerId===drag)drag=null});
 c.addEventListener('pointercancel',e=>{if(e.pointerId===drag)drag=null});
 
@@ -245,8 +192,8 @@ APKit.init({
   canvas:c,gifName:'black-orchid-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,
   loopFrame:phase=>render(phase),
   buttons:[
-    {label:'✦',name:'mutate',onClick:()=>mutate(W*.5+(Math.random()-.5)*W*.55,H*.46+(Math.random()-.5)*H*.55)},
-    {label:'↻',name:'reset',onClick:()=>{genes=[];seed=Math.random()*999999}}
+    {label:'✦',name:'mutate',onClick:()=>mutate(W*.5+(Math.random()-.5)*W*.5,H*.47+(Math.random()-.5)*H*.5)},
+    {label:'↻',name:'reset',onClick:()=>{genes=[];seed=Math.random()*99999}}
   ]
 });
 </script>
