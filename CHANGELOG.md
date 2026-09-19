@@ -7,6 +7,8 @@
 新しいものほど上。1作業1行、短く。古くなったら月ごとに数行へまとめてよい。
 (2026/09/06以前の詳しい経緯は `ART_PLAYGROUND_HISTORY.md` にある)
 
+- 2026-09-19 チャッピー: POLAR FOLDを第7構成へ全面再制作。WebGL2シェーダーへ戻し、L∞正方形距離＋自己相似輪郭＋中央ヒンジ変形＋強いズーム＋面全体のプリズム色場で再構成(prototypes/polar-fold.html)
+
 - 2026-09-19 チャッピー: POLAR FOLDを描画安定版へ修正。WebGL2をやめ2D Canvasへ切り替え、左右の正方形折り＋中央ヒンジ＋大きなズームを確実に描画(prototypes/polar-fold.html)
 
 - 2026-09-19 チャッピー: POLAR FOLDを第6構成へ全面再制作。参考動画を再解析し、左右2領域＋中央ヒンジ＋スクエア・ポーラー変形＋ズームをWebGL2シェーダーで実装(prototypes/polar-fold.html)
