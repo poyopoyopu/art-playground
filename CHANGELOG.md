@@ -7,6 +7,8 @@
 新しいものほど上。1作業1行、短く。古くなったら月ごとに数行へまとめてよい。
 (2026/09/06以前の詳しい経緯は `ART_PLAYGROUND_HISTORY.md` にある)
 
+- 2026-09-19 チャッピー: POLAR FOLDを新規制作。参考動画の虹色の折り曲げ境界を、触れた場所が永久的な折り目として自律変形へ継承される空間法則に再構成(prototypes/polar-fold.html)
+
 - 2026-09-19 チャッピー: BLACK ORCHIDを再々構築。単一の植物脊椎から不均等な幅広膜器官が展開する非放射・非円形の生体構造へ変更(prototypes/black-orchid.html)
 
 - 2026-09-19 チャッピー: BLACK ORCHIDの描画ループ欠落を修正。requestAnimationFrameによる常時描画を追加(prototypes/black-orchid.html)
