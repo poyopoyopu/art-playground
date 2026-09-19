@@ -1,4 +1,4 @@
-<!-- POLAR FOLD — ChatGPT作。第8構成。WebGL2 bilateral hinged-square field. -->
+<!-- POLAR FOLD — ChatGPT作。第9構成。WebGL2 square-log-polar spiral field. -->
 <!doctype html>
 <html lang="ja">
 <head>
@@ -29,85 +29,90 @@ precision highp float;
 out vec4 outColor;
 uniform vec2 u_res;
 uniform float u_phase;
-uniform vec2 u_touch;
-uniform float u_touchPower;
+uniform float u_twist;
+uniform float u_hue;
 const float PI=3.14159265359;
 const float TAU=6.28318530718;
 
-vec3 hsv(float h,float s,float v){
-  vec3 p=abs(fract(h+vec3(0.0,.6666667,.3333333))*6.0-3.0);
-  return v*mix(vec3(1.0),clamp(p-1.0,0.0,1.0),s);
+vec3 palette(float h){
+  return .5+.5*cos(TAU*(h+vec3(.0,.333333,.666667)));
 }
-float ring(float d,float w){
-  float x=abs(d)/max(w,.0001);
-  return exp(-x*x*2.4);
+
+float angle01(vec2 p){
+  /* Branch cut is deliberately downward: the reference has one continuous
+     opening from the core toward the lower edge, not two mirrored halves. */
+  return atan(p.x,-p.y)/TAU;
 }
-float softBand(float x,float w){
-  float d=abs(fract(x)-.5);
-  return 1.0-smoothstep(.0,w,d);
+
+float angularDistance(float a,float b){
+  return atan(sin(TAU*(a-b)),cos(TAU*(a-b)))/TAU;
 }
 
 void main(){
   vec2 p=(gl_FragCoord.xy-.5*u_res)/min(u_res.x,u_res.y);
   p.y=-p.y;
+
   float t=u_phase*TAU;
 
-  /* 左右を同じ法則で生成する。ただし各半分は独立した正方形の場。 */
-  float side=sign(p.x);
-  float x=abs(p.x);
+  /* The whole image is one field. There is no left/right split.
+     Zoom is exponential so the same square-spiral law survives scale changes. */
+  float zoom=exp2(1.52*sin(t-.72));
+  p*=zoom;
 
-  /* 巨大→圧縮→巨大。ズーム中も正方形の階層は保つ。 */
-  float zoom=exp(1.15*sin(t-.72));
-  float center=.305+.045*sin(t*.5+.4);
-  vec2 q=vec2(x-center,p.y*.96)*zoom;
+  /* Very small orbital drift keeps the center alive without changing the law. */
+  vec2 drift=.035*vec2(cos(t*.5+.8),sin(t*.5-.2));
+  p-=drift;
 
-  /* 中央ヒンジ。内側の辺だけが中央へ折れ込む。 */
-  float hinge=exp(-x*x/.055);
-  float vertical=exp(-p.y*p.y/.72);
-  float fold=.24*sin(t-.18)+.10*sin(t*2.0+.7);
-  q.x+=hinge*vertical*(fold+.11*u_touchPower);
-  q.y+=hinge*(.055*sin(t+.9)+.04*u_touchPower*p.x);
+  /* Square-polar radius: L-infinity geometry, softened only slightly at corners. */
+  float rs=max(abs(p.x),abs(p.y));
+  float rr=pow(pow(abs(p.x),8.0)+pow(abs(p.y),8.0),.125);
+  float r=mix(rs,rr,.075);
 
-  /* 指を置いた場所を「折り目の新しい重心」として一時的に扱う。 */
-  vec2 tp=u_touch;
-  float td=length(p-tp);
-  float touchWarp=exp(-td*td/.035)*u_touchPower;
-  q.x+=touchWarp*.20*side;
-  q.y+=touchWarp*.14;
+  float theta=angle01(p);
 
-  /* L∞距離＝円ではない、正方形の半径。 */
-  float r=max(abs(q.x),abs(q.y));
-  float z=log2(max(r,.0012));
+  /* A single logarithmic square spiral.
+     log2(r) gives scale invariance; theta winds the square field around the pole. */
+  float twist=.91+.055*sin(t*.5-.2)+u_twist;
+  float spiral=log2(max(r,.0012))-twist*theta;
 
-  /* 階層は太い少数輪郭。細線ではなく「空間の段差」として見せる。 */
-  float level=z*.62;
-  float cell=fract(level+.10);
-  float contour=softBand(level+.10,.065);
-  float contour2=softBand(level+.36,.040);
-  float contour3=softBand(level+.67,.026);
-  float lines=contour*.82+contour2*.34+contour3*.16;
+  /* Tiny non-axisymmetric breathing, strongest away from the pole. */
+  spiral+=.055*sin(TAU*theta*1.35-t*.35)*(smoothstep(.025,.9,r));
 
-  /* 輪郭間も色面。正方形の各世代で虹が少しずつ位相移動する。 */
-  float hue=.53 + cell*.92 + .11*side + .055*sin(t*.5)
-            + .07*sin(p.y*2.4-t) + .035*sin(z*1.7);
-  vec3 c=hsv(hue,.57,.98);
-  vec3 cWarm=hsv(hue+.08,.42,1.0);
-  vec3 cPastel=mix(c,cWarm,.42);
+  /* Four broad color generations are enough; each is a continuous field,
+     not a stack of independently drawn lines. */
+  float density=.72;
+  float level=spiral*density+u_phase*.055;
+  float cell=fract(level+.12);
 
-  float face=pow(sin(PI*cell),1.25);
-  vec3 color=mix(vec3(1.0),cPastel,.34+.38*face);
-  color=mix(color,c,.62*lines);
+  vec3 rainbow=palette(.57+cell*.92+.055*theta+u_hue);
+  vec3 pastel=mix(vec3(1.0),rainbow,.72);
 
-  /* 中央は線ではなく、左右の空間が圧縮される明るい折り目。 */
-  float crease=exp(-x*x/.0018)*(.45+.55*vertical);
-  color=mix(color,vec3(1.0),crease*.82);
+  float softCell=sin(PI*cell);
+  float body=pow(max(softCell,0.0),1.12);
+  vec3 color=mix(vec3(1.0),pastel,.18+.64*body);
 
-  /* 外周へ行くほど白へほどける。 */
-  float edge=smoothstep(.72,1.02,length(p));
-  color=mix(color,vec3(1.0),edge*.28);
+  /* The transitions become slightly denser and more chromatic at each
+     square contour, producing the soft bands visible in the reference. */
+  float bandDist=abs(fract(level+.12)-.5);
+  float aa=max(fwidth(level)*1.8,.003);
+  float band=1.0-smoothstep(.035+aa,.095+aa,bandDist);
+  color=mix(color,rainbow,band*.34);
 
-  /* 指で折り目をつまんだ時だけ、周囲の色階層も引っ張る。 */
-  color+=c*.08*touchWarp;
+  /* The branch cut is a fold seam, not a division of the artwork.
+     It fades into white while remaining continuous through the center. */
+  float seamWidth=.042+.012*sin(t*.5);
+  float seam=exp(-pow(angularDistance(theta,0.0)/seamWidth,2.0));
+  seam*=smoothstep(.025,.13,r);
+  color=mix(color,vec3(1.0),seam*.68);
+
+  /* Slightly brighter center: the spiral terminates into a tiny luminous pole. */
+  float core=1.0-smoothstep(.0,.055,r);
+  color=mix(color,vec3(1.0),core*.72);
+
+  /* Let the largest generations dissolve into white at the viewport edge. */
+  float edge=smoothstep(.82,1.12,length(p)/max(zoom,.0001));
+  color=mix(color,vec3(1.0),edge*.22);
+
   outColor=vec4(clamp(color,0.0,1.0),1.0);
 }
 `;
@@ -135,11 +140,11 @@ gl.vertexAttribPointer(position,2,gl.FLOAT,false,0,0);
 
 const uRes=gl.getUniformLocation(program,"u_res");
 const uPhase=gl.getUniformLocation(program,"u_phase");
-const uTouch=gl.getUniformLocation(program,"u_touch");
-const uTouchPower=gl.getUniformLocation(program,"u_touchPower");
+const uTwist=gl.getUniformLocation(program,"u_twist");
+const uHue=gl.getUniformLocation(program,"u_hue");
 
-let D=1,W=0,H=0,t0=performance.now(),shift=0;
-let touchX=0,touchY=0,touchPower=0;
+let D=1,W=0,H=0,t0=performance.now();
+let twistLaw=0,hueLaw=0;
 
 function resize(){
   D=Math.min(2,devicePixelRatio||1);
@@ -151,20 +156,16 @@ function resize(){
 addEventListener("resize",resize,{passive:true});
 resize();
 
-function pointer(e){
-  touchX=(e.clientX-W*.5)/Math.min(W,H);
-  touchY=-(e.clientY-H*.5)/Math.min(W,H);
-}
 function draw(phase){
   gl.useProgram(program);
   gl.uniform2f(uRes,canvas.width,canvas.height);
-  gl.uniform1f(uPhase,phase+shift);
-  gl.uniform2f(uTouch,touchX,touchY);
-  gl.uniform1f(uTouchPower,touchPower);
+  gl.uniform1f(uPhase,phase);
+  gl.uniform1f(uTwist,twistLaw);
+  gl.uniform1f(uHue,hueLaw);
   gl.drawArrays(gl.TRIANGLES,0,3);
 }
+
 function animate(now){
-  touchPower*=.93;
   draw(((now-t0)/9000)%1);
   requestAnimationFrame(animate);
 }
@@ -172,15 +173,23 @@ requestAnimationFrame(animate);
 
 canvas.addEventListener("pointerdown",e=>{
   if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
-  pointer(e);touchPower=1;
-  canvas.setPointerCapture&&canvas.setPointerCapture(e.pointerId);
+  const x=(e.clientX-W*.5)/Math.min(W,H);
+  const y=(e.clientY-H*.5)/Math.min(W,H);
+  /* Touch changes the spiral law itself: horizontal position alters winding,
+     vertical position shifts the spectral phase. The change persists. */
+  twistLaw=Math.max(-.28,Math.min(.28,twistLaw+x*.11));
+  hueLaw+=y*.035;
 });
-canvas.addEventListener("pointermove",e=>{if(touchPower>.02)pointer(e)});
-canvas.addEventListener("pointerup",()=>touchPower=.35);
-canvas.addEventListener("pointercancel",()=>touchPower=.0);
 
-function mutate(){shift+=.17+Math.random()*.6}
-function reset(){shift=0;t0=performance.now();touchPower=0}
+function mutate(){
+  twistLaw=(Math.random()-.5)*.32;
+  hueLaw=Math.random();
+}
+function reset(){
+  twistLaw=0;
+  hueLaw=0;
+  t0=performance.now();
+}
 
 APKit.init({
   canvas,
