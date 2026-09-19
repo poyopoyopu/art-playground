@@ -24,6 +24,7 @@
 
 ## 履歴
 
+- 2026-09-19 クロード: おっちゃん提供の黒い蘭の写真から CULTIVAR を新規制作。法則は「触れた花弁が次の世代すべての祖先になる」人工選抜(6器官が同じ遺伝子のズレとして育ち、選んだ花弁の形質を花全体が受け継いで咲き直す/長押しで強制変異/世代は戻らず背後に系統の影が残る)。花弁の縁は同じ切れ込み規則を4〜5階層くり返す自己相似フリンジ。チャッピーの prototypes/black-orchid.html とは別法則なので、そちらは触らず別ファイルにした(prototypes/black-orchid-cultivar.html)
 - 2026-09-18 クロード: TIDE MARKをCURRENTに変更。それまでのCURRENTだったTAR CEILINGはLOG先頭へ移動、Published works先頭もTIDE MARKに(index.html)
 - 2026-09-18 クロード: TIDE MARKを採用。art-v71として昇格し(ap-kit.jsの相対パスをルート用に修正)、ギャラリーLOG先頭とPublished worksに追加。表示名はTIDE MARK(名前はクロードに一任)(art-v71-tide-mark.html, index.html)
 - 2026-09-18 クロード: TIDE MARKの法則をおっちゃんの案「タッチで溶ける」に変更。触れた場所は溶けて二度と戻らず、溶けた所は①色を束ねていられず虹が幅いっぱいに広がる②彩度を失って淡い灰へ濁る③自分の重みで垂れ下がる④柔らかくなって次はもっと簡単に引き伸ばせる。触り続けると虹はその場所から順に失われ、最後は色の分かれ目のないただの淡い場だけが残る。実装は距離を割るspreadを位置ごとに変える形(prototypes/tide-mark.html)
