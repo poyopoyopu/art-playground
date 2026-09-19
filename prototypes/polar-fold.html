@@ -1,4 +1,4 @@
-<!-- POLAR FOLD — ChatGPT作。参考動画の虹色の折り曲げ境界を、連続する空間の折り目として再構成。ap-kit.js統合: ChatGPT -->
+<!-- POLAR FOLD — ChatGPT作。第2構成。輪郭線ではなく画面全体を折り畳まれた色の膜として再構成。ap-kit.js統合: ChatGPT -->
 <!doctype html>
 <html lang="ja">
 <head>
@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
 <title>POLAR FOLD</title>
 <style>
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#f7f6f2;touch-action:none}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#f8f7f3;touch-action:none}
 canvas{display:block;width:100%;height:100%;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 </style>
 <script src="../ap-kit.js"></script>
@@ -15,254 +15,192 @@ canvas{display:block;width:100%;height:100%;-webkit-touch-callout:none;-webkit-u
 <canvas id="c"></canvas>
 <script>
 (()=>{"use strict";
-
-/*
-  WORLD RULE — FOLD:
-  画面の白い空間には、一本の閉じた境界がある。
-  それは物体ではなく「こちら側 / あちら側」を分ける折り目。
-  折り目は呼吸しながら四角形から別の形へ変わり続ける。
-
-  指で触れた場所では、空間の折り方そのものが変わる。
-  触った場所は「傷」ではなく新しい折り目の祖先になり、
-  以後の自律変形にも永久に影響する。
-*/
-
-const c=document.getElementById("c");
-const ctx=c.getContext("2d",{alpha:false});
-const TAU=Math.PI*2;
-let W=0,H=0,D=1,S=1;
-let seed=Math.random()*1000;
-let t0=performance.now();
-let pointer=null;
-let creases=[];
-let shape={tilt:.16,fold:.32,round:.12,hue:0,scale:.82,speed:.58};
+const c=document.getElementById("c"),ctx=c.getContext("2d",{alpha:false});
+const TAU=Math.PI*2,LOW=260;
+let W=0,H=0,D=1,LW=0,LH=0,img,data;
+let seed=Math.random()*1000, hue=0, t0=performance.now();
+let folds=[],pointer=null;
 
 function resize(){
-  D=Math.min(2,devicePixelRatio||1);
-  W=innerWidth;H=innerHeight;S=Math.min(W,H);
-  c.width=Math.round(W*D);c.height=Math.round(H*D);
-  ctx.setTransform(D,0,0,D,0,0);
+  D=Math.min(2,devicePixelRatio||1);W=innerWidth;H=innerHeight;
+  c.width=Math.round(W*D);c.height=Math.round(H*D);ctx.setTransform(D,0,0,D,0,0);
+  LW=Math.max(120,Math.min(LOW,Math.round(W*.58)));
+  LH=Math.max(120,Math.round(LW*H/W));
+  const b=document.createElement("canvas");b.width=LW;b.height=LH;
+  img=b.getContext("2d",{alpha:false}).createImageData(LW,LH);
+  data=img.data;
 }
-addEventListener("resize",resize,{passive:true});
-resize();
+addEventListener("resize",resize,{passive:true});resize();
 
 function rnd(a,b){return a+Math.random()*(b-a)}
 function reset(){
-  seed=Math.random()*10000;
-  creases=[];
-  shape={tilt:rnd(-.3,.3),fold:rnd(.25,.42),round:rnd(.08,.18),
-    hue:rnd(0,360),scale:rnd(.72,.92),speed:rnd(.42,.72)};
+  seed=Math.random()*100000;hue=rnd(0,360);folds=[];
 }
 function mutate(){
-  seed=Math.random()*10000;
-  shape={tilt:rnd(-.55,.55),fold:rnd(.20,.48),round:rnd(.06,.20),
-    hue:rnd(0,360),scale:rnd(.70,.96),speed:rnd(.35,.78)};
+  seed=Math.random()*100000;hue=rnd(0,360);
+  folds=[];
 }
 
-/* 指の位置を「空間座標」にする */
-function world(x,y){
-  return [(x-W*.5)/S,(y-H*.5)/S];
-}
-function addCrease(x,y){
-  const p=world(x,y);
-  const a=Math.atan2(p[1],p[0])+rnd(-.8,.8);
-  creases.push({x:p[0],y:p[1],a:a,w:rnd(.11,.22),power:rnd(.18,.38),age:0});
-  if(creases.length>9)creases.shift();
+/* 触れた場所は「線」ではなく、空間の折り目を追加する */
+function addFold(x,y){
+  const s=Math.min(W,H),px=(x-W/2)/s,py=(y-H/2)/s;
+  folds.push({x:px,y:py,a:Math.atan2(py,px)+rnd(-1.1,1.1),r:rnd(.08,.20),p:rnd(.25,.55),phase:rnd(0,TAU)});
+  if(folds.length>8)folds.shift();
 }
 c.addEventListener("pointerdown",e=>{
   if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
-  e.preventDefault();
-  pointer={id:e.pointerId,x:e.clientX,y:e.clientY};
-  c.setPointerCapture&&c.setPointerCapture(e.pointerId);
-  addCrease(e.clientX,e.clientY);
+  e.preventDefault();pointer={id:e.pointerId,x:e.clientX,y:e.clientY};
+  addFold(e.clientX,e.clientY);c.setPointerCapture&&c.setPointerCapture(e.pointerId);
 },{passive:false});
 c.addEventListener("pointermove",e=>{
-  if(!pointer||e.pointerId!==pointer.id)return;
-  e.preventDefault();
+  if(!pointer||pointer.id!==e.pointerId)return;e.preventDefault();
+  const dx=e.clientX-pointer.x,dy=e.clientY-pointer.y;
+  if(dx*dx+dy*dy>900)addFold(e.clientX,e.clientY);
   pointer.x=e.clientX;pointer.y=e.clientY;
 },{passive:false});
-function release(e){if(pointer&&e.pointerId===pointer.id)pointer=null}
-c.addEventListener("pointerup",release);
-c.addEventListener("pointercancel",release);
+function up(e){if(pointer&&pointer.id===e.pointerId)pointer=null}
+c.addEventListener("pointerup",up);c.addEventListener("pointercancel",up);
 
-/* 形状 */
-function creaseInfluence(x,y,time){
-  let dx=0,dy=0;
-  for(const q of creases){
-    const ux=Math.cos(q.a),uy=Math.sin(q.a);
-    const vx=x-q.x,vy=y-q.y;
-    const along=vx*ux+vy*uy;
-    const side=-vx*uy+vy*ux;
-    const g=Math.exp(-(along*along/(q.w*q.w*3)+side*side/(q.w*q.w)));
-    const wave=Math.sin(time*.9+q.a*2+along*8)*g;
-    const amount=q.power*(.45+.55*Math.cos(time*.23+q.x*3));
-    dx+=(-uy*wave+ux*side*g*.12)*amount;
-    dy+=( ux*wave+uy*side*g*.12)*amount;
-  }
-  return [dx,dy];
+function noise(a,b,t){
+  return Math.sin(a*3.17+b*5.73+t*.17+seed*.0007)
+       +.48*Math.sin(a*7.91-b*4.13-t*.11+seed*.0013)
+       +.22*Math.cos(a*13.1+b*11.7+t*.23);
 }
 
-/* 4辺を持つ閉じた境界。
-   角を固定しすぎず、各辺が独立して折れるので「四角→別の生物」へ連続変形する。 */
-function pointOnFold(u,time){
-  const q=Math.floor(u*4);
-  const f=u*4-q;
-  let x=0,y=0;
-  if(q===0){x=-1+2*f;y=-1}
-  else if(q===1){x=1;y=-1+2*f}
-  else if(q===2){x=1-2*f;y=1}
-  else{x=-1;y=1-2*f}
+/* 膜の折れを計算。
+   rは単純な円ではなく、多重の角度成分で「四角→歪んだ多角形→有機体」を往復する。 */
+function field(x,y,time){
+  let X=x,Y=y;
+  const rr=Math.hypot(X,Y)+1e-6;
+  let ang=Math.atan2(Y,X);
 
-  /* 角を丸める */
-  const corner=Math.min(f,1-f);
-  const soften=Math.min(1,corner/.13);
-  x*=.94+.06*soften;y*=.94+.06*soften;
-
-  /* 基本の呼吸。位相が整数周期で閉じる */
-  const breathe=Math.sin(time*.72+u*TAU*1.5)*.035;
-  x*=1+breathe;y*=1-breathe*.65;
-
-  /* 「折り返し」。
-     画面上の一箇所が内側へ巻き込まれ、時間とともに別の辺へ移動する。 */
-  const center=.26+.24*(.5+.5*Math.sin(time*.37+seed*.001));
-  let du=Math.abs(((u-center+.5)%1)-.5);
-  const fold=Math.exp(-(du*du)/(.010+.018*shape.fold));
-  const turn=1.15*shape.fold*Math.sin(time*.63+seed*.002+u*TAU);
-  const cx=-.16+.12*Math.sin(time*.41+seed);
-  const cy=.08+.10*Math.cos(time*.33+seed*.7);
-  const ox=x-cx,oy=y-cy;
-  x += (-oy*Math.sin(turn)+ox*(Math.cos(turn)-1))*fold;
-  y += ( ox*Math.sin(turn)+oy*(Math.cos(turn)-1))*fold;
-
-  /* 全体の微妙な非対称 */
-  x += .045*Math.sin(u*TAU*2-time*.28+seed)*(.4+.6*shape.fold);
-  y += .032*Math.cos(u*TAU*3+time*.31+seed*.7);
-
-  const ci=creaseInfluence(x,y,time);
-  x+=ci[0];y+=ci[1];
-
-  /* tilt */
-  const a=shape.tilt+.035*Math.sin(time*.19);
-  const ca=Math.cos(a),sa=Math.sin(a);
-  return [x*ca-y*sa,y*ca+x*sa];
-}
-
-function makePath(time,scale=1,offset=0){
-  const pts=[];
-  const n=220;
-  for(let i=0;i<n;i++){
-    const u=(i/n+offset)%1;
-    const p=pointOnFold(u,time);
-    pts.push([W*.5+p[0]*S*.5*shape.scale*scale,
-              H*.5+p[1]*S*.5*shape.scale*scale]);
-  }
-  return pts;
-}
-
-/* 色は一本の線に貼り付ける。
-   参考動画の「白い空間＋色の境界」を維持しつつ、色相は時間で連続循環。 */
-function rainbowGradient(pts,time,alpha,width){
-  const g=ctx.createLinearGradient(pts[0][0],pts[0][1],pts[Math.floor(pts.length*.52)][0],pts[Math.floor(pts.length*.52)][1]);
-  const h=(shape.hue+time*20)%360;
-  const stops=[
-    [0,(h+185)%360,alpha*.72],
-    [.12,(h+220)%360,alpha*.78],
-    [.25,(h+275)%360,alpha*.88],
-    [.38,(h+325)%360,alpha],
-    [.50,(h+15)%360,alpha],
-    [.62,(h+58)%360,alpha],
-    [.76,(h+105)%360,alpha*.92],
-    [.90,(h+145)%360,alpha*.78],
-    [1,(h+185)%360,alpha*.68]
-  ];
-  for(const s of stops)g.addColorStop(s[0],`hsla(${s[1]},92%,${width>12?58:61}%,${s[2]})`);
-  return g;
-}
-
-function strokePath(pts,width,alpha,time,offset){
-  ctx.beginPath();
-  ctx.moveTo(pts[0][0],pts[0][1]);
-  for(let i=1;i<pts.length;i++)ctx.lineTo(pts[i][0],pts[i][1]);
-  ctx.closePath();
-  ctx.lineJoin="round";
-  ctx.lineCap="round";
-  ctx.lineWidth=width;
-  ctx.strokeStyle=rainbowGradient(pts,time,alpha,width);
-  ctx.stroke();
-}
-
-/* 背景も完全な白ではなく、ごく薄い色場。
-   形が画面いっぱいに動いても「宇宙」にはならないよう、明度を高く保つ。 */
-function background(time){
-  const g=ctx.createRadialGradient(
-    W*.5+Math.sin(time*.16)*S*.22,H*.48+Math.cos(time*.13)*S*.18,0,
-    W*.5,H*.5,S*.82
-  );
-  const h=(shape.hue+time*8)%360;
-  g.addColorStop(0,"rgb(255,255,253)");
-  g.addColorStop(.46,`hsl(${(h+42)%360},32%,97%)`);
-  g.addColorStop(.76,`hsl(${(h+190)%360},26%,95%)`);
-  g.addColorStop(1,"rgb(246,245,241)");
-  ctx.fillStyle=g;
-  ctx.fillRect(0,0,W,H);
-}
-
-function drawFold(time){
-  background(time);
-
-  /* 大きな淡い「色の場」。輪郭の外側にも色がにじむ */
-  for(let i=5;i>=1;i--){
-    const sc=1+i*.004;
-    const pts=makePath(time,sc,i*.0007);
-    strokePath(pts,34+i*9,.018+i*.008,time,i);
+  /* 3階層の座標折り */
+  for(let k=0;k<3;k++){
+    const f=.11*Math.sin(ang*(3+k*2)+time*(.22+k*.09)+seed*.001*(k+1));
+    const cs=Math.cos(ang+f),sn=Math.sin(ang+f);
+    const nx=X*cs-Y*sn,ny=X*sn+Y*cs;
+    X=nx+(Math.sin(ny*8-time*.3+k)*.014*(k+1));
+    Y=ny+(Math.cos(nx*7+time*.24-k)*.012*(k+1));
+    ang=Math.atan2(Y,X);
   }
 
-  /* 主輪郭の周囲に異なる太さを重ねる。
-     blur依存ではなく実線の多層化なのでiOS Safariでも色が濁りにくい。 */
-  const core=makePath(time,1,0);
-  strokePath(core,25,.075,time,0);
-  strokePath(core,16,.16,time,0);
-  strokePath(core,10,.34,time,0);
-  strokePath(core,6.2,.72,time,0);
+  const R=Math.hypot(X,Y);
+  const A=Math.atan2(Y,X);
 
-  /* 内側の「折り返し」をもう一世代だけ描く。
-     同じ輪郭の縮小コピーではなく、位相をずらして自己相似感を出す。 */
-  ctx.globalCompositeOperation="source-over";
-  const inner=makePath(time+.38,.73,.17);
-  strokePath(inner,7,.10,time+.38,.17);
-  strokePath(inner,3.5,.26,time+.38,.17);
+  /* 角を周期的に増減させる。単なる正多角形にならないよう高調波を混ぜる */
+  const square=Math.pow(Math.abs(Math.cos(A)),5)+Math.pow(Math.abs(Math.sin(A)),5);
+  const four=1/sqrtSafe(square);
+  let boundary=.73*four;
+  boundary+=.075*Math.sin(A*4-time*.53+seed*.002);
+  boundary+=.045*Math.sin(A*7+time*.31+seed*.004);
+  boundary+=.025*Math.cos(A*11-time*.21);
 
-  /* 折り目の芯。ここだけ色が一瞬白へ抜ける */
-  const k=makePath(time+.02,.985,.003);
-  ctx.save();
-  ctx.globalCompositeOperation="screen";
-  strokePath(k,2.2,.42,time+.02,.003);
-  ctx.restore();
+  /* 大きな折り返し */
+  const foldCenter=.3*Math.sin(time*.19+seed*.0003);
+  const dA=Math.atan2(Math.sin(A-foldCenter),Math.cos(A-foldCenter));
+  const fold=Math.exp(-dA*dA/(.075+.035*Math.sin(time*.37)**2));
+  boundary-=.22*fold*(.5+.5*Math.sin(time*.57+seed*.001));
 
-  /* タッチした折り目は小さな色の「記憶」として残す */
-  for(let i=0;i<creases.length;i++){
-    const q=creases[i];
-    const life=Math.min(1,(time-q.age)/4);
-    if(life<0)continue;
-    const px=W*.5+q.x*S*.5*shape.scale;
-    const py=H*.5+q.y*S*.5*shape.scale;
-    const len=S*(.035+.06*q.power);
-    ctx.save();
-    ctx.translate(px,py);ctx.rotate(q.a);
-    const gg=ctx.createLinearGradient(-len,0,len,0);
-    gg.addColorStop(0,"rgba(255,255,255,0)");
-    gg.addColorStop(.5,`hsla(${(shape.hue+210+i*31)%360},90%,65%,${.10*life})`);
-    gg.addColorStop(1,"rgba(255,255,255,0)");
-    ctx.strokeStyle=gg;ctx.lineWidth=1.2;
-    ctx.beginPath();ctx.moveTo(-len,0);ctx.lineTo(len,0);ctx.stroke();
-    ctx.restore();
+  /* タッチで追加された局所的な折り目 */
+  let warp=0;
+  for(const q of folds){
+    const dx=x-q.x,dy=y-q.y;
+    const ca=Math.cos(q.a),sa=Math.sin(q.a);
+    const u=dx*ca+dy*sa,v=-dx*sa+dy*ca;
+    const g=Math.exp(-(u*u/(q.r*q.r*3)+v*v/(q.r*q.r)));
+    warp+=q.p*g*Math.sin(u*26-q.phase+time*.8);
+    boundary+=q.p*.055*g*Math.cos(v*31+q.phase);
   }
+
+  /* signed distance-like value */
+  const sd=R-boundary;
+  return {sd,ang:A,R,warp,boundary};
+}
+function sqrtSafe(v){return Math.sqrt(Math.max(.0001,v))}
+
+/* 色相は距離だけでなく角度にも依存させる。
+   これで虹が「輪郭に貼った線」ではなく膜の中を流れる。 */
+function rgb(h,s,l){
+  h=((h%360)+360)%360/360;s/=100;l/=100;
+  const q=l<.5?l*(1+s):l+s-l*s,p=2*l-q;
+  const f=t=>{
+    if(t<0)t+=1;if(t>1)t-=1;
+    if(t<1/6)return p+(q-p)*6*t;
+    if(t<1/2)return q;
+    if(t<2/3)return p+(q-p)*(2/3-t)*6;
+    return p;
+  };
+  return [f(h+1/3)*255,f(h)*255,f(h-1/3)*255];
+}
+
+function render(time){
+  const aspect=W/H;
+  let p=0;
+  for(let j=0;j<LH;j++){
+    const y=((j+.5)/LH-.5)*1.9;
+    for(let i=0;i<LW;i++){
+      const xx=((i+.5)/LW-.5)*1.9*aspect;
+      const f=field(xx,y,time);
+
+      /* sdの全領域を使う。中央も外側も同じ膜の一部 */
+      const band=Math.sin(f.sd*15.5-f.ang*1.4-time*.34+f.warp*7);
+      const band2=Math.sin(f.sd*31+f.ang*3.1+time*.23);
+      const interior=Math.exp(-Math.max(f.sd,0)*2.7);
+      const exterior=Math.exp(-Math.max(-f.sd,0)*2.0);
+
+      let h=hue
+        +f.ang*57
+        +time*18
+        +band*58
+        +band2*19
+        +noise(xx,yy,time)*7;
+
+      /* 境界だけ極端に彩度を上げ、内部は乳白色の色場にする */
+      const edge=Math.exp(-Math.abs(f.sd)/.045);
+      const deep=Math.exp(-Math.abs(f.sd)/.16);
+      let sat=16+edge*72+deep*18;
+      let light=97-edge*30-deep*4;
+
+      /* 折り重なった場所だけ色が一段深くなる */
+      const crease=Math.pow(Math.max(0,Math.abs(band)),9)*edge;
+      sat+=crease*17;light-=crease*8;
+
+      const col=rgb(h,sat,light);
+
+      /* ごく薄い白を混ぜて、ネオンではなく顔料/膜の質感へ */
+      const white=.18+(.32*(1-edge));
+      let r=col[0]*(1-white)+255*white;
+      let g=col[1]*(1-white)+255*white;
+      let b=col[2]*(1-white)+255*white;
+
+      /* 境界の両側に異なる色の薄い層を置く */
+      const glow=Math.exp(-Math.abs(f.sd)/.095);
+      r=Math.min(255,r+glow*18);
+      g=Math.min(255,g+glow*14);
+      b=Math.min(255,b+glow*24);
+
+      /* 画面端はわずかに落として、形が画面いっぱいに存在する感覚を出す */
+      const edgeV=Math.max(0,Math.hypot(xx/aspect,yy)-.63);
+      const vignette=Math.max(.84,1-edgeV*.18);
+
+      data[p++]=r*vignette;
+      data[p++]=g*vignette;
+      data[p++]=b*vignette;
+      data[p++]=255;
+    }
+  }
+  /* ImageDataはオフスクリーンCanvasが必要なので毎回作る */
+  if(!render.buf){render.buf=document.createElement("canvas");render.bctx=render.buf.getContext("2d",{alpha:false})}
+  render.buf.width=LW;render.buf.height=LH;
+  render.bctx.putImageData(img,0,0);
+  ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality="high";
+  ctx.drawImage(render.buf,0,0,LW,LH,0,0,W,H);
 }
 
 function frame(now,phase){
-  const time=phase==null ? (now-t0)/1000 : phase;
-  drawFold(time);
-  requestAnimationFrame(frame);
+  const time=phase==null?(now-t0)/1000:phase;
+  render(time);
+  if(phase==null)requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 
@@ -273,7 +211,7 @@ APKit.init({
   dock:true,
   autoHide:true,
   fullscreenButton:false,
-  loopFrame:function(phase){drawFold(phase);},
+  loopFrame:function(phase){render(phase);},
   buttons:[
     {label:"✦",name:"mutate",onClick:mutate},
     {label:"↻",name:"reset",onClick:reset}
