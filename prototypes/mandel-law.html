@@ -1,0 +1,246 @@
+<!-- MANDEL LAW — ChatGPT作。マンデルブロ集合を「触れた場所で局所的な冪法則が変わる世界」として再構成。 -->
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>MANDEL LAW</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#050507;touch-action:none}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+</style>
+<script src="../ap-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+'use strict';
+
+const c=document.getElementById('c');
+const gl=c.getContext('webgl2',{antialias:false,alpha:false,preserveDrawingBuffer:true});
+if(!gl){document.body.innerHTML='<div style="height:100%;display:grid;place-items:center;background:#050507;color:#fff;font:14px system-ui">WebGL2 is required</div>';throw Error('WebGL2 unavailable')}
+
+const TAU=Math.PI*2;
+let W=1,H=1,D=1;
+let zoom=1.0, panX=-.5, panY=0;
+let hue=0, lawSeed=0;
+let touches=[];
+let pointerId=null;
+
+const VS=`#version 300 es
+in vec2 p;
+out vec2 uv;
+void main(){uv=p*.5+.5;gl_Position=vec4(p,0.,1.);}
+`;
+
+const FS=`#version 300 es
+precision highp float;
+in vec2 uv;
+out vec4 outColor;
+
+uniform vec2 uRes;
+uniform float uPhase;
+uniform float uZoom;
+uniform vec2 uPan;
+uniform float uHue;
+uniform vec4 uLaws[8];
+uniform int uLawCount;
+
+vec3 hsv(float h,float s,float v){
+  vec3 k=vec3(1.,2./3.,1./3.);
+  vec3 p=abs(fract(vec3(h)+k)*6.-3.);
+  return v*mix(vec3(1.),clamp(p-1.,0.,1.),s);
+}
+
+vec2 cpow(vec2 z,float p){
+  float r=max(length(z),1e-7);
+  float a=atan(z.y,z.x);
+  float rp=pow(r,p), ap=a*p;
+  return rp*vec2(cos(ap),sin(ap));
+}
+
+void main(){
+  vec2 q=(gl_FragCoord.xy-.5*uRes)/min(uRes.x,uRes.y);
+  q/=uZoom;
+  q+=uPan;
+
+  // A slow periodic breathing of the coordinate law; phase 0 and 1 match.
+  float breath=.035*sin(uPhase*6.28318530718);
+  q*=1.+breath;
+
+  // Eight persistent "law scars". Each changes the exponent locally.
+  float pwr=2.0;
+  float lawInfluence=0.;
+  for(int i=0;i<8;i++){
+    if(i>=uLawCount)break;
+    vec2 d=q-uLaws[i].xy;
+    float radius=max(uLaws[i].z,.0001);
+    float w=exp(-dot(d,d)/(radius*radius));
+    pwr+=uLaws[i].w*w;
+    lawInfluence+=w;
+  }
+
+  // Generalized Mandelbrot: z -> z^p + c.
+  vec2 z=vec2(0.);
+  float smooth=0.;
+  float escaped=0.;
+  const int MAX_IT=120;
+  for(int i=0;i<MAX_IT;i++){
+    z=cpow(z,pwr)+q;
+    float m=dot(z,z);
+    if(m>256.){
+      float it=float(i);
+      smooth=it+1.-log2(log2(max(length(z),1.0001)));
+      escaped=1.;
+      break;
+    }
+  }
+
+  float f=smooth/float(MAX_IT);
+  float bands=.5+.5*cos(f*42.-uPhase*6.28318530718*3.);
+  float edge=exp(-f*7.);
+  float h=fract(uHue+.72*f+.11*bands+.08*lawInfluence);
+
+  // Dense interior is near-black; the boundary carries the color.
+  vec3 col=hsv(h,.82,.12+.82*pow(clamp(edge,0.,1.),.42));
+  col*=.72+.28*sin(uPhase*TAU+f*10.+lawInfluence*2.);
+  col+=hsv(fract(h+.48),.48,.22)*.22*lawInfluence;
+  if(escaped<.5) col*=.045;
+
+  // A very subtle radial vignette keeps the mathematical edge dominant.
+  float vig=1.-.22*pow(length((gl_FragCoord.xy/uRes)-.5)*1.35,2.);
+  col*=clamp(vig,.68,1.);
+  outColor=vec4(col,1.);
+}
+`;
+
+function shader(type,src){
+  const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(s));
+  return s;
+}
+const prog=gl.createProgram();
+gl.attachShader(prog,shader(gl.VERTEX_SHADER,VS));
+gl.attachShader(prog,shader(gl.FRAGMENT_SHADER,FS));
+gl.linkProgram(prog);
+if(!gl.getProgramParameter(prog,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(prog));
+gl.useProgram(prog);
+
+const buf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+const loc=gl.getAttribLocation(prog,'p');
+gl.enableVertexAttribArray(loc);
+gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+
+const uRes=gl.getUniformLocation(prog,'uRes');
+const uPhase=gl.getUniformLocation(prog,'uPhase');
+const uZoom=gl.getUniformLocation(prog,'uZoom');
+const uPan=gl.getUniformLocation(prog,'uPan');
+const uHue=gl.getUniformLocation(prog,'uHue');
+const uLaws=gl.getUniformLocation(prog,'uLaws');
+const uLawCount=gl.getUniformLocation(prog,'uLawCount');
+
+function resize(){
+  D=Math.min(devicePixelRatio||1,1.75);
+  W=innerWidth;H=innerHeight;
+  c.width=Math.max(1,Math.round(W*D));
+  c.height=Math.max(1,Math.round(H*D));
+  gl.viewport(0,0,c.width,c.height);
+}
+addEventListener('resize',resize,{passive:true});
+resize();
+
+function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
+function pointerToWorld(x,y){
+  const s=Math.min(W,H);
+  return [(x-W*.5)/s/zoom+panX,(H*.5-y)/s/zoom+panY];
+}
+
+function render(phase){
+  gl.useProgram(prog);
+  gl.uniform2f(uRes,c.width,c.height);
+  gl.uniform1f(uPhase,phase);
+  gl.uniform1f(uZoom,zoom);
+  gl.uniform2f(uPan,panX,panY);
+  gl.uniform1f(uHue,hue);
+  gl.uniform1i(uLawCount,touches.length);
+  const packed=new Float32Array(32);
+  for(let i=0;i<touches.length;i++){
+    packed[i*4]=touches[i].x;
+    packed[i*4+1]=touches[i].y;
+    packed[i*4+2]=touches[i].r;
+    packed[i*4+3]=touches[i].delta;
+  }
+  gl.uniform4fv(uLaws,packed);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+}
+
+function animate(now){
+  const phase=((now*.00006)%1+1)%1;
+  render(phase);
+  requestAnimationFrame(animate);
+}
+requestAnimationFrame(animate);
+
+function addLaw(x,y){
+  if(window.APKit&&APKit.isUI(x,y))return;
+  const [wx,wy]=pointerToWorld(x,y);
+  // Touch does not merely disturb pixels: it changes the iteration law itself.
+  const radius=clamp(.018/zoom,.004,.095);
+  const delta=(Math.random()-.5)*1.35;
+  touches.push({x:wx,y:wy,r:radius,delta});
+  if(touches.length>8)touches.shift();
+  hue=(hue+.075+Math.random()*.13)%1;
+  zoom=clamp(zoom*(1.035+Math.random()*.025),.72,8.5);
+  panX+=(wx-panX)*.035;
+  panY+=(wy-panY)*.035;
+}
+function reset(){
+  touches=[];
+  zoom=1;panX=-.5;panY=0;hue=0;lawSeed=Math.random();
+}
+function mutate(){
+  hue=Math.random();
+  zoom=.86+Math.random()*2.2;
+  panX=-.72+Math.random()*.44;
+  panY=-.08+Math.random()*.16;
+  touches=[];
+  const n=2+Math.floor(Math.random()*5);
+  for(let i=0;i<n;i++){
+    const x=-.92+Math.random()*1.25;
+    const y=-.48+Math.random()*.96;
+    touches.push({x,y,r:.012+Math.random()*.05,delta:(Math.random()-.5)*1.25});
+  }
+}
+
+c.addEventListener('pointerdown',e=>{
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  pointerId=e.pointerId;c.setPointerCapture(pointerId);addLaw(e.clientX,e.clientY);
+});
+c.addEventListener('pointermove',e=>{
+  if(e.pointerId!==pointerId||!e.buttons)return;
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  addLaw(e.clientX,e.clientY);
+});
+c.addEventListener('pointerup',e=>{
+  if(e.pointerId===pointerId){try{c.releasePointerCapture(pointerId)}catch(_){}pointerId=null}
+});
+c.addEventListener('pointercancel',e=>{pointerId=null});
+
+APKit.init({
+  canvas:c,
+  gifName:'mandel-law-loop',
+  clockFormat:'spec',
+  dock:true,
+  autoHide:true,
+  fullscreenButton:false,
+  loopFrame:function(phase){render(phase)},
+  buttons:[
+    {label:'✦',name:'mutate',onClick:mutate},
+    {label:'↻',name:'reset',onClick:reset}
+  ]
+});
+</script>
+</body>
+</html>
