@@ -1,0 +1,228 @@
+<!-- STATIC LIGHT — ChatGPT作。透明面と光の層が触れた場所を「新しい反射面」として記憶する。 -->
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>STATIC LIGHT</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#05070c;touch-action:none}
+canvas{display:block;width:100%;height:100%;touch-action:none;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+</style>
+<script src="../ap-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(()=>{"use strict";
+const canvas=document.getElementById("c"),ctx=canvas.getContext("2d",{alpha:false});
+let W=0,H=0,D=1,phase=0,last=performance.now(),seed=Math.random()*10000;
+const TAU=Math.PI*2;
+let memories=[];
+
+const palettes=[
+  [[255,245,205],[255,112,82],[78,108,255],[174,120,255]],
+  [[255,225,185],[255,72,55],[35,105,255],[210,155,255]],
+  [[242,250,255],[255,178,72],[52,102,255],[238,100,145]],
+  [[255,239,214],[255,80,48],[64,82,220],[155,132,255]]
+];
+
+function resize(){
+  D=Math.min(2,devicePixelRatio||1);W=innerWidth;H=innerHeight;
+  canvas.width=Math.max(1,Math.round(W*D));canvas.height=Math.max(1,Math.round(H*D));
+  ctx.setTransform(D,0,0,D,0,0);
+}
+addEventListener("resize",resize,{passive:true});resize();
+
+function hash(n){const x=Math.sin(n*127.1+seed*19.7)*43758.5453;return x-Math.floor(x)}
+function rgb(c,a=1){return "rgba("+c[0]+","+c[1]+","+c[2]+","+a+")"}
+function mix(a,b,t){return[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t]}
+
+function makeRects(){
+  const s=Math.min(W,H),cx=W*.5,cy=H*.48;
+  const defs=[
+    [-.36,-.39,.22,.58,0],[-.10,-.48,.31,.20,1],[.17,-.45,.34,.23,2],
+    [-.42,-.15,.31,.55,3],[-.11,-.18,.23,.25,0],[.11,-.18,.30,.47,2],
+    [.39,-.12,.25,.53,1],[-.31,.30,.34,.34,3],[-.03,.27,.21,.47,2],
+    [.18,.25,.35,.36,0],[.42,.34,.25,.37,1],[-.15,.54,.29,.20,2],
+    [.17,.55,.42,.22,3]
+  ];
+  return defs.map((d,i)=>({
+    x:cx+d[0]*s,y:cy+d[1]*s,w:d[2]*s,h:d[3]*s,
+    hue:d[4],z:i,phase:hash(i+3)*TAU
+  }));
+}
+let rects=makeRects();
+addEventListener("resize",()=>{rects=makeRects()},{passive:true});
+
+function addMemory(x,y){
+  memories.push({
+    x,y,r:Math.min(W,H)*(.10+.08*hash(memories.length+31)),
+    a:TAU*hash(memories.length+71),
+    hue:hash(memories.length+11)*3,
+    birth:phase
+  });
+  if(memories.length>18)memories.shift();
+}
+
+function fieldAt(x,y,t){
+  let warm=0,cool=0,dx=0,dy=0;
+  for(const m of memories){
+    const ax=x-m.x,ay=y-m.y,d=Math.hypot(ax,ay);
+    const q=Math.exp(-d/(m.r*1.35));
+    warm+=q*m.hue; cool+=q;
+    dx+=Math.cos(m.a)*q;dy+=Math.sin(m.a)*q;
+  }
+  return {warm,cool,dx,dy};
+}
+
+function roundedRect(x,y,w,h,r){
+  const q=Math.min(r,w*.25,h*.25);
+  ctx.beginPath();ctx.moveTo(x+q,y);ctx.lineTo(x+w-q,y);
+  ctx.quadraticCurveTo(x+w,y,x+w,y+q);ctx.lineTo(x+w,y+h-q);
+  ctx.quadraticCurveTo(x+w,y+h,x+w-q,y+h);ctx.lineTo(x+q,y+h);
+  ctx.quadraticCurveTo(x,y+h,x,y+h-q);ctx.lineTo(x,y+q);
+  ctx.quadraticCurveTo(x,y,x+q,y);ctx.closePath();
+}
+
+function drawGlow(x,y,w,h,c,a,blur){
+  ctx.save();ctx.globalCompositeOperation="screen";ctx.filter="blur("+blur+"px)";
+  const g=ctx.createRadialGradient(x+w*.5,y+h*.5,0,x+w*.5,y+h*.5,Math.max(w,h)*.7);
+  g.addColorStop(0,rgb(c,a));g.addColorStop(.45,rgb(c,a*.45));g.addColorStop(1,rgb(c,0));
+  ctx.fillStyle=g;ctx.fillRect(x-w*.3,y-h*.3,w*1.6,h*1.6);ctx.restore();
+}
+
+function drawBackground(t,p){
+  const bg=ctx.createRadialGradient(W*.5,H*.43,0,W*.5,H*.5,Math.max(W,H)*.72);
+  bg.addColorStop(0,"#111722");bg.addColorStop(.48,"#090b12");bg.addColorStop(1,"#020307");
+  ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
+  const pal=palettes[p%palettes.length];
+  const s=Math.min(W,H);
+  for(let i=0;i<pal.length;i++){
+    const a=.08+.025*Math.sin(t*.7+i);
+    const x=W*(.25+i*.17)+Math.sin(t*.31+i)*s*.06;
+    const y=H*(.26+(i%2)*.46)+Math.cos(t*.27+i)*s*.05;
+    drawGlow(x-s*.22,y-s*.22,s*.44,s*.44,pal[i],a,s*.10);
+  }
+}
+
+function drawRect(r,i,t,p){
+  const s=Math.min(W,H),pal=palettes[p%palettes.length];
+  const f=fieldAt(r.x+r.w*.5,r.y+r.h*.5,t);
+  const breathe=.97+.035*Math.sin(t*.45+r.phase);
+  const x=r.x,y=r.y,w=r.w*breathe,h=r.h*breathe;
+  const c0=pal[r.hue],c1=pal[(r.hue+1)%pal.length];
+  const light=.45+.18*Math.sin(t*.31+r.phase)+f.cool*.035;
+  drawGlow(x+w*.45,y+h*.42,w,h,mix(c0,c1,.35),.055+light*.035,s*.035);
+
+  ctx.save();
+  roundedRect(x,y,w,h,Math.min(2,s*.004));
+  ctx.clip();
+
+  const ang=f.dx*.015;
+  const gx=x+w*(.25+.18*Math.sin(t*.23+r.phase)),gy=y+h*(.38+.16*Math.cos(t*.19+r.phase));
+  const g=ctx.createRadialGradient(gx,gy,0,x+w*.52,y+h*.55,Math.max(w,h)*.75);
+  const shift=(Math.sin(t*.21+i*.37)+1)*.5;
+  g.addColorStop(0,rgb(mix(c0,[255,255,255],.48),.90));
+  g.addColorStop(.34,rgb(mix(c0,c1,.32),.72));
+  g.addColorStop(.72,rgb(c1,.55));
+  g.addColorStop(1,"rgba(0,0,0,.30)");
+  ctx.fillStyle=g;ctx.fillRect(x,y,w,h);
+
+  const ray=ctx.createLinearGradient(x,y,x+w,y+h);
+  ray.addColorStop(0,"rgba(255,255,255,.03)");
+  ray.addColorStop(.48,"rgba(255,255,255,"+(.08+.04*Math.sin(t+r.phase))+")");
+  ray.addColorStop(1,"rgba(255,255,255,0)");
+  ctx.fillStyle=ray;ctx.fillRect(x,y,w,h);
+
+  ctx.restore();
+
+  ctx.save();
+  ctx.shadowColor=rgb(c0,.32);ctx.shadowBlur=s*.012;
+  ctx.strokeStyle="rgba(255,255,255,.13)";ctx.lineWidth=Math.max(.55,s*.0012);
+  roundedRect(x,y,w,h,1);ctx.stroke();
+  ctx.restore();
+
+  if(i%3===0) drawGlow(x+w*.5,y+h*.06,w*.75,s*.025,c0,.12,s*.018);
+}
+
+function drawMemories(t,p){
+  const s=Math.min(W,H),pal=palettes[p%palettes.length];
+  ctx.save();ctx.globalCompositeOperation="screen";
+  for(const m of memories){
+    const q=.20+.10*Math.sin(t*.8+m.birth*3);
+    const c=pal[Math.floor(m.hue)%pal.length];
+    const g=ctx.createLinearGradient(
+      m.x-Math.cos(m.a)*m.r,m.y-Math.sin(m.a)*m.r,
+      m.x+Math.cos(m.a)*m.r,m.y+Math.sin(m.a)*m.r
+    );
+    g.addColorStop(0,"rgba(255,255,255,0)");
+    g.addColorStop(.5,rgb(c,q));
+    g.addColorStop(1,"rgba(255,255,255,0)");
+    ctx.strokeStyle=g;ctx.lineWidth=s*.0035;
+    ctx.beginPath();
+    ctx.moveTo(m.x-Math.cos(m.a)*m.r,m.y-Math.sin(m.a)*m.r);
+    ctx.lineTo(m.x+Math.cos(m.a)*m.r,m.y+Math.sin(m.a)*m.r);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function grain(t){
+  ctx.save();ctx.globalAlpha=.055;ctx.globalCompositeOperation="screen";
+  const n=Math.floor(W*H/8500);
+  for(let i=0;i<n;i++){
+    const x=hash(i*2.17+Math.floor(t*2))*W,y=hash(i*5.13+9)*H;
+    const v=hash(i*7.31+4);
+    ctx.fillStyle=v>.5?"#fff":"#000";ctx.fillRect(x,y,.7,.7);
+  }
+  ctx.restore();
+}
+
+function render(t){
+  const p=Math.floor(seed)%palettes.length;
+  drawBackground(t,p);
+  const ordered=[...rects].sort((a,b)=>a.z-b.z);
+  ordered.forEach((r,i)=>drawRect(r,i,t,p));
+  drawMemories(t,p);
+  grain(t);
+}
+
+function loopFrame(p){render(p*TAU)}
+function tick(now){
+  const dt=Math.min(.04,(now-last)/1000);last=now;
+  phase=(phase+dt*.42)%TAU;render(phase);requestAnimationFrame(tick);
+}
+function mutate(){
+  seed=Math.random()*100000;memories=[];
+  rects=makeRects();
+}
+function reset(){memories=[];phase=0;last=performance.now()}
+
+canvas.addEventListener("pointerdown",e=>{
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return true;
+  addMemory(e.clientX,e.clientY);e.preventDefault();return false;
+},{passive:false});
+
+canvas.addEventListener("pointermove",e=>{
+  if(e.buttons) addMemory(e.clientX,e.clientY);
+},{passive:true});
+
+APKit.init({
+  canvas,
+  gifName:"static-light-loop",
+  clockFormat:"spec",
+  dock:true,
+  autoHide:true,
+  fullscreenButton:false,
+  loopFrame,
+  buttons:[
+    {label:"✦",name:"mutate",onClick:mutate},
+    {label:"↻",name:"reset",onClick:reset}
+  ]
+});
+requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
