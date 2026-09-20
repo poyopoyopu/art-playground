@@ -1,5 +1,7 @@
 # CHANGELOG — ART PLAYGROUND 更新履歴
 
+- 2026-09-21 チャッピー: prototypes/index.html に作品ごとの「残す／削除候補／未判定」判定、件数集計、検索・絞り込み、実作品プレビューを追加(prototypes/index.html)
+
 - 2026-09-21 チャッピー: prototypes/ を全170ファイル一覧化し、シリーズ・主要試作・単発試作・エンジン/資料・小型整理候補を見える化(prototypes/README.md)
 
 - 2026-09-21 チャッピー: 作品の全画面閲覧をD1へ記録し、作品別・直近30日・日別のアクセス集計APIを追加。過去の閲覧履歴はこの仕組みでは復元せず、2026-09-21以降を蓄積(worker.js, wrangler.toml)
