@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#090909">
+<title>ART PLAYGROUND — PROTOTYPES</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;background:#090909;color:#eee;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif}
+body{padding:18px 14px 48px}
+header{position:sticky;top:0;z-index:10;background:rgba(9,9,9,.94);backdrop-filter:blur(12px);padding:4px 0 14px;border-bottom:1px solid #252525}
+h1{font-size:20px;letter-spacing:.12em;margin:0 0 5px}
+.sub{font-size:12px;color:#888}
+.stats{display:flex;gap:8px;margin:12px 0}
+.stat{background:#151515;border:1px solid #292929;border-radius:9px;padding:7px 10px;font-size:12px}
+.stat b{font-size:16px;margin-right:3px}
+.controls{display:grid;grid-template-columns:1fr auto auto;gap:7px;margin-top:10px}
+input{width:100%;background:#121212;border:1px solid #333;color:#fff;border-radius:8px;padding:10px 11px;font-size:14px;outline:none}
+button,.link{border:1px solid #333;background:#151515;color:#eee;border-radius:8px;padding:9px 11px;font-size:12px;text-decoration:none;cursor:pointer}
+button:active,.link:active{transform:scale(.98)}
+.tabs{display:flex;gap:6px;margin-top:8px}
+.tab.active{background:#eee;color:#090909;border-color:#eee}
+#list{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px;margin-top:14px}
+.card{border:1px solid #292929;background:#101010;border-radius:10px;padding:10px;display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}
+.card.done{opacity:.48}
+.name{font-size:13px;word-break:break-word}
+.meta{font-size:10px;color:#666;margin-top:3px}
+.actions{display:flex;gap:5px;align-items:center}
+.check{display:flex;align-items:center;gap:4px;font-size:11px;color:#aaa;white-space:nowrap}
+.check input{width:16px;height:16px;margin:0;accent-color:#fff}
+.empty{color:#777;text-align:center;padding:40px 10px;grid-column:1/-1}
+.modal{position:fixed;inset:0;z-index:30;background:#000;display:none}
+.modal.open{display:block}
+.modalbar{height:48px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-bottom:1px solid #222;background:#0c0c0c}
+.modaltitle{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-right:10px}
+iframe{display:block;width:100%;height:calc(100vh - 48px);height:calc(100dvh - 48px);border:0;background:#000}
+@media(max-width:600px){body{padding:12px 10px 40px}.controls{grid-template-columns:1fr auto}.controls .tabs{grid-column:1/-1}.stats{overflow:auto}.stat{white-space:nowrap}}
+</style>
+</head>
+<body>
+<header>
+<h1>PROTOTYPES</h1>
+<div class="sub">ART PLAYGROUND / 実作品を確認して残す・落とす</div>
+<div class="stats">
+<div class="stat"><b id="total">0</b>作品</div>
+<div class="stat"><b id="done">0</b>確認済み</div>
+<div class="stat"><b id="left">0</b>未確認</div>
+</div>
+<div class="controls">
+<input id="search" type="search" placeholder="作品名で検索…">
+<button id="reset" type="button">チェック解除</button>
+<div class="tabs">
+<button class="tab active" data-filter="all" type="button">全部</button>
+<button class="tab" data-filter="todo" type="button">未確認</button>
+<button class="tab" data-filter="done" type="button">確認済み</button>
+</div>
+</div>
+</header>
+<main id="list"></main>
+<div class="modal" id="modal" aria-hidden="true">
+<div class="modalbar">
+<div class="modaltitle" id="modaltitle"></div>
+<button id="close" type="button">閉じる</button>
+</div>
+<iframe id="preview" title="prototype preview"></iframe>
+</div>
+<script>
+const FILES=["06-vein.html","axiom-fold.html","bilateral-weave.html","black-orchid-cultivar.html","black-orchid.html","bloom-machine.html","bloom-trap.html","breathing-spectrum-200.html","bronze-fold.html","bronze-helix.html","bronze-knot.html","cellular-bloom.html","cellular-zoo.html","chorus-void.html","chromatic-fault.html","chromatic-orbit.html","chromatic-tension.html","chromatic-veil-200.html","color-eater.html","color-theft.html","crystal-axis.html","crystal-fracture.html","crystal-prism.html","crystal-strain.html","dot13-prism.html","dot14-burst.html","dual-spectrum-200.html","event-horizon.html","flat-law.html","fluid-orbit.html","flux-weave.html","focus-breathing.html","focus-collapse-auto.html","focus-collapse.html","focus-depth-candy.html","focus-depth-magma.html","focus-depth-ocean.html","focus-depth-prism.html","focus-depth-toxic.html","focus-depth-ultraviolet.html","focus-drag-indigo.html","focus-exile.html","focus-hold-amber.html","focus-pinch-mint.html","focus-swipe-coral.html","focus-tap-violet.html","focus-touch-white.html","fossil-dream.html","fractal-grain.html","fractal07-lightning.html","fractal08-nest.html","frost-law-01-crystal-garden.html","frost-law-02-rime-veins.html","frost-law-03-winter-fern.html","frost-law-04-ice-reef.html","frost-law-05-silver-frost.html","frost-law-06-deep-freeze.html","frost-law-07-glass-branch.html","frost-law-08-polar-bloom.html","frost-law-09-white-network.html","frost-law-10-last-winter.html","frozen-cycle.html","frozen-law.html","glass-topology.html","gravity-cathedral.html","holo-thaw.html","hunters.html","inside-out.html","knot-circuit.html","knot-presence.html","knot-unknot.html","koi-pond-b.html","koi-pond-c.html","koi-pond.html","lattice.html","light03-gridwarp.html","light10-wave.html","light13-comet.html","liquid-entanglement.html","liquid-inversion.html","liquid-knot.html","liquid-law.html","liquid-mandala.html","liquid-pearl-v2.html","liquid-pearl.html","living-fold.html","living-octagon.html","living-spectrum-200.html","mandel-law.html","melting-grid.html","membrane-rgb.html","memory-rift.html","micro-lattice.html","micro-rupture.html","microbeast.html","mirror-bite.html","mirror.html","morphic-cathedral.html","morphic-loop.html","nebula-weave.html","neon-one-path.html","neon-sign.html","nested-cells.html","opal-marble.html","orchid-a-bleed.html","orchid-b-descent.html","orchid-c-gaze.html","organic-abyss.html","palimpsest.html","pixel-forest.html","polar-field.html","polar-fold.html","predator.html","pressure-cathedral.html","pressure-map.html","prism-spiral.html","prismatic-entanglement.html","prismatic-pressure.html","quantum-garden.html","reboot01-press.html","reboot02-breath.html","reboot03-shear.html","reboot06-fold.html","reboot11-thread.html","reboot20-fault.html","ribbon-organ.html","rupture-grid.html","sanctuary-paradox.html","sanctuary-tithe.html","seven-slice.html","shoal-lab.html","singularity-garden.html","soft-spectrum.html","spectra03-julia.html","spectra10-hilbert.html","spectra15-coral.html","spectra17-flame.html","spectral-fold-200.html","spectral-ribbon.html","spiral-spectrum-200-v2.html","spiral-spectrum-200-v4.html","spiral-spectrum-200-v5.html","spiral-spectrum-200-v6.html","spiral-spectrum-200-v7.html","spiral-spectrum-200-v8.html","spiral-spectrum-200-v9.html","spiral-spectrum-200.html","static-light.html","strata-shiver.html","swarm.html","symmetry-debt.html","tar-ceiling.html","tenfold-membrane.html","tide-mark.html","tide.html","violet-membrane.html","void-blossom.html","void-field-ii-apkit.html","void.html"];
+const KEY="art-playground-prototype-checks-v1";
+let checked=JSON.parse(localStorage.getItem(KEY)||"{}");
+let filter="all";
+const $=s=>document.querySelector(s);
+function save(){localStorage.setItem(KEY,JSON.stringify(checked));}
+function render(){
+  const q=$("#search").value.trim().toLowerCase();
+  const visible=FILES.filter(name=>{
+    const match=!q||name.toLowerCase().includes(q);
+    const ok=filter==="all"||(filter==="done"?!!checked[name]:!checked[name]);
+    return match&&ok;
+  });
+  $("#total").textContent=FILES.length;
+  const n=FILES.filter(x=>checked[x]).length;
+  $("#done").textContent=n; $("#left").textContent=FILES.length-n;
+  $("#list").innerHTML=visible.length?visible.map((name,i)=>{
+    const done=!!checked[name];
+    const url=name;
+    return '<div class="card '+(done?'done':'')+'">'+
+      '<div><div class="name">'+esc(name)+'</div><div class="meta">prototypes/'+esc(name)+'</div></div>'+
+      '<div class="actions">'+
+      '<label class="check"><input type="checkbox" data-check="'+escAttr(name)+'" '+(done?'checked':'')+'>確認</label>'+
+      '<button type="button" data-preview="'+escAttr(name)+'">見る</button>'+
+      '<a class="link" href="'+encodeURI(url)+'" target="_blank" rel="noopener">開く</a>'+
+      '</div></div>';
+  }).join(""):'<div class="empty">該当する作品がありません</div>';
+  document.querySelectorAll("[data-check]").forEach(el=>el.addEventListener("change",()=>{
+    checked[el.dataset.check]=el.checked; save(); render();
+  }));
+  document.querySelectorAll("[data-preview]").forEach(el=>el.addEventListener("click",()=>{
+    openPreview(el.dataset.preview);
+  }));
+}
+function esc(s){return s.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));}
+function escAttr(s){return esc(s).replace(/'/g,"&#39;");}
+function openPreview(name){
+  $("#modaltitle").textContent=name;
+  $("#preview").src=encodeURI(name);
+  $("#modal").classList.add("open"); $("#modal").setAttribute("aria-hidden","false");
+}
+function closePreview(){
+  $("#preview").src="about:blank";
+  $("#modal").classList.remove("open"); $("#modal").setAttribute("aria-hidden","true");
+}
+$("#search").addEventListener("input",render);
+document.querySelectorAll(".tab").forEach(b=>b.addEventListener("click",()=>{
+  document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
+  b.classList.add("active"); filter=b.dataset.filter; render();
+}));
+$("#reset").addEventListener("click",()=>{
+  if(confirm("確認済みチェックを全部解除しますか？")){checked={};save();render();}
+});
+$("#close").addEventListener("click",closePreview);
+$("#modal").addEventListener("click",e=>{if(e.target===$("#modal"))closePreview()});
+document.addEventListener("keydown",e=>{if(e.key==="Escape")closePreview()});
+render();
+</script>
+</body>
+</html>
