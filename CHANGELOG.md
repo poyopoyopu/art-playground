@@ -1,5 +1,7 @@
 # CHANGELOG — ART PLAYGROUND 更新履歴
 
+- 2026-09-21 チャッピー: prototypes/index.html に判定結果の書き出し(削除候補ファイル名をコピー)を追加(prototypes/index.html)
+
 - 2026-09-21 チャッピー: prototypes/index.html に作品ごとの「残す／削除候補／未判定」判定、件数集計、検索・絞り込み、実作品プレビューを追加(prototypes/index.html)
 
 - 2026-09-21 チャッピー: prototypes/ を全170ファイル一覧化し、シリーズ・主要試作・単発試作・エンジン/資料・小型整理候補を見える化(prototypes/README.md)
