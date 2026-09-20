@@ -1,5 +1,7 @@
 # CHANGELOG — ART PLAYGROUND 更新履歴
 
+- 2026-09-20 チャッピー: MANDEL LAWを新規制作。WebGL2でマンデルブロ集合を描画し、タッチした場所に局所的な冪法則の変更を恒久的に刻む構造と、周期的な色・呼吸変化を実装(prototypes/mandel-law.html)
+
 - 2026-09-20 チャッピー: CELLULAR BLOOMを参考動画の点描リング＋ロゼット群として根本再構成。大中小3階層の自己相似セル、周期的な格子変形、タッチによる密度・色・開花法則の変更を実装(prototypes/cellular-bloom.html)
 
 - 2026-09-20 クロード: SHOAL LABを新規制作。koi-pond-engine.jsの群れシミュレーションはそのままに、描く生き物と背景だけを差し替えて見比べる実験台。POND(鯉)/ABYSS(深海の発光生物)/FLOCK(夜空の群れ)/CULTURE(顕微鏡の細胞)/NESTED(階層ごとに魚→小魚→オタマジャクシ→微生物と姿が変わる)の5世界を⚙パネルで切替、水の濃さ・ぼけ・光の網・数をスライダーで調整可(値はlocalStorageに保存)(prototypes/shoal-lab.html)
@@ -55,6 +57,7 @@
 
 - 2026-09-18 チャッピー: 参考動画の金属リボン彫刻を再構成したBRONZE KNOT / BRONZE FOLD / BRONZE HELIXを新規制作(prototypes/bronze-knot.html, prototypes/bronze-fold.html, prototypes/bronze-helix.html)
 - 2026-09-18 チャッピー: BRONZE系3作を平たい金属リボン構造へ全面改修。円筒・節状の見た目を廃し、幅広の連続帯と面反射を主役にした(prototypes/bronze-knot.html, prototypes/bronze-fold.html, prototypes/bronze-helix.html)
+---
 ---
 
 ## 現在の状態(変わったら書き換える)
