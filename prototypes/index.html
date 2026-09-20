@@ -23,10 +23,10 @@ button:active,.link:active{transform:scale(.98)}
 .tab.active{background:#eee;color:#090909;border-color:#eee}
 #list{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px;margin-top:14px}
 .card{border:1px solid #292929;background:#101010;border-radius:10px;padding:10px;display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}
-.card.done{opacity:.48}
+.card.keep{border-color:#555}.card.drop{border-color:#6b4545;background:#160f0f}
 .name{font-size:13px;word-break:break-word}
 .meta{font-size:10px;color:#666;margin-top:3px}
-.actions{display:flex;gap:5px;align-items:center}
+.actions{display:flex;gap:5px;align-items:center;flex-wrap:wrap}.actions button[data-state="keep"]{border-color:#555}.actions button[data-state="drop"]{border-color:#6b4545}
 .check{display:flex;align-items:center;gap:4px;font-size:11px;color:#aaa;white-space:nowrap}
 .check input{width:16px;height:16px;margin:0;accent-color:#fff}
 .empty{color:#777;text-align:center;padding:40px 10px;grid-column:1/-1}
@@ -44,16 +44,18 @@ iframe{display:block;width:100%;height:calc(100vh - 48px);height:calc(100dvh - 4
 <div class="sub">ART PLAYGROUND / 実作品を確認して残す・落とす</div>
 <div class="stats">
 <div class="stat"><b id="total">0</b>作品</div>
-<div class="stat"><b id="done">0</b>確認済み</div>
-<div class="stat"><b id="left">0</b>未確認</div>
+<div class="stat"><b id="keep">0</b>残す</div>
+<div class="stat"><b id="drop">0</b>削除候補</div>
+<div class="stat"><b id="left">0</b>未判定</div>
 </div>
 <div class="controls">
 <input id="search" type="search" placeholder="作品名で検索…">
-<button id="reset" type="button">チェック解除</button>
+<button id="reset" type="button">判定リセット</button>
 <div class="tabs">
 <button class="tab active" data-filter="all" type="button">全部</button>
-<button class="tab" data-filter="todo" type="button">未確認</button>
-<button class="tab" data-filter="done" type="button">確認済み</button>
+<button class="tab" data-filter="todo" type="button">未判定</button>
+<button class="tab" data-filter="keep" type="button">残す</button>
+<button class="tab" data-filter="drop" type="button">削除候補</button>
 </div>
 </div>
 </header>
@@ -76,25 +78,29 @@ function render(){
   const q=$("#search").value.trim().toLowerCase();
   const visible=FILES.filter(name=>{
     const match=!q||name.toLowerCase().includes(q);
-    const ok=filter==="all"||(filter==="done"?!!checked[name]:!checked[name]);
+    const ok=filter==="all"||(filter==="keep"?checked[name]==="keep":filter==="drop"?checked[name]==="drop":checked[name]!=="keep"&&checked[name]!=="drop");
     return match&&ok;
   });
   $("#total").textContent=FILES.length;
-  const n=FILES.filter(x=>checked[x]).length;
-  $("#done").textContent=n; $("#left").textContent=FILES.length-n;
+  const keep=FILES.filter(x=>checked[x]==="keep").length;
+  const drop=FILES.filter(x=>checked[x]==="drop").length;
+  $("#keep").textContent=keep; $("#drop").textContent=drop; $("#left").textContent=FILES.length-keep-drop;
   $("#list").innerHTML=visible.length?visible.map((name,i)=>{
-    const done=!!checked[name];
+    const state=checked[name]||"";
     const url=name;
-    return '<div class="card '+(done?'done':'')+'">'+
+    return '<div class="card '+state+'">'+
       '<div><div class="name">'+esc(name)+'</div><div class="meta">prototypes/'+esc(name)+'</div></div>'+
       '<div class="actions">'+
-      '<label class="check"><input type="checkbox" data-check="'+escAttr(name)+'" '+(done?'checked':'')+'>確認</label>'+
+      '<button type="button" data-state="keep" data-name="'+escAttr(name)+'">'+(state==="keep"?"✓ 残す":"残す")+'</button>'+
+      '<button type="button" data-state="drop" data-name="'+escAttr(name)+'">'+(state==="drop"?"✓ 削除候補":"削除候補")+'</button>'+
       '<button type="button" data-preview="'+escAttr(name)+'">見る</button>'+
       '<a class="link" href="'+encodeURI(url)+'" target="_blank" rel="noopener">開く</a>'+
       '</div></div>';
   }).join(""):'<div class="empty">該当する作品がありません</div>';
-  document.querySelectorAll("[data-check]").forEach(el=>el.addEventListener("change",()=>{
-    checked[el.dataset.check]=el.checked; save(); render();
+  document.querySelectorAll("[data-state]").forEach(el=>el.addEventListener("click",()=>{
+    const name=el.dataset.name;
+    checked[name]=checked[name]===el.dataset.state?"":el.dataset.state;
+    save(); render();
   }));
   document.querySelectorAll("[data-preview]").forEach(el=>el.addEventListener("click",()=>{
     openPreview(el.dataset.preview);
@@ -117,7 +123,7 @@ document.querySelectorAll(".tab").forEach(b=>b.addEventListener("click",()=>{
   b.classList.add("active"); filter=b.dataset.filter; render();
 }));
 $("#reset").addEventListener("click",()=>{
-  if(confirm("確認済みチェックを全部解除しますか？")){checked={};save();render();}
+  if(confirm("残す／削除候補の判定を全部解除しますか？")){checked={};save();render();}
 });
 $("#close").addEventListener("click",closePreview);
 $("#modal").addEventListener("click",e=>{if(e.target===$("#modal"))closePreview()});
