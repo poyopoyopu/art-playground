@@ -1,0 +1,553 @@
+<!-- LUMINA — クロちゃん(Claude)作。おっちゃん提供の参考画像(光る半透明スラブの積層・
+     ポートレート)から構図の法則を抽出し、「光の層は切れる」という世界のルールを足して
+     ギャラリー用に再構成。ap-kit.js統合: クロちゃん -->
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>LUMINA — 層を切る法則</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#08080a;overflow:hidden;
+    -webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+  canvas{display:block;position:fixed;inset:0;width:100vw;height:100vh;touch-action:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script src="ap-kit.js"></script>
+<script>
+(function(){
+"use strict";
+
+/* ---------- 世界のルール ----------
+   この世界は、半透明の光の板が何枚も重なってできている。板はそれぞれ別々の
+   周期(14〜126秒)でゆっくり泳いでいて、同じ絵に二度と戻らない。
+
+   指で触れると、その高さで光の層が切れる。切れ目から下の層はまるごと横へ
+   ずれ、断面には鋭いガラスの縁が立つ。指を横へ引いた分だけ深くずらせる。
+   一度入った切れ目は塞がらない。そして切るほど世界は泳ぐ力を失っていき、
+   最後には一枚の動かないガラスの標本になる。
+   光をきれいなまま眺めるか、切って標本にするか ― どちらもこの世界の姿。
+
+   ✦は別の構図を引き直す。◐はパレット送り。↻は切る前の流れに戻す。
+
+   構図の法則(参考画像から抽出):
+     ①全幅の横帯2〜4本 + 全高の縦帯2〜5本で格子を作る
+     ②中央の下地1枚を3〜7本の縦スラブに割り、高さと位置をズラす
+     ③矩形は4辺別々のボケ幅で定義する(左右だけ=面 / 全方向=光 / 1.5px=ガラス縁)
+     ④screen主体に2割ほどmultiplyの暗色、細い線はlighter
+     ⑤仕上げはブルーム→ビネット→グレインの順
+------------------------------------ */
+
+var cv = document.getElementById("c");
+var ctx = cv.getContext("2d");
+var W = 0, H = 0, HH = 0;
+
+var art  = document.createElement("canvas"); var actx  = art.getContext("2d");
+var refl = document.createElement("canvas"); var rctx  = refl.getContext("2d");
+var bl   = document.createElement("canvas"); var blctx = bl.getContext("2d");
+
+var TAU = Math.PI*2;
+
+/* ---------- seeded RNG ---------- */
+function mulberry32(a){
+  return function(){
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    var t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+var R = Math.random;
+function rr(a,b){ return a + R()*(b-a); }
+function ri(a,b){ return Math.floor(a + R()*(b-a+1)); }
+function pick(arr){ return arr[Math.floor(R()*arr.length)]; }
+function chance(p){ return R() < p; }
+
+/* ---------- palettes ---------- */
+var PALETTES = {
+  PRISM: { bg:"#09090c", dark:"#141626",
+    c:["#2438e8","#3aa0ff","#86e6ff","#ffe39a","#ffae4d","#ff5a2b","#ff2f63","#f6f1e6","#c9b7ff"] },
+  EMBER: { bg:"#140603", dark:"#360d02",
+    c:["#ff3a10","#ff6a12","#ff951c","#ffc23d","#ffe08a","#d62608","#8f1a03"] },
+  DUSK:  { bg:"#070b14", dark:"#0e1730",
+    c:["#ff4438","#ff7d5c","#ffd6c8","#1d4f97","#3f92c8","#a6dcee","#f4ece6"] },
+  MOSS:  { bg:"#050a08", dark:"#0a1712",
+    c:["#16c08d","#5fe4ad","#c9f7dc","#0f6d92","#7fd6ff","#eaffd6","#ffcf5c"] },
+  ASH:   { bg:"#090909", dark:"#161616",
+    c:["#ffffff","#e6e3dd","#b9b6af","#7d7a74","#4a4845","#d9c9b4"] }
+};
+var PAL_NAMES = Object.keys(PALETTES);
+var palIndex  = 0;
+var seed      = (Math.random()*1e9)|0;
+var crisp     = true;             // SHARP(既定) / SOFT
+var panels = [], reflectOn = false, bgColor = "#000";
+
+/* 縁の処理: SHARPなら大半をシャープな縁にする */
+function ef(max){
+  return chance(crisp ? 0.68 : 0.18) ? rr(0.5,3)*S() : rr(0.10,1.0)*max;
+}
+/* 画面サイズに対する基準倍率(短辺800px相当を1とする) */
+function S(){ return Math.max(0.6, Math.min(W,H)/800); }
+
+/* ---------- soft-edge sprite ---------- */
+function maskGrad(g, s, e){
+  var N = 9, i, t, v;
+  if(s <= 0.0008){
+    g.addColorStop(0, "rgba(255,255,255,1)");
+  } else {
+    for(i=0;i<=N;i++){
+      t = i/N; v = t*t*(3-2*t);
+      g.addColorStop(Math.min(t*s,1), "rgba(255,255,255,"+v.toFixed(4)+")");
+    }
+  }
+  if(e >= 0.9992){
+    g.addColorStop(1, "rgba(255,255,255,1)");
+  } else {
+    for(i=0;i<=N;i++){
+      t = i/N; v = 1 - t*t*(3-2*t);
+      g.addColorStop(Math.min(e + (1-e)*t, 1), "rgba(255,255,255,"+v.toFixed(4)+")");
+    }
+  }
+}
+
+function makeSprite(w, h, f, color){
+  var fullW = w + f[0] + f[1], fullH = h + f[2] + f[3];
+  var soft = Math.min(f[0], f[1], f[2], f[3]) > 10;
+  var sc = soft ? 0.5 : 1;
+  var sw = Math.max(2, Math.round(fullW*sc));
+  var sh = Math.max(2, Math.round(fullH*sc));
+  var o = document.createElement("canvas");
+  o.width = sw; o.height = sh;
+  var oc = o.getContext("2d");
+  oc.fillStyle = color;
+  oc.fillRect(0,0,sw,sh);
+  oc.globalCompositeOperation = "destination-in";
+  var g = oc.createLinearGradient(0,0,sw,0);
+  maskGrad(g, f[0]/fullW, (f[0]+w)/fullW);
+  oc.fillStyle = g; oc.fillRect(0,0,sw,sh);
+  g = oc.createLinearGradient(0,0,0,sh);
+  maskGrad(g, f[2]/fullH, (f[2]+h)/fullH);
+  oc.fillStyle = g; oc.fillRect(0,0,sw,sh);
+  return { cv:o, ox:-f[0], oy:-f[2], w:fullW, h:fullH };
+}
+
+/* ---------- composition ---------- */
+function addPanel(o){
+  var p = {
+    x:o.x, y:o.y, w:o.w, h:o.h,
+    alpha:o.alpha, blend:o.blend || "screen",
+    ax:o.ax, ay:o.ay,
+    fx: rr(0.10,0.45), fy: rr(0.10,0.45),
+    px: rr(0,TAU), py: rr(0,TAU),
+    ab: rr(0.12,0.42), fa: rr(0.09,0.34), pa: rr(0,TAU),
+    sb: o.sb || 0, fs: rr(0.07,0.26), ps: rr(0,TAU),
+    fm: rr(0.05,0.22), pm: rr(0,TAU)
+  };
+  p.a = makeSprite(o.w, o.h, o.f, o.colorA);
+  p.b = o.colorB ? makeSprite(o.w, o.h, o.f, o.colorB) : null;
+  panels.push(p);
+}
+
+function build(){
+  R = mulberry32(seed);
+  var P = PALETTES[PAL_NAMES[palIndex]];
+  bgColor = P.bg;
+  panels = [];
+
+  /* 縦長画面だけ水面(反射)を出す。横長では帯が痩せるので出さない */
+  reflectOn = (H > W*1.15) && chance(0.55);
+  HH = reflectOn ? Math.round(H * rr(0.76,0.86)) : H;
+  refl.height = Math.max(1, H - HH);
+
+  var i, n;
+
+  /* ① 横帯 */
+  n = ri(2,4);
+  for(i=0;i<n;i++){
+    var bh = rr(0.07,0.30)*HH;
+    addPanel({
+      x:-90*S(), w:W+180*S(),
+      y: rr(-0.08,0.92)*HH - bh*0.3, h:bh,
+      f:[0,0, ef(0.13*HH), ef(0.13*HH)],
+      colorA: pick(P.c), colorB: chance(0.45) ? pick(P.c) : null,
+      alpha: rr(0.30,0.74), blend:"screen",
+      ax: 0, ay: rr(0.02,0.09)*HH
+    });
+  }
+
+  /* ① 縦帯 */
+  n = ri(2,5);
+  for(i=0;i<n;i++){
+    var bw = rr(0.05,0.26)*W;
+    addPanel({
+      y:-90*S(), h:HH+180*S(),
+      x: rr(-0.08,0.92)*W - bw*0.3, w:bw,
+      f:[ef(0.10*W), ef(0.10*W), 0,0],
+      colorA: pick(P.c), colorB: chance(0.45) ? pick(P.c) : null,
+      alpha: rr(0.28,0.72), blend:"screen",
+      ax: rr(0.02,0.09)*W, ay: 0, sb: rr(0.03,0.12)
+    });
+  }
+
+  /* ② 中央の下地 */
+  var cw = rr(0.50,0.80)*W, ch = rr(0.48,0.78)*HH;
+  var cx = (W-cw)/2 + rr(-0.05,0.05)*W;
+  var cy = (HH-ch)/2 + rr(-0.10,0.06)*HH;
+
+  addPanel({
+    x:cx, y:cy, w:cw, h:ch,
+    f:[ef(0.05*W), ef(0.05*W), ef(0.05*HH), ef(0.05*HH)],
+    colorA: pick(P.c), colorB: pick(P.c),
+    alpha: rr(0.34,0.66), blend:"screen",
+    ax: rr(0.005,0.03)*W, ay: rr(0.005,0.03)*HH, sb: rr(0.02,0.06)
+  });
+
+  /* ② 中央を割る縦スラブ */
+  var cols = ri(3,7), ws = [], tot = 0;
+  for(i=0;i<cols;i++){ var v = rr(0.5,1.8); ws.push(v); tot += v; }
+  var pxs = cx;
+  for(i=0;i<cols;i++){
+    var w = cw*ws[i]/tot, ov = rr(0,0.025)*W;
+    var dark = chance(0.22);
+    addPanel({
+      x: pxs - ov, w: w + ov*2,
+      y: cy + rr(-0.16,0.14)*ch, h: ch*rr(0.55,1.28),
+      f:[ef(0.035*W), ef(0.035*W), ef(0.07*HH), ef(0.07*HH)],
+      colorA: dark ? P.dark : pick(P.c),
+      colorB: dark ? null : (chance(0.55) ? pick(P.c) : null),
+      alpha: dark ? rr(0.35,0.80) : rr(0.28,0.82),
+      blend: dark ? "multiply" : (chance(0.18) ? "lighter" : "screen"),
+      ax: rr(0.004,0.035)*W, ay: rr(0.006,0.05)*HH, sb: rr(0.03,0.14)
+    });
+    /* スラブの片側にシャープな稜線を立てる */
+    if(crisp && chance(0.42)){
+      addPanel({
+        x: (chance(0.5) ? pxs - ov : pxs + w + ov) - S(), w: rr(1.2,3.5)*S(),
+        y: cy + rr(-0.10,0.10)*ch, h: ch*rr(0.5,1.15),
+        f:[0.6*S(),0.6*S(), ef(0.03*HH), ef(0.03*HH)],
+        colorA: chance(0.45) ? "#ffffff" : pick(P.c), colorB:null,
+        alpha: rr(0.45,0.95), blend:"lighter",
+        ax: rr(0.003,0.02)*W, ay: rr(0.004,0.03)*HH
+      });
+    }
+    pxs += w;
+  }
+
+  /* ③ ガラスの枠(4辺1.5px) */
+  n = ri(1,3);
+  for(i=0;i<n;i++){
+    var fw = cw*rr(0.35,0.95), fh = ch*rr(0.45,1.05);
+    var e15 = 1.5*S();
+    addPanel({
+      x: cx + (cw-fw)*rr(0.05,0.95),
+      y: cy + (ch-fh)*rr(0.05,0.95),
+      w: fw, h: fh, f:[e15,e15,e15,e15],
+      colorA: chance(0.5) ? "#ffffff" : pick(P.c), colorB:null,
+      alpha: rr(0.08,0.22),
+      blend: chance(0.3) ? "overlay" : "screen",
+      ax: rr(0.004,0.03)*W, ay: rr(0.004,0.03)*HH, sb: rr(0.02,0.08)
+    });
+  }
+
+  /* ④ 細い光の線 */
+  n = ri(1,3);
+  for(i=0;i<n;i++){
+    if(chance(0.5)){
+      addPanel({ x:-90*S(), w:W+180*S(), y: rr(0.1,0.9)*HH, h: rr(2,6)*S(),
+        f:[0,0, rr(0.5,2.5)*S(), rr(0.5,2.5)*S()],
+        colorA: chance(0.5) ? "#ffffff" : pick(P.c), colorB:null,
+        alpha: rr(0.5,0.95), blend:"lighter",
+        ax:0, ay: rr(0.01,0.06)*HH });
+    } else {
+      addPanel({ y:-90*S(), h:HH+180*S(), x: rr(0.1,0.9)*W, w: rr(2,6)*S(),
+        f:[rr(0.5,2.5)*S(), rr(0.5,2.5)*S(), 0,0],
+        colorA: chance(0.5) ? "#ffffff" : pick(P.c), colorB:null,
+        alpha: rr(0.5,0.95), blend:"lighter",
+        ax: rr(0.01,0.06)*W, ay:0 });
+    }
+  }
+}
+
+/* ---------- 切れ目(世界のルール) ---------- */
+var cuts = [];       // {y:0〜1(HHに対する高さ), shift:-1〜1(Wに対するズレ), cur:現在値}
+var active = null;   // ドラッグ中のプレビュー
+var MAX_CUTS = 40;
+
+function calmFactor(){ return 1/(1 + cuts.length*0.22); }
+
+function cutList(){
+  var a = cuts.slice();
+  if(active) a.push({y:active.y, cur:active.dx, live:true});
+  a.sort(function(p,q){ return p.y - q.y; });
+  return a;
+}
+
+function addCut(y, dx){
+  if(cuts.length >= MAX_CUTS) return;
+  cuts.push({ y:y, shift:dx, cur:dx*0.25 });
+}
+
+function resetCuts(){ cuts = []; active = null; }
+
+/* ---------- grain / vignette ---------- */
+var grainPats = [];
+function initGrain(){
+  grainPats = [];
+  for(var k=0;k<3;k++){
+    var g = document.createElement("canvas"); g.width = 256; g.height = 256;
+    var gc = g.getContext("2d");
+    var id = gc.createImageData(256,256), d = id.data, i, v;
+    for(i=0;i<d.length;i+=4){
+      v = 128 + (Math.random()-0.5)*72;
+      d[i] = v; d[i+1] = v; d[i+2] = v; d[i+3] = 255;
+    }
+    gc.putImageData(id,0,0);
+    grainPats.push(ctx.createPattern(g,"repeat"));
+  }
+}
+
+var vig = null;
+function initVignette(){
+  vig = ctx.createRadialGradient(W/2, H*0.47, H*0.12, W/2, H*0.5, H*0.86);
+  vig.addColorStop(0, "rgba(0,0,0,0)");
+  vig.addColorStop(0.60, "rgba(0,0,0,"+(crisp?0.08:0.20)+")");
+  vig.addColorStop(1, "rgba(0,0,0,"+(crisp?0.46:0.72)+")");
+}
+
+/* ---------- frame ---------- */
+var frameNo = 0;
+
+function draw(time, phase){
+  var T = (window.APKit ? window.APKit.T : function(k,ph,tm){ return tm*k; });
+  var i, p, dx, dy, a, mix, sw, sh, k, ox, oy;
+  var calm = calmFactor();
+
+  /* 光の層を1枚の絵にまとめる */
+  actx.globalCompositeOperation = "source-over";
+  actx.globalAlpha = 1;
+  actx.fillStyle = bgColor;
+  actx.fillRect(0,0,W,HH);
+
+  for(i=0;i<panels.length;i++){
+    p = panels[i];
+    dx = p.ax * calm * Math.sin(T(p.fx,phase,time) + p.px);
+    dy = p.ay * calm * Math.sin(T(p.fy,phase,time) + p.py);
+    a  = p.alpha * (1 + p.ab * calm * Math.sin(T(p.fa,phase,time) + p.pa));
+    if(a <= 0.002) continue;
+    k  = 1 + p.sb * calm * Math.sin(T(p.fs,phase,time) + p.ps);
+    sw = p.a.w * k; sh = p.a.h;
+    ox = p.x + p.a.ox - (sw - p.a.w)/2 + dx;
+    oy = p.y + p.a.oy + dy;
+
+    actx.globalCompositeOperation = p.blend;
+    if(p.b){
+      mix = 0.5 + 0.5*Math.sin(T(p.fm,phase,time) + p.pm);
+      actx.globalAlpha = a*mix;
+      actx.drawImage(p.a.cv, ox, oy, sw, sh);
+      actx.globalAlpha = a*(1-mix);
+      actx.drawImage(p.b.cv, ox, oy, sw, sh);
+    } else {
+      actx.globalAlpha = a;
+      actx.drawImage(p.a.cv, ox, oy, sw, sh);
+    }
+  }
+  actx.globalAlpha = 1;
+  actx.globalCompositeOperation = "source-over";
+
+  /* 切れ目で帯に分けて、下側をまるごと横へずらして置き直す */
+  ctx.globalCompositeOperation = "source-over";
+  ctx.globalAlpha = 1;
+  ctx.filter = "none";
+  ctx.fillStyle = bgColor;
+  ctx.fillRect(0,0,W,H);
+
+  var cl = cutList(), off = 0, y0 = 0, y1, c;
+  for(i=0;i<=cl.length;i++){
+    y1 = (i < cl.length) ? cl[i].y*HH : HH;
+    if(y1 - y0 > 0.5){
+      ctx.drawImage(art, 0, y0, W, y1-y0, off, y0, W, y1-y0);
+    }
+    if(i < cl.length){
+      c = cl[i];
+      /* 断面: 上の層の縁に鋭い光、下の層の頭に影 */
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      ctx.globalAlpha = c.live ? 0.5 : 0.8;
+      var eg = ctx.createLinearGradient(off, 0, off+W, 0);
+      eg.addColorStop(0,    "rgba(255,255,255,0)");
+      eg.addColorStop(0.14, "rgba(255,255,255,1)");
+      eg.addColorStop(0.86, "rgba(255,255,255,1)");
+      eg.addColorStop(1,    "rgba(255,255,255,0)");
+      ctx.fillStyle = eg;
+      ctx.fillRect(off, y1 - 1.6*S(), W, 1.6*S());
+      ctx.restore();
+      off += c.cur * W;
+      ctx.save();
+      ctx.globalCompositeOperation = "multiply";
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(off, y1, W, 2.6*S());
+      ctx.restore();
+    }
+    y0 = y1;
+  }
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = "source-over";
+
+  /* 水面(切ったあとの絵をそのまま映す) */
+  if(reflectOn){
+    var rh = H - HH;
+    rctx.globalCompositeOperation = "source-over";
+    rctx.clearRect(0,0,W,rh);
+    rctx.save();
+    rctx.scale(1,-1);
+    rctx.drawImage(cv, 0, 0, W, HH, 0, -HH, W, HH);
+    rctx.restore();
+    rctx.globalCompositeOperation = "destination-in";
+    var rg = rctx.createLinearGradient(0,0,0,rh);
+    rg.addColorStop(0, "rgba(255,255,255,0.70)");
+    rg.addColorStop(0.45, "rgba(255,255,255,0.26)");
+    rg.addColorStop(1, "rgba(255,255,255,0)");
+    rctx.fillStyle = rg;
+    rctx.fillRect(0,0,W,rh);
+    ctx.save();
+    ctx.filter = (crisp ? "blur(1px)" : "blur(3px)");
+    ctx.drawImage(refl, 0, HH);
+    ctx.restore();
+    ctx.filter = "none";
+  }
+
+  /* ⑤ ブルーム(切るほど弱まり、光から硬いガラスへ寄っていく) */
+  blctx.globalCompositeOperation = "source-over";
+  blctx.clearRect(0,0,bl.width,bl.height);
+  blctx.drawImage(cv, 0, 0, bl.width, bl.height);
+  ctx.save();
+  ctx.globalCompositeOperation = "screen";
+  ctx.globalAlpha = (crisp ? 0.15 : 0.30) * (0.45 + 0.55*calm);
+  ctx.filter = (crisp ? "blur(4px)" : "blur(7px)");
+  ctx.drawImage(bl, 0, 0, W, H);
+  ctx.restore();
+  ctx.filter = "none";
+
+  /* ⑤ ビネット */
+  ctx.save();
+  ctx.globalCompositeOperation = "source-over";
+  ctx.fillStyle = vig;
+  ctx.fillRect(0,0,W,H);
+  ctx.restore();
+
+  /* ⑤ グレイン */
+  ctx.save();
+  ctx.globalCompositeOperation = "overlay";
+  ctx.globalAlpha = crisp ? 0.18 : 0.28;
+  ctx.translate(-((Math.random()*256)|0), -((Math.random()*256)|0));
+  ctx.fillStyle = grainPats[frameNo % grainPats.length];
+  ctx.fillRect(0,0,W+300,H+300);
+  ctx.restore();
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = "source-over";
+}
+
+/* ---------- loop ---------- */
+var t0 = 0, last = 0;
+function loop(ms){
+  requestAnimationFrame(loop);
+  if(window.APKit && window.APKit.isExporting && window.APKit.isExporting()) return;
+  if(!t0) t0 = ms;
+  if(ms - last < 33) return;
+  last = ms;
+  frameNo++;
+  for(var i=0;i<cuts.length;i++){
+    cuts[i].cur += (cuts[i].shift - cuts[i].cur)*0.12;
+  }
+  draw((ms - t0)/1000, null);
+}
+
+/* ---------- resize ---------- */
+var rzTimer = null;
+function sizeNow(){
+  var dpr = Math.min(2, window.devicePixelRatio || 1);
+  W = Math.max(320, Math.round(window.innerWidth  * dpr));
+  H = Math.max(320, Math.round(window.innerHeight * dpr));
+  cv.width = W;  cv.height = H;
+  art.width = W; art.height = H;
+  refl.width = W;
+  bl.width = Math.max(2, W>>2); bl.height = Math.max(2, H>>2);
+  HH = H;
+  initGrain();
+  initVignette();
+  build();
+}
+window.addEventListener("resize", function(){
+  clearTimeout(rzTimer);
+  rzTimer = setTimeout(sizeNow, 200);
+});
+
+/* ---------- 触る ---------- */
+function pt(e){
+  var dpr = Math.min(2, window.devicePixelRatio || 1);
+  return { x:e.clientX*dpr, y:e.clientY*dpr };
+}
+cv.addEventListener("pointerdown", function(e){
+  if(window.APKit && window.APKit.isUI(e.clientX, e.clientY)) return;
+  e.preventDefault();
+  var q = pt(e);
+  if(q.y > HH) return;           // 水面の部分は切れない
+  active = { y: q.y/HH, x0: q.x, dx: 0 };
+  if(cv.setPointerCapture) { try{ cv.setPointerCapture(e.pointerId); }catch(err){} }
+}, {passive:false});
+cv.addEventListener("pointermove", function(e){
+  if(!active) return;
+  e.preventDefault();
+  active.dx = (pt(e).x - active.x0)/W;
+}, {passive:false});
+function release(){
+  if(!active) return;
+  var dx = active.dx;
+  /* ただのタップでも切れる。向きは触った側へ */
+  if(Math.abs(dx) < 0.006) dx = (active.x0 > W/2 ? -1 : 1) * (0.02 + Math.random()*0.05);
+  addCut(active.y, dx);
+  active = null;
+}
+cv.addEventListener("pointerup", release);
+cv.addEventListener("pointercancel", function(){ active = null; });
+
+/* ---------- ボタン ---------- */
+function mutate(){
+  seed = (Math.random()*1e9)|0;
+  crisp = Math.random() < 0.75;   // SHARPが基本、たまにSOFT
+  resetCuts();
+  initVignette();
+  build();
+}
+function nextPalette(){
+  palIndex = (palIndex + 1) % PAL_NAMES.length;
+  build();
+  if(window.APKit && window.APKit.toast) window.APKit.toast(PAL_NAMES[palIndex], 1400);
+}
+function resetAll(){ resetCuts(); }
+
+sizeNow();
+requestAnimationFrame(loop);
+
+window.APKit.init({
+  canvas: cv,
+  gifName: 'lumina-loop',
+  clockFormat: 'spec',
+  dock: true,
+  autoHide: true,
+  fullscreenButton: false,
+  loopFrame: function(phase){ draw(0, phase); },
+  buttons: [
+    {label:'✦', name:'mutate',  onClick:mutate},
+    {label:'◐', name:'palette', onClick:nextPalette},
+    {label:'↻', name:'reset',   onClick:resetAll}
+  ]
+});
+
+})();
+</script>
+</body>
+</html>

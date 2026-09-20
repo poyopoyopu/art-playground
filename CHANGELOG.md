@@ -1,5 +1,7 @@
 # CHANGELOG — ART PLAYGROUND 更新履歴
 
+- 2026-09-21 クロード: LUMINAを採用。art-v72として昇格し、ギャラリーLOG先頭とPublished works(CURRENTの直後)に追加。参考画像の積層スラブ構図(全幅横帯+全高縦帯の格子/中央下地を3〜7本の縦スラブに分割/4辺別ボケ幅の矩形/screen主体+2割multiply/ブルーム→ビネット→グレイン)はそのままに、ギャラリー用として全画面化・ap-kit.js統合し、「触れた高さで光の層が切れ、切れ目から下がまるごと横へずれる。切れ目は塞がらず、切るほど世界は泳ぐ力を失って最後は動かないガラスの標本になる」という法則を追加(art-v72-lumina.html, index.html)
+
 - 2026-09-21 チャッピー: STATIC LIGHTを参考画像寄りに再構築。大面積の透明矩形、入れ子の光学面、水平/垂直の境界光、暗い周辺光、グレインを強化(prototypes/static-light.html)
 - 2026-09-21 チャッピー: STATIC LIGHTを新規制作。参考画像の多層矩形・透過面・色光・微細グレインをCanvas2Dで再構成し、タッチ位置を反射面として記憶する法則を実装(prototypes/static-light.html)
 
@@ -70,7 +72,7 @@
 ## 現在の状態(変わったら書き換える)
 
 - CURRENT: TIDE MARK(`art-v71-tide-mark.html`)
-- LOG先頭: TAR CEILING(`art-v68-tar-ceiling.html`)
+- LOG先頭: LUMINA(`art-v72-lumina.html`)
 - 作業ルール: `AGENTS.md`(ギャラリー追加の手順と命名ルールは13章)
 - 運用メモ: `NOTES.md`(GitHub操作は可能性を確認してから実行)
 
