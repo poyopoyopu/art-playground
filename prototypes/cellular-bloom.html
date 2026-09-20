@@ -1,1 +1,208 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no"><title>CELLULAR BLOOM</title><script src="../ap-kit.js"></script><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#020704}body{touch-action:none}canvas{display:block;width:100%;height:100%}</style></head><body><canvas id="c"></canvas><script>const c=document.getElementById('c'),g=c.getContext('2d');let W,H,d,cells=[];function size(){d=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;c.width=W*d;c.height=H*d;g.setTransform(d,0,0,d,0,0)}addEventListener('resize',size);size();function draw(p=0){g.fillStyle="#020704";g.fillRect(0,0,W,H);for(let m of cells){for(let j=0;j<9;j++){let a=j*Math.PI*2/9+p*.12+m.seed,rr=m.r*(.45+.13*Math.sin(p*1.5+j)),x=m.x+Math.cos(a)*rr,y=m.y+Math.sin(a)*rr;g.beginPath();for(let k=0;k<18;k++){let aa=k*Math.PI*2/18,rad=rr*.32*(1+.18*Math.sin(aa*5+p+j));g.lineTo(x+Math.cos(aa)*rad,y+Math.sin(aa)*rad)}g.closePath();g.strokeStyle=`hsla(${100+j*28+m.seed*20},85%,65%,.2)`;g.lineWidth=1.2;g.stroke()}}}function add(x,y){if(APKit.isUI(x,y))return;cells.unshift({x,y,r:18+Math.random()*22,seed:Math.random()*6});cells=cells.slice(0,7)}c.addEventListener('pointerdown',e=>add(e.clientX,e.clientY));c.addEventListener('pointermove',e=>{if(e.buttons)add(e.clientX,e.clientY)});APKit.init({canvas:c,gifName:'CELLULAR-BLOOM-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:p=>draw(p),buttons:[{label:'✦',name:'mutate',onClick:()=>cells.forEach(m=>m.seed=Math.random()*6)},{label:'↻',name:'reset',onClick:()=>cells=[]}]});(function loop(){draw(performance.now()*.00007);requestAnimationFrame(loop)})();</script></body></html>
+<!-- CELLULAR BLOOM — ChatGPT作。参考動画の「点描リング＋ロゼット群」をCanvas2Dで再構成。 -->
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>CELLULAR BLOOM</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#020308;touch-action:none}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+</style>
+<script src="../ap-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+'use strict';
+
+const c=document.getElementById('c');
+const g=c.getContext('2d',{alpha:false});
+let W=0,H=0,D=1;
+let seed=Math.random()*99999;
+let start=performance.now();
+let packing=0,hueShift=0,bloom=0;
+const TAU=Math.PI*2;
+
+function resize(){
+  D=Math.min(devicePixelRatio||1,1.5);
+  W=innerWidth; H=innerHeight;
+  c.width=Math.max(1,Math.round(W*D));
+  c.height=Math.max(1,Math.round(H*D));
+  g.setTransform(D,0,0,D,0,0);
+}
+addEventListener('resize',resize,{passive:true});
+resize();
+
+function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
+function hash(n){
+  const x=Math.sin(n*127.1+seed*13.7)*43758.5453;
+  return x-Math.floor(x);
+}
+function rgba(h,s,l,a){
+  h=((h%360)+360)%360;
+  s/=100; l/=100;
+  const k=n=>(n+h/30)%12;
+  const q=s*Math.min(l,1-l);
+  const f=n=>l-q*Math.max(-1,Math.min(k(n)-3,Math.min(9-k(n),1)));
+  return 'rgba('+((f(0)*255)|0)+','+((f(8)*255)|0)+','+((f(4)*255)|0)+','+a+')';
+}
+function dot(x,y,r,col){
+  g.fillStyle=col;
+  g.beginPath();
+  g.arc(x,y,r,0,TAU);
+  g.fill();
+}
+
+function dottedRing(cx,cy,r,t,id,small){
+  const n=Math.max(14,Math.floor(r*(small?2.2:2.75)));
+  const baseHue=hueShift+id*17+(small?28:0);
+  for(let k=0;k<n;k++){
+    const a=TAU*k/n;
+    const wob=1+(small?.025:.032)*Math.sin(t*1.9+k*.83+id*1.7);
+    const rr=r*wob;
+    const x=cx+Math.cos(a)*rr;
+    const y=cy+Math.sin(a)*rr;
+    const pulse=.76+.27*Math.sin(t*1.35+k*.19+id*.71);
+    const size=Math.max(.48,Math.min(1.65,r*(small?.022:.017)))*pulse;
+    dot(x,y,size,rgba(baseHue+42*Math.sin(a*3+id),
+      52+18*Math.sin(a+id),69+13*Math.sin(t+a),.72));
+    if(k%8===0)dot(x,y,size*1.8,rgba(baseHue+78,82,75,.12));
+  }
+}
+
+function rosette(cx,cy,r,ang,t,id){
+  const petals=7+((id*3)%5);
+  const h=hueShift+id*29;
+  for(let k=0;k<petals;k++){
+    const a=ang+TAU*k/petals;
+    const rr=r*(.48+.13*Math.sin(t*1.15+id+k));
+    const x=cx+Math.cos(a)*rr*.37;
+    const y=cy+Math.sin(a)*rr*.37;
+    g.save();
+    g.translate(x,y);
+    g.rotate(a);
+    g.globalAlpha=.22+.12*Math.sin(t*1.5+k+id);
+    g.strokeStyle=rgba(h+20*Math.sin(k),70,55,1);
+    g.lineWidth=Math.max(.45,r*.028);
+    g.beginPath();
+    g.moveTo(-rr*.02,0);
+    g.quadraticCurveTo(rr*.35,-rr*.28,rr*.70,0);
+    g.quadraticCurveTo(rr*.35,rr*.28,-rr*.02,0);
+    g.stroke();
+    g.restore();
+  }
+  for(let k=0;k<12;k++){
+    const a=TAU*k/12+ang;
+    dot(cx+Math.cos(a)*r*.24,cy+Math.sin(a)*r*.24,
+        Math.max(.45,r*.035),rgba(h+35,78,72,.68));
+  }
+}
+
+function draw(phase){
+  const t=phase*TAU;
+  const S=Math.min(W,H);
+  g.globalCompositeOperation='source-over';
+  g.fillStyle='#020308';
+  g.fillRect(0,0,W,H);
+  g.globalCompositeOperation='screen';
+
+  const ox=W*.5+Math.sin(t*.19)*S*.035;
+  const oy=H*.49+Math.cos(t*.17)*S*.035;
+  const sx=S*(.151+packing*.006);
+  const sy=S*(.143+packing*.006);
+  const base=S*(.130-.004*packing);
+  let id=0;
+
+  for(let j=-5;j<=5;j++){
+    for(let i=-5;i<=5;i++){
+      const wave=t*.31+j*.68;
+      const x=ox+i*sx+Math.sin(wave)*S*.017+Math.sin(t*.13+i*.31)*S*.008;
+      const y=oy+j*sy+Math.cos(t*.27+i*.55)*S*.017+Math.cos(t*.11+j*.37)*S*.008;
+      const phaseCell=i*.93+j*1.11+t*.34+packing;
+      let r=base*(.70+.32*Math.sin(phaseCell));
+      r*=1+.10*Math.sin((i-j)*.37+t*.27);
+      r*=1+.055*bloom*Math.sin(i*1.7+j*.8);
+      const d=Math.hypot(x-ox,y-oy)/S;
+      r*=1+.16*Math.sin(d*12-t*.23);
+      dottedRing(x,y,r,t,id,false);
+      if(((i+j+id)%2===0)||r>S*.102){
+        rosette(x,y,r*(.61+.09*Math.sin(t*.55+id)),
+          Math.atan2(y-oy,x-ox)+t*.08,t,id);
+      }
+      id++;
+    }
+  }
+
+  for(let j=-9;j<=9;j++){
+    for(let i=-9;i<=9;i++){
+      if((i+j)%3!==0)continue;
+      const x=ox+i*sx*.52+Math.sin(t*.44+j)*S*.0075;
+      const y=oy+j*sy*.50+Math.cos(t*.38+i)*S*.0075;
+      const r=S*.0205*(.72+.30*Math.sin(i*1.7+j*.9+t*.78+packing));
+      dottedRing(x,y,r,t,id,true);
+      if((i-j)%5===0)rosette(x,y,r*.86,t*.08,t,id);
+      id++;
+    }
+  }
+
+  for(let i=0;i<190;i++){
+    const a=hash(i*2.1)*TAU;
+    const rr=S*(.075+hash(i*7.3)*.64);
+    const x=W*.5+Math.cos(a)*rr;
+    const y=H*.5+Math.sin(a)*rr;
+    const r=.34+hash(i*9.2)*.72;
+    dot(x,y,r,rgba(hueShift+hash(i*3.3)*130,48,76,.20));
+  }
+  g.globalCompositeOperation='source-over';
+}
+
+function animate(now){
+  const phase=((now-start)/7200)%1;
+  draw(phase);
+  requestAnimationFrame(animate);
+}
+requestAnimationFrame(animate);
+
+function touchLaw(x,y){
+  if(window.APKit&&APKit.isUI(x,y))return;
+  const S=Math.min(W,H);
+  const nx=(x-W*.5)/S;
+  const ny=(y-H*.5)/S;
+  packing=clamp(packing+nx*.22,-.72,.72);
+  hueShift=(hueShift+ny*54+360)%360;
+  bloom=clamp(bloom+.08*(1-Math.hypot(nx,ny)),0,1.2);
+}
+c.addEventListener('pointerdown',e=>{
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  c.setPointerCapture(e.pointerId);
+  touchLaw(e.clientX,e.clientY);
+});
+c.addEventListener('pointermove',e=>{if(e.buttons)touchLaw(e.clientX,e.clientY)});
+c.addEventListener('pointerup',e=>{try{c.releasePointerCapture(e.pointerId)}catch(_){}});
+c.addEventListener('pointercancel',e=>{try{c.releasePointerCapture(e.pointerId)}catch(_){}});
+function mutate(){
+  packing=(Math.random()-.5)*1.25;
+  hueShift=Math.random()*360;
+  bloom=Math.random()*1.15;
+}
+function reset(){
+  packing=0; hueShift=0; bloom=0; seed=Math.random()*99999;
+}
+
+APKit.init({
+  canvas:c,
+  gifName:'cellular-bloom-loop',
+  clockFormat:'spec',
+  dock:true,
+  autoHide:true,
+  fullscreenButton:false,
+  loopFrame:function(phase){draw(phase)},
+  buttons:[
+    {label:'✦',name:'mutate',onClick:mutate},
+    {label:'↻',name:'reset',onClick:reset}
+  ]
+});
+</script>
+</body>
+</html>
