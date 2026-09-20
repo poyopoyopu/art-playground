@@ -22,6 +22,7 @@ const off=document.createElement('canvas');
 const octx=off.getContext('2d',{alpha:false});
 let W=1,H=1,D=1,OW=360,OH=360;
 let zoom=1,panX=-.5,panY=0,hue=.58,phase=0;
+let autoTime=0, lastRender=0;
 let laws=[],pointerId=null,dirty=true;
 let field=new Float32Array(OW*OH);
 
@@ -61,7 +62,7 @@ function rebuild(){
   const spanY=2.45/zoom;
   const spanX=spanY*aspect;
   const x0=panX-spanX*.5,y0=panY-spanY*.5;
-  const maxIt=105;
+  const maxIt=clamp(Math.round(62+Math.log2(Math.max(1,zoom))*10),62,104);
   for(let py=0;py<OH;py++){
     const y=y0+(py+.5)/OH*spanY;
     for(let px=0;px<OW;px++){
@@ -93,8 +94,9 @@ function hsv(h,s,v){
   }
 }
 
-function draw(phaseValue){
+function draw(phaseValue,forceRebuild=false){
   phase=phaseValue;
+  if(forceRebuild)dirty=true;
   if(dirty)rebuild();
   const img=octx.createImageData(OW,OH);
   const data=img.data;
@@ -123,32 +125,64 @@ function draw(phaseValue){
   ctx.drawImage(off,(c.width-dw)*.5,(c.height-dh)*.5,dw,dh);
 }
 
+function autoCamera(now){
+  const t=now*.00010;
+  autoTime=t;
+  const cycle=Math.floor(t/9);
+  const u=(t%9)/9;
+  const e=u*u*(3-2*u);
+  const targets=[
+    [-.743643887,.131825904],
+    [-.101096,.956286],
+    [-.7453,.1127],
+    [-.16,1.04],
+    [-.7435,.1319],
+    [-.12,.745],
+    [-.745,.113],
+    [-.18,1.03]
+  ];
+  const a=targets[cycle%targets.length], b=targets[(cycle+1)%targets.length];
+  const nextZoom=Math.exp((cycle*2.35+u*2.35)*Math.log(2));
+  panX=a[0]+(b[0]-a[0])*e;
+  panY=a[1]+(b[1]-a[1])*e;
+  zoom=clamp(1.05*nextZoom,.9,900);
+}
 function animate(now){
-  draw((now*.000055)%1);
+  autoCamera(now);
+  const renderEvery=zoom>120?110:zoom>30?85:65;
+  if(now-lastRender>renderEvery){
+    draw((now*.000055)%1,true);
+    lastRender=now;
+  }else{
+    draw((now*.000055)%1,false);
+  }
   requestAnimationFrame(animate);
 }
+requestAnimationFrame(animate);
 requestAnimationFrame(animate);
 
 function addLaw(x,y){
   if(window.APKit&&APKit.isUI(x,y))return;
   const [wx,wy]=worldAt(x,y);
-  laws.push({x:wx,y:wy,r:clamp(.055/zoom,.018,.12),delta:(Math.random()-.5)*1.35});
+  laws.push({x:wx,y:wy,r:clamp(.055/Math.sqrt(zoom),.0015,.12),delta:(Math.random()-.5)*1.35});
   if(laws.length>8)laws.shift();
   hue=(hue+.07+Math.random()*.12)%1;
-  zoom=clamp(zoom*1.018,.72,5.5);
+  autoTime+=.22;
   dirty=true;
 }
 
 function reset(){
-  laws=[];zoom=1;panX=-.5;panY=0;hue=.58;dirty=true;
+  laws=[];zoom=1;panX=-.5;panY=0;hue=.58;autoTime=0;lastRender=0;dirty=true;
 }
 
 function mutate(){
   laws=[];
   hue=Math.random();
-  zoom=.9+Math.random()*1.7;
-  panX=-.72+Math.random()*.42;
-  panY=-.08+Math.random()*.16;
+  zoom=1;
+  panX=-.5;
+  panY=0;
+  autoTime=Math.random()*40;
+  lastRender=0;
   const n=2+Math.floor(Math.random()*5);
   for(let i=0;i<n;i++)laws.push({
     x:-.82+Math.random()*1.15,
