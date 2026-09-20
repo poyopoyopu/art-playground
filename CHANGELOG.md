@@ -1,5 +1,7 @@
 # CHANGELOG — ART PLAYGROUND 更新履歴
 
+- 2026-09-20 チャッピー: CELLULAR BLOOMを参考動画の点描リング＋ロゼット群として根本再構成。大中小3階層の自己相似セル、周期的な格子変形、タッチによる密度・色・開花法則の変更を実装(prototypes/cellular-bloom.html)
+
 - 2026-09-20 クロード: SHOAL LABを新規制作。koi-pond-engine.jsの群れシミュレーションはそのままに、描く生き物と背景だけを差し替えて見比べる実験台。POND(鯉)/ABYSS(深海の発光生物)/FLOCK(夜空の群れ)/CULTURE(顕微鏡の細胞)/NESTED(階層ごとに魚→小魚→オタマジャクシ→微生物と姿が変わる)の5世界を⚙パネルで切替、水の濃さ・ぼけ・光の網・数をスライダーで調整可(値はlocalStorageに保存)(prototypes/shoal-lab.html)
 
 - 2026-09-20 クロード: KOI POND B/Cの鯉が長い棒状に伸びるバグを修正。✦(mutate)で鯉を瞬間移動させた際に体の背骨履歴が旧位置に残っていたのが原因。Koi.place()で背骨を張り直すようにし、あわせて背骨の節間隔を常に体長/11に保つ処理を追加(低フレームレートでも伸びない)(prototypes/koi-pond-engine.js)
