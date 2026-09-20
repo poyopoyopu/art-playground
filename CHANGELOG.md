@@ -1,5 +1,7 @@
 # CHANGELOG — ART PLAYGROUND 更新履歴
 
+- 2026-09-20 チャッピー: MANDEL LAWの描画をCanvas2Dの安定描画方式へ変更し、WebGL2依存による黒画面を回避。マンデルブロ計算と局所冪法則・周期色変化は維持(prototypes/mandel-law.html)
+
 - 2026-09-20 チャッピー: MANDEL LAWを新規制作。WebGL2でマンデルブロ集合を描画し、タッチした場所に局所的な冪法則の変更を恒久的に刻む構造と、周期的な色・呼吸変化を実装(prototypes/mandel-law.html)
 
 - 2026-09-20 チャッピー: CELLULAR BLOOMを参考動画の点描リング＋ロゼット群として根本再構成。大中小3階層の自己相似セル、周期的な格子変形、タッチによる密度・色・開花法則の変更を実装(prototypes/cellular-bloom.html)
