@@ -1,5 +1,6 @@
 # CHANGELOG — ART PLAYGROUND 更新履歴
 
+- 2026-09-21 チャッピー: STATIC LIGHTを参考画像寄りに再構築。大面積の透明矩形、入れ子の光学面、水平/垂直の境界光、暗い周辺光、グレインを強化(prototypes/static-light.html)
 - 2026-09-21 チャッピー: STATIC LIGHTを新規制作。参考画像の多層矩形・透過面・色光・微細グレインをCanvas2Dで再構成し、タッチ位置を反射面として記憶する法則を実装(prototypes/static-light.html)
 
 - 2026-09-20 チャッピー: MANDEL LAWを連続ズーム型へ改修。自動で自己相似領域を渡り歩きながら深度を増し、タッチによる局所冪法則の変更も維持(prototypes/mandel-law.html)
