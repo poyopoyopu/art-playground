@@ -10,20 +10,21 @@ in vec2 p;out vec2 uv;void main(){uv=p*.5+.5;gl_Position=vec4(p,0.,1.);}`;
 const F=`#version 300 es
 precision highp float;in vec2 uv;out vec4 o;
 uniform vec2 r;uniform float t,seed;uniform vec4 fold[8];uniform int n;
-vec3 pal(float x){return .5+.5*cos(6.2831853*(x+vec3(0.,.29,.62)));}
+float noisy(float x){return fract(sin(x*91.7+seed*17.3)*43758.5453)*.42-.21;}
+vec3 pal(float x){float a=fract(x);float h=fract(a*7.0+seed*.013);return .5+.5*cos(6.2831853*(h+vec3(.0,.31,.63)));}
 void main(){
  vec2 p=(gl_FragCoord.xy-.5*r)/min(r.x,r.y); float ang=.16*sin(t*.42);
  mat2 R=mat2(cos(ang),-sin(ang),sin(ang),cos(ang));p=R*p;
+ for(int i=0;i<8;i++){if(i>=n)break;vec2 q=p-fold[i].xy;float d=length(q);float g=exp(-d*d/(.018+.028*fold[i].z));p+=q*normalize(max(d,.0001))*g*fold[i].z*.55;}
  for(int j=0;j<5;j++){
    p=abs(p)-vec2(.42,.34);
    float a=.17*sin(t*.32+float(j)*1.37)+.08*cos(seed+float(j));
    mat2 M=mat2(cos(a),-sin(a),sin(a),cos(a));p=M*p;
    p*=1.36+float(j)*.045;
  }
- for(int i=0;i<8;i++){if(i>=n)break;vec2 q=p-fold[i].xy;float ca=cos(fold[i].w),sa=sin(fold[i].w);q=mat2(ca,-sa,sa,ca)*q;float d=length(q);float g=exp(-d*d/(.035+.025*fold[i].z));p+=q*g*fold[i].z*.42;}
  float v=length(p)+.11*sin(p.x*5.+p.y*4.-t*.7)+.045*cos(p.x*13.-p.y*9.+t);
  float bands=sin(v*17.-t*.38);
- float h=v*.16+bands*.018+seed*.004;
+ float h=v*.16+bands*.018+seed*.004+noisy(v);
  vec3 col=pal(h);
  col=mix(col,pal(h+.11),smoothstep(.65,1.,abs(bands)));
  float edge=pow(max(0.,1.-abs(bands)),5.);
