@@ -1,3 +1,5 @@
+- 2026-09-21 チャッピー: MIRROR PRESSURE / MIRROR DESCENTのリセットボタンでタッチ回数だけでなく時間位相も初期化するよう修正。リセット後は初期状態から再スタート(art-v73-mirror-pressure.html, art-v74-mirror-descent.html)
+
 - 2026-09-21 チャッピー: MIRROR PRESSURE / MIRROR DESCENTのタッチ時に画面が消える可能性がある不安定なタッチ計算を修正。タッチ寿命を明示化し、変形量を制限してiOS/WebGL2での数値暴走を抑制(art-v73-mirror-pressure.html, art-v74-mirror-descent.html)
 
 - 2026-09-21 チャッピー: 次候補比較用にORGANISM / TOPOLOGY / MEMBRANE / VOIDの4試作を新規制作。LATTICEは既存試作を再確認し、5方向を比較できる状態にした(prototypes/organism.html, prototypes/topology.html, prototypes/membrane.html, prototypes/lattice.html, prototypes/void.html)
