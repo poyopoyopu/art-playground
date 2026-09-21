@@ -1,3 +1,5 @@
+- 2026-09-21 チャッピー: MIRROR PRESSUREの暗部を持ち上げ、極彩色の中間〜高輝度を増加。構造と動きは維持したまま、画面全体の発光感を強化(prototypes/mirror-pressure.html)
+
 # CHANGELOG — ART PLAYGROUND 更新履歴
 
 - 2026-09-21 チャッピー: MIRROR PRESSUREの1画面あたりの色彩密度を増強。スペクトル分割を細かくし、複数スケールの色相変化を重ねて一画面内により多くの色が現れるよう調整(prototypes/mirror-pressure.html)
