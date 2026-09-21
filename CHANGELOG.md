@@ -1,3 +1,5 @@
+- 2026-09-21 チャッピー: MIRROR PRESSUREを中心へ沈み続ける構造へ改造。半径方向の連続的な内向き移流を追加し、8分割の鏡面構造と極彩色は維持(prototypes/mirror-pressure.html)
+
 - 2026-09-21 チャッピー: MIRROR PRESSUREをCURRENTへ変更。TIDE MARKをLOG先頭へ移動し、Published worksの先頭をMIRROR PRESSUREに更新(art-v73-mirror-pressure.html, index.html)
 
 - 2026-09-21 チャッピー: MIRROR PRESSUREをart-v73として採用・昇格。極彩色の圧力場をルート作品として追加し、ギャラリーLOGとPublished worksへ登録(art-v73-mirror-pressure.html, index.html)
