@@ -1,5 +1,7 @@
 # CHANGELOG — ART PLAYGROUND 更新履歴
 
+- 2026-09-21 チャッピー: CHROMATIC FOLDを根本から再制作。反復計算を軽量化し、4点までの強い局所変形と空間的な極彩色領域を持つ構造へ変更(prototypes/chromatic-fold.html)
+
 - 2026-09-21 チャッピー: CHROMATIC FOLDとMIRROR PRESSUREを調整。構造は維持し、空間ごとに色相が変わる極彩色パレットへ変更、タッチ位置の局所変形を強化(prototypes/chromatic-fold.html, prototypes/mirror-pressure.html)
 
 - 2026-09-21 チャッピー: 前3作を作り直し、画面全体を使うWebGL2試作を3本追加。大きな折り面のCHROMATIC FOLD、対称面が圧力で歪むMIRROR PRESSURE、格子が溶けて位相を変えるMOLTEN LATTICEを制作(prototypes/chromatic-fold.html, prototypes/mirror-pressure.html, prototypes/molten-lattice.html)
