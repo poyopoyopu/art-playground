@@ -1,3 +1,5 @@
+- 2026-09-21 チャッピー: MIRROR SPLITを新規制作。8分割の鏡面が8→16→32→64へ自己相似に裂け続け、タッチした場所が次の分裂法則を局所的に変える試作を追加(prototypes/mirror-split.html)
+
 - 2026-09-21 チャッピー: MIRROR DESCENTをart-v74として採用・昇格。中心へ沈み続ける構造をルート作品化し、ギャラリーLOGとPublished worksへ追加(art-v74-mirror-descent.html, index.html)
 
 - 2026-09-21 チャッピー: MIRROR PRESSUREを中心へ沈み続ける構造へ改造。半径方向の連続的な内向き移流を追加し、8分割の鏡面構造と極彩色は維持(prototypes/mirror-pressure.html)
