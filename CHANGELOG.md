@@ -1,3 +1,5 @@
+- 2026-09-21 チャッピー: MIRROR FOLDを新規制作。鏡面を動かすのではなく空間そのものを6階層で折り畳み、折り目の奥へ縮小した世界を連続的に畳み込む試作を追加(prototypes/mirror-fold.html)
+
 - 2026-09-21 チャッピー: ギャラリーLOG内で重複していたMIRROR PRESSUREを1件整理。CURRENTからLOGへ移した1件を残し、同一作品の二重表示を解消(index.html)
 
 - 2026-09-21 チャッピー: MIRROR INVERTを新規制作。鏡面の内側と外側が4階層で反転し続け、8分割の大構造を保ちながらタッチした場所を反転の中心として法則を変える試作を追加(prototypes/mirror-invert.html)
