@@ -1,5 +1,6 @@
 # CHANGELOG — ART PLAYGROUND 更新履歴
 
+- 2026-09-21 チャッピー: OPAL ABYSSの形状・動き・タッチ法則は維持し、色だけを極彩色の高彩度スペクトルへ変更(prototypes/opal-abyss.html)
 - 2026-09-21 チャッピー: OPAL ABYSSとOPAL INTERFERENCEを直前のWebGL2版へ差し戻し、今回の再設計を撤回(prototypes/opal-abyss.html, prototypes/opal-interference.html)
 
 - 2026-09-21 チャッピー: OPAL GROWTHをCanvas2Dベースへ再構築して描画安定化。OPAL ABYSSはタッチ位置から深度・歪みが増幅する構造へ、OPAL INTERFERENCEは暗い背景と多層スペクトル干渉へ再設計(prototypes/opal-growth.html, prototypes/opal-abyss.html, prototypes/opal-interference.html)
