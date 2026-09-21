@@ -81,20 +81,28 @@ float density(vec3 p,float t){
   vec2 finePos=xz*3.7+vec2(drift*.8,-drift*1.4);
   float fine=noise(finePos);
 
-  /* 雲の床と天井。中央に厚みを持つ。 */
-  float base=0.02+0.28*fbm(xz*.33+vec2(2.0,-1.0));
-  float top=0.95+0.26*fbm(xz*.42+vec2(-4.0,2.0));
-  float h=smoothstep(base,base+.25,p.y)*smoothstep(top,top-.34,p.y);
+  /* 参考画像のように、カメラの前〜遠景を雲で満たす厚い雲層。 */
+  float base=-0.62+0.16*fbm(xz*.42+vec2(2.0,-1.0));
+  float top=1.12+0.20*fbm(xz*.50+vec2(-4.0,2.0));
+  float h=smoothstep(base,base+.28,p.y)*smoothstep(top,top-.48,p.y);
 
-  /* ふくらみ。 */
-  float body=smoothstep(.38,.67,large*.66+detail*.34);
-  float detailCut=smoothstep(.30,.72,detail*.72+fine*.28);
-  float d=body*mix(.62,1.0,detailCut)*h;
+  /* 雲の大きな塊。しきい値を低くして「白い霧」ではなく島状の雲を残す。 */
+  float n=large*.62+detail*.38;
+  float body=smoothstep(.42,.66,n);
+  float lobe=smoothstep(.48,.76,detail*.70+fine*.30);
 
-  /* 上空の薄い雲を少量。 */
-  float high=smoothstep(1.0,.58,p.y)*smoothstep(.58,1.55,p.y);
-  float cir=fbm(xz*.48+vec2(6.0,2.0)+t*.008);
-  d+=smoothstep(.57,.78,cir)*high*.12;
+  /* 高さで雲底を暗く、上面を明るくする。 */
+  float underside=smoothstep(.58,.05,p.y);
+  float d=body*(.68+.32*lobe)*h;
+
+  /* 大きな空洞を少しだけ開ける。 */
+  float cavity=smoothstep(.36,.52,fbm(xz*1.15+vec2(7.0,-3.0)+p.y*.22));
+  d*=mix(.78,1.0,cavity);
+
+  /* 上空の薄い巻雲。 */
+  float high=smoothstep(1.22,.62,p.y)*smoothstep(.58,1.55,p.y);
+  float cir=fbm(xz*.42+vec2(6.0,2.0)+t*.008);
+  d+=smoothstep(.58,.76,cir)*high*.10;
 
   return clamp(d,0.0,1.0);
 }
@@ -118,8 +126,8 @@ void main(){
   vec2 uv=(gl_FragCoord.xy*2.0-res)/res.y;
 
   /* 空を見上げるカメラ。 */
-  vec3 ro=vec3(0.0,-.08,-2.9);
-  vec3 rd=normalize(vec3(uv.x*.86,uv.y*.72+.18,1.35));
+  vec3 ro=vec3(0.0,-.18,-3.15);
+  vec3 rd=normalize(vec3(uv.x*.88,uv.y*.70+.03,1.30));
 
   float driftYaw=.055*sin(time*.07);
   float cs=cos(driftYaw),sn=sin(driftYaw);
@@ -133,7 +141,7 @@ void main(){
   float z=0.10;
 
   /* 体積を前から後ろへ。レイマーチは28回に抑えてiPhoneでも動かす。 */
-  for(int i=0;i<28;i++){
+  for(int i=0;i<30;i++){
     vec3 p=ro+rd*z;
 
     /* 雲層を画面中央〜遠景へ広げる。 */
@@ -154,7 +162,7 @@ void main(){
     lit=mix(lit,bright,smoothstep(.48,.88,light));
     lit=mix(lit,warm,.16*smoothstep(.15,.95,heightLight));
 
-    float a=d*.075;
+    float a=d*.095;
     cloudColor+=lit*a*(1.0-alpha);
     alpha+=a*(1.0-alpha);
 
