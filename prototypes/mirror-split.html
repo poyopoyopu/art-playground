@@ -14,68 +14,51 @@ vec3 pal(float h){
   float z=fract(h+seed*.017);
   return .5+.5*cos(6.2831853*(z+vec3(0.,.31,.63)));
 }
-float edgeField(vec2 p,float phase,float depth){
-  float a=atan(p.y,p.x),rad=length(p),best=0.;
-  float base=8.;
-  for(int i=0;i<5;i++){
-    float k=base*pow(2.,float(i));
-    float cell=6.2831853/k;
-    float q=abs(mod(a+cell*.5+phase*cell,cell)-cell*.5);
-    float e=exp(-q*q/(.00035+.00055*rad));
-    best+=e*(.22+.18*float(i));
-  }
-  return best;
-}
 void main(){
   vec2 p=(gl_FragCoord.xy-.5*r)/min(r.x,r.y);
-  float rad0=length(p);
-  float ang0=atan(p.y,p.x);
-  float touchSplit=0.,touchWarp=0.;
+  float rad=length(p);
+  float ang=atan(p.y,p.x);
+  float splitForce=0.;float splitPhase=0.;
   for(int i=0;i<8;i++){if(i>=n)break;
     vec2 d=p-press[i].xy;
-    float g=exp(-dot(d,d)/(.045+.025*press[i].z));
-    touchSplit+=g*(.7+press[i].z);
-    touchWarp+=g*press[i].w;
+    float g=exp(-dot(d,d)/(.055+.035*press[i].z));
+    splitForce+=g*(.8+press[i].z);
+    splitPhase+=g*press[i].w;
   }
-
-  float a=ang0+sin(t*.23+seed)*.08+touchWarp*.22;
-  float rr=max(.015,rad0);
-  vec2 q=p;
-
+  float a=ang+splitPhase*.22+sin(t*.18+seed)*.035;
+  float rr=rad,mirror=0.,fracture=0.,identity=0.;
   for(int i=0;i<5;i++){
     float fi=float(i);
     float branches=8.*pow(2.,fi);
     float cell=6.2831853/branches;
-    float phase=seed*.011+sin(t*.19+fi*1.73)*.055+touchSplit*.16*(fi+1.);
+    float phase=seed*.009+sin(t*(.12+.025*fi)+fi*1.7)*.08+splitForce*.10*(fi+1.);
     float local=mod(a+cell*.5+phase*cell,cell)-cell*.5;
-    float mirror=abs(local);
-    float side=sign(local);
-    float fold=mirror/(cell*.5);
-    float bend=(.11+.035*fi)*sin(fold*3.14159265+t*(.13+.025*fi)+seed*.03);
-    q=vec2(cos(a+side*bend),sin(a+side*bend))*rr;
-    q+=vec2(cos(a+cell*.5),sin(a+cell*.5))*mirror*.22*(.4+.12*fi);
-    a=atan(q.y,q.x);
-    rr=length(q)*(1.17+.045*sin(t*.17+fi));
-    a+=side*(.055+.018*fi)*sin(rr*8.-t*.35+seed);
-    q=vec2(cos(a),sin(a))*rr;
+    float u=local/(cell*.5);
+    float side=sign(u),fold=abs(u);
+    mirror+=fold*(.30-.035*fi);
+    fracture+=smoothstep(.17,0.,fold)*(1.0+.22*fi);
+    float bend=(.075+.018*fi)*sin(fold*3.14159265+t*(.16+.025*fi)+seed*.021);
+    a=atan(sin(a+side*bend),cos(a+side*bend));
+    rr+=.018*sin(rr*(18.+fi*7.)-t*(.32+.06*fi)+fold*5.0);
+    rr*=1.012+.012*sin(t*.21+fi);
+    identity+=fold*(.14+.035*fi);
   }
-
-  float crack=edgeField(q,seed*.01,touchSplit);
-  float radial=length(q);
-  float grain=sin(q.x*31.+q.y*17.+t*.18)+sin(q.x*67.-q.y*41.-t*.11);
-  float facet=sin(radial*28.-t*.42+crack*1.7)+.45*sin(radial*59.+a*13.+t*.2);
-  float split=fract(a/(6.2831853)*64.+.5+touchSplit*.9);
-  split=abs(split-.5)*2.;
-
-  float spectrum=radial*.34+facet*.055+crack*.075+grain*.035+split*.7+seed*.013;
+  float radialBand=sin(rr*15.-t*.34+mirror*5.0);
+  float inner=1.-smoothstep(0.,.46,rad);
+  float petals=sin(a*8.+sin(rr*9.-t*.2)*.55+splitForce*.8);
+  float seam=smoothstep(.075,0.,abs(fract(a/6.2831853*64.+identity)-.5));
+  float center=1.-smoothstep(.015,.13,rad);
+  float spectrum=a*.42+mirror*.72+radialBand*.075+petals*.09+splitForce*.16+seed*.013;
   vec3 col=pal(spectrum);
-  col=mix(col,pal(spectrum+.27+sin(a*9.+t)*.06),smoothstep(.2,.82,split));
-  col+=vec3(1.)*pow(max(0.,1.-abs(facet)),10.)*.28;
-  col+=vec3(1.)*smoothstep(.35,1.35,crack)*.13;
-  col=.045+col*1.12;
-  col*=.9+.12*cos(radial*5.-t*.3);
+  col=mix(col,pal(spectrum+.24+petals*.035),smoothstep(.12,.72,fold));
+  col*=.78+.22*inner;
+  col+=vec3(1.)*fracture*.16;
+  col+=vec3(1.)*seam*.20;
+  col+=vec3(1.)*center*.34;
+  col=.035+col*1.16;
   o=vec4(pow(max(col,0.),vec3(.78)),1.);
 }`;
+
 function sh(type,src){let s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(s));return s}
 let pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,V));gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,F));gl.bindAttribLocation(pr,0,'p');gl.linkProgram(pr);if(!gl.getProgramParameter(pr,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(pr));
 let U={};for(let i=0;i<gl.getProgramParameter(pr,gl.ACTIVE_UNIFORMS);i++){let a=gl.getActiveUniform(pr,i);U[a.name]=gl.getUniformLocation(pr,a.name.replace(/\[0\]$/,''))}
