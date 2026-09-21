@@ -1,3 +1,4 @@
+- 2026-09-21 チャッピー: 作品アクセス解析の閲覧ページを追加。総閲覧数・直近30日・日別推移・作品別閲覧数を確認可能にした(analytics.html)
 - 2026-09-21 チャッピー: SKY FOLDをX投稿の元GLSL(99×19 fold)基準で再構築。元の式をWebGL2へ忠実移植し、タッチはmouse相当の座標変形として実装(prototypes/sky-fold.html)
 - 2026-09-21 チャッピー: SKY FOLDを参考元GLSLへ再移植。99×19 fold、eの継承、row-vector型rotate3D、twigl互換hsv、元の色蓄積式を忠実に再現し、内部DPRのみiPhone向けに制御(prototypes/sky-fold.html)
 - 2026-09-21 チャッピー: SKY FOLDのフラクタル構造が薄すぎたため、fold密度とコントラストを上げて雲状の自己相似構造を読めるよう調整(prototypes/sky-fold.html)
@@ -97,7 +98,6 @@
 - 2026-09-21 チャッピー: 作品の全画面閲覧をD1へ記録し、作品別・直近30日・日別のアクセス集計APIを追加。過去の閲覧履歴はこの仕組みでは復元せず、2026-09-21以降を蓄積(worker.js, wrangler.toml)
 
 - 2026-09-21 クロード: LUMINAを採用。art-v72として昇格し、ギャラリーLOG先頭とPublished works(CURRENTの直後)に追加。参考画像の積層スラブ構図(全幅横帯+全高縦帯の格子/中央下地を3〜7本の縦スラブに分割/4辺別ボケ幅の矩形/screen主体+2割multiply/ブルーム→ビネット→グレイン)はそのままに、ギャラリー用として全画面化・ap-kit.js統合し、「触れた高さで光の層が切れ、切れ目から下がまるごと横へずれる。切れ目は塞がらず、切るほど世界は泳ぐ力を失って最後は動かないガラスの標本になる」という法則を追加(art-v72-lumina.html, index.html)
-
 - 2026-09-21 チャッピー: STATIC LIGHTを参考画像寄りに再構築。大面積の透明矩形、入れ子の光学面、水平/垂直の境界光、暗い周辺光、グレインを強化(prototypes/static-light.html)
 - 2026-09-21 チャッピー: STATIC LIGHTを新規制作。参考画像の多層矩形・透過面・色光・微細グレインをCanvas2Dで再構成し、タッチ位置を反射面として記憶する法則を実装(prototypes/static-light.html)
 
@@ -197,8 +197,7 @@
 - 2026-09-18 クロード: CRYSTAL FRACTUREとCRYSTAL PRISMを1つの法則に統合したCRYSTAL STRAINを制作。捻るほど格子が歪んで脆くなり、割れるのに必要な力が下がる。歪みきると軽く触れただけで砕け、再結晶時に捻れの総量が新しい相の対称数・分散・色へ変換されて引き継がれる。世代を重ねるほど生まれつき脆くなる(prototypes/crystal-strain.html)
 - 2026-09-18 クロード: 結晶モチーフの新作3本を制作(おっちゃん提供のmakeitrad動画が参考)。CRYSTAL AXIS=触った方向が新しい鏡面(対称の軸)になり法則が積み上がる / CRYSTAL FRACTURE=長押しで砕き、離すと別の対称数・別の色で再結晶し割れた跡が世代を越えて残る / CRYSTAL PRISM=なぞると屈折の法則自体が捻れ、戻らず、捻りすぎると相転移する(prototypes/crystal-axis.html, prototypes/crystal-fracture.html, prototypes/crystal-prism.html)
 - 2026-09-17 チャッピー: AXIOM FOLDを新規制作。触れるたび局所の座標法則を書き換え、以後の自律変形に恒久的な折り癖として残る作品を追加(prototypes/axiom-fold.html)
-- 2026-09-17 クロード: OPAL MARBLEをart-v69として昇格、ギャラリーLOG先頭とPublished works(CURRENTの直後)に追加(art-v69-opal-marble.html, index.html)
-- 2026-09-17 しゅん: OPAL MARBLEを採用決定
+- 2026-09-17 クロード: OPAL MARBLEをart-v69として昇格、ギャラリーLOG先頭とPublished works(CURRENTの直後)に追加(art-v69-opal-marble.html, index.html)- 2026-09-17 しゅん: OPAL MARBLEを採用決定
 - 2026-09-17 クロード: OPAL MARBLEの白っぽいモヤモヤ(暗部の周りの雲のような縁と、平らな所の乳白色)を約2/3に減らした(prototypes/opal-marble.html)
 - 2026-09-17 クロード: OPAL MARBLEの触り方を根本から作り直し。指=重さとして膜が沈み、虹の同心輪と波紋が出て周りの模様が吸い寄せられる。タップ=ぷるんと跳ね返る・長押し=深く沈む・押したまま動かす=航跡・複数指=波紋の干渉。離すとばねのように揺れて平らに戻る(prototypes/opal-marble.html)
 - 2026-09-17 クロード: TAR CEILINGをart-v68として昇格しCURRENTに設定、それまでのCOLOR BREATHをLOG先頭へ移動、Published works先頭に追加(art-v68-tar-ceiling.html, index.html)
