@@ -1,3 +1,4 @@
+- 2026-09-21 チャッピー: MIRROR FRACTUREのキャンバスを固定フルブリード化し、実際のキャンバス表示領域から描画解像度を取得するよう修正(art-v75-mirror-split.html)
 - 2026-09-21 チャッピー: MIRROR PRESSURE / MIRROR DESCENTを直前の互換性修正前へ復元。iPhone/iPad両方で表示される採用時の描画状態を優先し、今回のiPad対策は取り消した(art-v73-mirror-pressure.html, art-v74-mirror-descent.html)
 
 - 2026-09-21 チャッピー: MIRROR PRESSURE / MIRROR DESCENTのタッチ判定を再修正。固定8枠を維持しつつ分岐を使わずactive係数で無効枠を処理する方式に変更し、iPhoneのタッチ反応を戻しながらiPadのWebGL不安定要因をさらに減らした(art-v73-mirror-pressure.html, art-v74-mirror-descent.html)
