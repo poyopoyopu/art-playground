@@ -1,5 +1,7 @@
 # CHANGELOG — ART PLAYGROUND 更新履歴
 
+- 2026-09-21 チャッピー: MIRROR PRESSUREは見た目を維持したまま描画負荷を軽量化し、タッチ変形を対称座標へ正しく適用して効果を強化(prototypes/mirror-pressure.html)
+
 - 2026-09-21 チャッピー: CHROMATIC FOLDを根本から再制作。反復計算を軽量化し、4点までの強い局所変形と空間的な極彩色領域を持つ構造へ変更(prototypes/chromatic-fold.html)
 
 - 2026-09-21 チャッピー: CHROMATIC FOLDとMIRROR PRESSUREを調整。構造は維持し、空間ごとに色相が変わる極彩色パレットへ変更、タッチ位置の局所変形を強化(prototypes/chromatic-fold.html, prototypes/mirror-pressure.html)
