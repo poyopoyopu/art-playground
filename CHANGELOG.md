@@ -1,3 +1,5 @@
+- 2026-09-21 チャッピー: MIRROR PRESSUREをart-v73として採用・昇格。極彩色の圧力場をルート作品として追加し、ギャラリーLOGとPublished worksへ登録(art-v73-mirror-pressure.html, index.html)
+
 - 2026-09-21 チャッピー: MIRROR PRESSURE系のネオン色彩比較用にNEON CYAN MAGENTA / ELECTRIC RAINBOW / NEON PRISMの3試作を追加(prototypes/neon-cyan-magenta.html, prototypes/electric-rainbow.html, prototypes/neon-prism.html)
 
 - 2026-09-21 チャッピー: MIRROR PRESSUREの暗部を持ち上げ、極彩色の中間〜高輝度を増加。構造と動きは維持したまま、画面全体の発光感を強化(prototypes/mirror-pressure.html)
