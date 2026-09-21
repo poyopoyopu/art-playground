@@ -1,3 +1,5 @@
+- 2026-09-21 チャッピー: MIRROR PRESSURE / MIRROR DESCENTを採用時の状態へ復元。タッチ変形の後付け安定化とリセット時の時間位相初期化を取り消し、採用時の挙動へ戻した(art-v73-mirror-pressure.html, art-v74-mirror-descent.html)
+
 - 2026-09-21 チャッピー: MIRROR PRESSURE / MIRROR DESCENTのリセットボタンでタッチ回数だけでなく時間位相も初期化するよう修正。リセット後は初期状態から再スタート(art-v73-mirror-pressure.html, art-v74-mirror-descent.html)
 
 - 2026-09-21 チャッピー: MIRROR PRESSURE / MIRROR DESCENTのタッチ時に画面が消える可能性がある不安定なタッチ計算を修正。タッチ寿命を明示化し、変形量を制限してiOS/WebGL2での数値暴走を抑制(art-v73-mirror-pressure.html, art-v74-mirror-descent.html)
