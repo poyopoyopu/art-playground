@@ -1,5 +1,7 @@
 # CHANGELOG — ART PLAYGROUND 更新履歴
 
+- 2026-09-21 チャッピー: MIRROR PRESSUREの色彩を極彩色へ再調整。彩度を大幅に引き上げ、虹色の空間変化と白いスペクトルハイライトを強化(prototypes/mirror-pressure.html)
+
 - 2026-09-21 チャッピー: MIRROR PRESSUREを直前の状態へ戻し、中心から外側への放射波変更を取り消し(prototypes/mirror-pressure.html)
 
 - 2026-09-21 チャッピー: MIRROR PRESSUREの運動方向を見直し、回転的な時間変化を抑えて中心から外側へ伝播する放射波を主動力に変更(prototypes/mirror-pressure.html)
