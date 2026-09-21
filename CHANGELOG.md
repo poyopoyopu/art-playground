@@ -1,5 +1,7 @@
 # CHANGELOG — ART PLAYGROUND 更新履歴
 
+- 2026-09-21 チャッピー: MIRROR PRESSUREのタッチ変形を時間減衰式に変更。押した瞬間は強く歪み、約1周期で自然に元の形へ戻るよう調整(prototypes/mirror-pressure.html)
+
 - 2026-09-21 チャッピー: MIRROR PRESSUREのタッチ処理を再修正。画面座標の段階で局所収縮を発生させ、タッチ位置に明確な歪みと発光変化が出るよう強化(prototypes/mirror-pressure.html)
 
 - 2026-09-21 チャッピー: MIRROR PRESSUREは見た目を維持したまま描画負荷を軽量化し、タッチ変形を対称座標へ正しく適用して効果を強化(prototypes/mirror-pressure.html)
