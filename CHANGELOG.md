@@ -1,5 +1,7 @@
 # CHANGELOG — ART PLAYGROUND 更新履歴
 
+- 2026-09-21 チャッピー: OPAL GROWTH / ABYSS / INTERFERENCEのWebGL2描画不具合を修正。GLSL改行エスケープと配列uniformの取得を修正(prototypes/opal-growth.html, prototypes/opal-abyss.html, prototypes/opal-interference.html)
+
 - 2026-09-21 チャッピー: OPAL MARBLE改良案を3本追加。成長する鉱物、深部へ沈むオパール、光学干渉する結晶の別実装をprototypes/に追加(prototypes/opal-growth.html, prototypes/opal-abyss.html, prototypes/opal-interference.html)
 
 - 2026-09-21 チャッピー: 判定結果に基づき、prototypes/ の不要試作123作品を削除。採用原型・ギャラリー参照作品は保持し、判定画面と一覧資料も更新(prototypes/)
