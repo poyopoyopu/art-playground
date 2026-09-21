@@ -1,5 +1,7 @@
 # CHANGELOG — ART PLAYGROUND 更新履歴
 
+- 2026-09-21 チャッピー: MIRROR PRESSUREの1画面あたりの色彩密度を増強。スペクトル分割を細かくし、複数スケールの色相変化を重ねて一画面内により多くの色が現れるよう調整(prototypes/mirror-pressure.html)
+
 - 2026-09-21 チャッピー: MIRROR PRESSUREを直前の極彩色版へ戻し、オーロラ風の色彩処理を取り消し(prototypes/mirror-pressure.html)
 
 - 2026-09-21 チャッピー: MIRROR PRESSUREの極彩色を硬い虹色パターンから柔らかな発光帯へ再設計。揺らぐスペクトル幕と重なる光の帯でオーロラ的な色彩感を追加(prototypes/mirror-pressure.html)
