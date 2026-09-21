@@ -1,3 +1,5 @@
+- 2026-09-21 チャッピー: MIRROR FRACTUREをCURRENTへ変更。MIRROR PRESSUREをLOG先頭へ移動し、Published worksの先頭をMIRROR FRACTUREに更新(art-v75-mirror-split.html, art-v73-mirror-pressure.html, index.html)
+
 - 2026-09-21 チャッピー: MIRROR SPLITをMIRROR FRACTUREとしてart-v75へ採用・昇格。ルート作品化し、ギャラリーLOGとPublished worksへ追加(art-v75-mirror-split.html, index.html)
 
 - 2026-09-21 チャッピー: MIRROR SPLITのWebGL2シェーダーでループ内変数のスコープエラーが発生して描画されない不具合を修正(prototypes/mirror-split.html)
@@ -136,8 +138,8 @@
 
 ## 現在の状態(変わったら書き換える)
 
-- CURRENT: TIDE MARK(`art-v71-tide-mark.html`)
-- LOG先頭: LUMINA(`art-v72-lumina.html`)
+- CURRENT: MIRROR FRACTURE(`art-v75-mirror-split.html`)
+- LOG先頭: MIRROR PRESSURE(`art-v73-mirror-pressure.html`)
 - 作業ルール: `AGENTS.md`(ギャラリー追加の手順と命名ルールは13章)
 - 運用メモ: `NOTES.md`(GitHub操作は可能性を確認してから実行)
 
