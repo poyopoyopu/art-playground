@@ -1,3 +1,5 @@
+- 2026-09-21 チャッピー: MIRROR PRESSURE / MIRROR DESCENTのタッチ時に画面が消える可能性がある不安定なタッチ計算を修正。タッチ寿命を明示化し、変形量を制限してiOS/WebGL2での数値暴走を抑制(art-v73-mirror-pressure.html, art-v74-mirror-descent.html)
+
 - 2026-09-21 チャッピー: 次候補比較用にORGANISM / TOPOLOGY / MEMBRANE / VOIDの4試作を新規制作。LATTICEは既存試作を再確認し、5方向を比較できる状態にした(prototypes/organism.html, prototypes/topology.html, prototypes/membrane.html, prototypes/lattice.html, prototypes/void.html)
 
 - 2026-09-21 チャッピー: MIRROR FOLDを新規制作。鏡面を動かすのではなく空間そのものを6階層で折り畳み、折り目の奥へ縮小した世界を連続的に畳み込む試作を追加(prototypes/mirror-fold.html)
