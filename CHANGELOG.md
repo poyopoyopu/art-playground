@@ -1,5 +1,7 @@
 # CHANGELOG — ART PLAYGROUND 更新履歴
 
+- 2026-09-21 チャッピー: MIRROR PRESSUREの運動方向を見直し、回転的な時間変化を抑えて中心から外側へ伝播する放射波を主動力に変更(prototypes/mirror-pressure.html)
+
 - 2026-09-21 チャッピー: MIRROR PRESSUREのタッチ変形を時間減衰式に変更。押した瞬間は強く歪み、約1周期で自然に元の形へ戻るよう調整(prototypes/mirror-pressure.html)
 
 - 2026-09-21 チャッピー: MIRROR PRESSUREのタッチ処理を再修正。画面座標の段階で局所収縮を発生させ、タッチ位置に明確な歪みと発光変化が出るよう強化(prototypes/mirror-pressure.html)
