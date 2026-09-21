@@ -9,7 +9,7 @@ const V=`#version 300 es
 in vec2 p;out vec2 uv;void main(){uv=p*.5+.5;gl_Position=vec4(p,0.,1.);}`;
 const F=`#version 300 es
 precision highp float;in vec2 uv;out vec4 o;
-uniform vec2 r;uniform float t,seed;uniform vec4 press[8];uniform int n;
+uniform vec2 r;uniform float t,seed;uniform vec4 press[8];
 vec3 pal(float h){
  float z=fract(h+seed*.017);
  return .5+.5*cos(6.2831853*(z+vec3(.0,.31,.63)));
@@ -22,7 +22,8 @@ void main(){
  float sinkAngle=atan(p.y,p.x);
  p=vec2(cos(sinkAngle),sin(sinkAngle))*sinkRad;
  float touchGlow=0.;
- for(int i=0;i<8;i++){if(i>=n)break;
+ for(int i=0;i<8;i++){
+   if(press[i].z<=0.)continue;
    vec2 d=p-press[i].xy;
    float age=fract(t-press[i].w);
    float life=1.-smoothstep(.05,1.,age);
@@ -41,7 +42,8 @@ void main(){
    p*=1.42;
  }
  float pressure=0.;float hueShift=0.;
- for(int i=0;i<8;i++){if(i>=n)break;
+ for(int i=0;i<8;i++){
+   if(press[i].z<=0.)continue;
    vec2 q=press[i].xy;float qr=length(q);float qa=atan(q.y,q.x);qa=mod(qa+3.14159265/4.,6.2831853/8.)-3.14159265/8.;q=vec2(cos(qa),sin(qa))*qr;
    vec2 d=p-q;float g=exp(-dot(d,d)/(.018+.028*press[i].z));g*=1.-smoothstep(.05,1.,fract(t-press[i].w));pressure+=g*press[i].z;hueShift+=g*fract(t-press[i].w);
    float angle=press[i].w*6.2831853;float ca=cos(angle),sa=sin(angle);p+=vec2(ca*d.x-sa*d.y,sa*d.x+ca*d.y)*g*.18*press[i].z;
@@ -66,7 +68,7 @@ let b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_
 let W,H,D=1,seed=Math.random()*70,press=[],paused=false,currentPhase=0;
 function resize(){W=innerWidth;H=innerHeight;D=Math.min(1.5,devicePixelRatio||1);c.width=W*D;c.height=H*D}addEventListener('resize',resize);resize();
 function pos(x,y){let s=Math.min(W,H);return[(x-W/2)/s,(H/2-y)/s]}
-function draw(ph){gl.useProgram(pr);gl.viewport(0,0,c.width,c.height);gl.uniform2f(U.r,c.width,c.height);gl.uniform1f(U.t,ph);gl.uniform1f(U.seed,seed);let a=new Float32Array(32);press.forEach((q,i)=>a.set(q,i*4));gl.uniform4fv(U.press,a);gl.uniform1i(U.n,press.length);gl.drawArrays(gl.TRIANGLE_STRIP,0,4)}
+function draw(ph){gl.useProgram(pr);gl.viewport(0,0,c.width,c.height);gl.uniform2f(U.r,c.width,c.height);gl.uniform1f(U.t,ph);gl.uniform1f(U.seed,seed);let a=new Float32Array(32);press.forEach((q,i)=>a.set(q,i*4));gl.uniform4fv(U.press,a);gl.drawArrays(gl.TRIANGLE_STRIP,0,4)}
 c.addEventListener('pointerdown',e=>{if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;e.preventDefault();let q=pos(e.clientX,e.clientY);press.push([q[0],q[1],.7+.6*Math.random(),currentPhase]);if(press.length>8)press.shift()});
 let start=performance.now();function loop(now){currentPhase=(now-start)*.00035;if(!paused)draw(currentPhase);requestAnimationFrame(loop)}requestAnimationFrame(loop);
 APKit.init({canvas:c,gifName:'mirror-descent-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:ph=>{paused=true;draw(ph)},onExportEnd:()=>{paused=false},buttons:[
