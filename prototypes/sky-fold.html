@@ -29,7 +29,7 @@ in vec2 p;
 void main(){gl_Position=vec4(p,0.0,1.0);}`;
 
 const FS=`#version 300 es
-precision highp float;
+precision mediump float;
 out vec4 O;
 uniform vec2 res;
 uniform float time;
@@ -72,9 +72,9 @@ void main(){
   vec2 r=res;
   vec2 uv=(FC-.5*r)/r.y;
 
-  /* 元コードの 99 x 19 fold。iPhoneでは品質を落として負荷を制御。 */
-  const int OUTER=72;
-  const int INNER=15;
+  /* 元コードのfold構造を維持しつつ、iPhoneでは描画回数と内部解像度を大幅に落として実機で確実に描く。 */
+  const int OUTER=36;
+  const int INNER=8;
 
   float g=0.0;
   float e=1.0;
@@ -104,36 +104,25 @@ void main(){
     g+=p.y/max(s,0.0001);
     s=log2(max(s,0.0001))/exp(clamp(e,-8.0,8.0));
 
-    /* 元コードの暖色HSVを、空と雲の白〜青に少し広げる。 */
+    /* 元コードのHSV評価を維持。色の後処理は最後に一度だけ行う。 */
     vec3 c=hsv2rgb(vec3(.10,g*.016-e*.30,max(s/200.0,0.0)));
 
-    /* 参考画像の白い雲を中心にするため、青白い霧を混ぜる。 */
-    c=mix(c,vec3(.86,.94,1.0),.32);
     col+=.014+c*.010;
 
-    /* 触った場所ほど局所的に明るいfoldを出す。 */
-    if(lawCount>0){
-      float glow=0.0;
-      for(int j=0;j<6;j++){
-        if(j>=lawCount)break;
-        glow+=exp(-dot(uv-law[j].xy,uv-law[j].xy)*12.0);
-      }
-      col+=vec3(.025,.035,.045)*glow*depth*.15;
-    }
   }
 
-  /* 空気遠近：上は青、雲の明部は白。 */
-  float skyMix=smoothstep(-.45,.85,uv.y);
-  col=mix(vec3(.86,.93,.98),vec3(.35,.63,.86),skyMix*.58);
-  col+=vec3(1.0,.82,.60)*exp(-dot(uv-vec2(.48,-.42),uv-vec2(.48,-.42))*7.0)*.11;
-
-  /* fractal accumulationを空に重ねる。 */
-  float luminance=length(col);
-  vec3 cloud=col;
-  cloud=mix(cloud,vec3(.94,.97,1.0),smoothstep(.12,.55,luminance));
-  col=mix(vec3(.55,.72,.87),cloud,clamp(luminance*.95,0.0,1.0));
-
-  col=pow(max(col,0.0),vec3(.92));
+  /* 参考元と同じ「foldの蓄積」を主画像にする。 */
+  col=clamp(col,0.0,1.0);
+  col=pow(col,vec3(.78));
+  col=mix(vec3(.58,.75,.88),vec3(1.0,.98,.95),smoothstep(.32,.82,col));
+  if(lawCount>0){
+    float glow=0.0;
+    for(int j=0;j<6;j++){
+      if(j>=lawCount)break;
+      glow+=exp(-dot(uv-law[j].xy,uv-law[j].xy)*18.0);
+    }
+    col+=vec3(.08,.12,.16)*glow*depth;
+  }
   O=vec4(col,1.0);
 }
 `;
@@ -168,7 +157,7 @@ const lawBuf=new Float32Array(24);
 
 function resize(){
   W=innerWidth;H=innerHeight;
-  DPR=Math.min(devicePixelRatio||1,1.25);
+  DPR=Math.min(devicePixelRatio||1,.60);
   canvas.width=Math.max(1,Math.round(W*DPR));
   canvas.height=Math.max(1,Math.round(H*DPR));
 }
