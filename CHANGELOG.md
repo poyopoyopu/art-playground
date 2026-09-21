@@ -1,3 +1,5 @@
+- 2026-09-21 チャッピー: MIRROR PRESSUREをCURRENTへ変更。TIDE MARKをLOG先頭へ移動し、Published worksの先頭をMIRROR PRESSUREに更新(art-v73-mirror-pressure.html, index.html)
+
 - 2026-09-21 チャッピー: MIRROR PRESSUREをart-v73として採用・昇格。極彩色の圧力場をルート作品として追加し、ギャラリーLOGとPublished worksへ登録(art-v73-mirror-pressure.html, index.html)
 
 - 2026-09-21 チャッピー: MIRROR PRESSURE系のネオン色彩比較用にNEON CYAN MAGENTA / ELECTRIC RAINBOW / NEON PRISMの3試作を追加(prototypes/neon-cyan-magenta.html, prototypes/electric-rainbow.html, prototypes/neon-prism.html)
