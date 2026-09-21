@@ -1,9 +1,9 @@
 <!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>MIRROR PRESSURE</title>
+<title>MIRROR DESCENT</title>
 <style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#02050a}canvas{display:block;width:100%;height:100%;touch-action:none}</style>
 <script src="../ap-kit.js"></script></head><body><canvas id="c"></canvas><script>
-/* MIRROR PRESSURE — ChatGPT作。8枚の鏡面が一つの圧力場を共有し、触れた場所が対称そのものを押し曲げる。 */
+/* MIRROR DESCENT — ChatGPT作。8枚の鏡面が共有する世界が、絶えず中心へ沈み続ける。 */
 const c=document.getElementById('c'),gl=c.getContext('webgl2',{antialias:false,alpha:false,preserveDrawingBuffer:true});if(!gl)throw Error('no webgl2');
 const V=`#version 300 es
 in vec2 p;out vec2 uv;void main(){uv=p*.5+.5;gl_Position=vec4(p,0.,1.);}`;
@@ -16,6 +16,11 @@ vec3 pal(float h){
 }
 void main(){
  vec2 p=(gl_FragCoord.xy-.5*r)/min(r.x,r.y);
+ float rawRad=length(p);
+ float sinkPhase=fract(t*.115+rawRad*1.18);
+ float sinkRad=.018+pow(sinkPhase,1.28)*.82;
+ float sinkAngle=atan(p.y,p.x);
+ p=vec2(cos(sinkAngle),sin(sinkAngle))*sinkRad;
  float touchGlow=0.;
  for(int i=0;i<8;i++){if(i>=n)break;
    vec2 d=p-press[i].xy;
@@ -29,6 +34,7 @@ void main(){
  sector=mod(sector+3.14159265/4.,6.2831853/8.)-3.14159265/8.;
  p=vec2(cos(sector),sin(sector))*rad;
  p.x+=.08*sin(rad*9.-t*.8)+.025*sin(rad*31.+t);
+ p*=1.-.10*smoothstep(.05,.55,rad);
  for(int i=0;i<6;i++){
    p=abs(p)-vec2(.31,.18);
    float a=.24*sin(t*.27+float(i)*1.1+seed*.1);p=mat2(cos(a),-sin(a),sin(a),cos(a))*p;
