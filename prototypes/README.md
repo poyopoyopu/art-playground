@@ -1,210 +1,51 @@
 # PROTOTYPES INDEX
 
-ART PLAYGROUND の試作置き場を見渡すための一覧です。
+ART PLAYGROUND の試作置き場。2026-09-21に整理し、削除候補123作品を削除しました。
 
-- **総数:** 170 ファイル
-- **HTML:** 159
-- **JS / 資料:** 11
-- **整理状態:** まず見える化。削除・移動はまだ実施していません。
+- **HTML作品:** 36（判定画面 index.html を含む）
+- **JS / 資料:** 11（既存JS 10 + このREADME）
+- **整理方針:** 採用作品の原型・現在参照されている作品・今回「残す」と判定した作品だけを残す。
 
-## 1. 最近の主要試作
+## 残したHTML作品
 
 - [axiom-fold.html](./axiom-fold.html)
-- [black-orchid-cultivar.html](./black-orchid-cultivar.html)
-- [black-orchid.html](./black-orchid.html)
 - [cellular-bloom.html](./cellular-bloom.html)
-- [crystal-strain.html](./crystal-strain.html)
-- [holo-thaw.html](./holo-thaw.html)
-- [koi-pond-b.html](./koi-pond-b.html)
-- [koi-pond-c.html](./koi-pond-c.html)
-- [koi-pond.html](./koi-pond.html)
-- [mandel-law.html](./mandel-law.html)
-- [opal-marble.html](./opal-marble.html)
-- [polar-fold.html](./polar-fold.html)
-- [seven-slice.html](./seven-slice.html)
-- [shoal-lab.html](./shoal-lab.html)
-- [static-light.html](./static-light.html)
-- [tar-ceiling.html](./tar-ceiling.html)
-- [tide-mark.html](./tide-mark.html)
-
-## 2. 派生・シリーズ群
-
-### BRONZE (3)
-
-- [bronze-fold.html](./bronze-fold.html)
-- [bronze-helix.html](./bronze-helix.html)
-- [bronze-knot.html](./bronze-knot.html)
-
-### CRYSTAL (4)
-
-- [crystal-axis.html](./crystal-axis.html)
-- [crystal-fracture.html](./crystal-fracture.html)
-- [crystal-prism.html](./crystal-prism.html)
-- [crystal-strain.html](./crystal-strain.html)
-
-### FOCUS (16)
-
-- [focus-breathing.html](./focus-breathing.html)
-- [focus-collapse-auto.html](./focus-collapse-auto.html)
-- [focus-collapse.html](./focus-collapse.html)
-- [focus-depth-candy.html](./focus-depth-candy.html)
-- [focus-depth-magma.html](./focus-depth-magma.html)
-- [focus-depth-ocean.html](./focus-depth-ocean.html)
-- [focus-depth-prism.html](./focus-depth-prism.html)
-- [focus-depth-toxic.html](./focus-depth-toxic.html)
-- [focus-depth-ultraviolet.html](./focus-depth-ultraviolet.html)
-- [focus-drag-indigo.html](./focus-drag-indigo.html)
-- [focus-exile.html](./focus-exile.html)
-- [focus-hold-amber.html](./focus-hold-amber.html)
-- [focus-pinch-mint.html](./focus-pinch-mint.html)
-- [focus-swipe-coral.html](./focus-swipe-coral.html)
-- [focus-tap-violet.html](./focus-tap-violet.html)
-- [focus-touch-white.html](./focus-touch-white.html)
-
-### FROST-LAW (10)
-
-- [frost-law-01-crystal-garden.html](./frost-law-01-crystal-garden.html)
-- [frost-law-02-rime-veins.html](./frost-law-02-rime-veins.html)
-- [frost-law-03-winter-fern.html](./frost-law-03-winter-fern.html)
-- [frost-law-04-ice-reef.html](./frost-law-04-ice-reef.html)
-- [frost-law-05-silver-frost.html](./frost-law-05-silver-frost.html)
-- [frost-law-06-deep-freeze.html](./frost-law-06-deep-freeze.html)
-- [frost-law-07-glass-branch.html](./frost-law-07-glass-branch.html)
-- [frost-law-08-polar-bloom.html](./frost-law-08-polar-bloom.html)
-- [frost-law-09-white-network.html](./frost-law-09-white-network.html)
-- [frost-law-10-last-winter.html](./frost-law-10-last-winter.html)
-
-### KNOT (3)
-
-- [knot-circuit.html](./knot-circuit.html)
-- [knot-presence.html](./knot-presence.html)
-- [knot-unknot.html](./knot-unknot.html)
-
-### KOI-POND (4)
-
-- [koi-pond-b.html](./koi-pond-b.html)
-- [koi-pond-c.html](./koi-pond-c.html)
-- [koi-pond-engine.js](./koi-pond-engine.js)
-- [koi-pond.html](./koi-pond.html)
-
-### ORCHID (4)
-
-- [orchid-a-bleed.html](./orchid-a-bleed.html)
-- [orchid-b-descent.html](./orchid-b-descent.html)
-- [orchid-c-gaze.html](./orchid-c-gaze.html)
-- [orchid-engine.js](./orchid-engine.js)
-
-### SPIRAL-SPECTRUM (8)
-
-- [spiral-spectrum-200-v2.html](./spiral-spectrum-200-v2.html)
-- [spiral-spectrum-200-v4.html](./spiral-spectrum-200-v4.html)
-- [spiral-spectrum-200-v5.html](./spiral-spectrum-200-v5.html)
-- [spiral-spectrum-200-v6.html](./spiral-spectrum-200-v6.html)
-- [spiral-spectrum-200-v7.html](./spiral-spectrum-200-v7.html)
-- [spiral-spectrum-200-v8.html](./spiral-spectrum-200-v8.html)
-- [spiral-spectrum-200-v9.html](./spiral-spectrum-200-v9.html)
-- [spiral-spectrum-200.html](./spiral-spectrum-200.html)
-
-## 3. 単発・その他の試作 (96)
-
-- [06-vein.html](./06-vein.html)
-- [bilateral-weave.html](./bilateral-weave.html)
-- [bloom-machine.html](./bloom-machine.html)
-- [bloom-trap.html](./bloom-trap.html)
-- [breathing-spectrum-200.html](./breathing-spectrum-200.html)
-- [cellular-zoo.html](./cellular-zoo.html)
-- [chorus-void.html](./chorus-void.html)
 - [chromatic-fault.html](./chromatic-fault.html)
 - [chromatic-orbit.html](./chromatic-orbit.html)
 - [chromatic-tension.html](./chromatic-tension.html)
-- [chromatic-veil-200.html](./chromatic-veil-200.html)
-- [color-eater.html](./color-eater.html)
-- [color-theft.html](./color-theft.html)
-- [dot13-prism.html](./dot13-prism.html)
-- [dot14-burst.html](./dot14-burst.html)
-- [dual-spectrum-200.html](./dual-spectrum-200.html)
-- [event-horizon.html](./event-horizon.html)
+- [crystal-strain.html](./crystal-strain.html)
 - [flat-law.html](./flat-law.html)
-- [fluid-orbit.html](./fluid-orbit.html)
-- [flux-weave.html](./flux-weave.html)
-- [fossil-dream.html](./fossil-dream.html)
+- [focus-pinch-mint.html](./focus-pinch-mint.html)
 - [fractal-grain.html](./fractal-grain.html)
-- [fractal07-lightning.html](./fractal07-lightning.html)
-- [fractal08-nest.html](./fractal08-nest.html)
-- [frozen-cycle.html](./frozen-cycle.html)
-- [frozen-law.html](./frozen-law.html)
-- [glass-topology.html](./glass-topology.html)
-- [gravity-cathedral.html](./gravity-cathedral.html)
-- [hunters.html](./hunters.html)
-- [inside-out.html](./inside-out.html)
+- [holo-thaw.html](./holo-thaw.html)
+- [knot-circuit.html](./knot-circuit.html)
+- [koi-pond-b.html](./koi-pond-b.html)
+- [koi-pond-c.html](./koi-pond-c.html)
+- [koi-pond.html](./koi-pond.html)
 - [lattice.html](./lattice.html)
-- [light03-gridwarp.html](./light03-gridwarp.html)
-- [light10-wave.html](./light10-wave.html)
-- [light13-comet.html](./light13-comet.html)
-- [liquid-entanglement.html](./liquid-entanglement.html)
 - [liquid-inversion.html](./liquid-inversion.html)
 - [liquid-knot.html](./liquid-knot.html)
-- [liquid-law.html](./liquid-law.html)
-- [liquid-mandala.html](./liquid-mandala.html)
-- [liquid-pearl-v2.html](./liquid-pearl-v2.html)
-- [liquid-pearl.html](./liquid-pearl.html)
-- [living-fold.html](./living-fold.html)
-- [living-octagon.html](./living-octagon.html)
-- [living-spectrum-200.html](./living-spectrum-200.html)
-- [melting-grid.html](./melting-grid.html)
 - [membrane-rgb.html](./membrane-rgb.html)
-- [memory-rift.html](./memory-rift.html)
-- [micro-lattice.html](./micro-lattice.html)
-- [micro-rupture.html](./micro-rupture.html)
 - [microbeast.html](./microbeast.html)
-- [mirror-bite.html](./mirror-bite.html)
-- [mirror.html](./mirror.html)
-- [morphic-cathedral.html](./morphic-cathedral.html)
-- [morphic-loop.html](./morphic-loop.html)
-- [nebula-weave.html](./nebula-weave.html)
-- [neon-one-path.html](./neon-one-path.html)
-- [neon-sign.html](./neon-sign.html)
-- [nested-cells.html](./nested-cells.html)
-- [organic-abyss.html](./organic-abyss.html)
-- [palimpsest.html](./palimpsest.html)
+- [opal-marble.html](./opal-marble.html)
 - [pixel-forest.html](./pixel-forest.html)
 - [polar-field.html](./polar-field.html)
-- [predator.html](./predator.html)
-- [pressure-cathedral.html](./pressure-cathedral.html)
-- [pressure-map.html](./pressure-map.html)
 - [prism-spiral.html](./prism-spiral.html)
-- [prismatic-entanglement.html](./prismatic-entanglement.html)
-- [prismatic-pressure.html](./prismatic-pressure.html)
-- [quantum-garden.html](./quantum-garden.html)
-- [reboot01-press.html](./reboot01-press.html)
-- [reboot02-breath.html](./reboot02-breath.html)
 - [reboot03-shear.html](./reboot03-shear.html)
 - [reboot06-fold.html](./reboot06-fold.html)
-- [reboot11-thread.html](./reboot11-thread.html)
-- [reboot20-fault.html](./reboot20-fault.html)
-- [ribbon-organ.html](./ribbon-organ.html)
-- [rupture-grid.html](./rupture-grid.html)
-- [sanctuary-paradox.html](./sanctuary-paradox.html)
-- [sanctuary-tithe.html](./sanctuary-tithe.html)
-- [singularity-garden.html](./singularity-garden.html)
-- [soft-spectrum.html](./soft-spectrum.html)
+- [seven-slice.html](./seven-slice.html)
+- [shoal-lab.html](./shoal-lab.html)
 - [spectra03-julia.html](./spectra03-julia.html)
 - [spectra10-hilbert.html](./spectra10-hilbert.html)
-- [spectra15-coral.html](./spectra15-coral.html)
-- [spectra17-flame.html](./spectra17-flame.html)
-- [spectral-fold-200.html](./spectral-fold-200.html)
 - [spectral-ribbon.html](./spectral-ribbon.html)
-- [strata-shiver.html](./strata-shiver.html)
+- [spiral-spectrum-200-v6.html](./spiral-spectrum-200-v6.html)
+- [spiral-spectrum-200-v9.html](./spiral-spectrum-200-v9.html)
 - [swarm.html](./swarm.html)
-- [symmetry-debt.html](./symmetry-debt.html)
-- [tenfold-membrane.html](./tenfold-membrane.html)
-- [tide.html](./tide.html)
-- [violet-membrane.html](./violet-membrane.html)
+- [tar-ceiling.html](./tar-ceiling.html)
+- [tide-mark.html](./tide-mark.html)
 - [void-blossom.html](./void-blossom.html)
-- [void-field-ii-apkit.html](./void-field-ii-apkit.html)
-- [void.html](./void.html)
 
-## 4. エンジン・資料 (11)
+## 残したJS
 
 - [dot20-engine.js](./dot20-engine.js)
 - [fractal20-engine.js](./fractal20-engine.js)
@@ -215,41 +56,13 @@ ART PLAYGROUND の試作置き場を見渡すための一覧です。
 - [living-shapes-engine.js](./living-shapes-engine.js)
 - [orchid-engine.js](./orchid-engine.js)
 - [reboot20-engine.js](./reboot20-engine.js)
-- [review-result-20260912.md](./review-result-20260912.md)
 - [spectra20-engine.js](./spectra20-engine.js)
 
-## 5. 機械的に「整理候補」と見なせる小型ファイル
+## 今回の整理で保留した作品
 
-サイズが小さいことだけを基準にした候補。**作品価値を判定したものではありません。**
-
-- [dot13-prism.html](./dot13-prism.html)
-- [dot14-burst.html](./dot14-burst.html)
-- [fractal07-lightning.html](./fractal07-lightning.html)
-- [fractal08-nest.html](./fractal08-nest.html)
-- [lattice.html](./lattice.html)
-- [light03-gridwarp.html](./light03-gridwarp.html)
-- [light10-wave.html](./light10-wave.html)
-- [light13-comet.html](./light13-comet.html)
-- [mirror.html](./mirror.html)
-- [reboot01-press.html](./reboot01-press.html)
-- [reboot02-breath.html](./reboot02-breath.html)
-- [reboot03-shear.html](./reboot03-shear.html)
-- [reboot06-fold.html](./reboot06-fold.html)
-- [reboot11-thread.html](./reboot11-thread.html)
-- [reboot20-fault.html](./reboot20-fault.html)
-- [spectra03-julia.html](./spectra03-julia.html)
-- [spectra10-hilbert.html](./spectra10-hilbert.html)
-- [spectra15-coral.html](./spectra15-coral.html)
-- [spectra17-flame.html](./spectra17-flame.html)
-- [spiral-spectrum-200-v6.html](./spiral-spectrum-200-v6.html)
-- [spiral-spectrum-200-v9.html](./spiral-spectrum-200-v9.html)
-- [swarm.html](./swarm.html)
-- [tide.html](./tide.html)
-- [void.html](./void.html)
-
-## 次の整理候補
-
-1. この一覧を見て「残す」シリーズを決める。
-2. 明らかな旧試作を削除候補として別リスト化する。
-3. 参照関係のある engine.js は最後まで残す。
-4. 採用作品の元プロトタイプは、履歴確認用として原則残す。
+- crystal-strain.html — 採用作品 FATIGUE LAW の原型
+- holo-thaw.html — 採用作品 HOLO COMPASS の原型
+- seven-slice.html — 採用作品 SEVEN SLICE の原型
+- tar-ceiling.html — 採用作品 TAR CEILING の原型
+- membrane-rgb.html — ルートギャラリーから参照中
+- spiral-spectrum-200-v9.html — ルートギャラリーから参照中

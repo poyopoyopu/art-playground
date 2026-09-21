@@ -1,5 +1,7 @@
 # CHANGELOG — ART PLAYGROUND 更新履歴
 
+- 2026-09-21 チャッピー: 判定結果に基づき、prototypes/ の不要試作123作品を削除。採用原型・ギャラリー参照作品は保持し、判定画面と一覧資料も更新(prototypes/)
+
 - 2026-09-21 チャッピー: prototypes/index.html に判定結果の書き出し(削除候補ファイル名をコピー)を追加(prototypes/index.html)
 
 - 2026-09-21 チャッピー: prototypes/index.html に作品ごとの「残す／削除候補／未判定」判定、件数集計、検索・絞り込み、実作品プレビューを追加(prototypes/index.html)
