@@ -1,3 +1,5 @@
+- 2026-09-21 チャッピー: MIRROR PRESSURE / MIRROR DESCENTを直前の互換性修正前へ復元。iPhone/iPad両方で表示される採用時の描画状態を優先し、今回のiPad対策は取り消した(art-v73-mirror-pressure.html, art-v74-mirror-descent.html)
+
 - 2026-09-21 チャッピー: MIRROR PRESSURE / MIRROR DESCENTのタッチ判定を再修正。固定8枠を維持しつつ分岐を使わずactive係数で無効枠を処理する方式に変更し、iPhoneのタッチ反応を戻しながらiPadのWebGL不安定要因をさらに減らした(art-v73-mirror-pressure.html, art-v74-mirror-descent.html)
 
 - 2026-09-21 チャッピー: MIRROR PRESSURE / MIRROR DESCENTのiPadタッチ時描画消失対策。タッチ点の有効判定を固定ループ化し、WebGL2の動的分岐とuniform n依存を除去して、iPhoneでの見た目・8点仕様を維持したままiPad側の不安定要因を減らした(art-v73-mirror-pressure.html, art-v74-mirror-descent.html)
