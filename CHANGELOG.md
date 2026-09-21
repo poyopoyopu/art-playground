@@ -1,5 +1,7 @@
 # CHANGELOG — ART PLAYGROUND 更新履歴
 
+- 2026-09-21 チャッピー: 前3作を作り直し、画面全体を使うWebGL2試作を3本追加。大きな折り面のCHROMATIC FOLD、対称面が圧力で歪むMIRROR PRESSURE、格子が溶けて位相を変えるMOLTEN LATTICEを制作(prototypes/chromatic-fold.html, prototypes/mirror-pressure.html, prototypes/molten-lattice.html)
+
 - 2026-09-21 チャッピー: OPAL系と被らない3方向の試作を追加。色の地殻がずれるCOLOR TECTONIC、触れた場所が呼吸中心になるSPECTRAL ORGAN、無彩色の構造が触れるほど色を獲得するPRISM COLLAPSEを制作(prototypes/color-tectonic.html, prototypes/spectral-organ.html, prototypes/prism-collapse.html)
 
 - 2026-09-21 チャッピー: OPAL ABYSSの形状・動き・タッチ法則は維持し、色だけを極彩色の高彩度スペクトルへ変更(prototypes/opal-abyss.html)
