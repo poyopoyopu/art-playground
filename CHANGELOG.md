@@ -1,3 +1,4 @@
+- 2026-09-21 チャッピー: SKY FOLDをX投稿の元GLSL(99×19 fold)基準で再構築。元の式をWebGL2へ忠実移植し、タッチはmouse相当の座標変形として実装(prototypes/sky-fold.html)
 - 2026-09-21 チャッピー: SKY FOLDを参考元GLSLへ再移植。99×19 fold、eの継承、row-vector型rotate3D、twigl互換hsv、元の色蓄積式を忠実に再現し、内部DPRのみiPhone向けに制御(prototypes/sky-fold.html)
 - 2026-09-21 チャッピー: SKY FOLDのフラクタル構造が薄すぎたため、fold密度とコントラストを上げて雲状の自己相似構造を読めるよう調整(prototypes/sky-fold.html)
 - 2026-09-21 チャッピー: SKY FOLDをiPhone向けに再軽量化。fold回数・内部解像度・精度を落とし、重い二重計算と後段の空背景上書きを削減(prototypes/sky-fold.html)
