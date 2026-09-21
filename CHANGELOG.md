@@ -1,3 +1,5 @@
+- 2026-09-21 チャッピー: MIRROR PRESSURE / MIRROR DESCENTのiPadタッチ時描画消失対策。タッチ点の有効判定を固定ループ化し、WebGL2の動的分岐とuniform n依存を除去して、iPhoneでの見た目・8点仕様を維持したままiPad側の不安定要因を減らした(art-v73-mirror-pressure.html, art-v74-mirror-descent.html)
+
 - 2026-09-21 チャッピー: MIRROR PRESSURE / MIRROR DESCENTを採用時の状態へ復元。タッチ変形の後付け安定化とリセット時の時間位相初期化を取り消し、採用時の挙動へ戻した(art-v73-mirror-pressure.html, art-v74-mirror-descent.html)
 
 - 2026-09-21 チャッピー: MIRROR PRESSURE / MIRROR DESCENTのリセットボタンでタッチ回数だけでなく時間位相も初期化するよう修正。リセット後は初期状態から再スタート(art-v73-mirror-pressure.html, art-v74-mirror-descent.html)
