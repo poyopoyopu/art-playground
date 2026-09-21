@@ -1,3 +1,5 @@
+- 2026-09-21 チャッピー: MIRROR SPLITのWebGL2シェーダーでループ内変数のスコープエラーが発生して描画されない不具合を修正(prototypes/mirror-split.html)
+
 - 2026-09-21 チャッピー: MIRROR SPLITを再構築。細かなノイズ状パターンを廃し、8→16→32→64→128の鏡面分裂が画面全体で読める大きな幾何構造へ変更(prototypes/mirror-split.html)
 
 - 2026-09-21 チャッピー: MIRROR SPLITを新規制作。8分割の鏡面が8→16→32→64へ自己相似に裂け続け、タッチした場所が次の分裂法則を局所的に変える試作を追加(prototypes/mirror-split.html)
