@@ -1,3 +1,4 @@
+- 2026-09-21 チャッピー: standalone表示のステータスバーを不透明な黒に変更してガラス感を抑え、作品領域を維持したまま閉じる×ボタンをステータスバー下からさらに20px下げた(index.html)
 - 2026-09-21 チャッピー: ART PLAYGROUNDをiPhoneのホーム画面Webアプリとして起動した際、CURRENT作品を自動で全画面モーダル表示するPWA/standalone対応を追加。viewport-fitとblack-translucentを使い、作品をステータスバー直下まで可能な限り広げる(manifest.webmanifest, index.html)
 - 2026-09-21 チャッピー: MIRROR FRACTUREのキャンバスを固定フルブリード化し、実際のキャンバス表示領域から描画解像度を取得するよう修正(art-v75-mirror-split.html)
 - 2026-09-21 チャッピー: MIRROR PRESSURE / MIRROR DESCENTを直前の互換性修正前へ復元。iPhone/iPad両方で表示される採用時の描画状態を優先し、今回のiPad対策は取り消した(art-v73-mirror-pressure.html, art-v74-mirror-descent.html)
