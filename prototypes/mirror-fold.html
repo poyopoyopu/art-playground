@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>MIRROR FOLD</title>
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#02050a}canvas{display:block;width:100%;height:100%;touch-action:none}</style>
+<script src="../ap-kit.js"></script></head><body><canvas id="c"></canvas><script>
+/* MIRROR FOLD — ChatGPT作。鏡面の境界ではなく空間そのものを折り、折り目の奥へ次の世界を畳み込む。 */
+const c=document.getElementById('c'),gl=c.getContext('webgl2',{antialias:false,alpha:false,preserveDrawingBuffer:true});if(!gl)throw Error('no webgl2');
+const V=`#version 300 es
+in vec2 p;out vec2 uv;void main(){uv=p*.5+.5;gl_Position=vec4(p,0.,1.);}`;
+const F=`#version 300 es
+precision highp float;in vec2 uv;out vec4 o;
+uniform vec2 r;uniform float t,seed;uniform vec4 press[8];uniform int n;
+vec3 pal(float h){
+  float z=fract(h+seed*.017);
+  return .5+.5*cos(6.2831853*(z+vec3(0.,.31,.63)));
+}
+void main(){
+  vec2 p=(gl_FragCoord.xy-.5*r)/min(r.x,r.y);
+  float touch=0.,touchAngle=0.;
+  for(int i=0;i<8;i++){if(i>=n)break;
+    vec2 d=p-press[i].xy;
+    float g=exp(-dot(d,d)/(.055+.03*press[i].z));
+    touch+=g*(.8+press[i].z);
+    touchAngle+=g*press[i].w;
+  }
+
+  float a=atan(p.y,p.x)+touchAngle*.15;
+  float rad=length(p);
+  float foldDepth=0.,crease=0.,surface=0.;
+
+  // The world is folded repeatedly. Each fold creates a smaller copy behind the crease.
+  for(int i=0;i<6;i++){
+    float fi=float(i);
+    float segments=4.+fi*1.5;
+    float cell=6.2831853/segments;
+    float local=mod(a+cell*.5,cell)-cell*.5;
+    float u=local/(cell*.5);
+    float side=sign(u);
+    float edge=abs(u);
+
+    float hinge=.5+.5*sin(t*(.11+.018*fi)+seed*.02+touch*(fi+1.)*.17);
+    float fold=abs(edge-hinge*.62);
+    float bend=(.16-.012*fi)*sin((1.-edge)*3.14159265+t*(.16+.021*fi)+touch*.35);
+    a=atan(sin(a-side*bend),cos(a-side*bend));
+
+    // Fold the radial coordinate across the hinge.
+    rad=.035+abs(rad-(.18+.105*fi)*hinge);
+    rad*=1.55+.045*sin(fi+t*.13);
+    foldDepth+=fold*(.18-.015*fi);
+    crease+=smoothstep(.055,.0,fold)*(1.0+.18*fi);
+    surface+=edge*(.17-.012*fi);
+  }
+
+  float x=rad*cos(a),y=rad*sin(a);
+
+  // Large, legible folded planes; fine detail only rides on top of them.
+  float plane=sin(x*8.+y*5.+foldDepth*9.-t*.24);
+  float plane2=sin(x*17.-y*11.+surface*7.+t*.16);
+  float seam=smoothstep(.09,0.,abs(fract((a+foldDepth)*8./6.2831853)-.5));
+  float hinge=exp(-abs(sin(a*4.+foldDepth*7.))*18.)*.35;
+  float spectrum=a*.34+foldDepth*.95+plane*.075+plane2*.045+touch*.12+seed*.013;
+
+  vec3 col=pal(spectrum);
+  col=mix(col,pal(spectrum+.25+plane*.035),smoothstep(.18,.8,surface));
+  col*=.8+.2*(1.-smoothstep(.0,.9,length(p)));
+  col+=vec3(1.)*crease*.18;
+  col+=vec3(1.)*seam*.18;
+  col+=vec3(1.)*hinge;
+  col=.04+col*1.12;
+  o=vec4(pow(max(col,0.),vec3(.78)),1.);
+}`;
+function sh(type,src){let s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(s));return s}
+let pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,V));gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,F));gl.bindAttribLocation(pr,0,'p');gl.linkProgram(pr);if(!gl.getProgramParameter(pr,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(pr));
+let U={};for(let i=0;i<gl.getProgramParameter(pr,gl.ACTIVE_UNIFORMS);i++){let a=gl.getActiveUniform(pr,i);U[a.name]=gl.getUniformLocation(pr,a.name.replace(/\[0\]$/,''))}
+let b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+let W,H,D=1,seed=Math.random()*70,press=[],paused=false,currentPhase=0;
+function resize(){W=innerWidth;H=innerHeight;D=Math.min(1.5,devicePixelRatio||1);c.width=W*D;c.height=H*D}addEventListener('resize',resize);resize();
+function pos(x,y){let s=Math.min(W,H);return[(x-W/2)/s,(H/2-y)/s]}
+function draw(ph){gl.useProgram(pr);gl.viewport(0,0,c.width,c.height);gl.uniform2f(U.r,c.width,c.height);gl.uniform1f(U.t,ph);gl.uniform1f(U.seed,seed);let a=new Float32Array(32);press.forEach((q,i)=>a.set(q,i*4));gl.uniform4fv(U.press,a);gl.uniform1i(U.n,press.length);gl.drawArrays(gl.TRIANGLE_STRIP,0,4)}
+c.addEventListener('pointerdown',e=>{if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;e.preventDefault();let q=pos(e.clientX,e.clientY);press.push([q[0],q[1],.7+.6*Math.random(),currentPhase]);if(press.length>8)press.shift()});
+let start=performance.now();function loop(now){currentPhase=(now-start)*.00035;if(!paused)draw(currentPhase);requestAnimationFrame(loop)}requestAnimationFrame(loop);
+APKit.init({canvas:c,gifName:'mirror-fold-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:ph=>{paused=true;draw(ph)},onExportEnd:()=>{paused=false},buttons:[
+{label:'✦',name:'mutate',onClick:()=>{seed=Math.random()*90}},
+{label:'↻',name:'reset',onClick:()=>{press=[]}}]});
+</script></body></html>
