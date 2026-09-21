@@ -1,4 +1,4 @@
-- 2026-09-21 チャッピー: SKY FOLDを新規制作。空間そのものを5階層で折り畳み、触れた場所を次の空の法則として恒久的に引き継ぐWebGL2試作を追加(prototypes/sky-fold.html)
+- 2026-09-21 チャッピー: SKY FOLDを雲の塊が読めるボリューメトリック雲景へ改修。積雲・雲海・巻雲・太陽光の背景を追加し、雲の自己相似とタッチ変形を強化(prototypes/sky-fold.html)\n- 2026-09-21 チャッピー: SKY FOLDを新規制作。空間そのものを5階層で折り畳み、触れた場所を次の空の法則として恒久的に引き継ぐWebGL2試作を追加(prototypes/sky-fold.html)
 - 2026-09-21 チャッピー: standalone起動時のステータスバーをblack-translucentへ戻し、作品をステータスバー裏まで広げる全画面表示を復元。×ボタンの下げ位置は維持(index.html)
 - 2026-09-21 チャッピー: standalone表示のステータスバーを不透明な黒に変更してガラス感を抑え、作品領域を維持したまま閉じる×ボタンをステータスバー下からさらに20px下げた(index.html)
 - 2026-09-21 チャッピー: ART PLAYGROUNDをiPhoneのホーム画面Webアプリとして起動した際、CURRENT作品を自動で全画面モーダル表示するPWA/standalone対応を追加。viewport-fitとblack-translucentを使い、作品をステータスバー直下まで可能な限り広げる(manifest.webmanifest, index.html)
