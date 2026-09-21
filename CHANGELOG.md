@@ -1,5 +1,7 @@
 # CHANGELOG — ART PLAYGROUND 更新履歴
 
+- 2026-09-21 チャッピー: OPAL ABYSSとOPAL INTERFERENCEを直前のWebGL2版へ差し戻し、今回の再設計を撤回(prototypes/opal-abyss.html, prototypes/opal-interference.html)
+
 - 2026-09-21 チャッピー: OPAL GROWTHをCanvas2Dベースへ再構築して描画安定化。OPAL ABYSSはタッチ位置から深度・歪みが増幅する構造へ、OPAL INTERFERENCEは暗い背景と多層スペクトル干渉へ再設計(prototypes/opal-growth.html, prototypes/opal-abyss.html, prototypes/opal-interference.html)
 
 - 2026-09-21 チャッピー: OPAL GROWTH / ABYSS / INTERFERENCEのWebGL2描画不具合を修正。GLSL改行エスケープと配列uniformの取得を修正(prototypes/opal-growth.html, prototypes/opal-abyss.html, prototypes/opal-interference.html)
