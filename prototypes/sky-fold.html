@@ -6,7 +6,7 @@
 <title>SKY FOLD</title>
 <script src="../ap-kit.js"></script>
 <style>
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#9ec8ec}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#78aee0}
 canvas{display:block;width:100%;height:100%;touch-action:none}
 #fallback{display:none;position:fixed;inset:0;place-items:center;color:#7890a6;font:14px/1.5 system-ui;background:#dbe8f4}
 </style>
@@ -15,7 +15,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 <canvas id="c"></canvas><div id="fallback">WebGL2 unavailable</div>
 <script>
 'use strict';
-/* SKY FOLD — ChatGPT作。丸い雲塊を重ねた軽量メタボール風雲景。 */
+/* SKY FOLD — 雲塊のメタボールではなく、空間を満たす雲の「体積」を描く軽量ボリューム版。 */
 const canvas=document.getElementById('c');
 const gl=canvas.getContext('webgl2',{antialias:false,alpha:false,preserveDrawingBuffer:true});
 if(!gl){document.getElementById('fallback').style.display='grid';throw new Error('WebGL2 unavailable');}
@@ -35,129 +35,148 @@ uniform float depth;
 uniform vec4 law[6];
 uniform int lawCount;
 
-float hash(float n){return fract(sin(n)*43758.5453123);}
+float hash(vec2 p){
+  return fract(sin(dot(p,vec2(127.1,311.7))+seed*19.17)*43758.5453);
+}
 float noise(vec2 p){
   vec2 i=floor(p),f=fract(p);
   f=f*f*(3.0-2.0*f);
-  float a=hash(i.x+i.y*57.0+seed);
-  float b=hash(i.x+1.0+i.y*57.0+seed);
-  float c=hash(i.x+(i.y+1.0)*57.0+seed);
-  float d=hash(i.x+1.0+(i.y+1.0)*57.0+seed);
+  float a=hash(i),b=hash(i+vec2(1,0));
+  float c=hash(i+vec2(0,1)),d=hash(i+vec2(1,1));
   return mix(mix(a,b,f.x),mix(c,d,f.x),f.y);
 }
 float fbm(vec2 p){
   float v=0.0;
-  v+=noise(p)*0.55;
-  p=p*2.03+vec2(11.7,4.3);
-  v+=noise(p)*0.28;
-  p=p*2.01+vec2(5.1,8.7);
-  v+=noise(p)*0.12;
+  v+=noise(p)*0.56;
+  p=p*2.03+vec2(17.3,9.1);v+=noise(p)*0.28;
+  p=p*2.02+vec2(-8.2,13.7);v+=noise(p)*0.11;
+  p=p*2.01+vec2(5.4,-6.2);v+=noise(p)*0.05;
   return v;
 }
 
-vec2 warp(vec2 p){
+vec2 lawWarp(vec2 p){
   for(int i=0;i<6;i++){
     if(i>=lawCount)break;
     vec2 v=p-law[i].xy;
     float r2=dot(v,v);
-    float w=law[i].z/(0.045+r2);
+    float w=law[i].z/(0.055+r2);
     float ca=cos(law[i].w),sa=sin(law[i].w);
     vec2 rv=vec2(ca*v.x-sa*v.y,sa*v.x+ca*v.y);
-    p+=rv*clamp(w,0.0,2.0)*0.018*bend;
+    p+=rv*clamp(w,0.0,2.5)*0.028*bend;
   }
   return p;
 }
 
-/* ひとつの雲塊。Gaussianの重なりなので四角いセルが出ない。 */
-float puff(vec2 p,vec2 c,vec2 r){
-  vec2 q=(p-c)/r;
-  float d=dot(q,q);
-  return exp(-d*2.15);
-}
+/* 空中の一地点における雲密度。水平の大きな塊＋細部＋高さで体積を作る。 */
+float density(vec3 p,float t){
+  vec2 xz=lawWarp(p.xz);
 
-/* 丸い積雲の集合。位置をずらした大小のpuffを重ねる。 */
-float cloudMass(vec2 p,float layer,float drift){
-  p.x+=time*drift;
-  float m=0.0;
+  float drift=t*.035;
+  vec2 q=xz*0.72+vec2(drift,-drift*.35);
+  float large=fbm(q);
 
-  m+=puff(p,vec2(-1.28,-0.06+layer),vec2(.50,.42));
-  m+=puff(p,vec2(-.91,.13+layer),vec2(.43,.55));
-  m+=puff(p,vec2(-.54,.02+layer),vec2(.52,.48));
-  m+=puff(p,vec2(-.12,.17+layer),vec2(.39,.55));
-  m+=puff(p,vec2(.24,.01+layer),vec2(.52,.43));
-  m+=puff(p,vec2(.63,.16+layer),vec2(.44,.54));
-  m+=puff(p,vec2(1.02,.00+layer),vec2(.53,.44));
-  m+=puff(p,vec2(1.38,.13+layer),vec2(.42,.50));
+  vec2 detailPos=xz*1.72+vec2(-drift*1.8,drift*.8)+large*0.32;
+  float detail=fbm(detailPos);
 
-  /* 雲の端だけ少し崩す。 */
-  float n=fbm(p*2.5+vec2(layer*4.0,-layer*2.0));
-  m*=0.84+0.24*n;
-  return m;
+  vec2 finePos=xz*3.7+vec2(drift*.8,-drift*1.4);
+  float fine=noise(finePos);
+
+  /* 雲の床と天井。中央に厚みを持つ。 */
+  float base=0.02+0.28*fbm(xz*.33+vec2(2.0,-1.0));
+  float top=0.95+0.26*fbm(xz*.42+vec2(-4.0,2.0));
+  float h=smoothstep(base,base+.25,p.y)*smoothstep(top,top-.34,p.y);
+
+  /* ふくらみ。 */
+  float body=smoothstep(.38,.67,large*.66+detail*.34);
+  float detailCut=smoothstep(.30,.72,detail*.72+fine*.28);
+  float d=body*mix(.62,1.0,detailCut)*h;
+
+  /* 上空の薄い雲を少量。 */
+  float high=smoothstep(1.0,.58,p.y)*smoothstep(.58,1.55,p.y);
+  float cir=fbm(xz*.48+vec2(6.0,2.0)+t*.008);
+  d+=smoothstep(.57,.78,cir)*high*.12;
+
+  return clamp(d,0.0,1.0);
 }
 
 vec3 sky(vec2 uv){
   float h=clamp(uv.y*.5+.5,0.0,1.0);
-  vec3 horizon=vec3(.95,.975,.985);
-  vec3 blue=vec3(.52,.75,.93);
-  vec3 deep=vec3(.27,.51,.78);
-  vec3 c=mix(horizon,blue,smoothstep(0.0,.62,h));
-  c=mix(c,deep,smoothstep(.55,1.0,h));
+  vec3 horizon=vec3(.92,.96,.985);
+  vec3 mid=vec3(.43,.69,.90);
+  vec3 zenith=vec3(.20,.43,.72);
+  vec3 c=mix(horizon,mid,smoothstep(.0,.56,h));
+  c=mix(c,zenith,smoothstep(.50,1.0,h));
 
-  vec2 sun=vec2(.47,-.34);
-  float d=length(uv-sun);
-  c+=vec3(1.0,.82,.57)*exp(-d*d*8.0)*.24;
-  c+=vec3(1.0,.95,.82)*exp(-d*d*2.1)*.065;
+  vec2 sun=vec2(.52,-.40);
+  float sd=length(uv-sun);
+  c+=vec3(1.0,.83,.57)*exp(-sd*sd*8.0)*.28;
+  c+=vec3(1.0,.95,.82)*exp(-sd*sd*1.65)*.075;
   return c;
 }
 
 void main(){
   vec2 uv=(gl_FragCoord.xy*2.0-res)/res.y;
-  vec2 p=warp(uv);
+
+  /* 空を見上げるカメラ。 */
+  vec3 ro=vec3(0.0,-.08,-2.9);
+  vec3 rd=normalize(vec3(uv.x*.86,uv.y*.72+.18,1.35));
+
+  float driftYaw=.055*sin(time*.07);
+  float cs=cos(driftYaw),sn=sin(driftYaw);
+  ro.xz=mat2(cs,-sn,sn,cs)*ro.xz;
+  rd.xz=mat2(cs,-sn,sn,cs)*rd.xz;
 
   vec3 col=sky(uv);
 
-  /* 遠くの雲海。薄く、水平に広がる。 */
-  float far=cloudMass(p*vec2(.72,.42)+vec2(0.0,-.46),-.12,.004);
-  far=smoothstep(1.15,2.25,far);
-  far*=smoothstep(-.85,-.05,uv.y);
-  col=mix(col,vec3(.80,.89,.96),far*.42);
+  float alpha=0.0;
+  vec3 cloudColor=vec3(0.0);
+  float z=0.10;
 
-  /* 主役の雲。丸い塊を2層重ねる。 */
-  float upper=cloudMass(p*vec2(.86,.72)+vec2(0.0,.03),.05,.006);
-  float lower=cloudMass(p*vec2(1.02,.82)+vec2(.18,-.18),-.14,-.004);
+  /* 体積を前から後ろへ。レイマーチは28回に抑えてiPhoneでも動かす。 */
+  for(int i=0;i<28;i++){
+    vec3 p=ro+rd*z;
 
-  upper=smoothstep(.58,1.22,upper);
-  lower=smoothstep(.48,1.10,lower);
-  float clouds=clamp(upper*.76+lower*.42,0.0,1.0);
+    /* 雲層を画面中央〜遠景へ広げる。 */
+    p.y*=1.05;
+    float d=density(p,time);
 
-  /* 雲底の青灰、上面の白、太陽側の暖色。 */
-  float topLight=smoothstep(-.30,.48,uv.y);
-  float rim=smoothstep(.45,.92,clouds);
-  vec3 shadow=vec3(.40,.53,.66);
-  vec3 mid=vec3(.78,.87,.93);
-  vec3 white=vec3(.985,.99,.985);
-  vec3 warm=vec3(1.0,.90,.74);
+    /* 太陽は右下。上面ほど光を受ける。 */
+    float heightLight=smoothstep(-.05,.72,p.y);
+    float edge=1.0-smoothstep(.15,.72,d);
+    float light=.42+.46*heightLight+.24*edge;
 
-  vec3 cloudCol=mix(shadow,mid,topLight);
-  cloudCol=mix(cloudCol,white,rim*.82);
-  cloudCol=mix(cloudCol,warm,.12*smoothstep(.0,1.0,uv.x));
+    vec3 shadow=vec3(.20,.34,.49);
+    vec3 body=vec3(.68,.79,.88);
+    vec3 bright=vec3(.98,.99,.985);
+    vec3 warm=vec3(1.0,.88,.70);
 
-  col=mix(col,cloudCol,clouds*.94);
+    vec3 lit=mix(shadow,body,smoothstep(.08,.48,light));
+    lit=mix(lit,bright,smoothstep(.48,.88,light));
+    lit=mix(lit,warm,.16*smoothstep(.15,.95,heightLight));
 
-  /* 雲の輪郭にごく薄い霞を足す。 */
-  float haze=smoothstep(.18,.62,clouds)*.09;
-  col=mix(col,vec3(.93,.97,.99),haze);
+    float a=d*.075;
+    cloudColor+=lit*a*(1.0-alpha);
+    alpha+=a*(1.0-alpha);
 
-  /* タッチした場所は雲を寄せ、折り畳みを少しずつ深くする。 */
-  float lawGlow=0.0;
+    z+=.105;
+    if(alpha>.985)break;
+  }
+
+  col=mix(col,cloudColor,clamp(alpha,0.0,1.0));
+
+  /* 遠くの雲海と薄い光。 */
+  float horizon=exp(-pow((uv.y+.22)*4.2,2.0));
+  col=mix(col,vec3(.82,.90,.96),horizon*.10*(1.0-alpha));
+
+  /* タッチした場所は雲の流れを曲げる。 */
+  float touch=0.0;
   for(int i=0;i<6;i++){
     if(i>=lawCount)break;
-    float d=length(p-law[i].xy);
-    lawGlow+=exp(-d*d*9.0);
+    touch+=exp(-dot(uv-law[i].xy,uv-law[i].xy)*8.0);
   }
-  col=mix(col,vec3(.97,.99,1.0),clamp(lawGlow*.025*depth,0.0,.10));
+  col=mix(col,vec3(.95,.98,1.0),clamp(touch*.025*depth,0.0,.10));
 
-  col*=1.0-.045*length(uv*.45);
+  col*=1.0-.055*length(uv*.38);
   col=pow(max(col,0.0),vec3(.94));
   O=vec4(col,1.0);
 }
@@ -192,8 +211,7 @@ const lawBuf=new Float32Array(24);
 
 function resize(){
   W=innerWidth;H=innerHeight;
-  /* iPhoneの高DPIでCSS 1pxをそのまま拡大すると雲がブロック化する。軽量化済みなので2xまで描く。 */
-  DPR=Math.min(devicePixelRatio||1,2.0);
+  DPR=Math.min(devicePixelRatio||1,1.25);
   canvas.width=Math.max(1,Math.round(W*DPR));
   canvas.height=Math.max(1,Math.round(H*DPR));
 }
@@ -205,7 +223,7 @@ function lawPoint(x,y){
 }
 function addLaw(x,y){
   const q=lawPoint(x,y);
-  laws.push([q[0]*1.55,q[1]*1.55,.55+Math.random()*.55,Math.random()*6.2831853]);
+  laws.push([q[0]*1.45,q[1]*1.45,.55+Math.random()*.55,Math.random()*6.2831853]);
   if(laws.length>6)laws.shift();
   bend=Math.min(2.2,bend+.12);
   depth=Math.min(3.0,depth+.2);
@@ -229,15 +247,14 @@ function draw(phase){
 
 canvas.addEventListener('pointerdown',e=>{
   if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
-  e.preventDefault();
-  addLaw(e.clientX,e.clientY);
+  e.preventDefault();addLaw(e.clientX,e.clientY);
   canvas.setPointerCapture?.(e.pointerId);
 });
 
 let last=performance.now(),phase=0;
 function frame(now){
   const dt=Math.min(.05,(now-last)/1000);last=now;
-  if(!paused){phase=(phase+dt*.22)%(Math.PI*2);draw(phase);}
+  if(!paused){phase=(phase+dt*.20)%(Math.PI*2);draw(phase);}
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
