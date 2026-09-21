@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>PRISM COLLAPSE</title>
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#090909}canvas{display:block;width:100%;height:100%;touch-action:none}</style>
+<script src="../ap-kit.js"></script></head><body><canvas id="c"></canvas><script>
+/* PRISM COLLAPSE — ChatGPT作。触れた場所から無彩色の構造が崩れ、色が発生する。 */
+const c=document.getElementById('c'),ctx=c.getContext('2d',{alpha:false});let W=0,H=0,D=1,seed=Math.random()*90,phase=0,paused=false;const scars=[];
+function resize(){W=innerWidth;H=innerHeight;D=Math.min(1.5,devicePixelRatio||1);c.width=W*D;c.height=H*D}addEventListener('resize',resize);resize();
+function field(x,y,ph){let qx=x,qy=y,v=0,scale=1;for(let i=0;i<6;i++){qx=Math.abs(qx)-.46;qy=Math.abs(qy)-.38;let a=.28+.11*Math.sin(ph*.4+i+seed);let co=Math.cos(a),si=Math.sin(a),nx=qx*co-qy*si,ny=qx*si+qy*co;qx=nx*1.55;qy=ny*1.55;v+=Math.exp(-Math.hypot(qx,qy)*3.2)*scale;scale*=.78}return v}
+function chroma(x,y){let z=0;for(const s of scars){let dx=x-s.x,dy=y-s.y,d=Math.hypot(dx,dy);z+=s.power*Math.exp(-d*d/(s.r*s.r))}return Math.min(1,z)}
+function rgb(h){h=((h%1)+1)%1;let x=h*6,i=Math.floor(x),f=x-i,q=1-f,a=[[1,f,0],[q,1,0],[0,1,f],[0,q,1],[f,0,1],[1,0,q]][i];return a}
+function draw(ph){
+ const w=Math.min(360,Math.floor(W*.7)),h=Math.min(520,Math.floor(H*.55)),ox=(W-w)/2,oy=(H-h)/2;
+ const img=ctx.createImageData(w,h),d=img.data;
+ for(let y=0;y<h;y++)for(let x=0;x<w;x++){let X=(x/w-.5)*2,Y=(y/h-.5)*2;let v=field(X,Y,ph);let cr=chroma(X,Y);let grey=28+Math.floor(190*(.5+.5*Math.sin(v*18-ph*.18)));let k=(y*w+x)*4;
+   if(cr<.015){d[k]=d[k+1]=d[k+2]=grey}else{let q=rgb(v*.17+ph*.018+X*.08);let mix=cr*.92;d[k]=grey*(1-mix)+255*q[0]*mix;d[k+1]=grey*(1-mix)+255*q[1]*mix;d[k+2]=grey*(1-mix)+255*q[2]*mix}
+   d[k+3]=255}
+ ctx.putImageData(img,ox,oy);
+ ctx.save();ctx.translate(ox,oy);ctx.globalCompositeOperation='screen';
+ for(const s of scars){let px=s.x*w,py=s.y*h;ctx.strokeStyle='rgba(255,255,255,.25)';ctx.lineWidth=1;ctx.beginPath();for(let i=0;i<18;i++){let a=i/17*Math.PI*2;let rr=s.r*w*(.7+.22*Math.sin(i*5+s.phase));let xx=px+Math.cos(a)*rr,yy=py+Math.sin(a)*rr; if(i)ctx.lineTo(xx,yy);else ctx.moveTo(xx,yy)}ctx.closePath();ctx.stroke()}
+ ctx.restore();
+}
+function addScar(x,y){scars.push({x,y,r:.12+Math.random()*.08,power:.7+Math.random()*.5,phase:Math.random()*10});if(scars.length>12)scars.shift()}
+c.addEventListener('pointerdown',e=>{if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;e.preventDefault();let w=Math.min(360,Math.floor(W*.7)),h=Math.min(520,Math.floor(H*.55));addScar((e.clientX-(W-w)/2)/w*2-1,(e.clientY-(H-h)/2)/h*2-1)});
+function loop(now){if(!paused){phase=now*.0003;draw(phase)}requestAnimationFrame(loop)}requestAnimationFrame(loop);
+APKit.init({canvas:c,gifName:'prism-collapse-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:ph=>{paused=true;draw(ph)},onExportEnd:()=>{paused=false},buttons:[
+{label:'✦',name:'mutate',onClick:()=>{seed=Math.random()*90}},
+{label:'↻',name:'reset',onClick:()=>{scars.length=0;seed=Math.random()*90}}]});
+</script></body></html>
