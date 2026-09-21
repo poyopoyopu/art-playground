@@ -1,3 +1,5 @@
+- 2026-09-21 チャッピー: MIRROR SPLITをMIRROR FRACTUREとしてart-v75へ採用・昇格。ルート作品化し、ギャラリーLOGとPublished worksへ追加(art-v75-mirror-split.html, index.html)
+
 - 2026-09-21 チャッピー: MIRROR SPLITのWebGL2シェーダーでループ内変数のスコープエラーが発生して描画されない不具合を修正(prototypes/mirror-split.html)
 
 - 2026-09-21 チャッピー: MIRROR SPLITを再構築。細かなノイズ状パターンを廃し、8→16→32→64→128の鏡面分裂が画面全体で読める大きな幾何構造へ変更(prototypes/mirror-split.html)
