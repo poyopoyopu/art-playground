@@ -135,6 +135,29 @@ export default {
 };
 
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'}})}
-async function ensureAnalyticsSchema(db){await db.exec(`CREATE TABLE IF NOT EXISTS art_views (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, title TEXT NOT NULL, created_at TEXT NOT NULL); CREATE INDEX IF NOT EXISTS idx_art_views_path ON art_views(path); CREATE INDEX IF NOT EXISTS idx_art_views_created_at ON art_views(created_at);`)}
-async function recordView(db,path,title){try{await ensureAnalyticsSchema(db);await db.prepare('INSERT INTO art_views (path,title,created_at) VALUES (?,?,?)').bind(path,title,new Date().toISOString()).run()}catch(e){console.error('ART_VIEW_RECORD_FAILED',e)}}
-async function onRequestGetAnalytics({env}){const db=env.DB||env.BD;if(!db)return json({error:'DB_NOT_CONFIGURED'},503);try{await ensureAnalyticsSchema(db);const total=await db.prepare('SELECT COUNT(*) AS views FROM art_views').first();const recent=await db.prepare("SELECT COUNT(*) AS views FROM art_views WHERE created_at >= datetime('now','-30 days')").first();const works=await db.prepare('SELECT path,title,COUNT(*) AS views,MAX(created_at) AS last_view FROM art_views GROUP BY path,title ORDER BY views DESC,title ASC').all();const daily=await db.prepare("SELECT substr(created_at,1,10) AS day,COUNT(*) AS views FROM art_views WHERE created_at >= datetime('now','-30 days') GROUP BY day ORDER BY day ASC").all();return json({total_views:Number(total?.views||0),last_30_days:Number(recent?.views||0),works:works.results||[],daily:daily.results||[]})}catch(e){return json({error:'ANALYTICS_QUERY_FAILED'},500)}}
+async function ensureAnalyticsSchema(db){
+  await db.prepare('CREATE TABLE IF NOT EXISTS art_views (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, title TEXT NOT NULL, created_at TEXT NOT NULL)').run();
+  await db.prepare('CREATE INDEX IF NOT EXISTS idx_art_views_path ON art_views(path)').run();
+  await db.prepare('CREATE INDEX IF NOT EXISTS idx_art_views_created_at ON art_views(created_at)').run();
+}
+async function recordView(db,path,title){
+  try{
+    await ensureAnalyticsSchema(db);
+    await db.prepare('INSERT INTO art_views (path,title,created_at) VALUES (?,?,?)').bind(path,title,new Date().toISOString()).run();
+  }catch(e){console.error('ART_VIEW_RECORD_FAILED',e)}
+}
+async function onRequestGetAnalytics({env}){
+  const db=env.DB||env.BD;
+  if(!db)return json({error:'DB_NOT_CONFIGURED'},503);
+  try{
+    await ensureAnalyticsSchema(db);
+    const total=await db.prepare('SELECT COUNT(*) AS views FROM art_views').first();
+    const recent=await db.prepare("SELECT COUNT(*) AS views FROM art_views WHERE created_at >= datetime('now','-30 days')").first();
+    const works=await db.prepare('SELECT path,title,COUNT(*) AS views,MAX(created_at) AS last_view FROM art_views GROUP BY path,title ORDER BY views DESC,title ASC').all();
+    const daily=await db.prepare("SELECT substr(created_at,1,10) AS day,COUNT(*) AS views FROM art_views WHERE created_at >= datetime('now','-30 days') GROUP BY day ORDER BY day ASC").all();
+    return json({total_views:Number(total?.views||0),last_30_days:Number(recent?.views||0),works:works.results||[],daily:daily.results||[]});
+  }catch(e){
+    console.error('ANALYTICS_QUERY_FAILED',e);
+    return json({error:'ANALYTICS_QUERY_FAILED'},500);
+  }
+}
