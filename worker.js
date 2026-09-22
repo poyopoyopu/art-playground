@@ -91,7 +91,7 @@ export default {
       if (request.method !== 'GET') return new Response('Method Not Allowed', { status: 405 });
       return onRequestGet({ request, env, ctx });
     }
-    if (url.pathname === '/api/analytics') {
+    if (url.pathname === '/api/views') {
       if (request.method !== 'GET') return new Response('Method Not Allowed', { status: 405 });
       return onRequestGetAnalytics({ env });
     }
