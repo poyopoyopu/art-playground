@@ -44,6 +44,9 @@ uniform float t;
 uniform vec2 touch;
 uniform float touchPower;
 uniform float seed;
+uniform float lawTwist;
+uniform float lawFold;
+uniform float lawScale;
 
 #define PI 3.14159265359
 #define TAU 6.28318530718
@@ -80,10 +83,11 @@ void main(){
 
   for(int i=0;i<7;i++){
     float fi=float(i);
-    float sides=5.0+mod(fi+seed,5.0);
-    float phase=fi*1.173 + sin(t*.55+fi*.71)*.18 + seed*.7;
+    float sides=5.0+mod(fi+seed+floor(abs(lawFold)*2.0),5.0);
+    float phase=fi*1.173 + sin(t*.55+fi*.71)*.18 + seed*.7 + lawTwist*(1.0+fi*.13);
 
     vec2 z=p*(1.08+fi*.055);
+    z*=1.0+lawScale*(0.035+fi*.012);
     z=polygonFold(z,sides,phase);
 
     for(int j=0;j<5;j++){
@@ -143,7 +147,10 @@ const U={
   t:gl.getUniformLocation(program,'t'),
   touch:gl.getUniformLocation(program,'touch'),
   touchPower:gl.getUniformLocation(program,'touchPower'),
-  seed:gl.getUniformLocation(program,'seed')
+  seed:gl.getUniformLocation(program,'seed'),
+  lawTwist:gl.getUniformLocation(program,'lawTwist'),
+  lawFold:gl.getUniformLocation(program,'lawFold'),
+  lawScale:gl.getUniformLocation(program,'lawScale')
 };
 
 const buf=gl.createBuffer();
@@ -161,6 +168,11 @@ let tx=0,ty=0;
 let targetX=0,targetY=0;
 let touchPower=0;
 let seed=Math.random()*8;
+let lawTwist=0;
+let lawFold=0;
+let lawScale=0;
+let dragging=false;
+let lastX=0,lastY=0;
 let phase=0;
 let paused=false;
 let last=performance.now();
@@ -190,6 +202,9 @@ function draw(ph){
   gl.uniform2f(U.touch,tx,ty);
   gl.uniform1f(U.touchPower,touchPower);
   gl.uniform1f(U.seed,seed);
+  gl.uniform1f(U.lawTwist,lawTwist);
+  gl.uniform1f(U.lawFold,lawFold);
+  gl.uniform1f(U.lawScale,lawScale);
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
 }
 
@@ -197,17 +212,36 @@ canvas.addEventListener('pointerdown',e=>{
   if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
   e.preventDefault();
   setTouch(e.clientX,e.clientY);
+  dragging=true;
+  lastX=e.clientX;
+  lastY=e.clientY;
+  /* A tap itself changes the global fold law. */
+  const cx=e.clientX-W*.5;
+  const cy=e.clientY-H*.5;
+  lawTwist+=Math.atan2(cy,cx)*.08;
+  lawScale=Math.max(-1.0,Math.min(1.0,lawScale+(Math.hypot(cx,cy)/Math.min(W,H)-.35)*.18));
   canvas.setPointerCapture?.(e.pointerId);
 });
 
 canvas.addEventListener('pointermove',e=>{
   if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
-  if(e.buttons)setTouch(e.clientX,e.clientY);
+  if(e.buttons&&dragging){
+    setTouch(e.clientX,e.clientY);
+    const dx=e.clientX-lastX;
+    const dy=e.clientY-lastY;
+    lawTwist+=dx*.010;
+    lawFold=Math.max(-2.5,Math.min(2.5,lawFold-dy*.012));
+    lawScale=Math.max(-1.0,Math.min(1.0,lawScale+dx*.0015));
+    lastX=e.clientX;
+    lastY=e.clientY;
+  }
 });
 
 canvas.addEventListener('pointerup',e=>{
   if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  dragging=false;
 });
+canvas.addEventListener('pointercancel',()=>{dragging=false;});
 
 function frame(now){
   const dt=Math.min(.05,(now-last)/1000);
@@ -245,6 +279,9 @@ APKit.init({
       name:'mutate',
       onClick:function(){
         seed=Math.random()*8;
+        lawTwist=(Math.random()-.5)*3.0;
+        lawFold=(Math.random()-.5)*2.0;
+        lawScale=(Math.random()-.5)*1.2;
         targetX=0;
         targetY=0;
       }
@@ -254,6 +291,9 @@ APKit.init({
       name:'reset',
       onClick:function(){
         seed=0;
+        lawTwist=0;
+        lawFold=0;
+        lawScale=0;
         targetX=0;
         targetY=0;
         tx=0;
