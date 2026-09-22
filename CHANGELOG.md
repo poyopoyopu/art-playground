@@ -1,3 +1,4 @@
+- 2026-09-22 チャッピー: RADIAL FOLD中央の黒い孔をさらに約1/4へ縮小(.045-.065→.011-.016)(prototypes/radial-fold.html)
 - 2026-09-22 チャッピー: RADIAL FOLD中央の黒い孔を小型化(.085-.115→.045-.065)(prototypes/radial-fold.html)
 - 2026-09-22 チャッピー: RADIAL FOLDの局所的なグニャ変形を削除。タッチは全体のfold法則だけを変える操作に整理( prototypes/radial-fold.html)
 - 2026-09-22 チャッピー: RADIAL FOLDのタッチ操作を局所変形から全体のfold法則変更へ変更。タップ/ドラッグで回転・折り密度・スケールが恒久的に変化(prototypes/radial-fold.html)
