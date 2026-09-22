@@ -158,6 +158,6 @@ async function onRequestGetAnalytics({env}){
     return json({total_views:Number(total?.views||0),last_30_days:Number(recent?.views||0),works:works.results||[],daily:daily.results||[]});
   }catch(e){
     console.error('ANALYTICS_QUERY_FAILED',e);
-    return json({error:'ANALYTICS_QUERY_FAILED'},500);
+    return json({error:'ANALYTICS_QUERY_FAILED',detail:String((e&&e.message)||e)},500);
   }
 }
