@@ -1,3 +1,4 @@
+- 2026-09-22 チャッピー: アクセス解析APIのD1初期化を単一ステートメント方式へ修正し、解析データ取得失敗を改善(worker.js)
 - 2026-09-21 チャッピー: 作品アクセス解析の閲覧ページを追加。総閲覧数・直近30日・日別推移・作品別閲覧数を確認可能にした(analytics.html)
 - 2026-09-21 チャッピー: SKY FOLDをX投稿の元GLSL(99×19 fold)基準で再構築。元の式をWebGL2へ忠実移植し、タッチはmouse相当の座標変形として実装(prototypes/sky-fold.html)
 - 2026-09-21 チャッピー: SKY FOLDを参考元GLSLへ再移植。99×19 fold、eの継承、row-vector型rotate3D、twigl互換hsv、元の色蓄積式を忠実に再現し、内部DPRのみiPhone向けに制御(prototypes/sky-fold.html)
