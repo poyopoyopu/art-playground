@@ -1,3 +1,4 @@
+- 2026-09-22 チャッピー: RADIAL FOLDの局所的なグニャ変形を削除。タッチは全体のfold法則だけを変える操作に整理( prototypes/radial-fold.html)
 - 2026-09-22 チャッピー: RADIAL FOLDのタッチ操作を局所変形から全体のfold法則変更へ変更。タップ/ドラッグで回転・折り密度・スケールが恒久的に変化(prototypes/radial-fold.html)
 - 2026-09-22 チャッピー: X投稿のDesmos作品を参考に、色面の多角形折り返し・自己相似・中央孔・タッチ変形を持つRADIAL FOLDを試作(prototypes/radial-fold.html)
 - 2026-09-22 クロちゃん: 画面表示された実際のエラーは「Load failed」(サーバーエラーではなくfetch自体が届く前の失敗)と判明。広告ブロッカー/プライバシー拡張が「analytics」を含むURLを標準でブロックしている可能性が高いため、APIエンドポイントを /api/analytics から /api/views にリネーム(worker.js, analytics.html)
