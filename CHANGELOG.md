@@ -1,3 +1,4 @@
+- 2026-09-23 チャッピー: KALEIDO FOLDの表示不具合を修正。iPhone WebGL2で負荷・複雑性を下げた堅牢な万華鏡シェーダーへ置換(prototypes/radial-fold.html)
 - 2026-09-23 チャッピー: RADIAL FOLDを万華鏡構造へ再設計。放射対称・入れ子fold・淡いガラス色面を主役にし、タッチで対称数や折り法則そのものが変わるよう整理(prototypes/radial-fold.html)
 - 2026-09-22 チャッピー: RADIAL FOLD中央の黒い孔をさらに約1/4へ縮小(.045-.065→.011-.016)(prototypes/radial-fold.html)
 - 2026-09-22 チャッピー: RADIAL FOLD中央の黒い孔を小型化(.085-.115→.045-.065)(prototypes/radial-fold.html)
