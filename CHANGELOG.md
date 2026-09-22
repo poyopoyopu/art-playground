@@ -1,3 +1,4 @@
+- 2026-09-22 チャッピー: X投稿のDesmos作品を参考に、色面の多角形折り返し・自己相似・中央孔・タッチ変形を持つRADIAL FOLDを試作(prototypes/radial-fold.html)
 - 2026-09-22 クロちゃん: 画面表示された実際のエラーは「Load failed」(サーバーエラーではなくfetch自体が届く前の失敗)と判明。広告ブロッカー/プライバシー拡張が「analytics」を含むURLを標準でブロックしている可能性が高いため、APIエンドポイントを /api/analytics から /api/views にリネーム(worker.js, analytics.html)
 - 2026-09-22 クロちゃん: アクセス解析APIが修正後も失敗する原因を特定するため、エラー詳細(detail)をAPIレスポンスと画面表示に一時的に露出(worker.js, analytics.html)。原因特定でき次第、詳細表示は削除予定
 - 2026-09-22 チャッピー: アクセス解析APIのD1初期化を単一ステートメント方式へ修正し、解析データ取得失敗を改善(worker.js)
