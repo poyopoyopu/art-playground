@@ -1,3 +1,4 @@
+- 2026-09-23 チャッピー: KALEIDO FOLDを根本再設計。放射状の筋表現を廃し、再帰的Cartesian fold＋三角ファセットによる多角形の万華鏡構造へ変更(prototypes/radial-fold.html)
 - 2026-09-23 チャッピー: KALEIDO FOLDの放射線状の見え方を整理。加算的な淡色表現から、鏡映された多角形ファセットと同心バンド中心の万華鏡構造へ調整(prototypes/radial-fold.html)
 - 2026-09-23 チャッピー: KALEIDO FOLDの白飛びを修正。加算合成の初期値を下げ、万華鏡の色面が見える濃度へ調整(prototypes/radial-fold.html)
 - 2026-09-23 チャッピー: KALEIDO FOLDの表示不具合を修正。iPhone WebGL2で負荷・複雑性を下げた堅牢な万華鏡シェーダーへ置換(prototypes/radial-fold.html)
