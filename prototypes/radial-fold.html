@@ -19,7 +19,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
  RADIAL FOLD — ChatGPT作。
  多角形の折り返しを同心方向へ再帰適用し、
  画面全体を色面の自己相似構造として生成する。
- タッチした場所は折り返しの中心となり、以後の形の法則へ残る。
+ タッチは局所変形ではなく、全体の折り方の法則だけを書き換える。
 */
 
 const canvas=document.getElementById('c');
@@ -41,8 +41,6 @@ out vec4 O;
 
 uniform vec2 r;
 uniform float t;
-uniform vec2 touch;
-uniform float touchPower;
 uniform float seed;
 uniform float lawTwist;
 uniform float lawFold;
@@ -68,12 +66,6 @@ vec2 polygonFold(vec2 p,float sides,float twist){
 void main(){
   vec2 uv=(gl_FragCoord.xy-.5*r)/r.y;
   vec2 p=uv;
-
-  vec2 q=p-touch;
-  float d=length(q);
-  float influence=exp(-d*4.2)*touchPower;
-  p+=q*influence*.32;
-  p*=1.0+influence*.42;
 
   float a=atan(p.y,p.x);
   float rad=length(p);
@@ -164,9 +156,6 @@ gl.enableVertexAttribArray(0);
 gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
 
 let W=0,H=0,DPR=1;
-let tx=0,ty=0;
-let targetX=0,targetY=0;
-let touchPower=0;
 let seed=Math.random()*8;
 let lawTwist=0;
 let lawFold=0;
@@ -187,20 +176,11 @@ function resize(){
 addEventListener('resize',resize);
 resize();
 
-function setTouch(x,y){
-  const s=Math.min(W,H);
-  targetX=(x-W*.5)/s;
-  targetY=(H*.5-y)/s;
-  touchPower=1.0;
-}
-
 function draw(ph){
   gl.useProgram(program);
   gl.viewport(0,0,canvas.width,canvas.height);
   gl.uniform2f(U.r,canvas.width,canvas.height);
   gl.uniform1f(U.t,ph);
-  gl.uniform2f(U.touch,tx,ty);
-  gl.uniform1f(U.touchPower,touchPower);
   gl.uniform1f(U.seed,seed);
   gl.uniform1f(U.lawTwist,lawTwist);
   gl.uniform1f(U.lawFold,lawFold);
@@ -211,7 +191,6 @@ function draw(ph){
 canvas.addEventListener('pointerdown',e=>{
   if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
   e.preventDefault();
-  setTouch(e.clientX,e.clientY);
   dragging=true;
   lastX=e.clientX;
   lastY=e.clientY;
@@ -226,7 +205,6 @@ canvas.addEventListener('pointerdown',e=>{
 canvas.addEventListener('pointermove',e=>{
   if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
   if(e.buttons&&dragging){
-    setTouch(e.clientX,e.clientY);
     const dx=e.clientX-lastX;
     const dy=e.clientY-lastY;
     lawTwist+=dx*.010;
@@ -249,9 +227,6 @@ function frame(now){
 
   if(!paused){
     phase=(phase+dt*.34)%6.28318530718;
-    tx+=(targetX-tx)*Math.min(1,dt*5.0);
-    ty+=(targetY-ty)*Math.min(1,dt*5.0);
-    touchPower+=(0.0-touchPower)*Math.min(1,dt*.18);
     draw(phase);
   }
   requestAnimationFrame(frame);
@@ -282,8 +257,6 @@ APKit.init({
         lawTwist=(Math.random()-.5)*3.0;
         lawFold=(Math.random()-.5)*2.0;
         lawScale=(Math.random()-.5)*1.2;
-        targetX=0;
-        targetY=0;
       }
     },
     {
@@ -296,9 +269,6 @@ APKit.init({
         lawScale=0;
         targetX=0;
         targetY=0;
-        tx=0;
-        ty=0;
-        touchPower=0;
       }
     }
   ]
