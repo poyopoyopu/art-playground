@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>RADIAL FOLD</title>
+<title>KALEIDO FOLD</title>
 <script src="../ap-kit.js"></script>
 <style>
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#050509}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#fbfbff}
 canvas{display:block;width:100%;height:100%;touch-action:none}
 </style>
 </head>
@@ -16,10 +16,11 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 'use strict';
 
 /*
- RADIAL FOLD — ChatGPT作。
- 多角形の折り返しを同心方向へ再帰適用し、
- 画面全体を色面の自己相似構造として生成する。
- タッチは局所変形ではなく、全体の折り方の法則だけを書き換える。
+ KALEIDO FOLD — ChatGPT作。
+ 一枚の色面を放射対称に折り返し、入れ子の反復で
+ 「万華鏡そのもの」を世界のルールとして生成する。
+ タップ/ドラッグは局所変形ではなく、対称数・回転・
+ 折り密度・半径の法則を全体へ書き換える。
 */
 
 const canvas=document.getElementById('c');
@@ -55,63 +56,97 @@ vec3 hsv(float h,float s,float v){
   return v*mix(vec3(1.0),clamp(p-1.0,0.0,1.0),s);
 }
 
-vec2 polygonFold(vec2 p,float sides,float twist){
+vec3 pastel(float h,float v){
+  vec3 c=hsv(fract(h),.48,v);
+  return mix(c,vec3(1.0),.34);
+}
+
+vec2 kaleido(vec2 p,float sides,float twist){
+  float rr=length(p);
   float a=atan(p.y,p.x)+twist;
   float sector=TAU/sides;
   a=mod(a+sector*.5,sector)-sector*.5;
-  float rr=length(p);
+  a=abs(a);
   return vec2(cos(a),sin(a))*rr;
+}
+
+float facetField(vec2 q,float phase){
+  float f=0.0;
+  for(int k=0;k<4;k++){
+    float fk=float(k);
+    q=abs(q)-vec2(.115+.018*fk,.072+.011*fk);
+    q*=1.43+fk*.045;
+    q=kaleido(q,4.0+mod(fk,3.0),phase+fk*.37);
+    f+=exp(-length(q)*3.8)/(4.0+fk);
+  }
+  return f;
 }
 
 void main(){
   vec2 uv=(gl_FragCoord.xy-.5*r)/r.y;
-  vec2 p=uv;
+  float rad=length(uv);
+  float baseA=atan(uv.y,uv.x);
 
-  float a=atan(p.y,p.x);
-  float rad=length(p);
+  float sides=9.0+floor(mod(seed+abs(lawFold)*1.7,8.0));
+  float twist=lawTwist+sin(t)*.035;
+  float scaleLaw=1.0+lawScale*.12;
 
-  vec3 col=vec3(0.0);
-  float energy=0.0;
+  vec3 col=vec3(.985,.985,1.0);
+  float weight=0.0;
 
   for(int i=0;i<7;i++){
     float fi=float(i);
-    float sides=5.0+mod(fi+seed+floor(abs(lawFold)*2.0),5.0);
-    float phase=fi*1.173 + sin(t*.55+fi*.71)*.18 + seed*.7 + lawTwist*(1.0+fi*.13);
+    float localSides=5.0+mod(sides+fi+floor(abs(lawFold)),6.0);
+    float phase=twist+fi*.071+sin(t*2.0+fi*.61)*.045;
 
-    vec2 z=p*(1.08+fi*.055);
-    z*=1.0+lawScale*(0.035+fi*.012);
-    z=polygonFold(z,sides,phase);
+    vec2 p=uv*(1.0+fi*.17)*scaleLaw;
+    vec2 q=kaleido(p,localSides,phase);
 
-    for(int j=0;j<5;j++){
-      float fj=float(j);
-      z=abs(z)-vec2(.17+.025*sin(fi+fj),.11);
-      z*=1.18+fj*.035;
-      z=polygonFold(z,4.0+mod(fi+fj,4.0),phase+fj*.43);
-    }
+    float rr=length(q);
+    float aa=atan(q.y,q.x);
 
-    float localR=length(z);
-    float localA=atan(z.y,z.x);
-    float facet=abs(sin(localA*sides*.5 + phase));
-    float rings=abs(sin(log(localR+.025)*3.4-fi*.73+t*.18));
-    float v=.46+.54*facet;
-    float h=fract(localA/TAU+fi*.115+localR*.17+rings*.11+t*.035+seed*.09);
+    float petal=.5+.5*sin(aa*localSides*2.0);
+    petal=pow(petal,1.7);
 
-    vec3 c=hsv(h,.88,v);
-    float layer=exp(-abs(length(z)-.32)*2.4);
-    col+=c*(.12+layer*.18);
-    energy+=.16+layer*.12;
+    float radialBand=.5+.5*sin(rr*(13.0+fi*2.1)-sin(t+fi)*.45);
+    float crystal=facetField(q*(1.0+fi*.08),phase);
+
+    float vein=pow(max(0.0,cos(aa*localSides)),18.0);
+    float edge=smoothstep(.05,.8,radialBand+crystal*.65);
+
+    float h=fract(
+      seed*.071+fi*.137+
+      aa/TAU*.42+
+      rr*.085+
+      sin(radialBand*PI+fi)*.055
+    );
+
+    float v=.72+.28*petal+.13*crystal;
+    vec3 c=pastel(h,v);
+
+    float layer=.13+.10*radialBand+.11*crystal+.035*vein;
+    layer*=.92+.08*sin(t*2.0+fi);
+    col+=c*layer;
+    col+=vec3(1.0)*edge*.018;
+    weight+=layer;
   }
 
-  float core=1.0-smoothstep(.011,.016,rad);
+  float glow=exp(-rad*3.6);
+  col+=vec3(.45,.72,1.0)*glow*.12;
+  col+=vec3(1.0,.62,.82)*glow*.06;
+
+  /* Tiny dark aperture: a pinhole, not a black ring. */
+  float core=1.0-smoothstep(.010,.015,rad);
   col*=1.0-core;
 
-  float seam=pow(abs(sin(a*18.0 + rad*9.0 + t*.12)),18.0);
-  col*=.82+.18*seam;
+  float seam=pow(max(0.0,cos(baseA*sides)),22.0);
+  col*=.985+.055*seam;
 
-  col=col/max(energy,.001)*2.9;
-  col=pow(max(col,0.0),vec3(.86));
+  col/=max(weight*.72,.001);
+  col=mix(col,vec3(1.0),.055);
+  col=pow(max(col,0.0),vec3(.94));
 
-  O=vec4(col,1.0);
+  O=vec4(clamp(col,0.0,1.0),1.0);
 }
 `;
 
@@ -137,7 +172,6 @@ if(!gl.getProgramParameter(program,gl.LINK_STATUS)){
 const U={
   r:gl.getUniformLocation(program,'r'),
   t:gl.getUniformLocation(program,'t'),
-  touch:gl.getUniformLocation(program,'touch'),
   seed:gl.getUniformLocation(program,'seed'),
   lawTwist:gl.getUniformLocation(program,'lawTwist'),
   lawFold:gl.getUniformLocation(program,'lawFold'),
@@ -168,7 +202,7 @@ let last=performance.now();
 function resize(){
   W=innerWidth;
   H=innerHeight;
-  DPR=Math.min(devicePixelRatio||1,1);
+  DPR=Math.min(devicePixelRatio||1,1.25);
   canvas.width=Math.max(1,Math.round(W*DPR));
   canvas.height=Math.max(1,Math.round(H*DPR));
 }
@@ -193,11 +227,13 @@ canvas.addEventListener('pointerdown',e=>{
   dragging=true;
   lastX=e.clientX;
   lastY=e.clientY;
-  /* A tap itself changes the global fold law. */
+
+  /* Tap changes the global kaleidoscope law. */
   const cx=e.clientX-W*.5;
   const cy=e.clientY-H*.5;
-  lawTwist+=Math.atan2(cy,cx)*.08;
-  lawScale=Math.max(-1.0,Math.min(1.0,lawScale+(Math.hypot(cx,cy)/Math.min(W,H)-.35)*.18));
+  lawTwist+=Math.atan2(cy,cx)*.055;
+  lawFold=Math.max(-3.0,Math.min(3.0,lawFold+
+    (Math.hypot(cx,cy)/Math.min(W,H)-.45)*.32));
   canvas.setPointerCapture?.(e.pointerId);
 });
 
@@ -206,9 +242,9 @@ canvas.addEventListener('pointermove',e=>{
   if(e.buttons&&dragging){
     const dx=e.clientX-lastX;
     const dy=e.clientY-lastY;
-    lawTwist+=dx*.010;
-    lawFold=Math.max(-2.5,Math.min(2.5,lawFold-dy*.012));
-    lawScale=Math.max(-1.0,Math.min(1.0,lawScale+dx*.0015));
+    lawTwist+=dx*.009;
+    lawFold=Math.max(-3.0,Math.min(3.0,lawFold-dy*.014));
+    lawScale=Math.max(-1.0,Math.min(1.0,lawScale+dx*.0012));
     lastX=e.clientX;
     lastY=e.clientY;
   }
@@ -225,7 +261,7 @@ function frame(now){
   last=now;
 
   if(!paused){
-    phase=(phase+dt*.34)%6.28318530718;
+    phase=(phase+dt*.30)%TAU;
     draw(phase);
   }
   requestAnimationFrame(frame);
@@ -234,7 +270,7 @@ requestAnimationFrame(frame);
 
 APKit.init({
   canvas,
-  gifName:'radial-fold-loop',
+  gifName:'kaleido-fold-loop',
   clockFormat:'spec',
   dock:true,
   autoHide:true,
@@ -252,9 +288,9 @@ APKit.init({
       label:'✦',
       name:'mutate',
       onClick:function(){
-        seed=Math.random()*8;
-        lawTwist=(Math.random()-.5)*3.0;
-        lawFold=(Math.random()-.5)*2.0;
+        seed=Math.random()*12;
+        lawTwist=(Math.random()-.5)*TAU;
+        lawFold=(Math.random()-.5)*3.0;
         lawScale=(Math.random()-.5)*1.2;
       }
     },
@@ -266,8 +302,6 @@ APKit.init({
         lawTwist=0;
         lawFold=0;
         lawScale=0;
-        targetX=0;
-        targetY=0;
       }
     }
   ]
