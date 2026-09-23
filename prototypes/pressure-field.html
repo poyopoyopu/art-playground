@@ -6,17 +6,68 @@
 <style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#050609}canvas{display:block;width:100%;height:100%;touch-action:none}</style>
 <script src="../ap-kit.js"></script></head><body><canvas id="c"></canvas><script>
 /* PRESSURE FIELD — ChatGPT作。ap-kit.js統合: ChatGPT */
-const c=document.getElementById('c'),ctx=c.getContext('2d',{alpha:false});let W=0,H=0,D=1,marks=[],seed=Math.random()*1000,TAU=Math.PI*2;
+const c=document.getElementById('c'),ctx=c.getContext('2d',{alpha:false});
+let W=0,H=0,D=1,marks=[],seed=Math.random()*1000,TAU=Math.PI*2,lastTouch=null;
 function resize(){D=Math.min(2,devicePixelRatio||1);W=innerWidth;H=innerHeight;let w=Math.floor(W*D),h=Math.floor(H*D);if(c.width!==w||c.height!==h){c.width=w;c.height=h;}}
-function mutate(){seed=Math.random()*9999;marks=[];for(let i=0;i<4;i++)marks.push({x:Math.random()*W,y:Math.random()*H,r:45+Math.random()*80,p:.45+Math.random()*.5});}
-function reset(){marks=[]} function add(x,y){marks.push({x,y,r:55+Math.random()*55,p:.8+Math.random()*.35});if(marks.length>12)marks.shift();}
-function field(x,y){let px=x,py=y,press=0;for(const m of marks){let dx=x-m.x,dy=y-m.y,d2=dx*dx+dy*dy,w=Math.exp(-d2/(m.r*m.r));press+=w*m.p;px+=(dx/(Math.sqrt(d2)+1))*w*m.p*38;py+=(dy/(Math.sqrt(d2)+1))*w*m.p*38;}return[px,py,press];}
-function draw(phase){resize();ctx.setTransform(D,0,0,D,0,0);ctx.fillStyle='#050609';ctx.fillRect(0,0,W,H);let t=phase/TAU,scale=Math.min(W,H);
-for(let level=0;level<6;level++){let s=scale*Math.pow(1.7,-level)*1.35,step=Math.max(14,s*.12),drift=Math.sin(t*TAU+level*1.4)*s*.025;ctx.beginPath();
-for(let x=-s;x<W+s;x+=step)for(let y=-s;y<H+s;y+=step){let q=field(x,y),px=q[0]+drift,py=q[1]-drift*.7,p=q[2],d=Math.hypot((px-W/2)*.93,py-H/2),ring=Math.sin(d/(s*.095)+level*.72+t*TAU*(level%2?-.35:.35)),edge=.5+.5*ring,alpha=.035+edge*.055+p*.045,hue=195+level*24+Math.sin(p*2+t*TAU)*35;ctx.strokeStyle='hsla('+hue+',55%,'+(30+edge*28)+'%,'+alpha+')';ctx.lineWidth=.8+edge*1.2;let r=step*(.42+p*.5);ctx.moveTo(px-r,py);ctx.lineTo(px+r,py);ctx.moveTo(px,py-r);ctx.lineTo(px,py+r);}
-ctx.stroke();}
-for(const m of marks)for(let k=0;k<7;k++){let rr=m.r*(.35+k*.18)*(1+.06*Math.sin(t*TAU+k));ctx.beginPath();for(let j=0;j<=96;j++){let a=j/96*TAU,local=field(m.x+Math.cos(a)*rr,m.y+Math.sin(a)*rr)[2],wob=1+local*.11+Math.sin(a*5+k+t*TAU)*.025,x=m.x+Math.cos(a)*rr*wob,y=m.y+Math.sin(a)*rr*wob;if(j===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);}ctx.strokeStyle='hsla('+(205+k*25)+',65%,'+(45+k*3)+'%,'+(.06+k*.018)+')';ctx.lineWidth=1+k*.35;ctx.stroke();}}
-let down=false;c.addEventListener('pointerdown',e=>{if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;down=true;add(e.clientX,e.clientY)});c.addEventListener('pointermove',e=>{if(!down)return;if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;add(e.clientX,e.clientY)});c.addEventListener('pointerup',()=>down=false);c.addEventListener('pointercancel',()=>down=false);
+function mutate(){seed=Math.random()*9999;marks=[];for(let i=0;i<3;i++){let a=Math.random()*TAU;marks.push({x:Math.random()*W,y:Math.random()*H,r:70+Math.random()*100,p:.28+Math.random()*.28,a,w:0});}}
+function reset(){marks=[];lastTouch=null}
+function add(x,y){if(lastTouch){let dx=x-lastTouch.x,dy=y-lastTouch.y,len=Math.hypot(dx,dy);if(len>1){let a=Math.atan2(dy,dx),m=marks[marks.length-1];if(m&&m.live){m.x=x;m.y=y;m.a=a;m.r=Math.min(180,m.r+len*.18);m.p=Math.min(1.35,m.p+len*.0025);m.w=Math.min(1,m.w+.06);lastTouch={x,y};return;}}}
+marks.push({x,y,r:75+Math.random()*35,p:.82+Math.random()*.25,a:Math.random()*TAU,w:1,live:true});
+if(marks.length>9)marks.shift();lastTouch={x,y};}
+function release(){if(marks.length)marks[marks.length-1].live=false;lastTouch=null}
+function field(x,y){
+ let px=x,py=y,press=0;
+ for(const m of marks){
+  let dx=x-m.x,dy=y-m.y,d=Math.hypot(dx,dy)+.001,w=Math.exp(-(d*d)/(m.r*m.r))*m.p;
+  let ca=Math.cos(m.a),sa=Math.sin(m.a),u=dx*ca+dy*sa,v=-dx*sa+dy*ca;
+  let crease=Math.exp(-(u*u/(m.r*m.r*.72)+v*v/(m.r*m.r*.10)))*m.p;
+  px+=(dx/d)*w*20+ca*crease*62;
+  py+=(dy/d)*w*20+sa*crease*62;
+  press+=w+crease*.7;
+ }
+ return[px,py,press];
+}
+function draw(phase){
+ resize();ctx.setTransform(D,0,0,D,0,0);ctx.fillStyle='#050609';ctx.fillRect(0,0,W,H);
+ let t=phase/TAU,scale=Math.min(W,H);
+ for(let level=0;level<6;level++){
+  let s=scale*Math.pow(1.7,-level)*1.35,step=Math.max(14,s*.12),drift=Math.sin(t*TAU+level*1.4)*s*.025;
+  ctx.beginPath();
+  for(let x=-s;x<W+s;x+=step)for(let y=-s;y<H+s;y+=step){
+   let q=field(x,y),px=q[0]+drift,py=q[1]-drift*.7,p=q[2];
+   let d=Math.hypot((px-W/2)*.93,py-H/2);
+   let ring=Math.sin(d/(s*.095)+level*.72+t*TAU*(level%2?-.35:.35)),edge=.5+.5*ring;
+   let alpha=.035+edge*.055+p*.055,hue=195+level*24+Math.sin(p*2+t*TAU)*35;
+   ctx.strokeStyle='hsla('+hue+',55%,'+(30+edge*28)+'%,'+alpha+')';
+   ctx.lineWidth=.8+edge*1.2;let r=step*(.42+p*.42);
+   ctx.moveTo(px-r,py);ctx.lineTo(px+r,py);ctx.moveTo(px,py-r);ctx.lineTo(px,py+r);
+  }
+  ctx.stroke();
+ }
+ // Touches become directional creases, not circular ripples.
+ for(const m of marks){
+  let ca=Math.cos(m.a),sa=Math.sin(m.a);
+  for(let k=0;k<5;k++){
+   let rr=m.r*(.22+k*.18),len=m.r*(1.9-k*.16),phaseShift=t*TAU*(k%2?.22:-.18);
+   ctx.beginPath();
+   for(let j=-28;j<=28;j++){
+    let u=j/28*len*.5,v=Math.sin(j*.32+phaseShift+k)*m.r*(.035+k*.012);
+    let x=m.x+ca*u-sa*v,y=m.y+sa*u+ca*v;
+    let q=field(x,y),sx=q[0]-x,sy=q[1]-y;
+    x+=sx*.45;y+=sy*.45;
+    if(j===-28)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+   }
+   ctx.strokeStyle='hsla('+(205+k*25)+',62%,'+(46+k*5)+'%,'+(.10+k*.018)*m.w+')';
+   ctx.lineWidth=1.2+k*.55;ctx.stroke();
+  }
+  ctx.beginPath();ctx.arc(m.x,m.y,Math.max(2,5+m.p*4),0,TAU);
+  ctx.fillStyle='hsla(205,70%,72%,'+(.22*m.w)+')';ctx.fill();
+ }
+}
+let down=false;
+c.addEventListener('pointerdown',e=>{if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;down=true;add(e.clientX,e.clientY)});
+c.addEventListener('pointermove',e=>{if(!down)return;if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;add(e.clientX,e.clientY)});
+c.addEventListener('pointerup',()=>{down=false;release()});c.addEventListener('pointercancel',()=>{down=false;release()});
 mutate();requestAnimationFrame(function loop(now){draw((now%7000)/7000*TAU);requestAnimationFrame(loop)});
 APKit.init({canvas:c,gifName:'pressure-field-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:function(phase){draw(phase)},buttons:[{label:'✦',name:'mutate',onClick:mutate},{label:'↻',name:'reset',onClick:reset}]});
 </script></body></html>
