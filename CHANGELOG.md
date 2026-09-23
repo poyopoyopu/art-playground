@@ -1,3 +1,4 @@
+- 2026-09-23 チャッピー: PRISM BLOOMを140個から120個へ戻し、表示できる負荷帯を優先(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRISM BLOOMを180個から140個へ減らし、描画負荷を軽減(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRISM BLOOMを180個へ増量し、全体回転を廃止。約24%の花だけが各層でゆっくり回転し、タッチで全停止/再開する仕様へ変更(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRISM BLOOMの9秒周期アニメーションを廃止し、起動後は連続時間で自律回転する仕様へ変更。タップ停止/再開は維持(prototypes/prism-bloom.html)
