@@ -37,8 +37,6 @@ uniform float breath;
 uniform int markCount;
 uniform vec4 marks[8];
 
-#define TAU 6.28318530718
-
 float hash21(vec2 p){
   p=fract(p*vec2(123.34,456.21));
   p+=dot(p,p+45.32);
@@ -47,11 +45,8 @@ float hash21(vec2 p){
 float noise(vec2 p){
   vec2 i=floor(p),f=fract(p);
   f=f*f*(3.0-2.0*f);
-  float a=hash21(i);
-  float b=hash21(i+vec2(1,0));
-  float c=hash21(i+vec2(0,1));
-  float d=hash21(i+vec2(1,1));
-  return mix(mix(a,b,f.x),mix(c,d,f.x),f.y);
+  return mix(mix(hash21(i),hash21(i+vec2(1,0)),f.x),
+             mix(hash21(i+vec2(0,1)),hash21(i+vec2(1,1)),f.x),f.y);
 }
 float fbm(vec2 p){
   float v=0.0,a=.5;
@@ -67,37 +62,43 @@ mat2 rot(float a){
   return mat2(c,-s,s,c);
 }
 
+/* A sparse recursive tree: deliberately kept quiet until the cloud is opened. */
 float treeField(vec2 p){
   float best=10.0;
   vec2 q=p;
-  for(int i=0;i<7;i++){
+  for(int i=0;i<6;i++){
     float fi=float(i);
-    q.y+=.075;
+    q.y+=.08;
     q.x=abs(q.x);
-    float bend=.10*sin(q.y*3.2+fi*.7+t*.10+seed*.3);
-    q.x+=bend*q.y;
-    q=rot(-.06+fi*.006)*q;
-    q.y=q.y*1.55;
-    q.x=q.x*1.92-.18;
-    float trunk=abs(q.x)-(.010+fi*.003);
-    float limb=abs(q.x+q.y*.22)-(.007+fi*.002);
-    best=min(best,min(trunk,limb)/pow(1.55,fi));
+    q.x+=.075*sin(q.y*3.0+fi*.8+t*.10+seed*.3)*q.y;
+    q=rot(-.055+fi*.005)*q;
+    q.y*=1.58;
+    q.x=q.x*1.95-.20;
+    float trunk=abs(q.x)-(.009+fi*.0025);
+    float twig=abs(q.x+q.y*.24)-(.005+fi*.0015);
+    best=min(best,min(trunk,twig)/pow(1.58,fi));
   }
-  float trunk=abs(p.x)-(.018+.008*smoothstep(-.95,.1,p.y));
-  best=min(best,trunk);
+  best=min(best,abs(p.x)-(.016+.006*smoothstep(-.9,.2,p.y)));
   return best;
 }
 
+/* One coherent cloud mass, with slow breathing and uneven lobes. */
 float cloudShape(vec2 p){
-  float n=fbm(p*3.2+vec2(seed*1.7,-seed*.4)+vec2(t*.018,-t*.008));
-  float n2=fbm(p*7.0-vec2(seed*.4,seed*1.1)-vec2(t*.012,t*.02));
-  float core=1.0-length(p*vec2(.92,1.05)-vec2(0.0,.34));
-  float upper=1.0-length(p*vec2(1.05,1.0)-vec2(0.0,.60));
-  float left=1.0-length((p-vec2(-.34,.47))*vec2(1.46,1.39));
-  float right=1.0-length((p-vec2(.34,.48))*vec2(1.43,1.33));
-  float lower=1.0-length((p-vec2(0.0,.18))*vec2(.82,1.78));
-  float shape=max(core,max(upper,max(left,max(right,lower))));
-  return shape+(n-.5)*.18+(n2-.5)*.055+breath*.025;
+  vec2 drift=vec2(t*.010,-t*.004);
+  float n=fbm(p*3.0+drift+seed*vec2(.13,-.07));
+  float n2=fbm(p*6.5-drift*1.7+seed*vec2(-.04,.11));
+
+  float a=1.0-length((p-vec2(0.0,.18))*vec2(.92,1.04));
+  float b=1.0-length((p-vec2(-.43,.34))*vec2(1.18,1.02));
+  float c=1.0-length((p-vec2(.43,.36))*vec2(1.17,1.00));
+  float d=1.0-length((p-vec2(-.20,.64))*vec2(1.18,.82));
+  float e=1.0-length((p-vec2(.23,.62))*vec2(1.15,.84));
+  float lower=1.0-length((p-vec2(0.0,-.18))*vec2(.82,1.18));
+
+  float shape=max(a,max(b,max(c,max(d,max(e,lower)))));
+  shape+=(n-.5)*.13+(n2-.5)*.035;
+  shape+=breath*.018;
+  return shape;
 }
 
 float cloudCut(vec2 p){
@@ -106,8 +107,9 @@ float cloudCut(vec2 p){
     if(i>=markCount)break;
     vec2 m=marks[i].xy;
     float age=marks[i].z;
-    float rad=.045+age*.11;
-    cut=max(cut,(1.0-smoothstep(rad,rad*.42,length(p-m)))*marks[i].w);
+    float rad=.055+age*.12;
+    float hole=1.0-smoothstep(rad,rad*.34,length(p-m));
+    cut=max(cut,hole*marks[i].w);
   }
   return cut;
 }
@@ -116,46 +118,47 @@ void main(){
   vec2 p=(gl_FragCoord.xy-.5*r)/r.y;
   p.x*=1.02;
 
-  float sky=mix(0.0,1.0,clamp((p.y+.85)/1.75,0.0,1.0));
-  vec3 col=mix(vec3(.23,.48,.72),vec3(.47,.69,.88),sky);
-  col+=vec3(.025,.035,.045)*(1.0-length(p)*.35);
+  /* clear blue air */
+  float sky=clamp((p.y+.72)/1.55,0.0,1.0);
+  vec3 col=mix(vec3(.28,.54,.77),vec3(.55,.75,.90),sky);
+  float grain=fbm(p*2.2+vec2(t*.006,0.0)+seed);
+  col+=vec3(.018,.025,.028)*(grain-.5);
 
-  float wisps=fbm(p*4.0+vec2(t*.025,-t*.01)+seed);
-  float wispmask=smoothstep(.67,.82,wisps)*smoothstep(.95,.15,abs(p.y+.12));
-  col=mix(col,vec3(.78,.88,.96),wispmask*.18);
+  /* faint tree silhouette: structure is present, but intentionally buried */
+  vec2 tp=p-vec2(0.0,-.48);
+  float td=treeField(tp);
+  float branch=smoothstep(.012,0.0,td);
+  float branchSoft=smoothstep(.042,0.0,td);
+  vec3 treeCol=vec3(.20,.31,.38);
+  col=mix(col,treeCol,branch*.075+branchSoft*.018);
 
   float cs=cloudShape(p);
-  float cloud=smoothstep(.00,.075,cs);
+  float cloud=smoothstep(-.015,.055,cs);
   float cut=cloudCut(p);
-  cloud*=1.0-cut*.94;
+  float opened=cloud*cut;
 
-  float cloudNoise=fbm(p*9.0+seed*2.0);
-  vec3 cloudCol=mix(vec3(.82,.87,.91),vec3(1.0,.98,.91),smoothstep(.35,.82,cloudNoise));
-  float warm=smoothstep(.35,.95,p.y)*.10;
-  cloudCol+=vec3(warm,.07*warm,.015*warm);
-  col=mix(col,cloudCol,cloud);
+  /* cloud body: opaque enough to hide the tree */
+  float inner=fbm(p*5.5+vec2(seed*.2,-seed*.1)+vec2(t*.008));
+  vec3 cloudCol=mix(vec3(.84,.89,.93),vec3(1.0,.985,.93),smoothstep(.30,.78,inner));
+  float rim=smoothstep(.12,.0,abs(cs-.01));
+  cloudCol+=vec3(.045,.055,.055)*rim;
 
-  float under=cloud*smoothstep(.05,-.10,cs);
-  col=mix(col,vec3(.55,.68,.79),under*.22);
+  /* subtle lower shadow gives the cloud readable volume without white-out */
+  float belly=smoothstep(.20,-.28,cs);
+  cloudCol=mix(cloudCol,vec3(.72,.80,.86),belly*.16);
 
-  vec2 tp=p-vec2(0.0,-.56);
-  tp.y*=.92;
-  float td=treeField(tp);
-  float branch=smoothstep(.010,.0,td);
-  float branchGlow=smoothstep(.035,.0,td);
+  col=mix(col,cloudCol,cloud*(1.0-cut*.96));
 
-  float exposure=1.0-cloud*.78;
-  vec3 branchCol=mix(vec3(.22,.34,.42),vec3(.78,.83,.84),cloud*.72);
-  branchCol*=.78+branchGlow*.35;
-  col=mix(col,branchCol,branch*exposure);
+  /* the opened parts reveal the recursive tree, not a glowing paint mark */
+  float reveal=smoothstep(.02,.55,cut);
+  float revealTree=branch*(.82+.18*branchSoft)*reveal;
+  col=mix(col,treeCol,revealTree);
 
-  float touched=cloudCut(p);
-  col=mix(col,vec3(.16,.25,.31),branch*pow(touched,1.25)*.55);
+  /* a soft edge around the opening makes the "cloud peeled away" event legible */
+  float openingEdge=opened*(1.0-smoothstep(.0,.055,abs(cs)));
+  col=mix(col,vec3(.69,.78,.84),openingEdge*.12);
 
-  float haze=smoothstep(.95,.2,length(p-vec2(0,.2)));
-  col=mix(col,vec3(.72,.82,.90),haze*.035);
-
-  col=pow(clamp(col,0.0,1.0),vec3(.96));
+  col=pow(clamp(col,0.0,1.0),vec3(.97));
   O=vec4(col,1.0);
 }
 `;
