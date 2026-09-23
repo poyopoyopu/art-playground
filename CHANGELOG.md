@@ -1,3 +1,4 @@
+- 2026-09-23 チャッピー: PRISM BLOOMを細い輪中心の構成から、大きな多層プリズム花／ステンドグラス状の自己相似構造へ全面再設計。色と輪郭を明確化(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRISM BLOOMが描画されない原因だったfragment shaderのテンプレートリテラル誤記を修正(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRISM BLOOMを白飛びしない明るい虹色構造へ調整。プリズム輪郭と色密度を強め、淡い背景とのコントラストを改善(prototypes/prism-bloom.html)\n- 2026-09-23 チャッピー: PRISM BLOOMを新規制作。白い光の中に淡い虹色の自己相似プリズム構造を生成し、タッチで局所の屈折法則が残る明るい作品として追加(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRESSURE FIELDを白い紙面と黒い墨線へ反転した比較用プロトタイプを追加。圧力場と自己相似構造の法則は維持し、見た目の物理を反転(prototypes/pressure-field-inverted.html)
