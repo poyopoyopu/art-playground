@@ -1,3 +1,4 @@
+- 2026-09-23 チャッピー: PRESSURE FIELDのタッチを円形の圧力痕から方向性を持つ恒久的な折り目へ変更。ドラッグ方向に沿って格子が裂けるように再編成(prototypes/pressure-field.html)
 - 2026-09-23 チャッピー: PRESSURE FIELDをiPhoneで確実に描画できるCanvas2D安定版へ変更(WebGL2初期化依存を除去)(prototypes/pressure-field.html)
 - 2026-09-23 チャッピー: PRESSURE FIELDを新規制作。触れた場所の座標圧力が自己相似foldを歪め、歪みが世界の構造として残る法則を実装(prototypes/pressure-field.html)
 - 2026-09-23 チャッピー: CLOUD TREEを再設計。雲を主役にして枝をほぼ雲中へ埋め、触れた場所だけ自己相似の木構造が露出する見え方へ調整(prototypes/cloud-tree.html)
