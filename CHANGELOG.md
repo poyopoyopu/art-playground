@@ -1,3 +1,4 @@
+- 2026-09-23 チャッピー: PRESSURE FIELDを白い紙面と黒い墨線へ反転した比較用プロトタイプを追加。圧力場と自己相似構造の法則は維持し、見た目の物理を反転(prototypes/pressure-field-inverted.html)
 - 2026-09-23 チャッピー: PRESSURE FIELDの明るい色設計を別案としてLUMEN化。白〜水色寄りの高輝度・低彩度パレットで比較用プロトタイプを追加(prototypes/pressure-field-lumen.html)
 - 2026-09-23 チャッピー: PRESSURE FIELDの世界の法則は維持したまま、格子の硬さを抑え、半透明の二重線・滑らかな多重輪郭・淡い中心密度を追加して質感を改善(prototypes/pressure-field.html)
 - 2026-09-23 チャッピー: PRESSURE FIELDを直接的な「破れ」表現から初期Canvas2D版へ復元。圧力場による自己相似構造の歪みとタッチ位置の多重リング表現を再採用(prototypes/pressure-field.html)
