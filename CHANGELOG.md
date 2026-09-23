@@ -1,3 +1,4 @@
+- 2026-09-23 チャッピー: PRISM BLOOMの120個すべてを自律回転する状態へ復元(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRISM BLOOMの静止レイヤー試作を取り消し、60個停止＋60個回転の状態へ復元(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRISM BLOOMで60個を静止レイヤーとして分離する描画方式を試作し、残り60個を動的描画する構成へ変更(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRISM BLOOMの120個のうち60個を完全停止、残り60個だけが従来どおり自律回転する仕様へ変更(prototypes/prism-bloom.html)
