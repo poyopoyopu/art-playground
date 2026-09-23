@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>CLOUD TREE</title>
+<script src="../ap-kit.js"></script>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#79a9d5}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+'use strict';
+
+/* CLOUD TREE — ChatGPT作。雲の密度が枝を隠し、触れた場所だけ雲がほどけて枝が露出する。 */
+
+const canvas=document.getElementById('c');
+const gl=canvas.getContext('webgl2',{antialias:false,alpha:false,preserveDrawingBuffer:true});
+if(!gl)throw new Error('WebGL2 unavailable');
+
+const VS=`#version 300 es
+in vec2 p;
+void main(){gl_Position=vec4(p,0.0,1.0);}
+`;
+
+const FS=`#version 300 es
+precision highp float;
+out vec4 O;
+
+uniform vec2 r;
+uniform float t;
+uniform float seed;
+uniform float breath;
+uniform int markCount;
+uniform vec4 marks[8];
+
+#define TAU 6.28318530718
+
+float hash21(vec2 p){
+  p=fract(p*vec2(123.34,456.21));
+  p+=dot(p,p+45.32);
+  return fract(p.x*p.y);
+}
+float noise(vec2 p){
+  vec2 i=floor(p),f=fract(p);
+  f=f*f*(3.0-2.0*f);
+  float a=hash21(i);
+  float b=hash21(i+vec2(1,0));
+  float c=hash21(i+vec2(0,1));
+  float d=hash21(i+vec2(1,1));
+  return mix(mix(a,b,f.x),mix(c,d,f.x),f.y);
+}
+float fbm(vec2 p){
+  float v=0.0,a=.5;
+  for(int i=0;i<5;i++){
+    v+=a*noise(p);
+    p=p*2.03+vec2(17.1,9.7);
+    a*=.5;
+  }
+  return v;
+}
+mat2 rot(float a){
+  float c=cos(a),s=sin(a);
+  return mat2(c,-s,s,c);
+}
+
+float treeField(vec2 p){
+  float best=10.0;
+  vec2 q=p;
+  for(int i=0;i<7;i++){
+    float fi=float(i);
+    q.y+=.075;
+    q.x=abs(q.x);
+    float bend=.10*sin(q.y*3.2+fi*.7+t*.10+seed*.3);
+    q.x+=bend*q.y;
+    q=rot(-.06+fi*.006)*q;
+    q.y=q.y*1.55;
+    q.x=q.x*1.92-.18;
+    float trunk=abs(q.x)-(.010+fi*.003);
+    float limb=abs(q.x+q.y*.22)-(.007+fi*.002);
+    best=min(best,min(trunk,limb)/pow(1.55,fi));
+  }
+  float trunk=abs(p.x)-(.018+.008*smoothstep(-.95,.1,p.y));
+  best=min(best,trunk);
+  return best;
+}
+
+float cloudShape(vec2 p){
+  float n=fbm(p*3.2+vec2(seed*1.7,-seed*.4)+vec2(t*.018,-t*.008));
+  float n2=fbm(p*7.0-vec2(seed*.4,seed*1.1)-vec2(t*.012,t*.02));
+  float core=1.0-length(p*vec2(.92,1.05)-vec2(0.0,.34));
+  float upper=1.0-length(p*vec2(1.05,1.0)-vec2(0.0,.60));
+  float left=1.0-length((p-vec2(-.34,.47))*vec2(1.46,1.39));
+  float right=1.0-length((p-vec2(.34,.48))*vec2(1.43,1.33));
+  float lower=1.0-length((p-vec2(0.0,.18))*vec2(.82,1.78));
+  float shape=max(core,max(upper,max(left,max(right,lower))));
+  return shape+(n-.5)*.18+(n2-.5)*.055+breath*.025;
+}
+
+float cloudCut(vec2 p){
+  float cut=0.0;
+  for(int i=0;i<8;i++){
+    if(i>=markCount)break;
+    vec2 m=marks[i].xy;
+    float age=marks[i].z;
+    float rad=.045+age*.11;
+    cut=max(cut,(1.0-smoothstep(rad,rad*.42,length(p-m)))*marks[i].w);
+  }
+  return cut;
+}
+
+void main(){
+  vec2 p=(gl_FragCoord.xy-.5*r)/r.y;
+  p.x*=1.02;
+
+  float sky=mix(0.0,1.0,clamp((p.y+.85)/1.75,0.0,1.0));
+  vec3 col=mix(vec3(.23,.48,.72),vec3(.47,.69,.88),sky);
+  col+=vec3(.025,.035,.045)*(1.0-length(p)*.35);
+
+  float wisps=fbm(p*4.0+vec2(t*.025,-t*.01)+seed);
+  float wispmask=smoothstep(.67,.82,wisps)*smoothstep(.95,.15,abs(p.y+.12));
+  col=mix(col,vec3(.78,.88,.96),wispmask*.18);
+
+  float cs=cloudShape(p);
+  float cloud=smoothstep(.00,.075,cs);
+  float cut=cloudCut(p);
+  cloud*=1.0-cut*.94;
+
+  float cloudNoise=fbm(p*9.0+seed*2.0);
+  vec3 cloudCol=mix(vec3(.82,.87,.91),vec3(1.0,.98,.91),smoothstep(.35,.82,cloudNoise));
+  float warm=smoothstep(.35,.95,p.y)*.10;
+  cloudCol+=vec3(warm,.07*warm,.015*warm);
+  col=mix(col,cloudCol,cloud);
+
+  float under=cloud*smoothstep(.05,-.10,cs);
+  col=mix(col,vec3(.55,.68,.79),under*.22);
+
+  vec2 tp=p-vec2(0.0,-.56);
+  tp.y*=.92;
+  float td=treeField(tp);
+  float branch=smoothstep(.010,.0,td);
+  float branchGlow=smoothstep(.035,.0,td);
+
+  float exposure=1.0-cloud*.78;
+  vec3 branchCol=mix(vec3(.22,.34,.42),vec3(.78,.83,.84),cloud*.72);
+  branchCol*=.78+branchGlow*.35;
+  col=mix(col,branchCol,branch*exposure);
+
+  float touched=cloudCut(p);
+  col=mix(col,vec3(.16,.25,.31),branch*pow(touched,1.25)*.55);
+
+  float haze=smoothstep(.95,.2,length(p-vec2(0,.2)));
+  col=mix(col,vec3(.72,.82,.90),haze*.035);
+
+  col=pow(clamp(col,0.0,1.0),vec3(.96));
+  O=vec4(col,1.0);
+}
+`;
+
+function shader(type,src){
+  const s=gl.createShader(type);
+  gl.shaderSource(s,src);
+  gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s)||'shader compile failed');
+  return s;
+}
+const program=gl.createProgram();
+gl.attachShader(program,shader(gl.VERTEX_SHADER,VS));
+gl.attachShader(program,shader(gl.FRAGMENT_SHADER,FS));
+gl.bindAttribLocation(program,0,'p');
+gl.linkProgram(program);
+if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(program)||'program link failed');
+
+const U={
+  r:gl.getUniformLocation(program,'r'),
+  t:gl.getUniformLocation(program,'t'),
+  seed:gl.getUniformLocation(program,'seed'),
+  breath:gl.getUniformLocation(program,'breath'),
+  markCount:gl.getUniformLocation(program,'markCount'),
+  marks:gl.getUniformLocation(program,'marks[0]')
+};
+
+const buf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+gl.useProgram(program);
+gl.enableVertexAttribArray(0);
+gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+
+let W=0,H=0,DPR=1;
+let seed=Math.random()*10;
+let phase=0;
+let paused=false;
+let last=performance.now();
+let marks=[];
+const TAUJS=Math.PI*2;
+
+function resize(){
+  W=innerWidth;H=innerHeight;
+  DPR=Math.min(devicePixelRatio||1,1.25);
+  canvas.width=Math.max(1,Math.round(W*DPR));
+  canvas.height=Math.max(1,Math.round(H*DPR));
+}
+addEventListener('resize',resize);
+resize();
+
+function draw(ph){
+  gl.useProgram(program);
+  gl.viewport(0,0,canvas.width,canvas.height);
+  gl.uniform2f(U.r,canvas.width,canvas.height);
+  gl.uniform1f(U.t,ph);
+  gl.uniform1f(U.seed,seed);
+  gl.uniform1f(U.breath,.5+.5*Math.sin(ph));
+  gl.uniform1i(U.markCount,marks.length);
+  const data=new Float32Array(32);
+  for(let i=0;i<marks.length;i++){
+    const m=marks[i];
+    data[i*4]=m.x;
+    data[i*4+1]=m.y;
+    data[i*4+2]=m.age;
+    data[i*4+3]=m.power;
+  }
+  gl.uniform4fv(U.marks,data);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+}
+
+function addMark(x,y,power=1){
+  if(marks.length>=8)marks.shift();
+  marks.push({x,y,age:.42,power});
+}
+function point(e){
+  const rect=canvas.getBoundingClientRect();
+  return {
+    x:((e.clientX-rect.left)/rect.height)-rect.width/(2*rect.height),
+    y:((rect.height-(e.clientY-rect.top))/rect.height)-.5
+  };
+}
+let drawing=false;
+canvas.addEventListener('pointerdown',e=>{
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  e.preventDefault();
+  drawing=true;
+  const q=point(e);
+  addMark(q.x,q.y,1);
+  canvas.setPointerCapture?.(e.pointerId);
+});
+canvas.addEventListener('pointermove',e=>{
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  if(!drawing)return;
+  const q=point(e);
+  addMark(q.x,q.y,.72);
+});
+function end(){drawing=false}
+canvas.addEventListener('pointerup',end);
+canvas.addEventListener('pointercancel',end);
+
+function frame(now){
+  const dt=Math.min(.05,(now-last)/1000);
+  last=now;
+  for(const m of marks)m.age=Math.min(1,m.age+dt*.045);
+  if(!paused){
+    phase=(phase+dt*.26)%TAUJS;
+    draw(phase);
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+APKit.init({
+  canvas,
+  gifName:'cloud-tree-loop',
+  clockFormat:'spec',
+  dock:true,
+  autoHide:true,
+  fullscreenButton:false,
+  loopFrame:function(ph){paused=true;draw(ph)},
+  onExportEnd:function(){paused=false;last=performance.now()},
+  buttons:[
+    {label:'✦',name:'mutate',onClick:function(){seed=Math.random()*10;marks=[]}},
+    {label:'↻',name:'reset',onClick:function(){seed=0;marks=[]}}
+  ]
+});
+</script>
+</body>
+</html>
