@@ -32,24 +32,18 @@ vec2 rot(vec2 p,float a){
  float s=sin(a),c=cos(a);
  return mat2(c,-s,s,c)*p;
 }
-
-/* One broad, rounded petal. The angular profile controls the petal's
-   silhouette; there are no radial strokes or inner duplicate petals. */
+float hash(float n){return fract(sin(n*127.1)*43758.5453);}
 float petal(vec2 p,float n,float scale,float phase,out float edge){
  vec2 q=p/scale;
- float r=length(q);
- float a=atan(q.y,q.x);
+ float r=length(q),a=atan(q.y,q.x);
  float sector=6.2831853/n;
  float local=mod(a+phase+sector*.5+3.14159265,sector)-sector*.5;
-
  float u=abs(local)/(sector*.5);
  float angular=pow(max(cos(u*1.5707963),0.0),.62);
  float maxR=.070+.525*angular;
-
  float root=smoothstep(.030,.075,r);
  float fill=1.0-smoothstep(maxR-.018,maxR+.012,r);
  float shape=root*fill;
-
  float rim=1.0-smoothstep(.0035,.014,abs(r-maxR));
  edge=rim*root;
  return shape;
@@ -59,44 +53,62 @@ void main(){
  vec2 p=(gl_FragCoord.xy-.5*R)/min(R.x,R.y);
  vec3 col=vec3(.94,.955,.985);
 
- float rots[3];
- rots[0]=ROT0; rots[1]=ROT1; rots[2]=ROT2;
+ /* A field of differently sized translucent blooms. */
+ for(int i=0;i<14;i++){
+  float I=float(i);
+  vec2 pos=vec2(
+    mix(-.68,.68,hash(I*2.17+.4)),
+    mix(-.98,.98,hash(I*3.31+1.7))
+  );
+  float size=mix(.12,.42,hash(I*4.73+2.4));
+  float baseRot=(hash(I*5.11+3.2)-.5)*6.2831853;
+  vec2 fp=rot(p-pos,baseRot);
 
- float scales[3];
- scales[0]=1.00; scales[1]=.76; scales[2]=.53;
+  float rots[3];
+  rots[0]=ROT0*(.72+.055*I);
+  rots[1]=ROT1*(-.55-.035*I);
+  rots[2]=ROT2*(1.05+.07*I);
 
- float phases[3];
- phases[0]=0.00; phases[1]=.196; phases[2]=-.17;
+  float scales[3];
+  scales[0]=size;
+  scales[1]=size*.76;
+  scales[2]=size*.53;
 
- float alphas[3];
- alphas[0]=.40; alphas[1]=.34; alphas[2]=.29;
+  float phases[3];
+  phases[0]=0.0;
+  phases[1]=.20;
+  phases[2]=-.17;
 
- for(int g=0;g<3;g++){
-  float G=float(g);
-  vec2 lp=rot(p,rots[g]);
-  float edge;
-  float shape=petal(lp,8.0,scales[g],phases[g],edge);
+  float alphas[3];
+  alphas[0]=.34;
+  alphas[1]=.29;
+  alphas[2]=.25;
 
-  float r=length(lp/scales[g]);
-  float ang=atan(lp.y,lp.x);
-  float hue=fract(H+ang*.035+G*.12+r*.16+P*.0015);
+  for(int g=0;g<3;g++){
+   float G=float(g);
+   vec2 lp=rot(fp,rots[g]);
+   float edge;
+   float shape=petal(lp,8.0,scales[g],phases[g],edge);
+   float r=length(lp/scales[g]);
+   float ang=atan(lp.y,lp.x);
 
-  vec3 body=hsv(vec3(hue,.55,.98));
-  vec3 rimc=hsv(vec3(fract(hue+.07),.38,1.0));
+   float hue=fract(H+hash(I*7.13+G*4.1)*.42+
+                   ang*.025+G*.11+r*.13);
+   vec3 body=hsv(vec3(hue,.48,.98));
+   vec3 rimc=hsv(vec3(fract(hue+.08),.34,1.0));
 
-  col=mix(col,body,shape*alphas[g]);
-  col+=rimc*edge*(.23-.025*G);
+   col=mix(col,body,shape*alphas[g]);
+   col+=rimc*edge*(.20-.018*G);
 
-  /* soft glass highlight, not a second flower */
-  float sheen=pow(max(0.0,1.0-r/.72),2.2)*
-              pow(max(0.0,cos(ang-1.0-G*.35)),8.0);
-  col+=vec3(1.0)*sheen*shape*.035;
+   float sheen=pow(max(0.0,1.0-r/.72),2.0)*
+               pow(max(0.0,cos(ang-1.0-G*.4)),8.0);
+   col+=vec3(1.0)*sheen*shape*.025;
+  }
  }
 
- /* Small luminous center only — deliberately no ring. */
- float r=length(p);
- float core=1.0-smoothstep(0.0,.055,r);
- col+=vec3(1.0,.98,.90)*core*.20;
+ /* Keep the center quiet: no ring, only a soft bloom of light. */
+ float center=1.0-smoothstep(0.0,.035,length(p));
+ col+=vec3(1.0,.98,.92)*center*.06;
 
  o=vec4(clamp(col,0.0,1.0),1.0);
 }
