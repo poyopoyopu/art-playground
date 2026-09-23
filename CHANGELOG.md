@@ -1,3 +1,4 @@
+- 2026-09-23 チャッピー: PRISM BLOOMを6枚の大きな外花弁＋1層の内花弁へ整理。花弁数と重なりを減らし、中心の密集感を抑制(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRISM BLOOMの放射花弁の角度折り返しを修正。7枚の花弁が正しく全周へ配置されるようにし、巨大な単一花弁・放射線化を解消(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRISM BLOOMの花弁塗り計算を修正。境界線だけが残って巨大な放射線になる不具合を解消し、涙滴形の花弁内部を正しく塗る構造へ修正(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRISM BLOOMの花形を星状輪郭から涙滴形の細長い花弁へ再設計。外花弁・内花弁を3世代重ね、透明な花弁の重なりを強調(prototypes/prism-bloom.html)
