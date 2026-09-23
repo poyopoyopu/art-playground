@@ -20,75 +20,73 @@ in vec2 p;void main(){gl_Position=vec4(p,0.,1.);}
 const fs=`#version 300 es
 precision highp float;
 out vec4 o;
-uniform vec2 R;uniform float P,H,S,ROT;uniform vec4 M[8];
+uniform vec2 R;
+uniform float P,H,S;
+uniform float ROT0,ROT1,ROT2;
 
 vec3 hsv(vec3 c){
  vec3 p=abs(fract(c.xxx+vec3(0.,.6666667,.3333333))*6.-3.);
  return c.z*mix(vec3(1.),clamp(p-1.,0.,1.),c.y);
 }
-
-float petal(vec2 p,float n,float scale,float phase,out float edge,out float innerLine){
+vec2 rot(vec2 p,float a){
+ float s=sin(a),c=cos(a);
+ return mat2(c,-s,s,c)*p;
+}
+float petal(vec2 p,float n,float scale,float phase,out float edge){
  vec2 q=p/scale;
  float r=length(q),a=atan(q.y,q.x);
  float sector=6.2831853/n;
  float local=mod(a+phase+sector*.5+3.14159265,sector)-sector*.5;
-
- // A radial teardrop: the petal has a rounded root and a curved,
- // continuously narrowing shoulder toward its tip. No radial seam is drawn.
- float ln=local/(sector*.5);
- float angular=cos(ln*1.5707963);
- angular=max(angular,0.0);
+ float angular=max(cos(local/(sector*.5)*1.5707963),0.0);
  float maxR=.055+.545*pow(angular,1.65);
-
- float root=smoothstep(.012,.070,r);
- float fill=1.0-smoothstep(maxR-.018,maxR+.008,r);
+ float root=smoothstep(.010,.070,r);
+ float fill=1.0-smoothstep(maxR-.016,maxR+.010,r);
  float shape=root*fill;
-
- // Glass rim follows only the curved outer boundary.
- float rim=1.0-smoothstep(.003,.017,abs(r-maxR));
+ float rim=1.0-smoothstep(.003,.015,abs(r-maxR));
  edge=rim*root;
- innerLine=0.0;
  return shape;
 }
 
 void main(){
  vec2 p=(gl_FragCoord.xy-.5*R)/min(R.x,R.y);
- for(int i=0;i<8;i++){
-  float d=length(p-M[i].xy);
-  float w=exp(-d*d/(.025+.10*M[i].w));
-  p+=normalize(p-M[i].xy+.0001)*w*M[i].z*.055*sin(P*.5+float(i));
- }
  vec3 bg=vec3(.94,.955,.985);
  vec3 col=bg;
- for(int g=0;g<2;g++){
+
+ float rots[3];
+ rots[0]=ROT0; rots[1]=ROT1; rots[2]=ROT2;
+ float scales[3];
+ scales[0]=1.0; scales[1]=.76; scales[2]=.54;
+ float alphas[3];
+ alphas[0]=.43; alphas[1]=.34; alphas[2]=.27;
+
+ for(int g=0;g<3;g++){
   float G=float(g);
-  float scale=1.0-G*.24;
-  float edge,base;
-  float shape=petal(p,6.0,scale,P*.045+G*.5236+.3142+ROT,edge,base);
-  float r=length(p/scale);
-  float a=atan(p.y,p.x);
-  float hue=fract(H+a/6.2831853*.22+G*.14+r*.10+P*.003);
-  vec3 c=hsv(vec3(hue,.72,.94));
-  vec3 ca=hsv(vec3(fract(hue+.10),.58,.98));
-  col=mix(col,c,shape*(.44-.055*G));
-  col+=ca*edge*(.34-.045*G);
-  float e2,b2;
-  float innerShape=petal(p,6.0,scale*.70,P*.045+G*.5236+.26+.3142+ROT,e2,b2);
-  vec3 ci=hsv(vec3(fract(hue+.20),.55,.98));
-  col=mix(col,ci,innerShape*.14);
-  col+=ci*e2*.16;
+  vec2 lp=rot(p,rots[g]);
+  float edge;
+  float shape=petal(lp,6.0,scales[g],P*.035+G*.5236+.3142,edge);
+  float r=length(lp/scales[g]);
+  float a=atan(lp.y,lp.x);
+  float hue=fract(H+a/6.2831853*.20+G*.12+r*.10+P*.002);
+  vec3 c=hsv(vec3(hue,.66,.96));
+  vec3 rimc=hsv(vec3(fract(hue+.08),.52,1.0));
+  col=mix(col,c,shape*alphas[g]);
+  col+=rimc*edge*(.30-.035*G);
+
+  float innerEdge;
+  float inner=petal(lp,6.0,scales[g]*.72,P*.035+G*.5236+.18,innerEdge);
+  vec3 ic=hsv(vec3(fract(hue+.18),.50,.98));
+  col=mix(col,ic,inner*.08);
+  col+=ic*innerEdge*.08;
  }
- float r=length(p),a=atan(p.y,p.x);
- float core=1.0-smoothstep(.02,.14,r);
- float coreRing=1.0-smoothstep(.004,.016,abs(r-.105));
- vec3 ca=hsv(vec3(fract(H+.08+P*.01),.64,.98));
- vec3 cb=hsv(vec3(fract(H+.30),.52,.98));
- col=mix(col,ca,core*.18);
- col+=cb*coreRing*.32;
- float facets=.5+.5*cos(S*a*1.5+P*.32+r*28.);
- col+=hsv(vec3(fract(H+.52*facets+r*.16),.46,.98))*.035*facets*(1.-smoothstep(.25,.70,r));
- float shine=pow(max(0.,cos(a*2.0+P*.22)),20.)*(1.-smoothstep(.15,.68,r));
- col+=vec3(1.)*shine*.045;
+
+ float r=length(p);
+ float core=1.0-smoothstep(.0,.12,r);
+ vec3 corec=hsv(vec3(fract(H+.10+P*.006),.42,1.0));
+ col=mix(col,corec,core*.18);
+ float facets=.5+.5*cos(S*atan(p.y,p.x)*1.5+P*.32+r*22.);
+ col+=hsv(vec3(fract(H+.50*facets+r*.16),.36,.98))*.018*facets*(1.-smoothstep(.20,.62,r));
+ float shine=pow(max(0.,cos(atan(p.y,p.x)*2.0+P*.22)),20.)*(1.-smoothstep(.12,.65,r));
+ col+=vec3(1.)*shine*.04;
  o=vec4(clamp(col,0.,1.),1.);
 }
 `
@@ -97,21 +95,63 @@ function sh(t,s){let x=gl.createShader(t);gl.shaderSource(x,s);gl.compileShader(
 let pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,vs));gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,fs));gl.linkProgram(pr);if(!gl.getProgramParameter(pr,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(pr));gl.useProgram(pr);
 let b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
 let pos=gl.getAttribLocation(pr,'p');gl.enableVertexAttribArray(pos);gl.vertexAttribPointer(pos,2,gl.FLOAT,false,0,0);
-let uR=gl.getUniformLocation(pr,'R'),uP=gl.getUniformLocation(pr,'P'),uH=gl.getUniformLocation(pr,'H'),uS=gl.getUniformLocation(pr,'S'),uRot=gl.getUniformLocation(pr,'ROT'),uM=gl.getUniformLocation(pr,'M[0]');
-const marks=Array.from({length:8},()=>[0,0,0,1]);let sym=6,hue=.02,rotation=0,angularVelocity=0,lastTouchAngle=null;const PERIOD=9;
+let uR=gl.getUniformLocation(pr,'R'),uP=gl.getUniformLocation(pr,'P'),uH=gl.getUniformLocation(pr,'H'),uS=gl.getUniformLocation(pr,'S'),uR0=gl.getUniformLocation(pr,'ROT0'),uR1=gl.getUniformLocation(pr,'ROT1'),uR2=gl.getUniformLocation(pr,'ROT2');
+let sym=6,hue=.02,rotation=[0,0,0],angularVelocity=[0,0,0],lastTouchAngle=null;const PERIOD=9;
 function resize(){let d=Math.min(devicePixelRatio||1,2),w=innerWidth*d,h=innerHeight*d;if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;gl.viewport(0,0,w,h)}}addEventListener('resize',resize,{passive:true});resize();
-function draw(ph){gl.useProgram(pr);gl.uniform2f(uR,canvas.width,canvas.height);gl.uniform1f(uP,ph);gl.uniform1f(uH,hue);gl.uniform1f(uS,sym);gl.uniform1f(uRot,rotation);gl.uniform4fv(uM,new Float32Array(marks.flat()));gl.drawArrays(gl.TRIANGLE_STRIP,0,4)}
-function loop(t){let ph=(t/1000%PERIOD)/PERIOD*6.28318530718;angularVelocity*=.965;rotation+=angularVelocity;marks.forEach(m=>m[3]=Math.min(1,m[3]+.002));draw(ph);requestAnimationFrame(loop)}requestAnimationFrame(loop);
-function angleAt(x,y){let q=canvas.getBoundingClientRect();let cx=q.left+q.width*.5,cy=q.top+q.height*.5;return Math.atan2(y-cy,x-cx)}
-function touchStart(x,y){lastTouchAngle=angleAt(x,y);angularVelocity=0}
-function touchMove(x,y){let a=angleAt(x,y);if(lastTouchAngle!==null){let d=a-lastTouchAngle;if(d>Math.PI)d-=Math.PI*2;if(d<-Math.PI)d+=Math.PI*2;rotation+=d;angularVelocity=d*.55}lastTouchAngle=a}
+function draw(ph){
+ gl.useProgram(pr);
+ gl.uniform2f(uR,canvas.width,canvas.height);
+ gl.uniform1f(uP,ph);
+ gl.uniform1f(uH,hue);
+ gl.uniform1f(uS,sym);
+ gl.uniform1f(uR0,rotation[0]);
+ gl.uniform1f(uR1,rotation[1]);
+ gl.uniform1f(uR2,rotation[2]);
+ gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+}
+function loop(t){
+ let ph=(t/1000%PERIOD)/PERIOD*6.28318530718;
+ for(let i=0;i<3;i++){angularVelocity[i]*=.965;rotation[i]+=angularVelocity[i]}
+ draw(ph);requestAnimationFrame(loop)
+}
+requestAnimationFrame(loop);
+function angleAt(x,y){
+ let q=canvas.getBoundingClientRect();
+ return Math.atan2(y-(q.top+q.height*.5),x-(q.left+q.width*.5));
+}
+function touchStart(x,y){lastTouchAngle=angleAt(x,y);angularVelocity=[0,0,0]}
+function touchMove(x,y){
+ let a=angleAt(x,y);
+ if(lastTouchAngle!==null){
+  let d=a-lastTouchAngle;
+  if(d>Math.PI)d-=Math.PI*2;
+  if(d<-Math.PI)d+=Math.PI*2;
+  rotation[0]+=d;
+  rotation[1]-=d*.72;
+  rotation[2]+=d*1.45;
+  angularVelocity[0]=d*.55;
+  angularVelocity[1]=-d*.40;
+  angularVelocity[2]=d*.80;
+ }
+ lastTouchAngle=a;
+}
 function touchEnd(){lastTouchAngle=null}
-canvas.addEventListener('pointerdown',e=>{if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;touchStart(e.clientX,e.clientY);canvas.setPointerCapture?.(e.pointerId)});
+canvas.addEventListener('pointerdown',e=>{
+ if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+ touchStart(e.clientX,e.clientY);
+ canvas.setPointerCapture?.(e.pointerId);
+});
 canvas.addEventListener('pointermove',e=>{if(e.buttons)touchMove(e.clientX,e.clientY)});
 canvas.addEventListener('pointerup',touchEnd);
 canvas.addEventListener('pointercancel',touchEnd);
-function mutate(){sym=[5,6,7,8][Math.floor(Math.random()*4)];hue=Math.random();angularVelocity+=(Math.random()-.5)*.08}
-function reset(){sym=6;hue=.02;rotation=0;angularVelocity=0;lastTouchAngle=null}
+function mutate(){
+ sym=[5,6,7,8][Math.floor(Math.random()*4)];
+ hue=Math.random();
+ angularVelocity[0]+=(Math.random()-.5)*.06;
+ angularVelocity[1]-=(Math.random()-.5)*.04;
+ angularVelocity[2]+=(Math.random()-.5)*.09;
+}
+function reset(){sym=6;hue=.02;rotation=[0,0,0];angularVelocity=[0,0,0];lastTouchAngle=null}
 APKit.init({canvas:canvas,gifName:'prism-bloom-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:function(phase){draw(phase)},buttons:[{label:'✦',name:'mutate',onClick:mutate},{label:'↻',name:'reset',onClick:reset}]});
 </script>
 </body>
