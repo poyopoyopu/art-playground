@@ -1,3 +1,4 @@
+- 2026-09-23 チャッピー: PRISM BLOOMの白い縁を細くし、虹色ガラスの彩度と透明感を調整。中心の発光も抑えて色層を明確化(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRISM BLOOMの白飛びを抑制。背景を少し落とし、プリズムの塗り・輪郭・中心色を強めて淡い虹色を明確化(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRISM BLOOMを細い輪中心の構成から、大きな多層プリズム花／ステンドグラス状の自己相似構造へ全面再設計。色と輪郭を明確化(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRISM BLOOMが描画されない原因だったfragment shaderのテンプレートリテラル誤記を修正(prototypes/prism-bloom.html)
