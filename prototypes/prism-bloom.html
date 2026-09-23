@@ -23,6 +23,7 @@ out vec4 o;
 uniform vec2 R;
 uniform float P,H,S;
 uniform float ROT0,ROT1,ROT2;
+uniform float MODE;
 
 vec3 hsv(vec3 c){
  vec3 p=abs(fract(c.xxx+vec3(0.,.6666667,.3333333))*6.-3.);
@@ -63,8 +64,8 @@ void main(){
    Dense garden: a jittered 6x6 field gives the same full-frame
    distribution as the reference instead of leaving large empty zones.
  */
- for(int i=0;i<120;i++){
-  float I=float(i);
+ for(int i=0;i<60;i++){
+  float I=float(i) + (MODE>.5 ? 60.0 : 0.0);
   float aspect=R.x/min(R.x,R.y);
 
   /* Fully scattered, non-grid placement. */
@@ -80,8 +81,7 @@ void main(){
   vec2 fp=rot(p-pos,baseRot);
 
   float rots[3];
-  /* First 60 blooms remain completely still; the other 60 rotate. */
-  float moving=step(60.0,I);
+  float moving=step(.5,MODE);
   rots[0]=baseRot + moving*(P*(.10+.025*hash(I*17.1)) + ROT0);
   rots[1]=baseRot + moving*(P*(-.075-.022*hash(I*19.3)) + .35 + ROT1);
   rots[2]=baseRot + moving*(P*(.14+.035*hash(I*23.7)) - .22 + ROT2);
@@ -145,19 +145,41 @@ function sh(t,s){let x=gl.createShader(t);gl.shaderSource(x,s);gl.compileShader(
 let pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,vs));gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,fs));gl.linkProgram(pr);if(!gl.getProgramParameter(pr,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(pr));gl.useProgram(pr);
 let b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
 let pos=gl.getAttribLocation(pr,'p');gl.enableVertexAttribArray(pos);gl.vertexAttribPointer(pos,2,gl.FLOAT,false,0,0);
-let uR=gl.getUniformLocation(pr,'R'),uP=gl.getUniformLocation(pr,'P'),uH=gl.getUniformLocation(pr,'H'),uS=gl.getUniformLocation(pr,'S'),uR0=gl.getUniformLocation(pr,'ROT0'),uR1=gl.getUniformLocation(pr,'ROT1'),uR2=gl.getUniformLocation(pr,'ROT2');
+let uR=gl.getUniformLocation(pr,'R'),uP=gl.getUniformLocation(pr,'P'),uH=gl.getUniformLocation(pr,'H'),uS=gl.getUniformLocation(pr,'S'),uR0=gl.getUniformLocation(pr,'ROT0'),uR1=gl.getUniformLocation(pr,'ROT1'),uR2=gl.getUniformLocation(pr,'ROT2'),uMode=gl.getUniformLocation(pr,'MODE');
+let staticTex=null,staticFb=null,staticW=0,staticH=0;
+function ensureStaticTarget(){
+ if(staticW===canvas.width&&staticH===canvas.height&&staticTex)return;
+ if(staticTex)gl.deleteTexture(staticTex); if(staticFb)gl.deleteFramebuffer(staticFb);
+ staticW=canvas.width;staticH=canvas.height;
+ staticTex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,staticTex);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,staticW,staticH,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+ staticFb=gl.createFramebuffer();gl.bindFramebuffer(gl.FRAMEBUFFER,staticFb);gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,staticTex,0);gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+}
 let sym=6,hue=.02,rotation=[0,0,0],angularVelocity=[0,0,0],lastTouchAngle=null,paused=false,phaseNow=0;
 function resize(){let d=Math.min(devicePixelRatio||1,2),w=innerWidth*d,h=innerHeight*d;if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;gl.viewport(0,0,w,h)}}addEventListener('resize',resize,{passive:true});resize();
+function renderLayer(ph,mode){
+ gl.uniform1f(uP,ph); gl.uniform1f(uMode,mode);
+ gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+}
+function bakeStatic(){
+ ensureStaticTarget();
+ gl.bindFramebuffer(gl.FRAMEBUFFER,staticFb);
+ gl.viewport(0,0,staticW,staticH);
+ gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT);
+ gl.useProgram(pr);
+ gl.uniform2f(uR,staticW,staticH); gl.uniform1f(uH,hue); gl.uniform1f(uS,sym);
+ gl.uniform1f(uR0,0);gl.uniform1f(uR1,0);gl.uniform1f(uR2,0);
+ renderLayer(0,0);
+ gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+ gl.viewport(0,0,canvas.width,canvas.height);
+}
 function draw(ph){
  gl.useProgram(pr);
  gl.uniform2f(uR,canvas.width,canvas.height);
- gl.uniform1f(uP,ph);
- gl.uniform1f(uH,hue);
- gl.uniform1f(uS,sym);
- gl.uniform1f(uR0,rotation[0]);
- gl.uniform1f(uR1,rotation[1]);
- gl.uniform1f(uR2,rotation[2]);
- gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+ gl.uniform1f(uH,hue); gl.uniform1f(uS,sym);
+ gl.uniform1f(uR0,rotation[0]);gl.uniform1f(uR1,rotation[1]);gl.uniform1f(uR2,rotation[2]);
+ /* Static layer is baked once; dynamic layer is evaluated every frame. */
+ bakeStatic();
+ renderLayer(ph,1);
 }
 function loop(t){
  if(!paused){
