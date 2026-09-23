@@ -1,3 +1,4 @@
+- 2026-09-23 チャッピー: PRISM BLOOMの6枚花弁が水平軸に重なって見える問題を修正。外・内花弁を18度回転し、水平な直線状の見え方を回避(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRISM BLOOMの水平線アーティファクトの原因だった花弁中心線描画を削除。花弁内部の形状だけが描画されるよう修正(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRISM BLOOMの花弁中心線を湾曲化。直線的な放射境界を抑え、花弁が自然にカーブする形状へ調整(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRISM BLOOMの内側を整理し、外側6枚の花弁を主役に調整。中心の細かな放射色を弱め、水平なアーティファクトを目立たなくした(prototypes/prism-bloom.html)
