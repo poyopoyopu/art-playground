@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>PRISM BLOOM</title>
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#fff}canvas{display:block;width:100%;height:100%;touch-action:none}</style>
+<script src="../ap-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+/* PRISM BLOOM — ChatGPT作。ap-kit.js統合: ChatGPT */
+const canvas=document.getElementById('c');
+const gl=canvas.getContext('webgl2',{antialias:false,alpha:false,preserveDrawingBuffer:true});
+if(!gl)throw new Error('WebGL2 unavailable');
+const vs=`#version 300 es
+in vec2 p;void main(){gl_Position=vec4(p,0.,1.);}
+`;
+const fs=`#version 300 es
+precision highp float;
+out vec4 o;
+uniform vec2 R;uniform float P,H,S;uniform vec4 M[8];
+#define PI 3.14159265359
+mat2 rt(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}
+vec3 hsv(vec3 c){vec3 p=abs(fract(c.xxx+vec3(0.,.6666667,.3333333))*6.-3.);return c.z*mix(vec3(1.),clamp(p-1.,0.,1.),c.y);}
+float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
+void main(){
+ vec2 p=(gl_FragCoord.xy-.5*R)/min(R.x,R.y);float r=length(p),a=atan(p.y,p.x),rad=0.,ed=0.,sp=0.;
+ for(int i=0;i<7;i++){
+  float f=float(i);vec2 q=p*rt(P*(.1+f*.012)+sin(P+f)*.05);float rr=length(q),aa=atan(q.y,q.x);
+  float pet=pow(.5+.5*sin(aa*S*(1.+f*.055)+P*(.45-f*.035)),2.6+f*.22);
+  float ring=exp(-pow((rr-(.13+f*.105+pet*.045+sin(P+f)*.012))/.05,2.));
+  rad+=ring*(.72-f*.065);ed+=exp(-pow((rr-(.22+f*.105+pet*.055))/.018,2.))*(.9-f*.07);sp+=ring*(f+1.);
+ }
+ float lens=0.,pr=0.;
+ for(int i=0;i<8;i++){float d=length(p-M[i].xy),w=exp(-d*d/(.018+.085*M[i].w));lens+=w*M[i].z;pr+=w*M[i].z*sin(d*28.-M[i].w*3.);}
+ float pearl=exp(-r*r*2.7),ir=fract(.54+H+sp*.012+r*.075+pr*.045);
+ vec3 rainbow=hsv(vec3(ir,.34+.12*sin(P+rad),.97));
+ vec3 pale=mix(vec3(1.),rainbow,.16+.18*rad)+rainbow*(.18*ed+.10*lens);
+ float halo=exp(-pow(r/.82,4.));vec3 col=mix(vec3(.985,.995,1.),pale,.54*halo+.24*rad);
+ col+=vec3(1.)*(.16*pearl+.08*sin(P*2.+r*12.)*pearl);
+ col+=vec3(hash(gl_FragCoord.xy+floor(P*60.))-.5)*.012;
+ o=vec4(clamp(col,0.,1.),1.);
+}
+`;
+function sh(t,s){let x=gl.createShader(t);gl.shaderSource(x,s);gl.compileShader(x);if(!gl.getShaderParameter(x,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(x));return x}
+let pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,vs));gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,fs));gl.linkProgram(pr);if(!gl.getProgramParameter(pr,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(pr));gl.useProgram(pr);
+let b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+let pos=gl.getAttribLocation(pr,'p');gl.enableVertexAttribArray(pos);gl.vertexAttribPointer(pos,2,gl.FLOAT,false,0,0);
+let uR=gl.getUniformLocation(pr,'R'),uP=gl.getUniformLocation(pr,'P'),uH=gl.getUniformLocation(pr,'H'),uS=gl.getUniformLocation(pr,'S'),uM=gl.getUniformLocation(pr,'M[0]');
+const marks=Array.from({length:8},()=>[0,0,0,1]);let sym=7,hue=.02;const PERIOD=9;
+function resize(){let d=Math.min(devicePixelRatio||1,2),w=innerWidth*d,h=innerHeight*d;if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;gl.viewport(0,0,w,h)}}addEventListener('resize',resize,{passive:true});resize();
+function draw(ph){gl.useProgram(pr);gl.uniform2f(uR,canvas.width,canvas.height);gl.uniform1f(uP,ph);gl.uniform1f(uH,hue);gl.uniform1f(uS,sym);gl.uniform4fv(uM,new Float32Array(marks.flat()));gl.drawArrays(gl.TRIANGLE_STRIP,0,4)}
+function loop(t){let ph=(t/1000%PERIOD)/PERIOD*6.28318530718;marks.forEach(m=>m[3]=Math.min(1,m[3]+.002));draw(ph);requestAnimationFrame(loop)}requestAnimationFrame(loop);
+function touch(x,y){let q=canvas.getBoundingClientRect();marks.unshift([(x-q.left)/q.width*2-1,1-(y-q.top)/q.height*2-.0,.9,.05]);marks.pop()}
+canvas.addEventListener('pointerdown',e=>{if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;touch(e.clientX,e.clientY)});
+canvas.addEventListener('pointermove',e=>{if(e.buttons)touch(e.clientX,e.clientY)});
+function mutate(){sym=[5,6,7,8,9,10,12][Math.floor(Math.random()*7)];hue=Math.random();marks.forEach(m=>m[2]=.45+Math.random()*.65)}
+function reset(){marks.forEach(m=>{m[0]=0;m[1]=0;m[2]=0;m[3]=1});sym=7;hue=.02}
+APKit.init({canvas:canvas,gifName:'prism-bloom-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:function(phase){draw(phase)},buttons:[{label:'✦',name:'mutate',onClick:mutate},{label:'↻',name:'reset',onClick:reset}]});
+</script>
+</body>
+</html>
