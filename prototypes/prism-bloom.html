@@ -17,33 +17,53 @@ if(!gl)throw new Error('WebGL2 unavailable');
 const vs=`#version 300 es
 in vec2 p;void main(){gl_Position=vec4(p,0.,1.);}
 `;
-const fs=`#version 300 es
+const fs=\`#version 300 es
 precision highp float;
 out vec4 o;
 uniform vec2 R;uniform float P,H,S;uniform vec4 M[8];
-#define PI 3.14159265359
 mat2 rt(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}
 vec3 hsv(vec3 c){vec3 p=abs(fract(c.xxx+vec3(0.,.6666667,.3333333))*6.-3.);return c.z*mix(vec3(1.),clamp(p-1.,0.,1.),c.y);}
-float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
 void main(){
- vec2 p=(gl_FragCoord.xy-.5*R)/min(R.x,R.y);float r=length(p),a=atan(p.y,p.x),rad=0.,ed=0.,sp=0.;
- for(int i=0;i<7;i++){
-  float f=float(i);vec2 q=p*rt(P*(.1+f*.012)+sin(P+f)*.05);float rr=length(q),aa=atan(q.y,q.x);
-  float pet=pow(.5+.5*sin(aa*S*(1.+f*.055)+P*(.45-f*.035)),2.6+f*.22);
-  float ring=exp(-pow((rr-(.13+f*.105+pet*.045+sin(P+f)*.012))/.05,2.));
-  rad+=ring*(.72-f*.065);ed+=exp(-pow((rr-(.22+f*.105+pet*.055))/.018,2.))*(.9-f*.07);sp+=ring*(f+1.);
+ vec2 p=(gl_FragCoord.xy-.5*R)/min(R.x,R.y);
+ float r=length(p),a=atan(p.y,p.x);
+ float field=0.,rings=0.,colorSum=0.;
+ for(int i=0;i<8;i++){
+  float f=float(i);
+  vec2 q=p*rt(P*(.045+f*.008));
+  float rr=length(q),aa=atan(q.y,q.x);
+  float pet=.5+.5*cos(aa*S+P*.35+f*.73);
+  float target=.10+f*.115+pet*.055;
+  float band=exp(-pow((rr-target)/.040,2.));
+  float inner=exp(-pow((rr-target)/.075,2.));
+  field+=inner*(1.-f*.075);
+  rings+=band;
+  colorSum+=band*(f+1.);
  }
- float lens=0.,pr=0.;
- for(int i=0;i<8;i++){float d=length(p-M[i].xy),w=exp(-d*d/(.018+.085*M[i].w));lens+=w*M[i].z;pr+=w*M[i].z*sin(d*28.-M[i].w*3.);}
- float pearl=exp(-r*r*2.7),ir=fract(.54+H+sp*.012+r*.075+pr*.045);
- vec3 rainbow=hsv(vec3(ir,.34+.12*sin(P+rad),.97));
- vec3 pale=mix(vec3(1.),rainbow,.16+.18*rad)+rainbow*(.18*ed+.10*lens);
- float halo=exp(-pow(r/.82,4.));vec3 col=mix(vec3(.985,.995,1.),pale,.54*halo+.24*rad);
- col+=vec3(1.)*(.16*pearl+.08*sin(P*2.+r*12.)*pearl);
- col+=vec3(hash(gl_FragCoord.xy+floor(P*60.))-.5)*.012;
+ // Touch permanently changes the local refraction of the bloom.
+ float lens=0.,bend=0.;
+ for(int i=0;i<8;i++){
+  float d=length(p-M[i].xy);
+  float w=exp(-d*d/(.018+.075*M[i].w));
+  lens+=w*M[i].z;
+  bend+=w*M[i].z*sin(d*22.-M[i].w*2.5);
+ }
+ float hue=fract(H+colorSum*.018+r*.055+bend*.035+P*.006);
+ vec3 rainbow=hsv(vec3(hue,.62,.98));
+ vec3 rainbow2=hsv(vec3(fract(hue+.18),.48,1.));
+ float core=exp(-r*r*5.0);
+ float halo=exp(-pow(r/.92,3.0));
+ vec3 bg=vec3(.965,.985,1.0);
+ vec3 col=bg;
+ col=mix(col,rainbow,.10*halo+.22*rings);
+ col+=rainbow2*(.10*rings+.055*field);
+ col+=vec3(.98,.99,1.)*(.22*core);
+ // luminous glass edge
+ col+=rainbow*.18*pow(rings,1.7);
+ // touch bends nearby bands instead of creating a dot
+ col+=rainbow2*(.14*lens+.10*abs(bend));
  o=vec4(clamp(col,0.,1.),1.);
 }
-`;
+\`
 function sh(t,s){let x=gl.createShader(t);gl.shaderSource(x,s);gl.compileShader(x);if(!gl.getShaderParameter(x,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(x));return x}
 let pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,vs));gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,fs));gl.linkProgram(pr);if(!gl.getProgramParameter(pr,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(pr));gl.useProgram(pr);
 let b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
