@@ -1,3 +1,4 @@
+- 2026-09-23 チャッピー: PRESSURE FIELDを直接的な「破れ」表現から初期Canvas2D版へ復元。圧力場による自己相似構造の歪みとタッチ位置の多重リング表現を再採用(prototypes/pressure-field.html)
 - 2026-09-23 チャッピー: PRESSURE FIELDのタッチを複雑な方向性変形から単純な「触れた場所が裂ける」表現へ再設計。裂け目を引き伸ばせるドラッグ操作と恒久的な破れを実装(prototypes/pressure-field.html)
 - 2026-09-23 チャッピー: PRESSURE FIELDのタッチを円形の圧力痕から方向性を持つ恒久的な折り目へ変更。ドラッグ方向に沿って格子が裂けるように再編成(prototypes/pressure-field.html)
 - 2026-09-23 チャッピー: PRESSURE FIELDをiPhoneで確実に描画できるCanvas2D安定版へ変更(WebGL2初期化依存を除去)(prototypes/pressure-field.html)
