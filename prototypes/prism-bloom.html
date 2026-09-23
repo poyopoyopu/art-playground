@@ -63,26 +63,26 @@ void main(){
    Dense garden: a jittered 6x6 field gives the same full-frame
    distribution as the reference instead of leaving large empty zones.
  */
- for(int i=0;i<72;i++){
+ for(int i=0;i<84;i++){
   float I=float(i);
-  float gx=mod(I,9.0);
-  float gy=floor(I/9.0);
   float aspect=R.x/min(R.x,R.y);
 
-  vec2 cell=vec2(
-    ((gx+.02+.96*hash(I*2.17+.4))/9.0*2.0-1.0)*aspect*1.12,
-    ((gy+.02+.96*hash(I*3.31+1.7))/8.0*2.0-1.0)*1.16
+  /* Fully scattered, non-grid placement. */
+  vec2 pos=vec2(
+    mix(-1.08*aspect,1.08*aspect,hash(I*2.17+.4)),
+    mix(-1.18,1.18,hash(I*3.31+1.7))
   );
 
-  vec2 pos=cell;
-  float size=mix(.13,.70,hash(I*4.73+2.4));
-  float baseRot=(hash(I*5.11+3.2)-.5)*6.2831853;
+  /* Stronger size contrast: tiny blossoms coexist with oversized blooms. */
+  float sz=hash(I*4.73+2.4);
+  float size=mix(.07,.78,pow(sz,.72));
+  float baseRot=hash(I*5.11+3.2)*6.2831853;
   vec2 fp=rot(p-pos,baseRot);
 
   float rots[3];
-  rots[0]=ROT0*(.68+.045*I);
-  rots[1]=ROT1*(-.52-.032*I);
-  rots[2]=ROT2*(.92+.058*I);
+  rots[0]=baseRot + ROT0*(.68+.045*I);
+  rots[1]=baseRot + ROT1*(-.52-.032*I) + .35;
+  rots[2]=baseRot + ROT2*(.92+.058*I) - .22;
 
   float scales[3];
   scales[0]=size;
@@ -100,7 +100,7 @@ void main(){
   alphas[2]=.21;
 
   /* Every bloom gets its own pastel hue family. */
-  float flowerHue=fract(hash(I*7.13+9.1)*.98+H*.18+I*.017);
+  float flowerHue=fract(hash(I*7.13+9.1)*1.0+H*.18+hash(I*11.7)*.12);
 
   for(int g=0;g<3;g++){
    float G=float(g);
@@ -112,7 +112,7 @@ void main(){
    float ang=atan(lp.y,lp.x);
 
    float hue=fract(flowerHue+G*.055+rr*.045);
-   vec3 body=hsv(vec3(hue,.25,.995));
+   vec3 body=hsv(vec3(hue,.30+.08*hash(I*13.1+G),.995));
    vec3 rimc=hsv(vec3(fract(hue+.055),.18,1.0));
 
    col=mix(col,body,shape*alphas[g]);
