@@ -1,3 +1,4 @@
+- 2026-09-23 チャッピー: PRISM BLOOMの花弁生成を角度セクター＋直線境界方式から曲線的な極座標の涙滴形へ全面変更。水平な放射シームが発生しない形状計算に刷新(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRISM BLOOMの花弁セクター境界に出ていた水平な直線アーティファクトを修正。角度マスクで花弁の境界を自然に消し、放射状の継ぎ目を抑制(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRISM BLOOMの6枚花弁が水平軸に重なって見える問題を修正。外・内花弁を18度回転し、水平な直線状の見え方を回避(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRISM BLOOMの水平線アーティファクトの原因だった花弁中心線描画を削除。花弁内部の形状だけが描画されるよう修正(prototypes/prism-bloom.html)
