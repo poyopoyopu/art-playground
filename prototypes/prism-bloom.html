@@ -62,9 +62,9 @@ void main(){
    Dense garden: a jittered 6x6 field gives the same full-frame
    distribution as the reference instead of leaving large empty zones.
  */
+ float aspect=R.x/min(R.x,R.y);
  for(int i=0;i<120;i++){
   float I=float(i);
-  float aspect=R.x/min(R.x,R.y);
 
   /* Fully scattered, non-grid placement. */
   vec2 pos=vec2(
@@ -75,8 +75,12 @@ void main(){
   /* Stronger size contrast: tiny blossoms coexist with oversized blooms. */
   float sz=hash(I*4.73+2.4);
   float size=mix(.07,.78,pow(sz,.72));
-  float baseRot=hash(I*5.11+3.2)*6.2831853;
   float baseR=length(p-pos);
+
+  /* Most pixels are outside a bloom. Skip the expensive angular work there. */
+  if(baseR > size*.70) continue;
+
+  float baseRot=hash(I*5.11+3.2)*6.2831853;
   float baseA=atan((p-pos).y,(p-pos).x);
 
   float rots[3];
@@ -124,9 +128,11 @@ void main(){
    col+=vec3(1.0)*sheen*shape*.055;
   }
 
-  /* Tiny luminous flower center. */
-  float c=1.0-smoothstep(.0,.045,baseR);
-  col+=vec3(1.0,.99,.96)*c*.14;
+  /* Tiny luminous flower center; keep it inside the same early-rejected radius. */
+  if(baseR < .045){
+   float c=1.0-smoothstep(.0,.045,baseR);
+   col+=vec3(1.0,.99,.96)*c*.14;
+  }
  }
 
  /* Very soft overall haze. */
