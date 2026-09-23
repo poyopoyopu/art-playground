@@ -1,3 +1,4 @@
+- 2026-09-23 チャッピー: PRISM BLOOMを120個から140個へ増量。軽量化したシェーダーを維持したまま密度を上げた(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRISM BLOOMの120個を維持したまま、花ごとの早期スキップと共通計算化でフラグメント負荷を削減(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRISM BLOOMのシェーダーを最適化。花ごとの回転・距離・角度計算を共通化し、見た目を維持したまま毎フレームの計算量を削減(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRISM BLOOMの120個すべてを自律回転する状態へ復元(prototypes/prism-bloom.html)
