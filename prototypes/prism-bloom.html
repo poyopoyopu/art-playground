@@ -79,13 +79,10 @@ void main(){
   float baseRot=hash(I*5.11+3.2)*6.2831853;
   vec2 fp=rot(p-pos,baseRot);
 
-  /* Only a small subset slowly rotates; the field itself never rotates as a whole. */
-  float mover=step(.76,hash(I*6.37+4.8));
-  float speed=(.018+.010*hash(I*17.1))*mover;
   float rots[3];
-  rots[0]=speed*P;
-  rots[1]=.78*speed*P+.35;
-  rots[2]=1.12*speed*P-.22;
+  rots[0]=baseRot + P*(.10+.025*hash(I*17.1)) + ROT0;
+  rots[1]=baseRot + P*(-.075-.022*hash(I*19.3)) + .35 + ROT1;
+  rots[2]=baseRot + P*(.14+.035*hash(I*23.7)) - .22 + ROT2;
 
   float scales[3];
   scales[0]=size;
@@ -147,7 +144,7 @@ let pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,vs));gl.attachS
 let b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
 let pos=gl.getAttribLocation(pr,'p');gl.enableVertexAttribArray(pos);gl.vertexAttribPointer(pos,2,gl.FLOAT,false,0,0);
 let uR=gl.getUniformLocation(pr,'R'),uP=gl.getUniformLocation(pr,'P'),uH=gl.getUniformLocation(pr,'H'),uS=gl.getUniformLocation(pr,'S'),uR0=gl.getUniformLocation(pr,'ROT0'),uR1=gl.getUniformLocation(pr,'ROT1'),uR2=gl.getUniformLocation(pr,'ROT2');
-let sym=6,hue=.02,paused=false,phaseNow=0;
+let sym=6,hue=.02,rotation=[0,0,0],angularVelocity=[0,0,0],lastTouchAngle=null,paused=false,phaseNow=0;
 function resize(){let d=Math.min(devicePixelRatio||1,2),w=innerWidth*d,h=innerHeight*d;if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;gl.viewport(0,0,w,h)}}addEventListener('resize',resize,{passive:true});resize();
 function draw(ph){
  gl.useProgram(pr);
@@ -163,18 +160,45 @@ function draw(ph){
 function loop(t){
  if(!paused){
   phaseNow=(t/1000)*0.7;
+  for(let i=0;i<3;i++){angularVelocity[i]*=.978;rotation[i]+=angularVelocity[i]}
   draw(phaseNow);
  }
  requestAnimationFrame(loop)
 }
 requestAnimationFrame(loop);
-function touchStart(){
- paused=!paused;
+function angleAt(x,y){
+ let q=canvas.getBoundingClientRect();
+ return Math.atan2(y-(q.top+q.height*.5),x-(q.left+q.width*.5));
 }
+function touchStart(x,y){paused=!paused;lastTouchAngle=angleAt(x,y)}
+function touchMove(x,y){
+ let a=angleAt(x,y);
+ if(lastTouchAngle!==null){
+  let d=a-lastTouchAngle;
+  if(d>Math.PI)d-=Math.PI*2;
+  if(d<-Math.PI)d+=Math.PI*2;
+  rotation[0]+=d;
+  rotation[1]-=d*.72;
+  rotation[2]+=d*1.45;
+  angularVelocity[0]+=d*.38;
+  angularVelocity[1]-=d*.28;
+  angularVelocity[2]+=d*.58;
+  const max=0.055;
+  angularVelocity[0]=Math.max(-max,Math.min(max,angularVelocity[0]));
+  angularVelocity[1]=Math.max(-max,Math.min(max,angularVelocity[1]));
+  angularVelocity[2]=Math.max(-max,Math.min(max,angularVelocity[2]));
+ }
+ lastTouchAngle=a;
+}
+function touchEnd(){lastTouchAngle=null}
 canvas.addEventListener('pointerdown',e=>{
  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
- touchStart();
+ touchStart(e.clientX,e.clientY);
+ canvas.setPointerCapture?.(e.pointerId);
 });
+canvas.addEventListener('pointermove',e=>{if(e.buttons&&!paused)touchMove(e.clientX,e.clientY)});
+canvas.addEventListener('pointerup',touchEnd);
+canvas.addEventListener('pointercancel',touchEnd);
 function mutate(){
  sym=[5,6,7,8][Math.floor(Math.random()*4)];
  hue=Math.random();
@@ -182,7 +206,7 @@ function mutate(){
  angularVelocity[1]-=(Math.random()-.5)*.04;
  angularVelocity[2]+=(Math.random()-.5)*.09;
 }
-function reset(){sym=6;hue=.02;paused=false}
+function reset(){sym=6;hue=.02;rotation=[0,0,0];angularVelocity=[0,0,0];lastTouchAngle=null;paused=false}
 APKit.init({canvas:canvas,gifName:'prism-bloom-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:function(phase){draw(phase)},buttons:[{label:'✦',name:'mutate',onClick:mutate},{label:'↻',name:'reset',onClick:reset}]});
 </script>
 </body>
