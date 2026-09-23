@@ -6,88 +6,17 @@
 <style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#050609}canvas{display:block;width:100%;height:100%;touch-action:none}</style>
 <script src="../ap-kit.js"></script></head><body><canvas id="c"></canvas><script>
 /* PRESSURE FIELD — ChatGPT作。ap-kit.js統合: ChatGPT */
-const c=document.getElementById('c'),ctx=c.getContext('2d',{alpha:false});
-let W=0,H=0,D=1,tears=[],seed=Math.random()*9999,TAU=Math.PI*2,active=null;
+const c=document.getElementById('c'),ctx=c.getContext('2d',{alpha:false});let W=0,H=0,D=1,marks=[],seed=Math.random()*1000,TAU=Math.PI*2;
 function resize(){D=Math.min(2,devicePixelRatio||1);W=innerWidth;H=innerHeight;let w=Math.floor(W*D),h=Math.floor(H*D);if(c.width!==w||c.height!==h){c.width=w;c.height=h;}}
-function mutate(){seed=Math.random()*9999;tears=[];}
-function reset(){tears=[];active=null}
-function newTear(x,y){
- const a=Math.random()*TAU,len=28+Math.random()*22;
- const t={pts:[{x,y}],ang:a,width:7+Math.random()*5,age:0,open:0};
- for(let i=1;i<4;i++){let d=len*i/3; t.pts.push({x:x+Math.cos(a)*d,y:y+Math.sin(a)*d});}
- tears.push(t);if(tears.length>8)tears.shift();return t;
-}
-function extend(t,x,y){const p=t.pts[t.pts.length-1],d=Math.hypot(x-p.x,y-p.y);if(d>4){t.pts.push({x,y});if(t.pts.length>70)t.pts.shift();t.width=Math.min(15,t.width+.035*d);}}
-function crackAround(t){
- const p=t.pts[0],base=t.ang;
- ctx.save();ctx.lineCap='round';ctx.lineJoin='round';
- for(let side=-1;side<=1;side+=2){
-  ctx.beginPath();
-  for(let j=0;j<16;j++){
-   const a=base+side*(.55+Math.sin(j*2.7+seed)*.32),d=10+j*9;
-   const wob=Math.sin(j*3.1+seed)*5;
-   const x=p.x+Math.cos(a)*d+Math.cos(base+Math.PI/2)*wob;
-   const y=p.y+Math.sin(a)*d+Math.sin(base+Math.PI/2)*wob;
-   if(j===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
-  }
-  ctx.strokeStyle='rgba(110,205,220,.20)';ctx.lineWidth=1;ctx.stroke();
- }
- ctx.restore();
-}
-function drawTear(t,time){
- if(t.pts.length<2)return;
- const p0=t.pts[0],age=Math.min(1,t.age*.9+.1);
- ctx.save();ctx.lineCap='round';ctx.lineJoin='round';
- // dark opening
- ctx.beginPath();
- for(let i=0;i<t.pts.length;i++){const p=t.pts[i];if(i===0)ctx.moveTo(p.x,p.y);else ctx.lineTo(p.x,p.y);}
- ctx.strokeStyle='rgba(0,0,0,.88)';ctx.lineWidth=t.width+5;ctx.stroke();
- // two torn edges
- for(const side of [-1,1]){
-  ctx.beginPath();
-  for(let i=0;i<t.pts.length;i++){
-   const p=t.pts[i],q=t.pts[Math.min(i+1,t.pts.length-1)],dx=q.x-p.x,dy=q.y-p.y,l=Math.hypot(dx,dy)||1,nx=-dy/l,ny=dx/l;
-   const tooth=(i%2?2.5:-2.5)+Math.sin(i*4+seed)*1.4;
-   const x=p.x+nx*(t.width*.52+tooth)*side,y=p.y+ny*(t.width*.52+tooth)*side;
-   if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
-  }
-  ctx.strokeStyle='hsla('+(195+side*22)+',62%,68%,'+(.34+.12*age)+')';ctx.lineWidth=1.1;ctx.stroke();
- }
- // tiny interior light, making the split read immediately
- ctx.beginPath();ctx.moveTo(p0.x,p0.y);ctx.lineTo(t.pts[Math.min(3,t.pts.length-1)].x,t.pts[Math.min(3,t.pts.length-1)].y);
- ctx.strokeStyle='rgba(220,245,255,.35)';ctx.lineWidth=.8;ctx.stroke();
- ctx.restore();
- crackAround(t);
-}
-function fieldWarp(x,y,time){
- let px=x,py=y;
- for(const t of tears){
-  const p=t.pts[Math.floor(t.pts.length*.55)];let dx=x-p.x,dy=y-p.y,d=Math.hypot(dx,dy)+1;
-  const a=Math.atan2(dy,dx),pull=Math.exp(-d*d/9000)*Math.min(1,t.pts.length/16)*8;
-  px+=Math.cos(a)*pull;py+=Math.sin(a)*pull;
- }
- return[px,py];
-}
-function draw(phase){
- resize();ctx.setTransform(D,0,0,D,0,0);ctx.fillStyle='#050609';ctx.fillRect(0,0,W,H);
- const t=phase/TAU,scale=Math.min(W,H);
- for(let level=0;level<6;level++){
-  const s=scale*Math.pow(1.7,-level)*1.35,step=Math.max(14,s*.12),drift=Math.sin(t*TAU+level*1.4)*s*.025;
-  ctx.beginPath();
-  for(let x=-s;x<W+s;x+=step)for(let y=-s;y<H+s;y+=step){
-   const q=fieldWarp(x,y,t),px=q[0]+drift,py=q[1]-drift*.7;
-   const d=Math.hypot((px-W/2)*.93,py-H/2),ring=Math.sin(d/(s*.095)+level*.72+t*TAU*(level%2?-.35:.35)),edge=.5+.5*ring;
-   const hue=195+level*24+Math.sin(d*.008+t*TAU)*24,alpha=.035+edge*.055;
-   ctx.strokeStyle='hsla('+hue+',55%,'+(30+edge*28)+'%,'+alpha+')';ctx.lineWidth=.8+edge*1.2;
-   const r=step*.42;ctx.moveTo(px-r,py);ctx.lineTo(px+r,py);ctx.moveTo(px,py-r);ctx.lineTo(px,py+r);
-  }ctx.stroke();
- }
- for(const tear of tears){tear.age+=.0012;drawTear(tear,t);}
-}
-let down=false;
-c.addEventListener('pointerdown',e=>{if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;down=true;active=newTear(e.clientX,e.clientY)});
-c.addEventListener('pointermove',e=>{if(!down||!active)return;if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;extend(active,e.clientX,e.clientY)});
-c.addEventListener('pointerup',()=>{down=false;active=null});c.addEventListener('pointercancel',()=>{down=false;active=null});
+function mutate(){seed=Math.random()*9999;marks=[];for(let i=0;i<4;i++)marks.push({x:Math.random()*W,y:Math.random()*H,r:45+Math.random()*80,p:.45+Math.random()*.5});}
+function reset(){marks=[]} function add(x,y){marks.push({x,y,r:55+Math.random()*55,p:.8+Math.random()*.35});if(marks.length>12)marks.shift();}
+function field(x,y){let px=x,py=y,press=0;for(const m of marks){let dx=x-m.x,dy=y-m.y,d2=dx*dx+dy*dy,w=Math.exp(-d2/(m.r*m.r));press+=w*m.p;px+=(dx/(Math.sqrt(d2)+1))*w*m.p*38;py+=(dy/(Math.sqrt(d2)+1))*w*m.p*38;}return[px,py,press];}
+function draw(phase){resize();ctx.setTransform(D,0,0,D,0,0);ctx.fillStyle='#050609';ctx.fillRect(0,0,W,H);let t=phase/TAU,scale=Math.min(W,H);
+for(let level=0;level<6;level++){let s=scale*Math.pow(1.7,-level)*1.35,step=Math.max(14,s*.12),drift=Math.sin(t*TAU+level*1.4)*s*.025;ctx.beginPath();
+for(let x=-s;x<W+s;x+=step)for(let y=-s;y<H+s;y+=step){let q=field(x,y),px=q[0]+drift,py=q[1]-drift*.7,p=q[2],d=Math.hypot((px-W/2)*.93,py-H/2),ring=Math.sin(d/(s*.095)+level*.72+t*TAU*(level%2?-.35:.35)),edge=.5+.5*ring,alpha=.035+edge*.055+p*.045,hue=195+level*24+Math.sin(p*2+t*TAU)*35;ctx.strokeStyle='hsla('+hue+',55%,'+(30+edge*28)+'%,'+alpha+')';ctx.lineWidth=.8+edge*1.2;let r=step*(.42+p*.5);ctx.moveTo(px-r,py);ctx.lineTo(px+r,py);ctx.moveTo(px,py-r);ctx.lineTo(px,py+r);}
+ctx.stroke();}
+for(const m of marks)for(let k=0;k<7;k++){let rr=m.r*(.35+k*.18)*(1+.06*Math.sin(t*TAU+k));ctx.beginPath();for(let j=0;j<=96;j++){let a=j/96*TAU,local=field(m.x+Math.cos(a)*rr,m.y+Math.sin(a)*rr)[2],wob=1+local*.11+Math.sin(a*5+k+t*TAU)*.025,x=m.x+Math.cos(a)*rr*wob,y=m.y+Math.sin(a)*rr*wob;if(j===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);}ctx.strokeStyle='hsla('+(205+k*25)+',65%,'+(45+k*3)+'%,'+(.06+k*.018)+')';ctx.lineWidth=1+k*.35;ctx.stroke();}}
+let down=false;c.addEventListener('pointerdown',e=>{if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;down=true;add(e.clientX,e.clientY)});c.addEventListener('pointermove',e=>{if(!down)return;if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;add(e.clientX,e.clientY)});c.addEventListener('pointerup',()=>down=false);c.addEventListener('pointercancel',()=>down=false);
 mutate();requestAnimationFrame(function loop(now){draw((now%7000)/7000*TAU);requestAnimationFrame(loop)});
 APKit.init({canvas:c,gifName:'pressure-field-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:function(phase){draw(phase)},buttons:[{label:'✦',name:'mutate',onClick:mutate},{label:'↻',name:'reset',onClick:reset}]});
 </script></body></html>
