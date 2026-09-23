@@ -21,49 +21,69 @@ const fs=`#version 300 es
 precision highp float;
 out vec4 o;
 uniform vec2 R;uniform float P,H,S;uniform vec4 M[8];
-mat2 rt(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}
-vec3 hsv(vec3 c){vec3 p=abs(fract(c.xxx+vec3(0.,.6666667,.3333333))*6.-3.);return c.z*mix(vec3(1.),clamp(p-1.,0.,1.),c.y);}
+
+mat2 rot(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}
+vec3 hsv(vec3 c){
+ vec3 p=abs(fract(c.xxx+vec3(0.,.6666667,.3333333))*6.-3.);
+ return c.z*mix(vec3(1.),clamp(p-1.,0.,1.),c.y);
+}
+
 void main(){
  vec2 p=(gl_FragCoord.xy-.5*R)/min(R.x,R.y);
  float r=length(p),a=atan(p.y,p.x);
- float field=0.,rings=0.,colorSum=0.;
- for(int i=0;i<8;i++){
-  float f=float(i);
-  vec2 q=p*rt(P*(.045+f*.008));
-  float rr=length(q),aa=atan(q.y,q.x);
-  float pet=.5+.5*cos(aa*S+P*.35+f*.73);
-  float target=.10+f*.115+pet*.055;
-  float band=exp(-pow((rr-target)/.040,2.));
-  float inner=exp(-pow((rr-target)/.075,2.));
-  field+=inner*(1.-f*.075);
-  rings+=band;
-  colorSum+=band*(f+1.);
- }
- // Touch permanently changes the local refraction of the bloom.
- float lens=0.,bend=0.;
+
+ // Each touch becomes a permanent local refraction field.
  for(int i=0;i<8;i++){
   float d=length(p-M[i].xy);
-  float w=exp(-d*d/(.018+.075*M[i].w));
-  lens+=w*M[i].z;
-  bend+=w*M[i].z*sin(d*22.-M[i].w*2.5);
+  float w=exp(-d*d/(.025+.10*M[i].w));
+  p+=normalize(p-M[i].xy+.0001)*w*M[i].z*.045*sin(P*.5+float(i));
  }
- float hue=fract(H+colorSum*.018+r*.055+bend*.035+P*.006);
- vec3 rainbow=hsv(vec3(hue,.62,.98));
- vec3 rainbow2=hsv(vec3(fract(hue+.18),.48,1.));
- float core=exp(-r*r*5.0);
- float halo=exp(-pow(r/.92,3.0));
- vec3 bg=vec3(.965,.985,1.0);
+ r=length(p);a=atan(p.y,p.x);
+
+ vec3 bg=vec3(.965,.975,1.0);
  vec3 col=bg;
- col=mix(col,rainbow,.10*halo+.22*rings);
- col+=rainbow2*(.10*rings+.055*field);
- col+=vec3(.98,.99,1.)*(.22*core);
- // luminous glass edge
- col+=rainbow*.18*pow(rings,1.7);
- // touch bends nearby bands instead of creating a dot
- col+=rainbow2*(.14*lens+.10*abs(bend));
+
+ // Three nested generations of the same petal law.
+ for(int g=0;g<3;g++){
+  float G=float(g);
+  float scale=1.0-G*.22;
+  vec2 q=p/scale;
+  float rr=length(q),aa=atan(q.y,q.x);
+  float petals=.5+.5*cos(aa*S+P*.22+G*.9);
+  float boundary=.24+petals*petals*.19;
+
+  float fill=1.0-smoothstep(boundary-.035,boundary+.018,rr);
+  float edge=1.0-smoothstep(.010,.040,abs(rr-boundary));
+  float inner=1.0-smoothstep(.035,.060,abs(rr-boundary*.57));
+
+  float hue=fract(H+aa/6.2831853*.32+G*.13+rr*.20+P*.004);
+  vec3 c1=hsv(vec3(hue,.62,.98));
+  vec3 c2=hsv(vec3(fract(hue+.16),.48,1.0));
+
+  col=mix(col,c1,fill*(.20-.035*G));
+  col+=c2*edge*(.34-.05*G);
+  col+=c1*inner*(.12-.02*G);
+ }
+
+ // Central prism core.
+ float core=1.0-smoothstep(.025,.17,r);
+ float coreEdge=1.0-smoothstep(.005,.025,abs(r-.105));
+ vec3 coreA=hsv(vec3(fract(H+.08+P*.01),.58,1.0));
+ vec3 coreB=hsv(vec3(fract(H+.31),.45,1.0));
+ col=mix(col,coreA,core*.16);
+ col+=coreB*coreEdge*.35;
+
+ // Fine iridescent facets inside the petals.
+ float facets=.5+.5*cos(S*a*2.0+P*.35+r*34.0);
+ col+=hsv(vec3(fract(H+.55*facets+r*.12),.42,1.0))*.055*facets*(1.0-smoothstep(.18,.65,r));
+
+ // Soft white glass highlights, kept below clipping.
+ float shine=pow(max(0.,cos(a*3.0+P*.25)),18.0)*(1.0-smoothstep(.12,.62,r));
+ col+=vec3(1.0)*shine*.18;
+
  o=vec4(clamp(col,0.,1.),1.);
-}
-`
+}`
+
 function sh(t,s){let x=gl.createShader(t);gl.shaderSource(x,s);gl.compileShader(x);if(!gl.getShaderParameter(x,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(x));return x}
 let pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,vs));gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,fs));gl.linkProgram(pr);if(!gl.getProgramParameter(pr,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(pr));gl.useProgram(pr);
 let b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
