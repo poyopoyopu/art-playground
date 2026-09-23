@@ -22,67 +22,71 @@ precision highp float;
 out vec4 o;
 uniform vec2 R;uniform float P,H,S;uniform vec4 M[8];
 
-mat2 rot(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}
 vec3 hsv(vec3 c){
  vec3 p=abs(fract(c.xxx+vec3(0.,.6666667,.3333333))*6.-3.);
  return c.z*mix(vec3(1.),clamp(p-1.,0.,1.),c.y);
 }
 
+float petal(vec2 p,float n,float scale,float phase,out float edge,out float innerLine){
+ vec2 q=p/scale;
+ float r=length(q),a=atan(q.y,q.x);
+ float sector=6.2831853/n;
+ float local=atan(sin(a+phase+sector*.5),cos(a+phase+sector*.5));
+ float y=r*abs(sin(local));
+ float x=r*cos(local);
+ float t=clamp((x-.055)/.56,0.,1.);
+ float width=.19*pow(max(0.,sin(3.14159265*t)),.62);
+ float body=smoothstep(.008,.0,abs(y-width));
+ float front=smoothstep(.055,.085,x);
+ float back=1.0-smoothstep(.545,.585,x);
+ float shape=body*front*back;
+ edge=1.0-smoothstep(.004,.020,abs(y-width));
+ innerLine=1.0-smoothstep(.010,.030,abs(x-.065));
+ return shape;
+}
+
 void main(){
  vec2 p=(gl_FragCoord.xy-.5*R)/min(R.x,R.y);
- float r=length(p),a=atan(p.y,p.x);
-
- // Each touch becomes a permanent local refraction field.
  for(int i=0;i<8;i++){
   float d=length(p-M[i].xy);
   float w=exp(-d*d/(.025+.10*M[i].w));
-  p+=normalize(p-M[i].xy+.0001)*w*M[i].z*.045*sin(P*.5+float(i));
+  p+=normalize(p-M[i].xy+.0001)*w*M[i].z*.055*sin(P*.5+float(i));
  }
- r=length(p);a=atan(p.y,p.x);
-
  vec3 bg=vec3(.94,.955,.985);
  vec3 col=bg;
-
- // Three nested generations of the same petal law.
  for(int g=0;g<3;g++){
   float G=float(g);
-  float scale=1.0-G*.22;
-  vec2 q=p/scale;
-  float rr=length(q),aa=atan(q.y,q.x);
-  float petals=.5+.5*cos(aa*S+P*.22+G*.9);
-  float boundary=.24+petals*petals*.19;
-
-  float fill=1.0-smoothstep(boundary-.020,boundary+.010,rr);
-  float edge=1.0-smoothstep(.004,.020,abs(rr-boundary));
-  float inner=1.0-smoothstep(.035,.060,abs(rr-boundary*.57));
-
-  float hue=fract(H+aa/6.2831853*.32+G*.13+rr*.20+P*.004);
-  vec3 c1=hsv(vec3(hue,.72,.94));
-  vec3 c2=hsv(vec3(fract(hue+.16),.66,.96));
-
-  col=mix(col,c1,fill*(.46-.055*G));
-  col+=c2*edge*(.42-.05*G);
-  col+=c1*inner*(.20-.025*G);
+  float scale=1.0-G*.16;
+  float edge,base;
+  float shape=petal(p,S,scale,P*.045+G*.12,edge,base);
+  float r=length(p/scale);
+  float a=atan(p.y,p.x);
+  float hue=fract(H+a/6.2831853*.22+G*.14+r*.10+P*.003);
+  vec3 c=hsv(vec3(hue,.72,.94));
+  vec3 ca=hsv(vec3(fract(hue+.10),.58,.98));
+  col=mix(col,c,shape*(.44-.055*G));
+  col+=ca*edge*(.34-.045*G);
+  col+=c*base*.10;
+  float e2,b2;
+  float innerShape=petal(p,S+2.,scale*.73,P*.045+G*.12+.18,e2,b2);
+  vec3 ci=hsv(vec3(fract(hue+.20),.55,.98));
+  col=mix(col,ci,innerShape*.14);
+  col+=ci*e2*.16;
  }
-
- // Central prism core.
- float core=1.0-smoothstep(.035,.15,r);
- float coreEdge=1.0-smoothstep(.005,.025,abs(r-.105));
- vec3 coreA=hsv(vec3(fract(H+.08+P*.01),.58,1.0));
- vec3 coreB=hsv(vec3(fract(H+.31),.45,1.0));
- col=mix(col,coreA,core*.18);
- col+=coreB*coreEdge*.48;
-
- // Fine iridescent facets inside the petals.
- float facets=.5+.5*cos(S*a*2.0+P*.35+r*34.0);
- col+=hsv(vec3(fract(H+.55*facets+r*.12),.50,1.0))*.085*facets*(1.0-smoothstep(.18,.65,r));
-
- // Soft white glass highlights, kept below clipping.
- float shine=pow(max(0.,cos(a*3.0+P*.25)),18.0)*(1.0-smoothstep(.12,.62,r));
- col+=vec3(1.0)*shine*.07;
-
+ float r=length(p),a=atan(p.y,p.x);
+ float core=1.0-smoothstep(.02,.14,r);
+ float coreRing=1.0-smoothstep(.004,.016,abs(r-.105));
+ vec3 ca=hsv(vec3(fract(H+.08+P*.01),.64,.98));
+ vec3 cb=hsv(vec3(fract(H+.30),.52,.98));
+ col=mix(col,ca,core*.18);
+ col+=cb*coreRing*.32;
+ float facets=.5+.5*cos(S*a*1.5+P*.32+r*28.);
+ col+=hsv(vec3(fract(H+.52*facets+r*.16),.46,.98))*.055*facets*(1.-smoothstep(.25,.70,r));
+ float shine=pow(max(0.,cos(a*2.0+P*.22)),20.)*(1.-smoothstep(.15,.68,r));
+ col+=vec3(1.)*shine*.045;
  o=vec4(clamp(col,0.,1.),1.);
-}`
+}
+`
 
 function sh(t,s){let x=gl.createShader(t);gl.shaderSource(x,s);gl.compileShader(x);if(!gl.getShaderParameter(x,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(x));return x}
 let pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,vs));gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,fs));gl.linkProgram(pr);if(!gl.getProgramParameter(pr,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(pr));gl.useProgram(pr);
