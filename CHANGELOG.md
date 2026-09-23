@@ -1,3 +1,4 @@
+- 2026-09-23 チャッピー: CLOUD TREEを再設計。雲を主役にして枝をほぼ雲中へ埋め、触れた場所だけ自己相似の木構造が露出する見え方へ調整(prototypes/cloud-tree.html)
 - 2026-09-23 チャッピー: CLOUD TREEを新規制作。雲の密度に隠れた自己相似の枝構造を生成し、触れた場所だけ雲がほどけて枝が露出する法則を実装(prototypes/cloud-tree.html)
 - 2026-09-23 チャッピー: KALEIDO FOLDを整理。再帰foldを1段浅くして外周の過密感を抑え、彩度を落としたガラス調パレットと中央の広いリング構造を追加(prototypes/radial-fold.html)
 - 2026-09-23 チャッピー: KALEIDO FOLDを根本再設計。放射状の筋表現を廃し、再帰的Cartesian fold＋三角ファセットによる多角形の万華鏡構造へ変更(prototypes/radial-fold.html)
