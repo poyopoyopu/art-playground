@@ -1,3 +1,4 @@
+- 2026-09-23 チャッピー: PRISM BLOOMの9秒周期アニメーションを廃止し、起動後は連続時間で自律回転する仕様へ変更。タップ停止/再開は維持(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRISM BLOOMを120個の花へ増量。タップでアニメーションを完全停止/再開する仕様に変更し、停止中の描画負荷を抑制(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRISM BLOOMの色をさらに濃くして彩度を強化し、花数を84個から60個へ減らして描画負荷を軽減(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRISM BLOOMのタッチ操作を回転方向だけでなく回転速度の加速として反映。ドラッグするほど各花層の回転が速くなり、離すと慣性でゆっくり減速する仕様に変更(prototypes/prism-bloom.html)
