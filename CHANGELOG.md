@@ -1,3 +1,4 @@
+- 2026-09-23 チャッピー: CHROMA DRIFTをart-v76として採用・昇格し、ギャラリーLOG先頭とPublished worksへ追加(art-v76-chroma-drift.html, index.html)
 - 2026-09-23 チャッピー: PRISM BLOOMの作品名をCHROMA DRIFTへ変更し、GIF名も統一(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRISM BLOOMを120個から140個へ増量。軽量化したシェーダーを維持したまま密度を上げた(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRISM BLOOMの120個を維持したまま、花ごとの早期スキップと共通計算化でフラグメント負荷を削減(prototypes/prism-bloom.html)
@@ -236,7 +237,7 @@
 ## 現在の状態(変わったら書き換える)
 
 - CURRENT: MIRROR FRACTURE(`art-v75-mirror-split.html`)
-- LOG先頭: MIRROR PRESSURE(`art-v73-mirror-pressure.html`)
+- LOG先頭: CHROMA DRIFT(`art-v76-chroma-drift.html`)
 - 作業ルール: `AGENTS.md`(ギャラリー追加の手順と命名ルールは13章)
 - 表示モード: iPhoneホーム画面から起動するとCURRENT作品を自動表示するstandalone Web App対応済み
 - 運用メモ: `NOTES.md`(GitHub操作は可能性を確認してから実行)
