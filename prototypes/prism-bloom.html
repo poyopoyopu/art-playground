@@ -63,7 +63,7 @@ void main(){
    Dense garden: a jittered 6x6 field gives the same full-frame
    distribution as the reference instead of leaving large empty zones.
  */
- for(int i=0;i<60;i++){
+ for(int i=0;i<120;i++){
   float I=float(i);
   float aspect=R.x/min(R.x,R.y);
 
@@ -144,7 +144,7 @@ let pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,vs));gl.attachS
 let b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
 let pos=gl.getAttribLocation(pr,'p');gl.enableVertexAttribArray(pos);gl.vertexAttribPointer(pos,2,gl.FLOAT,false,0,0);
 let uR=gl.getUniformLocation(pr,'R'),uP=gl.getUniformLocation(pr,'P'),uH=gl.getUniformLocation(pr,'H'),uS=gl.getUniformLocation(pr,'S'),uR0=gl.getUniformLocation(pr,'ROT0'),uR1=gl.getUniformLocation(pr,'ROT1'),uR2=gl.getUniformLocation(pr,'ROT2');
-let sym=6,hue=.02,rotation=[0,0,0],angularVelocity=[0,0,0],lastTouchAngle=null;const PERIOD=9;
+let sym=6,hue=.02,rotation=[0,0,0],angularVelocity=[0,0,0],lastTouchAngle=null,paused=false,phaseNow=0;const PERIOD=9;
 function resize(){let d=Math.min(devicePixelRatio||1,2),w=innerWidth*d,h=innerHeight*d;if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;gl.viewport(0,0,w,h)}}addEventListener('resize',resize,{passive:true});resize();
 function draw(ph){
  gl.useProgram(pr);
@@ -158,16 +158,19 @@ function draw(ph){
  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
 }
 function loop(t){
- let ph=(t/1000%PERIOD)/PERIOD*6.28318530718;
- for(let i=0;i<3;i++){angularVelocity[i]*=.978;rotation[i]+=angularVelocity[i]}
- draw(ph);requestAnimationFrame(loop)
+ if(!paused){
+  phaseNow=(t/1000%PERIOD)/PERIOD*6.28318530718;
+  for(let i=0;i<3;i++){angularVelocity[i]*=.978;rotation[i]+=angularVelocity[i]}
+  draw(phaseNow);
+ }
+ requestAnimationFrame(loop)
 }
 requestAnimationFrame(loop);
 function angleAt(x,y){
  let q=canvas.getBoundingClientRect();
  return Math.atan2(y-(q.top+q.height*.5),x-(q.left+q.width*.5));
 }
-function touchStart(x,y){lastTouchAngle=angleAt(x,y)}
+function touchStart(x,y){paused=!paused;lastTouchAngle=angleAt(x,y)}
 function touchMove(x,y){
  let a=angleAt(x,y);
  if(lastTouchAngle!==null){
@@ -193,7 +196,7 @@ canvas.addEventListener('pointerdown',e=>{
  touchStart(e.clientX,e.clientY);
  canvas.setPointerCapture?.(e.pointerId);
 });
-canvas.addEventListener('pointermove',e=>{if(e.buttons)touchMove(e.clientX,e.clientY)});
+canvas.addEventListener('pointermove',e=>{if(e.buttons&&!paused)touchMove(e.clientX,e.clientY)});
 canvas.addEventListener('pointerup',touchEnd);
 canvas.addEventListener('pointercancel',touchEnd);
 function mutate(){
@@ -203,7 +206,7 @@ function mutate(){
  angularVelocity[1]-=(Math.random()-.5)*.04;
  angularVelocity[2]+=(Math.random()-.5)*.09;
 }
-function reset(){sym=6;hue=.02;rotation=[0,0,0];angularVelocity=[0,0,0];lastTouchAngle=null}
+function reset(){sym=6;hue=.02;rotation=[0,0,0];angularVelocity=[0,0,0];lastTouchAngle=null;paused=false}
 APKit.init({canvas:canvas,gifName:'prism-bloom-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:function(phase){draw(phase)},buttons:[{label:'✦',name:'mutate',onClick:mutate},{label:'↻',name:'reset',onClick:reset}]});
 </script>
 </body>
