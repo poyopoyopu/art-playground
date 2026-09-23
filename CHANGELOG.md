@@ -1,3 +1,4 @@
+- 2026-09-23 チャッピー: PRISM BLOOMの花弁塗り計算を修正。境界線だけが残って巨大な放射線になる不具合を解消し、涙滴形の花弁内部を正しく塗る構造へ修正(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRISM BLOOMの花形を星状輪郭から涙滴形の細長い花弁へ再設計。外花弁・内花弁を3世代重ね、透明な花弁の重なりを強調(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRISM BLOOMの白い縁を細くし、虹色ガラスの彩度と透明感を調整。中心の発光も抑えて色層を明確化(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRISM BLOOMの白飛びを抑制。背景を少し落とし、プリズムの塗り・輪郭・中心色を強めて淡い虹色を明確化(prototypes/prism-bloom.html)
