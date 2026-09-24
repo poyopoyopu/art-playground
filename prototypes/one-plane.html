@@ -1,0 +1,255 @@
+<!doctype html>
+<!-- ONE PLANE — クロード作(おっちゃん提供のX投稿GIF=光る核のまわりを点線の軌道が何重にも傾いて回る映像を参考)。ap-kit.js統合: クロード -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>ONE PLANE — 重なった軌道は二度と離れない</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#030208}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#hint{position:fixed;left:0;right:0;bottom:calc(15% + env(safe-area-inset-bottom,0px));text-align:center;
+  font:500 12px/1.9 "Hiragino Mincho ProN","Yu Mincho",serif;letter-spacing:.14em;color:rgba(200,180,255,.55);
+  pointer-events:none;transition:opacity 1.8s ease;opacity:0}
+#hint.on{opacity:1}
+</style>
+<script src="../ap-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">軌道をつかんで傾ける<br>ほかの軌道と同じ面に重なると、二度と離れない</div>
+<script>
+(function(){
+'use strict';
+/* ─────────────────────────────────────────────────────────────
+   世界のルール:「同じ面に重なった軌道は、二度と離れない」
+   ・核のまわりを、傾きのばらばらな点の軌道が何重にも回っている。
+   ・軌道をつかんでドラッグすると、その軌道の面を好きな向きへ傾けられる。
+   ・別の軌道とほぼ同じ面にそろった瞬間、二つは噛み合ってひとつの面になる(フレアが出る)。
+   ・噛み合った面は二度と離れず、以後は一緒にしか動かせない。核はそのたびに重く明るくなる。
+   ・触るほど立体の雲は平たくなっていき、最後はすべてが一枚の円盤に落ち着く(惑星系の誕生のように)。
+   ・何もないところをドラッグすると、世界ごと眺める向きを変えられる(こちらは法則を変えない)。
+   ───────────────────────────────────────────────────────────── */
+const canvas=document.getElementById('c'), ctx=canvas.getContext('2d',{alpha:false}), hint=document.getElementById('hint');
+const TAU=Math.PI*2, LOOP=12, LOCK_COS=Math.cos(9*Math.PI/180), CAMD=3.4;
+
+/* ───────── tiny 3D math ───────── */
+const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+const norm=a=>{const l=Math.hypot(a[0],a[1],a[2])||1;return[a[0]/l,a[1]/l,a[2]/l]};
+function rotAxis(v,k,ang){ // Rodrigues
+  const c=Math.cos(ang),s=Math.sin(ang),kv=cross(k,v),kd=dot(k,v)*(1-c);
+  return[v[0]*c+kv[0]*s+k[0]*kd,v[1]*c+kv[1]*s+k[1]*kd,v[2]*c+kv[2]*s+k[2]*kd];
+}
+function randUnit(){const z=Math.random()*2-1,a=Math.random()*TAU,r=Math.sqrt(1-z*z);return[r*Math.cos(a),r*Math.sin(a),z]}
+function basisFromNormal(n){
+  const t=Math.abs(n[1])<.9?[0,1,0]:[1,0,0];
+  const u=norm(cross(t,n));return{u,v:cross(n,u)};
+}
+
+/* ───────── palettes: inner → outer ───────── */
+const PALS=[
+  [[255,214,120],[255,160,70],[255,95,80],[255,70,120],[240,90,200],[180,100,255],[120,110,255],[90,140,255],[110,170,255]],
+  [[200,255,240],[120,255,210],[80,230,255],[90,180,255],[120,130,255],[170,110,255],[230,110,230],[255,120,170],[255,150,140]],
+  [[255,250,220],[255,230,150],[255,200,90],[255,160,60],[255,120,60],[240,90,80],[200,80,120],[150,90,170],[110,100,200]],
+  [[230,255,140],[160,255,120],[90,240,170],[70,210,220],[80,170,255],[110,130,255],[160,110,240],[210,100,220],[255,110,190]]
+];
+let palIdx=0;
+
+/* ───────── state ───────── */
+let W=0,H=0,dpr=1,S=1,cx=0,cy=0;
+let rings=[], groups=0, yaw=.35, pitch=-.28, yawV=0, pitchV=0, flare=0, coreMass=1, clock=0;
+const sprites=[];
+function makeSprite(rgb){
+  const c=document.createElement('canvas');c.width=c.height=64;const g=c.getContext('2d');
+  const gr=g.createRadialGradient(32,32,0,32,32,32);
+  gr.addColorStop(0,'rgba(255,255,255,1)');
+  gr.addColorStop(.18,`rgba(${rgb[0]},${rgb[1]},${rgb[2]},.95)`);
+  gr.addColorStop(.45,`rgba(${rgb[0]},${rgb[1]},${rgb[2]},.28)`);
+  gr.addColorStop(1,`rgba(${rgb[0]},${rgb[1]},${rgb[2]},0)`);
+  g.fillStyle=gr;g.fillRect(0,0,64,64);return c;
+}
+function build(){
+  rings=[];sprites.length=0;
+  const P=PALS[palIdx], N=9;
+  for(let i=0;i<N;i++){
+    const f=i/(N-1), R=.13+f*.9;
+    const n0=i===0?[0,0,1]:randUnit();
+    const b=basisFromNormal(n0);
+    sprites.push(makeSprite(P[i]));
+    rings.push({R,u:b.u,v:b.v,group:i,col:P[i],spr:i,
+      count:Math.round(16+f*46), dash:f>.62?1:0,
+      spin:(i%2?-1:1)*(Math.max(1,Math.round(4-f*3))),   // loop内で整数回転(GIFの継ぎ目対策)
+      headK:(i%3)+1, off:Math.random()*TAU, glow:0});
+  }
+  groups=N;coreMass=1;flare=.6;
+}
+function resize(){
+  dpr=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;
+  canvas.width=Math.round(W*dpr);canvas.height=Math.round(H*dpr);
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  S=Math.min(W,H)*.47;cx=W/2;cy=H*.47;
+  ctx.fillStyle='#030208';ctx.fillRect(0,0,W,H);
+}
+addEventListener('resize',resize);
+
+/* ───────── view ───────── */
+function view(p){ // world → camera (yaw about Y, then pitch about X)
+  const cy_=Math.cos(yaw),sy=Math.sin(yaw),cp=Math.cos(pitch),sp=Math.sin(pitch);
+  const x=p[0]*cy_+p[2]*sy, z1=-p[0]*sy+p[2]*cy_;
+  return[x,p[1]*cp-z1*sp,p[1]*sp+z1*cp];
+}
+function unview(p){
+  const cy_=Math.cos(yaw),sy=Math.sin(yaw),cp=Math.cos(pitch),sp=Math.sin(pitch);
+  const y=p[1]*cp+p[2]*sp, z1=-p[1]*sp+p[2]*cp;
+  return[p[0]*cy_-z1*sy,y,p[0]*sy+z1*cy_];
+}
+function project(p){const q=view(p),k=CAMD/(CAMD-q[2]);return[cx+q[0]*S*k,cy-q[1]*S*k,k,q[2]]}
+
+/* ───────── the law: coplanar orbits lock forever ───────── */
+function normalOf(r){return cross(r.u,r.v)}
+function groupNormal(g){const r=rings.find(o=>o.group===g);return normalOf(r)}
+function rotateGroup(g,axis,ang){
+  rings.forEach(r=>{if(r.group===g){r.u=norm(rotAxis(r.u,axis,ang));r.v=norm(rotAxis(r.v,axis,ang))}});
+}
+function tryLock(g){
+  const n=groupNormal(g);
+  for(const r of rings){
+    if(r.group===g)continue;
+    const m=normalOf(r), d=dot(n,m);
+    if(Math.abs(d)>LOCK_COS){
+      // snap exactly into the other plane, then merge forever
+      const target=d<0?[-m[0],-m[1],-m[2]]:m;
+      const ax=cross(n,target), s=Math.hypot(ax[0],ax[1],ax[2]);
+      if(s>1e-6)rotateGroup(g,norm(ax),Math.asin(Math.min(1,s)));
+      const og=r.group;
+      rings.forEach(o=>{if(o.group===og){o.group=g}});
+      rings.forEach(o=>{if(o.group===g)o.glow=1});
+      groups--;coreMass+=.35;flare=1;
+      return true;
+    }
+  }
+  return false;
+}
+
+/* ───────── input ───────── */
+let drag=null, hinted=false;
+function hideHint(){if(!hinted){hinted=true;hint.classList.remove('on')}}
+function nearestRing(x,y){
+  let best=null,bd=34*34;
+  const ph=clock/LOOP*TAU;
+  rings.forEach(r=>{
+    for(let k=0;k<r.count;k+=2){
+      const a=k/r.count*TAU+r.off+r.spin*ph;
+      const p=[(r.u[0]*Math.cos(a)+r.v[0]*Math.sin(a))*r.R,(r.u[1]*Math.cos(a)+r.v[1]*Math.sin(a))*r.R,(r.u[2]*Math.cos(a)+r.v[2]*Math.sin(a))*r.R];
+      const s=project(p),dx=s[0]-x,dy=s[1]-y,d=dx*dx+dy*dy;
+      if(d<bd){bd=d;best=r}
+    }
+  });
+  return best;
+}
+canvas.addEventListener('pointerdown',e=>{
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  e.preventDefault();
+  try{canvas.setPointerCapture(e.pointerId)}catch(_){}
+  const r=nearestRing(e.clientX,e.clientY);
+  drag={id:e.pointerId,x:e.clientX,y:e.clientY,group:r?r.group:-1};
+  hideHint();
+},{passive:false});
+canvas.addEventListener('pointermove',e=>{
+  if(!drag||drag.id!==e.pointerId)return;
+  const dx=e.clientX-drag.x, dy=e.clientY-drag.y;drag.x=e.clientX;drag.y=e.clientY;
+  if(drag.group<0){yawV=dx*.006;pitchV=dy*.006;yaw+=yawV;pitch=Math.max(-1.3,Math.min(1.3,pitch+pitchV));return}
+  const len=Math.hypot(dx,dy);if(len<.01)return;
+  // trackball: rotate about the screen axis perpendicular to the drag, expressed in world space
+  const axis=norm(unview([dy/len,dx/len,0]));
+  rotateGroup(drag.group,axis,len*.009);
+  tryLock(drag.group);
+},{passive:true});
+function up(e){if(drag&&drag.id===e.pointerId)drag=null}
+canvas.addEventListener('pointerup',up);canvas.addEventListener('pointercancel',up);
+
+/* ───────── render ───────── */
+function render(ph,dt){
+  // faint trails, like the smear of the reference
+  ctx.globalCompositeOperation='source-over';
+  ctx.fillStyle='rgba(3,2,8,.72)';ctx.fillRect(0,0,W,H);
+  ctx.globalCompositeOperation='lighter';
+  const dragN=drag&&drag.group>=0?groupNormal(drag.group):null;
+  // core
+  const cs=S*(.07+.018*coreMass)*(1+.06*Math.sin(ph*2));
+  const g=ctx.createRadialGradient(cx,cy,0,cx,cy,cs*4.5*(1+flare*1.6));
+  g.addColorStop(0,`rgba(255,240,255,${.9})`);
+  g.addColorStop(.12,`rgba(230,150,255,${.55+.3*flare})`);
+  g.addColorStop(.4,`rgba(150,90,255,${.14+.25*flare})`);
+  g.addColorStop(1,'rgba(40,20,90,0)');
+  ctx.fillStyle=g;ctx.beginPath();ctx.arc(cx,cy,cs*4.5*(1+flare*1.6),0,TAU);ctx.fill();
+  // the core's own little crossed ellipses
+  ctx.lineWidth=1.4;
+  for(let j=0;j<2;j++){
+    ctx.strokeStyle=j?'rgba(120,170,255,.8)':'rgba(255,140,220,.8)';
+    ctx.beginPath();ctx.ellipse(cx+(j?1.5:-1.5),cy,cs*.45,cs*.9,0,0,TAU);ctx.stroke();
+  }
+  // orbits
+  rings.forEach(r=>{
+    let res=0;
+    if(dragN&&r.group!==drag.group){
+      const a=Math.abs(dot(dragN,normalOf(r)));res=Math.max(0,(a-.86)/(LOCK_COS-.86));   // 近づくと共鳴して光る
+    }
+    const spr=sprites[r.spr], base=r.dash?1.9:1.5;
+    const head=r.off*1.7+r.headK*ph*(r.spin>0?1:-1);
+    for(let k=0;k<r.count;k++){
+      const a=k/r.count*TAU+r.off+r.spin*ph;
+      const ca=Math.cos(a),sa=Math.sin(a);
+      const p=[(r.u[0]*ca+r.v[0]*sa)*r.R,(r.u[1]*ca+r.v[1]*sa)*r.R,(r.u[2]*ca+r.v[2]*sa)*r.R];
+      const s=project(p);
+      let hd=((a-head)%TAU+TAU)%TAU;hd=Math.min(hd,TAU-hd);
+      const bright=(.32+.68*Math.exp(-hd*hd*2.2))*(0.55+0.45*(s[3]*.5+.5))+r.glow*.8+res*.7;
+      const sz=base*s[2]*(1+r.glow*.6+res*.5)*(S/300);
+      ctx.globalAlpha=Math.min(1,bright);
+      if(r.dash)ctx.drawImage(spr,s[0]-sz*9,s[1]-sz*3.2,sz*18,sz*6.4);
+      else ctx.drawImage(spr,s[0]-sz*5,s[1]-sz*5,sz*10,sz*10);
+    }
+    r.glow=Math.max(0,r.glow-dt*1.2);
+  });
+  ctx.globalAlpha=1;
+  if(flare>0){
+    ctx.fillStyle=`rgba(255,200,240,${flare*.07})`;ctx.fillRect(0,0,W,H);
+    flare=Math.max(0,flare-dt*1.4);
+  }
+  ctx.globalCompositeOperation='source-over';
+}
+let last=performance.now();
+function frame(now){
+  const dt=Math.min(.05,(now-last)/1000);last=now;clock+=dt;
+  if(!drag){yaw+=dt*.05+yawV;yawV*=.92;pitch=Math.max(-1.3,Math.min(1.3,pitch+pitchV));pitchV*=.92}
+  render((clock/LOOP*TAU)%TAU,dt);
+  requestAnimationFrame(frame);
+}
+
+/* ───────── controls ───────── */
+function mutate(){palIdx=(palIdx+1+Math.floor(Math.random()*(PALS.length-1)))%PALS.length;build()}
+function resetAll(){build()}
+
+resize();build();
+requestAnimationFrame(frame);
+setTimeout(()=>{if(!hinted)hint.classList.add('on')},1200);
+setTimeout(hideHint,8000);
+
+window.APKit.init({
+  canvas:canvas,
+  gifName:'one-plane-loop',
+  clockFormat:'spec',
+  dock:true,
+  autoHide:true,
+  fullscreenButton:false,
+  loopFrame:function(phase){const f=flare;flare=0;render(phase,0);flare=f;},
+  buttons:[
+    {label:'✦',name:'mutate',onClick:mutate},
+    {label:'↻',name:'reset',onClick:resetAll}
+  ]
+});
+})();
+</script>
+</body>
+</html>
