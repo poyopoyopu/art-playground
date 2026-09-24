@@ -1,0 +1,307 @@
+<!doctype html>
+<!-- LINEAGE — クロード作(おっちゃん提供のX投稿GIF=黒地に左右対称の牙の輪と光る眼が脈打つ映像を参考)。ap-kit.js統合: クロード -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>LINEAGE — 選ばれた輪だけが血を継ぐ</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#02080d}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#hint{position:fixed;left:0;right:0;bottom:calc(15% + env(safe-area-inset-bottom,0px));text-align:center;
+  font:500 12px/1.9 "Hiragino Mincho ProN","Yu Mincho",serif;letter-spacing:.14em;color:rgba(255,196,150,.55);
+  pointer-events:none;transition:opacity 1.8s ease;opacity:0}
+#hint.on{opacity:1}
+</style>
+<script src="../ap-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">眼から生まれる輪は、少しずつ姿を変えて流れていく<br>触れた輪だけが親になり、次の世代はその姿を継ぐ</div>
+<script>
+(function(){
+'use strict';
+/* ─────────────────────────────────────────────────────────────
+   世界のルール:「血筋は、選ばれた輪だけが継ぐ」
+   ・中央の眼から一定の間隔で輪が生まれ、外へ流れて消えていく。
+   ・輪はそれぞれ「遺伝子」(牙の数・牙の入れ子の深さ・牙の向き・弧の広がり・上か下か・熱)を持つ。
+   ・新しい輪は直前の輪の子で、放っておくと少しずつ突然変異して血筋が勝手に漂っていく。
+   ・流れていく輪に触れると、その輪が親になる。他の輪は途絶え、以後の世代はすべてその子孫。
+   ・一度途絶えた姿は二度と戻らない。触るのは「どの姿を未来へ残すか」を選ぶこと。
+   ・牙は同じ変換を入れ子に重ねた自己相似(牙の中に牙、その中に牙)。深さも遺伝する。
+   ───────────────────────────────────────────────────────────── */
+const canvas=document.getElementById('c'), hint=document.getElementById('hint');
+const gl=canvas.getContext('webgl',{antialias:false,alpha:false,preserveDrawingBuffer:true});
+const MAXR=12, TAU=Math.PI*2;
+const BIRTH=0.95, GROW=0.52, R0=0.07;   // 生まれる間隔(秒)・広がる速さ・生まれたときの半径
+
+const VS='attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}';
+const FS=`
+precision highp float;
+#define MAXR ${MAXR}
+uniform vec2 uRes, uC; uniform float uUnit, uT, uEyePulse, uEyeN;
+uniform vec2 uPupil;
+uniform int uN;
+uniform vec4 uR[MAXR];   // radius, alpha, flash, youth(0..1)
+uniform vec4 uG1[MAXR];  // teeth, depth, ratio, amp
+uniform vec4 uG2[MAXR];  // dir, span, center, thick
+uniform vec4 uG3[MAXR];  // heat, dots, twist, seed
+const float PI=3.14159265;
+float tri(float x){return abs(fract(x)-.5)*2.;}
+float hash(vec2 p){return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453);}
+// 自己相似の牙: 同じ三角波を ratio 倍ずつ細かく、amp を減衰させて depth 回重ねる
+float fang(float th,float n,float depth,float ratio){
+  float f=0., a=1., k=n, norm=0.;
+  for(int j=0;j<5;j++){
+    if(float(j)>=depth)break;
+    float t=1.-tri(th/PI*k);
+    f+=a*t*t*t; norm+=a;
+    a*=.62; k*=ratio;
+  }
+  return f/norm;
+}
+float ringI(float r,float th,vec4 R,vec4 G1,vec4 G2,vec4 G3){
+  float Rad=R.x, youth=R.w;
+  // 若い輪は全周、育つと遺伝子の弧(上 or 下)へ閉じていく
+  float cen=G2.z*PI;
+  float span=mix(PI+.2,G2.y,smoothstep(.15,.55,Rad));
+  float win=smoothstep(span,span*.62,abs(th-cen));
+  win=max(win,G3.w*smoothstep(span,span*.62,abs(th-(PI-cen))));   // 上下の対(牙と冠)
+  if(win<=0.)return 0.;
+  float tw=th+G3.z*Rad*.25;
+  float f=fang(tw,G1.x,G1.y,G1.z);
+  float amp=G1.w*Rad*(.35+.65*smoothstep(.1,.6,Rad));
+  float d=r-(Rad+G2.x*amp*f);
+  float th2=G2.w*(.45+Rad*.8);
+  float I=1.25*exp(-d*d/(th2*th2))+.3*exp(-d*d/(th2*th2*12.));
+  // 若い輪は点の輪(参考映像の生まれたての粒の環)
+  float dots=pow(.5+.5*cos(th/PI*G1.x*2.*PI),6.);
+  I*=mix(1.,dots,max(youth,G3.y)*.9);
+  // 牙の先ほど熱い
+  I*=.55+.45*f;
+  return I*win*R.y*(1.+R.z*2.5);
+}
+void main(){
+  vec2 frag=vec2(gl_FragCoord.x,uRes.y-gl_FragCoord.y);
+  vec2 q=(frag-uC)/uUnit; q.y=-q.y;           // 上が+
+  float r=length(q);
+  float th=atan(abs(q.x),q.y);                // 0=真上, PI=真下 (左右鏡映)
+  vec3 col=vec3(.008,.03,.045);
+  col+=vec3(.0,.02,.03)*(1.-smoothstep(0.,1.6,r));
+  // 縦の走査線(参考のにじんだモニター感)
+  col*=.92+.08*step(.5,fract(frag.x/3.));
+  for(int i=0;i<MAXR;i++){
+    if(i>=uN)break;
+    vec4 R=uR[i];vec4 G1=uG1[i];vec4 G2=uG2[i];vec4 G3=uG3[i];
+    float ca=.012*R.x+.003;
+    float Ir=ringI(r+ca,th,R,G1,G2,G3);
+    float Ig=ringI(r,th,R,G1,G2,G3);
+    float Ib=ringI(r-ca,th,R,G1,G2,G3);
+    float heat=G3.x;
+    vec3 base=mix(vec3(.25,.75,1.),vec3(1.,.28,.05),heat);
+    vec3 mid=mix(vec3(.6,.95,1.),vec3(1.,.72,.2),heat);
+    col.r+=base.r*Ir+mid.r*Ir*Ir+Ir*Ir*Ir*.8;
+    col.g+=base.g*Ig+mid.g*Ig*Ig+Ig*Ig*Ig*.8;
+    col.b+=base.b*Ib+mid.b*Ib*Ib+Ib*Ib*Ib*.8;
+    // 外縁のシアンのにじみ
+    col+=vec3(.05,.45,.6)*max(Ib-Ig,0.)*1.4;
+  }
+  // 眼
+  float e=.12*(1.+.12*uEyePulse);
+  float rays=1.-tri(th/PI*uEyeN);
+  float eyeDisc=smoothstep(e*1.02,e*.55,r);
+  float rim=exp(-pow((r-e*(1.+.12*rays*rays))/(e*.12),2.));
+  vec3 eyeCol=mix(vec3(1.,.42,.08),vec3(1.,.95,.8),smoothstep(e,e*.35,r));
+  col+=eyeCol*eyeDisc*1.1+vec3(1.,.55,.15)*rim*1.2;
+  col+=vec3(1.,.4,.1)*exp(-r*r/(e*e*5.))*.5*(1.+uEyePulse);
+  vec2 pq=(q-uPupil)/e;
+  float pr=length(pq);
+  col=mix(col,vec3(.9,.12,.05),smoothstep(.42,.3,pr)*eyeDisc);          // 虹彩
+  col=mix(col,vec3(.02,.01,.02),smoothstep(.26,.16,pr)*eyeDisc);        // 瞳
+  col=col/(1.+col*.35);
+  col+=(hash(frag+uT)-.5)*(3./255.);
+  gl_FragColor=vec4(col,1.);
+}`;
+function sh(t,src){const s=gl.createShader(t);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(s));return s}
+const prog=gl.createProgram();
+gl.attachShader(prog,sh(gl.VERTEX_SHADER,VS));gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,FS));
+gl.linkProgram(prog);gl.useProgram(prog);
+gl.bindBuffer(gl.ARRAY_BUFFER,gl.createBuffer());
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+const loc=gl.getAttribLocation(prog,'p');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+const U={};['uRes','uC','uUnit','uT','uEyePulse','uEyeN','uPupil','uN','uR','uG1','uG2','uG3'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+const fR=new Float32Array(MAXR*4),f1=new Float32Array(MAXR*4),f2=new Float32Array(MAXR*4),f3=new Float32Array(MAXR*4);
+
+/* ───────── genome ───────── */
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function gauss(){return (Math.random()+Math.random()+Math.random()-1.5)*1.15}
+function randomGenome(){
+  return {n:6+Math.floor(Math.random()*14),depth:1+Math.floor(Math.random()*4),ratio:Math.random()<.6?2:3,
+    amp:.1+Math.random()*.22,dir:Math.random()<.65?1:-1,span:.5+Math.random()*1.,center:Math.random()<.4?0:Math.random()<.5?1:.3+Math.random()*.4,
+    thick:.012+Math.random()*.014,heat:Math.random()<.75?.75+Math.random()*.25:Math.random()*.4,
+    dots:Math.random()<.25?.6:0,twist:(Math.random()-.5)*.8,pair:Math.random()<.5?1:0};
+}
+const FIRST={n:7,depth:3,ratio:2,amp:.3,dir:1,span:.85,center:0,thick:.018,heat:.92,dots:0,twist:0,pair:1};
+function mutate(g,k){
+  const c=Object.assign({},g);
+  if(Math.random()<.45*k)c.n=clamp(c.n+(Math.random()<.5?-1:1)*(1+Math.floor(Math.random()*2)),4,24);
+  if(Math.random()<.18*k)c.depth=clamp(c.depth+(Math.random()<.5?-1:1),1,5);
+  if(Math.random()<.08*k)c.ratio=c.ratio===2?3:2;
+  c.amp=clamp(c.amp*Math.exp(gauss()*.22*k),.07,.36);
+  if(Math.random()<.09*k)c.dir=-c.dir;
+  c.span=clamp(c.span+gauss()*.22*k,.45,2.2);
+  c.center=clamp(c.center+gauss()*.08*k,0,1);
+  if(Math.random()<.15*k)c.center=Math.random()<.5?0:(Math.random()<.5?1:.35+Math.random()*.3);
+  if(Math.random()<.12*k)c.pair=c.pair?0:1;
+  c.thick=clamp(c.thick*Math.exp(gauss()*.15*k),.01,.03);
+  c.heat=clamp(c.heat+gauss()*.12*k,0,1);
+  if(Math.random()<.08*k)c.dots=c.dots>0?0:.6;
+  c.twist=clamp(c.twist+gauss()*.15*k,-1,1);
+  return c;
+}
+
+/* ───────── state ───────── */
+let W=0,H=0,scale=1,unitPx=1,cxp=0,cyp=0,maxR=2;
+let rings=[], parent=Object.assign({},FIRST), birthT=0, clock=0, eyePulse=0;
+let cull=0;              // 選択後、他の輪が途絶えていく時間
+let pupil={x:0,y:0}, look={x:0,y:0}, lastTouch=-99;
+function resize(){
+  W=innerWidth;H=innerHeight;scale=Math.min(devicePixelRatio||1,1.5);
+  canvas.width=Math.round(W*scale);canvas.height=Math.round(H*scale);
+  gl.viewport(0,0,canvas.width,canvas.height);
+  unitPx=Math.min(W,H)*.5;cxp=W*.5;cyp=H*.46;
+  maxR=Math.hypot(Math.max(cxp,W-cxp),Math.max(cyp,H-cyp))/unitPx+.35;
+}
+addEventListener('resize',resize);
+function spawn(){
+  const g=mutate(parent,1);
+  parent=g;                          // 放っておけば、血筋は子へ子へと漂う
+  rings.push({g,age:0,alpha:0,flash:0,dying:false,held:0});
+  if(rings.length>MAXR)rings.shift();
+  eyePulse=1;
+}
+function radiusOf(ring){return R0*Math.exp(GROW*ring.age)}
+
+/* ───────── the law: touch chooses the parent ───────── */
+function pick(x,y){
+  const qx=(x-cxp)/unitPx, qy=-(y-cyp)/unitPx;
+  const r=Math.hypot(qx,qy), th=Math.atan2(Math.abs(qx),qy);
+  let best=null,bd=1e9;
+  rings.forEach(ring=>{
+    if(ring.dying)return;
+    const R=radiusOf(ring), g=ring.g;
+    const span=R<.15?Math.PI+.2:R>.55?g.span:Math.PI+.2+(g.span-Math.PI-.2)*((R-.15)/.4);
+    const off=Math.min(Math.abs(th-g.center*Math.PI),g.pair?Math.abs(th-(1-g.center)*Math.PI):9);
+    if(off>span*1.05)return;
+    const d=Math.abs(r-R-g.dir*g.amp*R*.5);
+    const tol=.07+g.amp*R;
+    if(d<tol&&d<bd){bd=d;best=ring}
+  });
+  return best;
+}
+function choose(ring){
+  parent=Object.assign({},ring.g);
+  ring.flash=1;ring.held=.7;          // 選ばれた輪は一瞬止まって光る
+  rings.forEach(o=>{if(o!==ring)o.dying=true});
+  cull=.5;birthT=Math.min(birthT,BIRTH*.35);
+}
+
+/* ───────── input ───────── */
+let hinted=false;
+function hideHint(){if(!hinted){hinted=true;hint.classList.remove('on')}}
+canvas.addEventListener('pointerdown',e=>{
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  e.preventDefault();
+  look.x=(e.clientX-cxp)/unitPx;look.y=-(e.clientY-cyp)/unitPx;lastTouch=clock;
+  const ring=pick(e.clientX,e.clientY);
+  if(ring)choose(ring);
+  hideHint();
+},{passive:false});
+canvas.addEventListener('pointermove',e=>{
+  if(e.buttons||e.pointerType==='mouse'){look.x=(e.clientX-cxp)/unitPx;look.y=-(e.clientY-cyp)/unitPx;lastTouch=clock}
+},{passive:true});
+
+/* ───────── render ───────── */
+function draw(list,t,pulse,eyeN,px,py){
+  fR.fill(0);f1.fill(0);f2.fill(0);f3.fill(0);
+  list.forEach((o,i)=>{
+    const g=o.g;
+    fR.set([o.R,o.alpha,o.flash,clamp(1-(o.R-R0)/.25,0,1)],i*4);
+    f1.set([g.n,g.depth,g.ratio,g.amp],i*4);
+    f2.set([g.dir,g.span,g.center,g.thick],i*4);
+    f3.set([g.heat,g.dots,g.twist,g.pair],i*4);
+  });
+  gl.uniform2f(U.uRes,canvas.width,canvas.height);
+  gl.uniform2f(U.uC,cxp*scale,cyp*scale);
+  gl.uniform1f(U.uUnit,unitPx*scale);
+  gl.uniform1f(U.uT,t%97);
+  gl.uniform1f(U.uEyePulse,pulse);
+  gl.uniform1f(U.uEyeN,eyeN);
+  gl.uniform2f(U.uPupil,px,py);
+  gl.uniform1i(U.uN,list.length);
+  gl.uniform4fv(U.uR,fR);gl.uniform4fv(U.uG1,f1);gl.uniform4fv(U.uG2,f2);gl.uniform4fv(U.uG3,f3);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+}
+let last=performance.now();
+function frame(now){
+  const dt=Math.min(.05,(now-last)/1000);last=now;clock+=dt;
+  birthT-=dt;if(birthT<=0){spawn();birthT+=BIRTH}
+  cull=Math.max(0,cull-dt);
+  rings.forEach(o=>{
+    if(o.held>0)o.held-=dt;else o.age+=dt;
+    o.flash=Math.max(0,o.flash-dt*1.6);
+    if(o.dying)o.alpha=Math.max(0,o.alpha-dt*2.6);
+    else o.alpha=Math.min(1,o.alpha+dt*3);
+    o.R=radiusOf(o);
+  });
+  rings=rings.filter(o=>o.R<maxR&&!(o.dying&&o.alpha<=0));
+  eyePulse=Math.max(0,eyePulse-dt*2.2);
+  // 眼は指を追い、しばらく触らないとゆっくりさまよう
+  const idle=clock-lastTouch>2.5;
+  const tx=idle?.35*Math.sin(clock*.37):look.x, ty=idle?.25*Math.sin(clock*.29+1):look.y;
+  const len=Math.hypot(tx,ty)||1, m=Math.min(1,len)*.045;
+  pupil.x+=((tx/len)*m-pupil.x)*Math.min(1,dt*6);pupil.y+=((ty/len)*m-pupil.y)*Math.min(1,dt*6);
+  draw(rings,clock,eyePulse,parent.n,pupil.x,pupil.y);
+  requestAnimationFrame(frame);
+}
+
+/* ───────── GIF loop: 今の親の姿だけで、継ぎ目のない誕生の連なりを描く ───────── */
+function loopFrame(phase){
+  const f=phase/TAU, list=[];
+  const K=Math.ceil(Math.log(maxR/R0)/GROW/BIRTH)+1;
+  for(let j=0;j<K&&list.length<MAXR;j++){
+    const age=(j+f)*BIRTH, R=R0*Math.exp(GROW*age);
+    if(R>=maxR)continue;
+    list.push({g:parent,R,alpha:Math.min(1,age*3+ (j>0?1:0)),flash:0});
+  }
+  list.sort((a,b)=>b.R-a.R);
+  draw(list,phase,Math.max(0,1-f*2.2)*.9,parent.n,0,0);
+}
+
+/* ───────── controls ───────── */
+function mutateAll(){parent=randomGenome();rings.forEach(o=>o.dying=true);birthT=.15}
+function resetAll(){parent=Object.assign({},FIRST);rings.forEach(o=>o.dying=true);birthT=.15}
+
+resize();
+requestAnimationFrame(frame);
+setTimeout(()=>{if(!hinted)hint.classList.add('on')},1200);
+setTimeout(hideHint,8000);
+
+window.APKit.init({
+  canvas:canvas,
+  gifName:'lineage-loop',
+  clockFormat:'spec',
+  dock:true,
+  autoHide:true,
+  fullscreenButton:false,
+  loopFrame:loopFrame,
+  buttons:[
+    {label:'✦',name:'mutate',onClick:mutateAll},
+    {label:'↻',name:'reset',onClick:resetAll}
+  ]
+});
+})();
+</script>
+</body>
+</html>
