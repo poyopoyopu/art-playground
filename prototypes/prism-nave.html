@@ -44,11 +44,11 @@ function hash(n){n=Math.imul(n^61^(n>>>16),9);n^=n>>>4;n=Math.imul(n,0x27d4eb2d)
 /* ───────── spectra (地平線からの距離 → 色) ───────── */
 const SPECTRA=[
   // RAINBOW: 上は青紫→桃→赤、地平線で橙〜黄、下は緑→水色→青→紫
-  [[-.62,'#3a3cff'],[-.4,'#b43cff'],[-.26,'#ff3c9c'],[-.12,'#ff4a3a'],[-.03,'#ff9a2a'],[0,'#fff0a0'],[.04,'#b4ff3c'],[.12,'#3cff78'],[.24,'#3cd8ff'],[.4,'#3c6cff'],[.62,'#a03cff']],
+  [[-.62,'#3a3cff'],[-.4,'#b43cff'],[-.26,'#ff3c9c'],[-.12,'#ff4a3a'],[-.03,'#ff8a1e'],[0,'#ffc83c'],[.04,'#a8f032'],[.12,'#3cff78'],[.24,'#3cd8ff'],[.4,'#3c6cff'],[.62,'#a03cff']],
   // NEON: 桃と水色と紫だけ
-  [[-.62,'#5a2cff'],[-.34,'#ff2cd8'],[-.12,'#ff5ab4'],[0,'#ffffff'],[.1,'#5afff0'],[.3,'#2c9cff'],[.62,'#8a2cff']],
+  [[-.62,'#5a2cff'],[-.34,'#ff2cd8'],[-.12,'#ff5ab4'],[0,'#c8a0ff'],[.1,'#5afff0'],[.3,'#2c9cff'],[.62,'#8a2cff']],
   // EMBER: 金と薔薇と深い青
-  [[-.62,'#2a3cb4'],[-.34,'#c83c8c'],[-.14,'#ff6a4a'],[0,'#fff4c8'],[.1,'#ffc04a'],[.3,'#e0507a'],[.62,'#3a3cc8']]
+  [[-.62,'#2a3cb4'],[-.34,'#c83c8c'],[-.14,'#ff6a4a'],[0,'#ffb450'],[.1,'#ffc04a'],[.3,'#e0507a'],[.62,'#3a3cc8']]
 ];
 let specIdx=0;
 
@@ -101,7 +101,7 @@ function makeSystem(nx,ny,seed){
     }else{             // 枠:透明なガラスの板
       p={k:0,x:.05+Math.pow(r(),1.7)*2.4,y:.04+Math.pow(r(),1.6)*1.5,w:.1+r()*1.1,h:.08+r()*.8,d:r()<.5?0:.2+r()*.8};
     }
-    p.z0=r();p.a=.22+r()*.55;p.fl=r()*TAU;
+    p.z0=r();p.a=.18+r()*.42;p.fl=r()*TAU;
     P.push(p);
   }
   const rays=[];for(let i=0;i<14;i++)rays.push({a:r()*Math.PI/2*.95+.02,l:.4+r()*.6,fl:r()*TAU,w:r()});
@@ -166,16 +166,16 @@ function drawSystem(S,ph){
   }
   // 消失点を貫く縦の芯と、地平線
   let g=lctx.createLinearGradient(vx-iw*.02,0,vx+iw*.02,0);
-  g.addColorStop(0,'rgba(255,255,255,0)');g.addColorStop(.5,'rgba(255,255,255,.35)');g.addColorStop(1,'rgba(255,255,255,0)');
+  g.addColorStop(0,'rgba(255,255,255,0)');g.addColorStop(.5,'rgba(255,255,255,.2)');g.addColorStop(1,'rgba(255,255,255,0)');
   lctx.fillStyle=g;lctx.fillRect(vx-iw*.02,0,iw*.04,ih);
-  lctx.fillStyle='rgba(255,255,255,.8)';lctx.fillRect(vx-.6,0,1.2,ih);
+  lctx.fillStyle='rgba(255,255,255,.55)';lctx.fillRect(vx-.6,0,1.2,ih);
   g=lctx.createLinearGradient(0,vy-ih*.02,0,vy+ih*.02);
-  g.addColorStop(0,'rgba(255,255,255,0)');g.addColorStop(.5,'rgba(255,255,255,.3)');g.addColorStop(1,'rgba(255,255,255,0)');
+  g.addColorStop(0,'rgba(255,255,255,0)');g.addColorStop(.5,'rgba(255,255,255,.18)');g.addColorStop(1,'rgba(255,255,255,0)');
   lctx.fillStyle=g;lctx.fillRect(0,vy-ih*.02,iw,ih*.04);
   // 光の筋(消失点から外へ)
   lctx.lineWidth=1;
   for(const R of S.rays){
-    const a=.18+.18*Math.sin(ph*2+R.fl),L=Math.max(iw,ih)*1.3*R.l;
+    const a=.08+.1*Math.sin(ph*2+R.fl),L=Math.max(iw,ih)*1.3*R.l;
     lctx.strokeStyle=`rgba(255,255,255,${a})`;
     lctx.beginPath();
     for(let sx=-1;sx<=1;sx+=2)for(let sy=-1;sy<=1;sy+=2){
@@ -231,7 +231,7 @@ function colorize(S){
   lctx.globalCompositeOperation='multiply';
   lctx.fillStyle=g;lctx.fillRect(0,0,iw,ih);
   lctx.globalCompositeOperation='lighter';
-  lctx.globalAlpha=.2;lctx.drawImage(scratch,0,0);lctx.globalAlpha=1;
+  lctx.globalAlpha=.07;lctx.drawImage(scratch,0,0);lctx.globalAlpha=1;
 }
 
 function render(ph,live){
@@ -247,14 +247,14 @@ function render(ph,live){
     drawSystem(S,ph);
     stretchGlitch(S,ph);
     colorize(S);
-    vctx.globalCompositeOperation='screen';           // 重なっても白く飛びすぎない
-    vctx.globalAlpha=a*(i===n-1?1:.72);
+    vctx.globalCompositeOperation='lighten';          // 明るい方を取るだけ。何枚重ねても白へ足し算されない
+    vctx.globalAlpha=a*(i===n-1?1:.8);
     vctx.drawImage(layer,0,0);
   }
   // にじみ(小さく縮めて、戻して足す)
   smctx.globalCompositeOperation='copy';smctx.imageSmoothingEnabled=true;
   smctx.drawImage(view,0,0,small.width,small.height);
-  vctx.globalCompositeOperation='lighter';vctx.globalAlpha=.3;
+  vctx.globalCompositeOperation='lighter';vctx.globalAlpha=.16;
   vctx.drawImage(small,0,0,iw,ih);
   vctx.globalAlpha=1;vctx.globalCompositeOperation='source-over';
   // 新しい消失点が生まれた瞬間の閃光
@@ -262,7 +262,7 @@ function render(ph,live){
     if(S.born<.8){
       const t=S.born/.8,x=S.nx*iw,y=S.ny*ih,r=Math.max(iw,ih)*(.05+t*.5);
       const g=vctx.createRadialGradient(x,y,0,x,y,r);
-      g.addColorStop(0,`rgba(255,255,255,${.9*(1-t)})`);g.addColorStop(1,'rgba(255,255,255,0)');
+      g.addColorStop(0,`rgba(255,255,255,${.4*(1-t)})`);g.addColorStop(1,'rgba(255,255,255,0)');
       vctx.globalCompositeOperation='lighter';vctx.fillStyle=g;vctx.fillRect(0,0,iw,ih);
       vctx.globalCompositeOperation='source-over';
     }
