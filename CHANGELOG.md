@@ -1,3 +1,4 @@
+- 2026-09-25 チャッピー: p5.jsでTENSION FIELDを新規試作。触れた場所が恒久的な固定点となり、弾性場全体の形を変える法則を実装(prototypes/p5-tension.html)
 - 2026-09-25 チャッピー: AZURE DESCENTを描画安定版へ再構築。WebGL2シェーダーを単純化し、2D Canvasフォールバックも追加して空白表示を解消(prototypes/azure-descent.html)
 - 2026-09-24 チャッピー: CHROMA GRIDを採用し、表示名をCOLOR LATTICEへ変更。AZURE DESCENTのWebGL2シェーダー型エラーを修正(prototypes/chroma-grid.html, prototypes/azure-descent.html, index.html)
 - 2026-09-24 チャッピー: 参考動画2本を元にCHROMA GRIDとAZURE DESCENTを新規制作。どちらも画像素材を使わずWebGL2で完全生成(prototypes/chroma-grid.html, prototypes/azure-descent.html)
