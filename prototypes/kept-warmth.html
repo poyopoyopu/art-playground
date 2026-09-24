@@ -1,0 +1,337 @@
+<!doctype html>
+<!-- KEPT WARMTH — クロード作(おっちゃん提供のX投稿動画=半透明の花が赤と青に灯る映像を参考)。ap-kit.js統合: クロード -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>KEPT WARMTH — ぬくもり保存の法則</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#a9a6ec}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#hint{position:fixed;left:0;right:0;bottom:calc(16% + env(safe-area-inset-bottom,0px));text-align:center;
+  font:500 12px/1.9 "Hiragino Mincho ProN","Yu Mincho",serif;letter-spacing:.14em;color:rgba(30,32,70,.62);
+  pointer-events:none;transition:opacity 1.8s ease;opacity:0}
+#hint.on{opacity:1}
+</style>
+<script src="../ap-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">触れた花びらは冷える<br>ぬくもりは消えず、遠くの花びらへ逃げていく</div>
+<script>
+(function(){
+'use strict';
+/* ─────────────────────────────────────────────────────────────
+   世界のルール:「ぬくもりは保存される」
+   ・この花が持つぬくもりの総量は一定。増えも減りもしない。
+   ・触れた花びらからぬくもりが逃げ、指から遠い花びらへ移る(火の粉が運ぶ)。
+   ・温かい花びらは赤く光って大きく開き、冷えた花びらは青く沈んで垂れ、巻く。
+   ・勝手に元へ戻る拡散はない。花の形は「ぬくもりをどこへ追いやったか」の記録になる。
+   ・一か所に集めきれば、一枚だけが燃えるように咲いた花になる。
+   ───────────────────────────────────────────────────────────── */
+const canvas=document.getElementById('c');
+const hint=document.getElementById('hint');
+const gl=canvas.getContext('webgl',{antialias:false,alpha:false,preserveDrawingBuffer:true,premultipliedAlpha:false});
+const MAXP=24, MAXS=16, TILT=0.86, TAU=Math.PI*2, PERIOD=16;
+
+/* ───────── palettes (warm×3, cold×3, core, bgTop, bgBot, patch) ───────── */
+const PALS=[
+ [[.80,.12,.07],[1.0,.36,.20],[1.0,.67,.53],[.02,.13,.18],[.14,.32,.64],[.57,.61,.95],[.03,.10,.12],[.66,.65,.94],[.80,.73,.84],[.95,.74,.62]],
+ [[.70,.04,.34],[.98,.30,.58],[1.0,.72,.84],[.00,.15,.16],[.05,.42,.47],[.52,.83,.82],[.02,.08,.10],[.76,.85,.92],[.88,.80,.88],[.98,.85,.76]],
+ [[.80,.34,.02],[1.0,.64,.14],[1.0,.87,.56],[.06,.05,.23],[.25,.20,.62],[.63,.59,.93],[.05,.03,.12],[.71,.69,.92],[.88,.80,.80],[.99,.80,.60]],
+ [[.86,.18,.20],[1.0,.44,.40],[1.0,.76,.70],[.02,.14,.09],[.12,.37,.31],[.56,.77,.72],[.02,.07,.05],[.79,.84,.91],[.88,.80,.78],[.95,.76,.66]]
+];
+let palIdx=0, palCur=PALS[0].map(c=>c.slice());
+
+/* ───────── shaders ───────── */
+const VS='attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}';
+const FS=`
+precision highp float;
+#define MAXP ${MAXP}
+#define MAXS ${MAXS}
+uniform vec2 uRes; uniform float uScale, uPh; uniform int uN, uCoreAt;
+uniform vec4 uA[MAXP];   // base.x, base.y, angle, length
+uniform vec4 uB[MAXP];   // width, warmth, curl, seed
+uniform vec4 uG[MAXP];   // centroid.x, centroid.y, warmth, length
+uniform vec4 uS[MAXS];   // spark x, y, radius, alpha
+uniform vec3 uCore;      // x, y, radius
+uniform vec3 uW0,uW1,uW2,uC0,uC1,uC2,uK,uBgT,uBgB,uBgP;
+const float TILT=${TILT.toFixed(2)};
+float hash(vec2 p){return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453);}
+vec3 screenB(vec3 a,vec3 b){return 1.-(1.-a)*(1.-clamp(b,0.,1.));}
+void main(){
+  vec2 p=vec2(gl_FragCoord.x,uRes.y-gl_FragCoord.y)/uScale;
+  vec2 res=uRes/uScale;
+  vec2 uv=p/res;
+  // background: lavender → dusk, with a peach warmth low on one side
+  vec3 col=mix(uBgT,uBgB,smoothstep(0.,1.,uv.y));
+  vec2 pp=(uv-vec2(.86,.84))*vec2(1.,.8);
+  col=mix(col,uBgP,.75*exp(-dot(pp,pp)*7.));
+  vec2 pt=(uv-vec2(.1,.1));
+  col=mix(col,uBgT*1.04,.4*exp(-dot(pt,pt)*6.));
+  // faint stem
+  float sx=p.x-(uCore.x+uCore.z*.35*sin(p.y/res.y*5.+uPh));
+  float stem=exp(-sx*sx/(uCore.z*uCore.z*.018))*smoothstep(uCore.y,uCore.y+uCore.z*2.,p.y)*.32;
+  col=mix(col,mix(uC1,uC2,.6),stem);
+
+  for(int i=0;i<MAXP;i++){
+    if(i>=uN)break;
+    if(i==uCoreAt){
+      vec2 dq=(p-uCore.xy)/vec2(1.,TILT);
+      float ca=atan(dq.y,dq.x);
+      float d=length(dq)/uCore.z+.09*sin(ca*5.+uPh*2.)+.05*sin(ca*9.-uPh);
+      col=mix(col,uK,smoothstep(1.05,.25,d)*.9);
+    }
+    vec4 A=uA[i]; vec4 B=uB[i];
+    vec2 q=p-A.xy; q.y/=TILT;
+    float c=cos(A.z), s=sin(A.z);
+    float u=q.x*c+q.y*s, v=-q.x*s+q.y*c;
+    float L=A.w;
+    v+=B.z*u*u/L;                                   // petals bend (cold ones curl)
+    float x=(u-L*.52)/(L*.5);
+    float wid=B.x*(.58+.42*clamp(x*.5+.5,0.,1.));   // narrow at base, wide at the lip
+    float y=v/wid;
+    float an=atan(y,x);
+    float r=length(vec2(x,y))+.075*sin(an*6.+B.w*6.283+uPh)*smoothstep(-.3,1.,x);
+    if(r>1.2)continue;
+    float tt=clamp(x*.5+.5,0.,1.);
+    float rim=smoothstep(.5,1.,r);
+    float w=B.y;
+    float warm=smoothstep(.3,1.7,w);
+    vec3 wc=mix(mix(uW0,uW1,smoothstep(0.,.55,tt)),uW2,smoothstep(.45,1.,tt)*.7+rim*.35);
+    vec3 cc=mix(mix(uC0,uC1,smoothstep(0.,.6,tt)),uC2,smoothstep(.45,1.,tt)*.75+rim*.4);
+    vec3 pc=mix(cc,wc,warm);
+    pc*=.72+.28*tt;
+    pc*=.93+.07*sin(y*3.2+B.w*9.)+.04*(1.-rim)*sin(x*5.-y*2.+B.w*4.);  // silky folds
+    pc+=uW2*min(max(w-1.6,0.),2.)*.06*(1.-rim);            // hoarded warmth burns brighter
+    float a=smoothstep(1.02,.84,r)*(.42+.22*warm)*(1.-.28*rim);
+    col=mix(col,pc,a);
+    col=mix(col,mix(pc,uC2,.3)*1.08,smoothstep(.8,.93,r)*smoothstep(1.03,.93,r)*.22);   // the lip catches light
+  }
+  // warmth radiates as haze around warm petals
+  vec3 g=vec3(0.);
+  for(int i=0;i<MAXP;i++){
+    if(i>=uN)break;
+    vec4 G=uG[i];
+    vec2 d=(p-G.xy)/vec2(1.,TILT);
+    g+=uW1*smoothstep(.5,3.,G.z)*exp(-dot(d,d)/(G.w*G.w*.3))*.07;
+  }
+  // sparks carrying warmth
+  for(int i=0;i<MAXS;i++){
+    vec4 S=uS[i];
+    if(S.w<=0.)continue;
+    vec2 d=p-S.xy;
+    g+=mix(uW1,uW2,.6)*S.w*exp(-dot(d,d)/(S.z*S.z));
+  }
+  col=screenB(col,g);
+  col+=(hash(p*uScale+uPh)-.5)*(2.5/255.);
+  gl_FragColor=vec4(col,1.);
+}`;
+function sh(t,src){const s=gl.createShader(t);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(s));return s}
+const prog=gl.createProgram();
+gl.attachShader(prog,sh(gl.VERTEX_SHADER,VS));gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,FS));
+gl.linkProgram(prog);gl.useProgram(prog);
+const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+const loc=gl.getAttribLocation(prog,'p');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+const U={};['uRes','uScale','uPh','uN','uCoreAt','uA','uB','uG','uS','uCore','uW0','uW1','uW2','uC0','uC1','uC2','uK','uBgT','uBgB','uBgP']
+  .forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+const fA=new Float32Array(MAXP*4),fB=new Float32Array(MAXP*4),fG=new Float32Array(MAXP*4),fS=new Float32Array(MAXS*4);
+
+/* ───────── state ───────── */
+let W=0,H=0,scale=1,unit=1,cx=0,cy=0;
+let seed=1, petals=[], total=0;
+let sparks=[];
+function rnd(){seed=(seed*16807)%2147483647;return (seed-1)/2147483646}
+
+function build(newSeed){
+  seed=newSeed||1+Math.floor(Math.random()*2e9);
+  petals=[];
+  const rings=[{n:10,L:.50,W:.24,off:.04,cup:0},{n:8,L:.40,W:.2,off:.03,cup:.25},{n:6,L:.28,W:.15,off:.02,cup:.45}];
+  rings.forEach((R,ri)=>{
+    const rot=rnd()*TAU;
+    for(let k=0;k<R.n;k++){
+      let a=rot+k/R.n*TAU+(rnd()-.5)*.35;
+      // inner rings cup upward: their petals lean toward the sky
+      let d=-Math.PI/2-a;d=Math.atan2(Math.sin(d),Math.cos(d));a+=d*R.cup;
+      petals.push({ring:ri,a0:a,L0:R.L*(.86+rnd()*.28),W0:R.W*(.85+rnd()*.3),off:R.off,
+        s:rnd(),curlSign:rnd()<.5?-1:1,ph1:rnd()*TAU,ph2:rnd()*TAU,w:1,wd:1,cxp:0,cyp:0});
+    }
+  });
+  initWarmth();
+  petals.forEach(p=>p.wd=p.w);
+  total=petals.length;
+}
+// 初期状態: ぬくもりは上向きの内側に集まっている(参考映像の「上が燃え、下が沈む」花)
+function initWarmth(){
+  let sum=0;
+  petals.forEach(p=>{const up=-Math.sin(p.a0);p.w=Math.exp(1.25*up+.2*p.ring);sum+=p.w});
+  petals.forEach(p=>p.w*=petals.length/sum);
+}
+function scatterWarmth(){
+  let sum=0;
+  petals.forEach(p=>{p.w=Math.pow(Math.random(),2.2)*3+.02;sum+=p.w});
+  petals.forEach(p=>p.w*=petals.length/sum);
+}
+
+function resize(){
+  W=innerWidth;H=innerHeight;
+  scale=Math.min(devicePixelRatio||1,1.5);
+  canvas.width=Math.round(W*scale);canvas.height=Math.round(H*scale);
+  gl.viewport(0,0,canvas.width,canvas.height);
+  unit=Math.min(W*.95,H*.62);
+  cx=W*.5;cy=H*.5+unit*.04;
+}
+addEventListener('resize',resize);
+
+/* ───────── geometry from warmth ───────── */
+function layout(ph){
+  const g=.035*Math.sin(ph);
+  petals.forEach(p=>{
+    const wd=Math.max(0,p.wd), cold=1-Math.min(wd,1);
+    let a=p.a0+g+.05*Math.sin(ph+p.ph1);
+    // cold petals droop toward the ground
+    let diff=Math.PI/2-a; diff=Math.atan2(Math.sin(diff),Math.cos(diff));
+    a+=diff*.3*cold;
+    const sq=Math.sqrt(Math.min(wd,3.2));
+    const breath=1+.045*Math.sin(2*ph+p.ph2);
+    p.L=p.L0*unit*(.64+.44*sq)*breath;
+    p.Wd=p.W0*unit*(.74+.3*sq);
+    p.curl=(.08+.42*cold)*p.curlSign;
+    p.ang=a;
+    const bx=cx, by=cy-p.ring*.06*unit-(1-cold)*.02*unit*p.ring;
+    const off=p.off*unit;
+    p.bx=bx+Math.cos(a)*off; p.by=by+Math.sin(a)*off*TILT;
+    p.cxp=p.bx+Math.cos(a)*p.L*.52; p.cyp=p.by+Math.sin(a)*p.L*.52*TILT;
+    // depth: back petals (pointing up) first, outer→inner; front petals last, inner→outer
+    const sd=Math.sin(a);
+    p.key=sd<0? -2+p.ring*.3+sd*.2 : 2-p.ring*.3+sd*.2;
+  });
+}
+
+/* ───────── the law: drain the touched, feed the far ───────── */
+function influence(p,x,y){
+  const R=.1*unit+p.L*.28, dx=x-p.cxp, dy=(y-p.cyp)/TILT;
+  return Math.exp(-(dx*dx+dy*dy)/(R*R));
+}
+let sparkAcc=0;
+function drain(x,y,frac){
+  let D=0,srcX=0,srcY=0;
+  const inf=petals.map(p=>influence(p,x,y));
+  petals.forEach((p,i)=>{const d=p.w*Math.min(1,frac*inf[i]);p.w-=d;D+=d;srcX+=p.cxp*d;srcY+=p.cyp*d});
+  if(D<=1e-6)return;
+  srcX/=D;srcY/=D;
+  const wt=petals.map((p,i)=>{const dx=p.cxp-x,dy=p.cyp-y;return (1-inf[i])*(dx*dx+dy*dy)+1e-3});
+  const sw=wt.reduce((a,b)=>a+b,0);
+  petals.forEach((p,i)=>p.w+=D*wt[i]/sw);
+  // exact conservation guard (floating-point drift)
+  const s=petals.reduce((a,p)=>a+p.w,0);petals.forEach(p=>p.w*=total/s);
+  sparkAcc+=D;
+  while(sparkAcc>.045){
+    sparkAcc-=.045;
+    let r=Math.random()*sw,j=0;for(;j<wt.length-1;j++){r-=wt[j];if(r<=0)break}
+    const t=petals[j];
+    sparks.push({x0:srcX,y0:srcY,to:t,life:0,dur:.8+Math.random()*.5,bend:(Math.random()-.5)*.6});
+    if(sparks.length>MAXS)sparks.shift();
+  }
+}
+
+/* ───────── input ───────── */
+const pointers=new Map();
+let hinted=false;
+function hideHint(){if(!hinted){hinted=true;hint.classList.remove('on')}}
+canvas.addEventListener('pointerdown',e=>{
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  e.preventDefault();
+  try{canvas.setPointerCapture(e.pointerId)}catch(_){}
+  pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  drain(e.clientX,e.clientY,.32);   // a touch takes a bite of warmth at once
+  hideHint();
+},{passive:false});
+canvas.addEventListener('pointermove',e=>{
+  const q=pointers.get(e.pointerId);if(!q)return;
+  q.x=e.clientX;q.y=e.clientY;
+},{passive:true});
+function up(e){pointers.delete(e.pointerId)}
+canvas.addEventListener('pointerup',up);canvas.addEventListener('pointercancel',up);
+
+/* ───────── render ───────── */
+function lerpPal(k){
+  const T=PALS[palIdx];
+  for(let i=0;i<T.length;i++)for(let j=0;j<3;j++)palCur[i][j]+=(T[i][j]-palCur[i][j])*k;
+}
+function render(ph,withSparks){
+  layout(ph);
+  const order=petals.slice().sort((a,b)=>a.key-b.key);
+  let coreAt=order.findIndex(p=>p.key>0);if(coreAt<0)coreAt=order.length;
+  order.forEach((p,i)=>{
+    fA.set([p.bx,p.by,p.ang,p.L],i*4);
+    fB.set([p.Wd,p.wd,p.curl,p.s],i*4);
+    fG.set([p.cxp,p.cyp,Math.max(0,p.wd),p.L],i*4);
+  });
+  fS.fill(0);
+  if(withSparks)sparks.forEach((s,i)=>{
+    const t=Math.min(1,s.life/s.dur),e=t*t*(3-2*t);
+    const tx=s.to.cxp,ty=s.to.cyp,mx=(s.x0+tx)/2-(ty-s.y0)*s.bend,my=(s.y0+ty)/2+(tx-s.x0)*s.bend;
+    const x=(1-e)*(1-e)*s.x0+2*(1-e)*e*mx+e*e*tx, y=(1-e)*(1-e)*s.y0+2*(1-e)*e*my+e*e*ty;
+    fS.set([x,y,unit*(.022+.02*Math.sin(Math.PI*t)),.55*Math.sin(Math.PI*t)],i*4);
+  });
+  gl.uniform2f(U.uRes,canvas.width,canvas.height);
+  gl.uniform1f(U.uScale,scale);
+  gl.uniform1f(U.uPh,ph);
+  gl.uniform1i(U.uN,order.length);
+  gl.uniform1i(U.uCoreAt,coreAt);
+  gl.uniform4fv(U.uA,fA);gl.uniform4fv(U.uB,fB);gl.uniform4fv(U.uG,fG);gl.uniform4fv(U.uS,fS);
+  gl.uniform3f(U.uCore,cx,cy-.03*unit,unit*.13);
+  const P=palCur;
+  ['uW0','uW1','uW2','uC0','uC1','uC2','uK','uBgT','uBgB','uBgP'].forEach((n,i)=>gl.uniform3fv(U[n],P[i]));
+  gl.drawArrays(gl.TRIANGLES,0,3);
+}
+
+let last=performance.now(),clock=0;
+function frame(now){
+  const dt=Math.min(.05,(now-last)/1000);last=now;clock+=dt;
+  pointers.forEach(q=>drain(q.x,q.y,1.2*dt));      // holding keeps pushing warmth away
+  const k=1-Math.exp(-dt*2.4);
+  petals.forEach(p=>p.wd+=(p.w-p.wd)*k);
+  sparks.forEach(s=>s.life+=dt);sparks=sparks.filter(s=>s.life<s.dur);
+  lerpPal(1-Math.exp(-dt*1.6));
+  render((clock/PERIOD)*TAU%TAU,true);
+  requestAnimationFrame(frame);
+}
+
+/* ───────── controls ───────── */
+function mutate(){
+  palIdx=(palIdx+1+Math.floor(Math.random()*(PALS.length-1)))%PALS.length;
+  const keep=petals.map(p=>p.wd);
+  build();
+  // 新しい花にも、ぬくもりの総量はそのまま。配り方だけが変わる
+  scatterWarmth();
+  petals.forEach((p,i)=>p.wd=keep[i%keep.length]);
+  sparks=[];
+}
+function resetAll(){initWarmth();sparks=[]}
+
+resize();build(20260924);
+requestAnimationFrame(frame);
+setTimeout(()=>{if(!hinted)hint.classList.add('on')},900);
+setTimeout(hideHint,7500);
+
+window.APKit.init({
+  canvas:canvas,
+  gifName:'kept-warmth-loop',
+  clockFormat:'spec',
+  dock:true,
+  autoHide:true,
+  fullscreenButton:false,
+  loopFrame:function(phase){render(phase,false);},
+  buttons:[
+    {label:'✦',name:'mutate',onClick:mutate},
+    {label:'↻',name:'reset',onClick:resetAll}
+  ]
+});
+})();
+</script>
+</body>
+</html>

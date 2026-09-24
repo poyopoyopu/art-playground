@@ -1,3 +1,6 @@
+- 2026-09-24 クロード: KEPT WARMTHをart-v77として昇格し(ap-kit.jsの相対パスをルート用に修正)、ギャラリーLOG先頭とPublished works(CURRENTの直後)に追加(art-v77-kept-warmth.html, index.html)
+- 2026-09-24 しゅん: KEPT WARMTHを採用決定
+- 2026-09-24 クロード: おっちゃん提供のX投稿動画(半透明の花が上は赤く灯り、下は青く沈む映像)を参考にKEPT WARMTHを新規制作。花が持つぬくもりの総量は一定で、触れた花びらは冷えて青く垂れ、そのぬくもりは火の粉になって指から遠い花びらへ移る。温かい花びらほど赤く大きく開く。勝手に元へ戻る拡散はないので、花の形は「ぬくもりをどこへ追いやったか」の記録になる。✦で4種の配色を切り替え(prototypes/kept-warmth.html)
 - 2026-09-23 チャッピー: CHROMA DRIFTをart-v76として採用・昇格し、ギャラリーLOG先頭とPublished worksへ追加(art-v76-chroma-drift.html, index.html)
 - 2026-09-23 チャッピー: PRISM BLOOMの作品名をCHROMA DRIFTへ変更し、GIF名も統一(prototypes/prism-bloom.html)
 - 2026-09-23 チャッピー: PRISM BLOOMを120個から140個へ増量。軽量化したシェーダーを維持したまま密度を上げた(prototypes/prism-bloom.html)
@@ -237,7 +240,7 @@
 ## 現在の状態(変わったら書き換える)
 
 - CURRENT: MIRROR FRACTURE(`art-v75-mirror-split.html`)
-- LOG先頭: CHROMA DRIFT(`art-v76-chroma-drift.html`)
+- LOG先頭: KEPT WARMTH(`art-v77-kept-warmth.html`)
 - 作業ルール: `AGENTS.md`(ギャラリー追加の手順と命名ルールは13章)
 - 表示モード: iPhoneホーム画面から起動するとCURRENT作品を自動表示するstandalone Web App対応済み
 - 運用メモ: `NOTES.md`(GitHub操作は可能性を確認してから実行)
