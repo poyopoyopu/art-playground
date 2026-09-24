@@ -1,0 +1,474 @@
+<!doctype html>
+<!-- OPEN SKY — クロード作(おっちゃん提供の「CLOUD TREE」イメージ画像=雲でできた樹冠の一本木を参考)。ap-kit.js統合: クロード -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>OPEN SKY — 開いた空へ、木は伸びる</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#2a64b4}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#hint{position:fixed;left:0;right:0;top:calc(9% + env(safe-area-inset-top,0px));text-align:center;
+  font:500 12px/1.9 "Hiragino Mincho ProN","Yu Mincho",serif;letter-spacing:.16em;color:rgba(255,255,255,.82);
+  text-shadow:0 1px 8px rgba(20,50,110,.55);pointer-events:none;transition:opacity 1.8s ease;opacity:0}
+#hint.on{opacity:1}
+</style>
+<script src="../ap-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">雲に触れると、そこだけ空が開く<br>開いた空へ、木は伸びていく</div>
+<script>
+(function(){
+'use strict';
+/* ─────────────────────────────────────────────────────────────
+   世界のルール:「開いた空へ、木は伸びる」
+   ・木の葉はすべて雲。枝の先ごとに雲のかたまりが付いている。
+   ・雲に触れると、そこだけ空が開く(雲はほどけて風に流れる)。開いた空は二度と閉じない。
+   ・空の下に出た枝は光を浴び、新しい小枝を伸ばす(枝→小枝→さらに小枝、の自己相似)。
+   ・小枝は開いた空の中では雲を付けられず、空を突き抜けて、その外でやっと新しい雲を吐く。
+   ・だから木の形は「どこの空を開けたか」の記録になる。触らなければ、木はただ呼吸している。
+   ───────────────────────────────────────────────────────────── */
+const TAU=Math.PI*2, PERIOD=8;
+const canvas=document.getElementById('c'), ctx=canvas.getContext('2d');
+const hint=document.getElementById('hint');
+
+/* ───────── palettes ─────────
+   0 skyTop 1 skyMid 2 skyLow 3 sun 4 hi 5 mid 6 shadow 7 twig 8 trunk 9 ground */
+const PALS=[
+  [[22,74,160],[46,112,196],[150,188,228],[255,232,186],[255,251,238],[232,240,252],[118,150,204],[226,236,250],[84,104,140],[14,24,44]],   // DAY
+  [[58,66,138],[176,128,172],[250,196,164],[255,212,164],[255,244,230],[248,218,218],[150,118,168],[252,232,226],[82,62,84],[28,20,36]],     // DAWN
+  [[18,22,66],[88,58,128],[232,124,112],[255,172,112],[255,224,196],[226,184,204],[90,78,142],[242,214,214],[52,40,72],[12,9,24]],           // DUSK
+  [[5,10,30],[14,28,66],[38,62,108],[196,214,255],[232,240,255],[168,186,226],[46,64,118],[192,208,238],[38,50,80],[3,7,16]]                 // MOON
+];
+let palIdx=0;
+const palCur=PALS[0].map(c=>c.slice());
+let palDirty=true;
+const rgb=(c,a)=>a===undefined?`rgb(${c[0]|0},${c[1]|0},${c[2]|0})`:`rgba(${c[0]|0},${c[1]|0},${c[2]|0},${a})`;
+const mix=(a,b,t)=>[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t];
+
+/* ───────── cloud sprites ───────── */
+const SPR=128;
+const sprLit=document.createElement('canvas'), sprSh=document.createElement('canvas');
+sprLit.width=sprLit.height=sprSh.width=sprSh.height=SPR;
+function buildSprites(){
+  // ほぼガウスの柔らかいかたまり。光は右上から
+  const P=palCur, h=SPR/2, G=[0,.2,.4,.6,.8,1].map(t=>[t,Math.exp(-3.4*t*t)*(1-t*t*.15)]);
+  let g=sprLit.getContext('2d');g.clearRect(0,0,SPR,SPR);
+  let gr=g.createRadialGradient(h+SPR*.1,h-SPR*.12,0,h,h,h);
+  G.forEach(([t,a])=>gr.addColorStop(t,rgb(mix(P[4],P[5],Math.min(1,t*1.3)),t===1?0:a)));
+  g.fillStyle=gr;g.fillRect(0,0,SPR,SPR);
+  g=sprSh.getContext('2d');g.clearRect(0,0,SPR,SPR);
+  gr=g.createRadialGradient(h,h,0,h,h,h);
+  G.forEach(([t,a])=>gr.addColorStop(t,rgb(mix(P[6],P[5],.25+t*.3),t===1?0:a*.9)));
+  g.fillStyle=gr;g.fillRect(0,0,SPR,SPR);
+}
+
+/* ───────── layout ───────── */
+let W=0,H=0,DPR=1,U=1,SY=1,baseX=0,baseY=0,groundY=0;
+let grass=[],hill=[],bank=[];
+function resize(){
+  DPR=Math.min(1.5,window.devicePixelRatio||1);
+  W=window.innerWidth;H=window.innerHeight;
+  canvas.width=Math.round(W*DPR);canvas.height=Math.round(H*DPR);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  U=Math.min(W*.72,H*.96);
+  SY=Math.max(1,Math.min(2.1,(H*.88)/U));        // 縦長画面では木を縦に伸ばす
+  groundY=H*.915;
+  baseX=W*.5-crownShift*U;
+  baseY=groundY-U*.018;
+  // hill + grass
+  hill=[];for(let x=-10;x<=W+10;x+=8){
+    const c=(x-baseX)/(W*.55);
+    hill.push([x,groundY-U*.028*Math.exp(-c*c)+Math.sin(x*.013)*U*.004+Math.sin(x*.041)*U*.002]);
+  }
+  grass=[];for(let x=0;x<W;x+=2.2){
+    const c=(x-baseX)/(W*.55),y=groundY-U*.028*Math.exp(-c*c)+Math.sin(x*.013)*U*.004+Math.sin(x*.041)*U*.002;
+    grass.push([x,y+1,U*(.004+Math.random()*.014)*(Math.random()<.08?1.8:1),(Math.random()-.5)*.7,Math.random()*TAU]);
+  }
+  // distant cloud bank near the horizon
+  const r=mulberry(99);bank=[];
+  for(let i=0;i<Math.round(90+W/9);i++){
+    const u=r(),hgt=Math.pow(r(),1.8);
+    bank.push({x:-.05*W+u*W*1.1,y:groundY-U*(.01+hgt*.2)*(1+.6*Math.sin(u*9)),r:U*(.028+r()*.045)*(1-hgt*.55),ph:r()*TAU,a:.55+r()*.4});
+  }
+  bank.sort((a,b)=>a.y-b.y);
+}
+window.addEventListener('resize',resize);
+
+function mulberry(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+
+/* ───────── the tree ─────────
+   木の座標: 幹の根元が原点、上が+y、単位はU。角度は0=真上、+が右。 */
+const MAXD=12, MAXN=2600, MAXPUFF=4200, R_OPEN=.072;
+let nodes=[],clusters=[],spots=[],wisps=[],rings=[],flecks=[];
+let seed=20260924, puffCount=0, crownShift=0;
+
+function mkNode(parent,ang,len,depth,g){
+  const n={parent,ang,len,depth,g,kids:[],seed:Math.random(),glow:0,lit:0,acc:0,
+           sx:0,sy:0,ex:0,ey:0,X0:0,Y0:0,X:0,Y:0,cloud:null,done:g>=1,bare:false};
+  if(parent)parent.kids.push(n);
+  nodes.push(n);return n;
+}
+function puffBase(depth){return .062*Math.pow(.87,Math.max(0,depth-3))}
+function makeCluster(n,cnt,k0,rnd){
+  const rb=puffBase(n.depth),spread=rb*1.25,puffs=[];
+  for(let i=0;i<cnt;i++){
+    const a=rnd()*TAU,d=Math.sqrt(rnd())*spread;
+    const big=i===0?1.25:(.65+rnd()*.6);
+    const p={ox:Math.sin(a)*d,oy:Math.cos(a)*d*.75+rb*.3,r:rb*big,ph:rnd()*TAU,alive:1,k:k0,x:0,y:0};
+    if(k0<1){ // 生まれる雲は、開いた空の中には置けない
+      const X=n.X+p.ox*U,Y=n.Y-p.oy*U;
+      if(inSpot(X,Y,.25))continue;
+    }
+    puffs.push(p);
+  }
+  if(!puffs.length)return;
+  n.cloud={node:n,puffs};clusters.push(n.cloud);puffCount+=puffs.length;
+}
+
+function build(s){
+  seed=s;const rnd=mulberry(s);
+  nodes=[];clusters=[];spots=[];wisps=[];rings=[];puffCount=0;
+  const lean=(rnd()-.5)*.08;
+  const trunk=mkNode(null,lean,.19+rnd()*.04,0,1);
+  const spreadK=1+rnd()*.3;
+  (function branch(n){
+    if(n.depth>=7)return;
+    const kid=(a,ratio)=>{a*=.9;branch(mkNode(n,a,n.len*ratio,n.depth+1,1));};   // .9 = 空へ向かう癖
+    if(n.depth<2){
+      // 幹の近くは二股・三股に大きく分かれる
+      const k=rnd()<.35?3:2;
+      for(let i=0;i<k;i++){
+        const off=k===2?(i?1:-1)*(.34+rnd()*.26):(i-1)*(.5+rnd()*.18);
+        kid(n.ang+off*spreadK+(rnd()-.5)*.14,.74+rnd()*.1);
+      }
+    }else{
+      // 先へ行くほど「伸びる芯+脇枝」の自己相似
+      const sd=rnd()<.5?1:-1;
+      kid(n.ang+(rnd()-.5)*.3-sd*.08,.8+rnd()*.06);
+      kid(n.ang+sd*(.5+rnd()*.35)*spreadK,.58+rnd()*.12);
+      if(rnd()<.3)kid(n.ang-sd*(.55+rnd()*.3)*spreadK,.5+rnd()*.12);
+    }
+  })(trunk);
+  layout(0);
+  nodes.forEach(n=>{
+    if(n.depth<3)return;
+    const tip=!n.kids.length;
+    makeCluster(n,tip?5:(n.depth<=4?5:3),1,rnd);
+  });
+  // 樹冠のまわりに散る小さな雲のかけら(背景の飾り)
+  let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;
+  nodes.forEach(n=>{if(n.depth>=3){x0=Math.min(x0,n.ex);x1=Math.max(x1,n.ex);y0=Math.min(y0,n.ey);y1=Math.max(y1,n.ey);}});
+  const cx=(x0+x1)/2,cy=(y0+y1)/2,ax=(x1-x0)/2+.1,ay=(y1-y0)/2+.1;
+  crownShift=cx*.7;resize();   // 片寄った樹冠は、根元ごと少しずらして画面に収める
+  flecks=[];
+  for(let i=0;i<40;i++){
+    const a=(rnd()-.5)*3.6,rr=1+rnd()*.35,fx=cx+Math.sin(a)*ax*rr,fy=cy+Math.cos(a)*ay*rr;
+    const m=2+(rnd()*4|0);
+    for(let j=0;j<m;j++)flecks.push({x:fx+(rnd()-.5)*.05,y:fy+(rnd()-.5)*.03,r:.005+rnd()*.011,ph:rnd()*TAU});
+  }
+}
+
+function layout(ph){
+  for(let i=0;i<nodes.length;i++){
+    const n=nodes[i],p=n.parent;
+    n.sx=p?p.ex:0;n.sy=p?p.ey:0;
+    n.acc=(p?p.acc:0)+Math.sin(ph+n.seed*TAU)*.0032*n.depth;   // 呼吸にあわせたゆらぎ
+    const a=n.ang+n.acc, L=n.len*n.g;
+    n.ex=n.sx+Math.sin(a)*L;n.ey=n.sy+Math.cos(a)*L;
+    n.X0=baseX+n.sx*U;n.Y0=baseY-n.sy*U*SY;
+    n.X=baseX+n.ex*U;n.Y=baseY-n.ey*U*SY;
+  }
+}
+const toTX=X=>(X-baseX)/U, toTY=Y=>(baseY-Y)/(U*SY);
+function inSpot(X,Y,pad){
+  for(let i=0;i<spots.length;i++){
+    const s=spots[i],dx=X-(baseX+s.x*U),dy=Y-(baseY-s.y*U*SY),R=s.r*U*(1+(pad||0));
+    if(dx*dx+dy*dy<R*R)return true;
+  }
+  return false;
+}
+function onScreen(n){
+  return n.X>W*.03&&n.X<W*.97&&n.Y>H*.05&&n.Y<groundY-U*.1;
+}
+
+/* ───────── the law ───────── */
+function sprout(n,count){
+  if(n.depth>=MAXD||nodes.length>=MAXN)return;
+  // 樹冠の中心から外へ、少し上へ
+  const dx=n.ex-0,dy=n.ey-.6;
+  const out=Math.atan2(dx,dy);
+  let base=n.ang+(((out-n.ang+Math.PI)%TAU+TAU)%TAU-Math.PI)*.4;
+  base*=.94;
+  for(let i=0;i<count;i++){
+    const side=count===1?(Math.random()-.5)*.5:(i/(count-1)-.5)*2*(.34+Math.random()*.22);
+    const c=mkNode(n,base+side+(Math.random()-.5)*.12,Math.max(.018,n.len*(.76+Math.random()*.1)),n.depth+1,0);
+    c.glow=1;c.lit=1;
+  }
+}
+function openAt(X,Y){
+  const R=R_OPEN*U;
+  let hit=0;
+  // 1) 触れた雲はほどけて流れる
+  for(let c=0;c<clusters.length;c++){
+    const ps=clusters[c].puffs;
+    for(let i=0;i<ps.length;i++){
+      const p=ps[i];if(!p.alive)continue;
+      const dx=p.x-X,dy=p.y-Y,rr=R+p.r*U*.35;
+      if(dx*dx+dy*dy<rr*rr){
+        p.alive=0;hit++;puffCount--;
+        const d=Math.hypot(dx,dy)||1,sp=U*(.05+Math.random()*.12);
+        if(wisps.length<1400)wisps.push({x:p.x,y:p.y,vx:dx/d*sp+U*.03,vy:dy/d*sp-U*.05,r:p.r*U,life:0,dur:1.6+Math.random()*1.2});
+      }
+    }
+  }
+  // 2) 空の下に出た枝は光を浴びる
+  const near=[];
+  for(let i=0;i<nodes.length;i++){
+    const n=nodes[i];
+    const dx=n.X-X,dy=n.Y-Y,d2=dx*dx+dy*dy;
+    if(d2<R*R*1.7){n.glow=1;n.lit=Math.max(n.lit,.55);if(n.depth>=2&&n.done)near.push([d2,n]);}
+  }
+  if(!hit&&!near.length)return false;
+  spots.push({x:toTX(X),y:toTY(Y),r:R_OPEN});
+  if(spots.length>900)spots.shift();
+  rings.push({x:X,y:Y,t:0});
+  // 3) 光を浴びた枝が、新しい小枝を伸ばす(近い枝から数本だけ)
+  near.sort((a,b)=>a[0]-b[0]);
+  let budget=3;
+  for(let i=0;i<near.length&&budget>0;i++){
+    const n=near[i][1];
+    if(n.kids.length>=4)continue;
+    sprout(n,n.kids.length?1:2);budget--;
+  }
+  return true;
+}
+
+/* ───────── input ───────── */
+const pointers=new Map();
+let hinted=false;
+function hideHint(){if(!hinted){hinted=true;hint.classList.remove('on')}}
+canvas.addEventListener('pointerdown',e=>{
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  e.preventDefault();
+  try{canvas.setPointerCapture(e.pointerId)}catch(_){}
+  pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  openAt(e.clientX,e.clientY);
+  hideHint();
+},{passive:false});
+canvas.addEventListener('pointermove',e=>{
+  const q=pointers.get(e.pointerId);if(!q)return;
+  const d=Math.hypot(e.clientX-q.x,e.clientY-q.y);
+  if(d>R_OPEN*U*.6){q.x=e.clientX;q.y=e.clientY;openAt(q.x,q.y);}   // なぞると空が細長く開く
+},{passive:true});
+function up(e){pointers.delete(e.pointerId)}
+canvas.addEventListener('pointerup',up);canvas.addEventListener('pointercancel',up);
+
+/* ───────── render ───────── */
+function drawSky(ph){
+  const P=palCur;
+  const g=ctx.createLinearGradient(0,0,0,groundY);
+  g.addColorStop(0,rgb(P[0]));g.addColorStop(.58,rgb(P[1]));g.addColorStop(1,rgb(P[2]));
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  // 樹冠の奥の光
+  const cx=baseX+U*.06,cy=baseY-U*.56*SY,rr=U*(.78+.02*Math.sin(ph));
+  const s=ctx.createRadialGradient(cx,cy,0,cx,cy,rr);
+  s.addColorStop(0,rgb(P[3],.42));s.addColorStop(.5,rgb(P[3],.14));s.addColorStop(1,rgb(P[3],0));
+  ctx.fillStyle=s;ctx.fillRect(0,0,W,H);
+}
+function drawPuff(spr,x,y,r,a){
+  if(a<=.004||r<.5)return;
+  ctx.globalAlpha=a;ctx.drawImage(spr,x-r,y-r,r*2,r*2);
+}
+function drawBank(ph){
+  for(let pass=0;pass<2;pass++){
+    for(let i=0;i<bank.length;i++){
+      const b=bank[i],x=b.x+Math.sin(ph+b.ph)*U*.006,r=b.r*(1+.03*Math.sin(ph+b.ph*2));
+      if(pass===0)drawPuff(sprSh,x,b.y+r*.25,r*1.3,b.a*.7);
+      else drawPuff(sprLit,x+r*.08,b.y-r*.1,r,b.a*.9);
+    }
+  }
+  ctx.globalAlpha=1;
+}
+function drawFlecks(ph){
+  for(let i=0;i<flecks.length;i++){
+    const f=flecks[i],x=baseX+(f.x+Math.sin(ph+f.ph)*.006)*U,y=baseY-(f.y+Math.cos(ph+f.ph)*.004)*U*SY,r=f.r*U;
+    drawPuff(sprLit,x,y,r,.85);
+  }
+  ctx.globalAlpha=1;
+}
+function branchColor(n,alpha){
+  const P=palCur,t=Math.min(1,n.depth/5.5);
+  let c=mix(P[8],P[7],t);
+  if(n.glow>0||n.lit>0)c=mix(c,P[3],Math.min(1,n.glow*.85+n.lit*.35));
+  return rgb(c,alpha);
+}
+function bw(depth){return Math.max(.5,U*.022*Math.pow(.7,depth))}
+function drawBranches(alpha,minDepth){
+  for(let i=0;i<nodes.length;i++){
+    const n=nodes[i];if(n.g<=0||n.depth<minDepth)continue;
+    // 根元は太く、先へ細く。親の太さから自分の太さへつなぐ台形
+    const w0=(n.depth===0?U*.034:bw(n.depth-1)*.92)/2,w1=bw(n.depth)*(n.depth===0?1.25:1)/2*(n.kids.length?1:.6);
+    let dx=n.X-n.X0,dy=n.Y-n.Y0;const d=Math.hypot(dx,dy)||1;dx/=d;dy/=d;
+    ctx.fillStyle=branchColor(n,alpha);
+    ctx.beginPath();
+    ctx.moveTo(n.X0-dy*w0,n.Y0+dx*w0);ctx.lineTo(n.X-dy*w1,n.Y+dx*w1);
+    ctx.lineTo(n.X+dy*w1,n.Y-dx*w1);ctx.lineTo(n.X0+dy*w0,n.Y0-dx*w0);ctx.closePath();ctx.fill();
+    if(w1>1){ctx.beginPath();ctx.arc(n.X,n.Y,w1,0,TAU);ctx.fill();}
+  }
+}
+function drawGlowTwigs(){
+  ctx.globalCompositeOperation='lighter';ctx.lineCap='round';
+  const P=palCur;
+  for(let i=0;i<nodes.length;i++){
+    const n=nodes[i];if(n.glow<.02||n.g<=0)continue;
+    ctx.strokeStyle=rgb(P[3],.32*n.glow);
+    ctx.lineWidth=Math.max(1.5,bw(n.depth))*3;
+    ctx.beginPath();ctx.moveTo(n.X0,n.Y0);ctx.lineTo(n.X,n.Y);ctx.stroke();
+  }
+  ctx.globalCompositeOperation='source-over';
+}
+function drawCrown(ph){
+  const breath=1+.035*Math.sin(ph);
+  for(let c=0;c<clusters.length;c++){
+    const cl=clusters[c],n=cl.node;
+    for(let i=0;i<cl.puffs.length;i++){
+      const p=cl.puffs[i];
+      p.x=n.X+p.ox*U;p.y=n.Y-p.oy*U;
+    }
+  }
+  // 上のかたまりから順に「影+光」を重ねる。下のかたまりの明るい頭が、上のかたまりの影に乗って、もくもくの境目ができる
+  const L=[];
+  let top=1e9,bot=-1e9;
+  for(let c=0;c<clusters.length;c++){
+    const ps=clusters[c].puffs;
+    for(let i=0;i<ps.length;i++){const p=ps[i];if(p.alive){L.push(p);if(p.y<top)top=p.y;if(p.y>bot)bot=p.y;}}
+  }
+  L.sort((a,b)=>a.y-b.y);
+  const span=Math.max(1,bot-top);
+  for(let i=0;i<L.length;i++){
+    const p=L[i],low=(p.y-top)/span;
+    const r=p.r*U*breath*(1+.045*Math.sin(ph+p.ph))*(.3+.7*p.k);
+    drawPuff(sprSh,p.x-r*.08,p.y+r*.26,r*1.18,p.k*(.72+low*.25));
+    drawPuff(sprLit,p.x+r*.1,p.y-r*.14,r*.98,p.k*(1-low*.28));
+  }
+  ctx.globalAlpha=1;
+}
+function drawWisps(){
+  for(let i=0;i<wisps.length;i++){
+    const w=wisps[i],t=w.life/w.dur,a=Math.pow(1-t,1.6)*.85;
+    drawPuff(sprLit,w.x,w.y,w.r*(1+t*.5)*(1-t*.35),a);
+  }
+  ctx.globalAlpha=1;
+}
+function drawRings(){
+  const P=palCur;
+  for(let i=0;i<rings.length;i++){
+    const r=rings[i],t=r.t/.9;
+    ctx.strokeStyle=rgb(P[4],.35*(1-t));ctx.lineWidth=1;
+    ctx.beginPath();ctx.arc(r.x,r.y,R_OPEN*U*(.4+t*.8),0,TAU);ctx.stroke();
+  }
+}
+function drawGround(ph){
+  const P=palCur;
+  const g=ctx.createLinearGradient(0,groundY-U*.04,0,H);
+  g.addColorStop(0,rgb(mix(P[9],P[1],.18)));g.addColorStop(1,rgb(P[9]));
+  ctx.fillStyle=g;ctx.beginPath();ctx.moveTo(-10,H+2);
+  hill.forEach(p=>ctx.lineTo(p[0],p[1]));ctx.lineTo(W+10,H+2);ctx.closePath();ctx.fill();
+  ctx.strokeStyle=rgb(mix(P[9],P[1],.25),.9);ctx.lineWidth=1;ctx.beginPath();
+  for(let i=0;i<grass.length;i++){
+    const b=grass[i],sw=Math.sin(ph+b[4])*b[2]*.25;
+    ctx.moveTo(b[0],b[1]);ctx.lineTo(b[0]+b[3]*b[2]+sw,b[1]-b[2]);
+  }
+  ctx.stroke();
+}
+function render(ph,live){
+  if(palDirty){buildSprites();palDirty=false;}
+  layout(ph);
+  drawSky(ph);
+  drawFlecks(ph);
+  drawBank(ph);
+  drawBranches(1,0);
+  if(live)drawGlowTwigs();
+  drawCrown(ph);
+  drawBranches(.26,3);                 // 雲ごしに、うっすら枝が透ける
+  if(live){drawWisps();drawRings();}
+  drawGround(ph);
+}
+
+/* ───────── update ───────── */
+let last=performance.now(),clock=0;
+function lerpPal(k){
+  const T=PALS[palIdx];let moved=0;
+  for(let i=0;i<T.length;i++)for(let j=0;j<3;j++){
+    const d=T[i][j]-palCur[i][j];if(Math.abs(d)>.4){palCur[i][j]+=d*k;moved=1}else palCur[i][j]=T[i][j];
+  }
+  if(moved)palDirty=true;
+}
+function step(dt){
+  for(let i=0;i<nodes.length;i++){
+    const n=nodes[i];
+    if(n.g<1){
+      n.g=Math.min(1,n.g+dt/(1.1+n.depth*.05));
+      if(n.g>=1&&!n.done){
+        n.done=true;
+        // 伸びきった小枝:空の中なら雲を付けられず、さらに外へ伸びる。空の外なら新しい雲を吐く
+        if(!onScreen(n)){n.bare=true;}
+        else if(inSpot(n.X,n.Y,.1)){
+          if(n.depth<MAXD-1&&nodes.length<MAXN)sprout(n,Math.random()<.55?2:1);else n.bare=true;
+        }else if(puffCount<MAXPUFF){
+          makeCluster(n,3+(Math.random()*3|0),0,Math.random);
+        }
+      }
+    }
+    n.glow=Math.max(0,n.glow-dt*.45);
+    n.lit=Math.max(n.lit>0?.28:0,n.lit-dt*.08);   // 一度空の下に出た枝は、少しだけ明るいまま
+  }
+  for(let c=0;c<clusters.length;c++){
+    const ps=clusters[c].puffs;
+    for(let i=0;i<ps.length;i++){const p=ps[i];if(p.k<1)p.k=Math.min(1,p.k+dt/1.3);}
+  }
+  for(let i=0;i<wisps.length;i++){
+    const w=wisps[i];w.life+=dt;w.x+=w.vx*dt;w.y+=w.vy*dt;w.vx=w.vx*.985+U*.012*dt;w.vy*=.985;
+  }
+  wisps=wisps.filter(w=>w.life<w.dur);
+  rings.forEach(r=>r.t+=dt);rings=rings.filter(r=>r.t<.9);
+  lerpPal(1-Math.exp(-dt*1.8));
+}
+function frame(now){
+  const dt=Math.min(.05,(now-last)/1000);last=now;clock+=dt;
+  step(dt);
+  render((clock/PERIOD)*TAU%TAU,true);
+  requestAnimationFrame(frame);
+}
+
+/* ───────── controls ───────── */
+function mutate(){                     // 別の木、別の時間帯の空
+  palIdx=(palIdx+1+Math.floor(Math.random()*(PALS.length-1)))%PALS.length;
+  build((Math.random()*1e9)|0);
+}
+function resetAll(){build(seed);}      // 同じ木を、まだ誰も空を開けていない状態へ
+
+resize();buildSprites();build(seed);
+requestAnimationFrame(frame);
+setTimeout(()=>{if(!hinted)hint.classList.add('on')},900);
+setTimeout(hideHint,8000);
+
+window.APKit.init({
+  canvas:canvas,
+  gifName:'open-sky-loop',
+  clockFormat:'spec',
+  dock:true,
+  autoHide:true,
+  fullscreenButton:false,
+  loopFrame:function(phase){render(phase,false);},
+  buttons:[
+    {label:'✦',name:'mutate',onClick:mutate},
+    {label:'↻',name:'reset',onClick:resetAll}
+  ]
+});
+})();
+</script>
+</body>
+</html>
