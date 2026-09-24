@@ -1,3 +1,4 @@
+- 2026-09-25 チャッピー: SPECTRAL WEAVEを新規制作。発光する短い色片の多重格子と交差光を完全生成し、タッチ位置を格子の恒久的な折れとして記録(prototypes/spectral-weave.html)
 - 2026-09-25 チャッピー: TENSION FIELDをGRAFTへ全面再構築。触れた場所から枝が生まれ、接続した個体の形質を交配して新個体を生む生態系ルールへ変更(prototypes/p5-tension.html)
 - 2026-09-25 クロード: PRISM NAVEをHELD TIMEに改名してart-v78として昇格(ap-kit.jsの相対パスをルート用に修正、GIF名もheld-time-loopに)。ギャラリーLOG先頭とPublished works(CURRENTの直後)に追加し、「現在の状態」のLOG先頭も更新(art-v78-held-time.html, index.html)
 - 2026-09-25 しゅん: PRISM NAVEを採用決定。名前は変更してほしいとのこと
