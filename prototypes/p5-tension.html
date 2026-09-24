@@ -3,167 +3,221 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-<title>TENSION FIELD — p5.js prototype</title>
+<title>GRAFT — p5.js prototype</title>
 <script src="https://cdn.jsdelivr.net/npm/p5@1.11.10/lib/p5.min.js"></script>
 <script src="../ap-kit.js"></script>
 <style>
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#07090d;touch-action:none}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#07080b;touch-action:none}
 canvas{display:block}
 </style>
 </head>
 <body>
 <script>
-// TENSION FIELD — ChatGPT作。p5.js prototype / ap-kit.js統合
-// 法則: 触れた場所が「固定点」になり、周囲の弾性場を恒久的に引き寄せる。
-// 触るほど、世界の基準点そのものが増えて形が変わる。
+// GRAFT — ChatGPT作。p5.js prototype / ap-kit.js統合
+// 法則: 触れた場所から「枝」が生まれる。枝は自律的に伸び、
+// 近くの枝へ接続すると両者の遺伝形質を混ぜ、新しい枝を生む。
+// 触ることは描画ではなく、生態系への交配操作。
 
-let anchors = [];
-let seed = 0.0;
-let phase = 0;
-let dragging = false;
-let dragX = 0, dragY = 0;
+let nodes=[];
+let branches=[];
+let generation=0;
+let seed=0;
+let t=0;
+let dragging=false;
+let lastX=0,lastY=0;
 
 function setup(){
-  createCanvas(windowWidth, windowHeight);
-  pixelDensity(Math.min(2, window.devicePixelRatio || 1));
-  seed = random(1000);
+  createCanvas(windowWidth,windowHeight);
+  pixelDensity(Math.min(2,devicePixelRatio||1));
+  seed=random(9999);
+  resetWorld();
   APKit.init({
-    canvas: document.querySelector('canvas'),
-    gifName: 'p5-tension-loop',
-    clockFormat: 'spec',
-    dock: true,
-    autoHide: true,
-    fullscreenButton: false,
-    loopFrame: function(p){ drawWorld(p); },
-    buttons: [
-      {label:'✦', name:'mutate', onClick:function(){ mutate(); }},
-      {label:'↻', name:'reset', onClick:function(){ anchors=[]; }}
+    canvas:document.querySelector('canvas'),
+    gifName:'graft-loop',
+    clockFormat:'spec',
+    dock:true,
+    autoHide:true,
+    fullscreenButton:false,
+    loopFrame:function(p){drawWorld(p)},
+    buttons:[
+      {label:'✦',name:'mutate',onClick:mutate},
+      {label:'↻',name:'reset',onClick:resetWorld}
     ]
   });
 }
 
-function windowResized(){ resizeCanvas(windowWidth, windowHeight); }
+function windowResized(){resizeCanvas(windowWidth,windowHeight);}
+
+function resetWorld(){
+  nodes=[];
+  branches=[];
+  generation=0;
+  for(let i=0;i<7;i++){
+    let a=TWO_PI*i/7+random(-.2,.2);
+    spawn(width/2+cos(a)*min(width,height)*.23,
+          height/2+sin(a)*min(width,height)*.23,
+          random(2.5,5.5),0);
+  }
+}
 
 function mutate(){
-  seed = random(1000);
-  anchors = anchors.map(a => ({
-    x: constrain(a.x + random(-80,80), 0, width),
-    y: constrain(a.y + random(-80,80), 0, height),
-    r: random(0.65,1.35)
-  }));
+  seed=random(9999);
+  nodes.forEach(n=>{
+    n.h=(n.h+random(-.18,.18)+TWO_PI)%TWO_PI;
+    n.step*=random(.85,1.15);
+  });
 }
 
 function touchStarted(){
-  if(window.APKit && APKit.isUI(mouseX,mouseY)) return true;
-  addAnchor(mouseX, mouseY);
-  dragging = true;
-  dragX = mouseX; dragY = mouseY;
+  if(window.APKit&&APKit.isUI(mouseX,mouseY))return true;
+  spawn(mouseX,mouseY,random(3,6),generation+1);
+  dragging=true; lastX=mouseX; lastY=mouseY;
   return false;
 }
-
 function touchMoved(){
-  if(window.APKit && APKit.isUI(mouseX,mouseY)) return true;
-  if(dragging){
-    dragX = mouseX; dragY = mouseY;
-    if(dist(mouseX,mouseY,dragX,dragY)>18) addAnchor(mouseX,mouseY);
+  if(window.APKit&&APKit.isUI(mouseX,mouseY))return true;
+  if(dragging&&dist(mouseX,mouseY,lastX,lastY)>45){
+    spawn(mouseX,mouseY,random(2,4),generation+1);
+    lastX=mouseX;lastY=mouseY;
   }
   return false;
 }
-
-function touchEnded(){
-  dragging=false;
-  return false;
-}
-
+function touchEnded(){dragging=false;return false;}
 function mousePressed(){
-  if(window.APKit && APKit.isUI(mouseX,mouseY)) return true;
-  addAnchor(mouseX,mouseY);
-  dragging=true;
+  if(window.APKit&&APKit.isUI(mouseX,mouseY))return true;
+  spawn(mouseX,mouseY,random(3,6),generation+1);
   return false;
 }
-function mouseDragged(){
-  if(window.APKit && APKit.isUI(mouseX,mouseY)) return true;
-  dragX=mouseX; dragY=mouseY;
-  return false;
-}
-function mouseReleased(){ dragging=false; }
 
-function addAnchor(x,y){
-  if(anchors.length && dist(x,y,anchors[anchors.length-1].x,anchors[anchors.length-1].y)<28) return;
-  anchors.push({x,y,r:random(.7,1.3)});
-  if(anchors.length>28) anchors.shift();
+function spawn(x,y,size,g){
+  if(nodes.length>160)return;
+  let n={
+    x,y,px:x,py:y,
+    h:noise(x*.002,y*.002,seed*.01)*TWO_PI,
+    size,step:random(.45,.9),age:0,max:random(120,260),
+    hue:random(360),gen:g,energy:1
+  };
+  nodes.push(n);
+}
+
+function nearest(n){
+  let best=null,bd=1e9;
+  for(let q of nodes){
+    if(q===n)continue;
+    let d=dist(n.x,n.y,q.x,q.y);
+    if(d<bd){bd=d;best=q;}
+  }
+  return {node:best,d:bd};
+}
+
+function update(){
+  generation++;
+  for(let n of nodes){
+    n.age++;
+    n.px=n.x;n.py=n.y;
+    let a=n.h
+      +sin(t*.8+n.gen*.7)*.38
+      +sin(n.age*.025+seed)*.22;
+    n.x+=cos(a)*n.step*(.55+n.energy*.5);
+    n.y+=sin(a)*n.step*(.55+n.energy*.5);
+    n.h+=noise(n.x*.006,n.y*.006,t*.035)-.5;
+    n.energy*=.994;
+
+    if(n.x<18||n.x>width-18){n.h=PI-n.h;}
+    if(n.y<18||n.y>height-18){n.h=-n.h;}
+
+    if(n.age>n.max)n.energy-=.025;
+
+    let hit=nearest(n);
+    if(hit.node&&hit.d<24&&random()<.055){
+      let q=hit.node;
+      if(n.age>20&&q.age>20&&nodes.length<150){
+        let mx=(n.x+q.x)/2,my=(n.y+q.y)/2;
+        let child=spawnChild(n,q,mx,my);
+        if(child){
+          branches.push({a:n,b:q,life:1});
+        }
+      }
+    }
+  }
+
+  nodes=nodes.filter(n=>n.energy>.03);
+  branches=branches.filter(b=>{
+    b.life*=.965;
+    return b.life>.03;
+  });
+}
+
+function spawnChild(a,b,x,y){
+  let child={
+    x,y,px:x,py:y,
+    h:lerpAngle(a.h,b.h,.5)+random(-.65,.65),
+    size:(a.size+b.size)*.48,
+    step:(a.step+b.step)*.5*random(.8,1.2),
+    age:0,max:(a.max+b.max)*.5,
+    hue:(a.hue+b.hue)*.5+random(-35,35),
+    gen:max(a.gen,b.gen)+1,energy:1.25
+  };
+  nodes.push(child);
+  return child;
+}
+
+function lerpAngle(a,b,m){
+  let d=((b-a+PI)%TWO_PI)-PI;
+  return a+d*m;
+}
+
+function drawWorld(loopPhase){
+  background(7,8,11);
+  t=loopPhase;
+  if(loopPhase===undefined)t=frameCount*.008;
+
+  // faint living substrate
+  noStroke();
+  for(let y=0;y<height;y+=22){
+    for(let x=0;x<width;x+=22){
+      let v=noise(x*.006,y*.006,t*.06+seed*.001);
+      fill(12+v*18,14+v*20,19+v*26,55);
+      circle(x,y,1.5+v*2);
+    }
+  }
+
+  // branches first
+  for(let b of branches){
+    let a=b.a,q=b.b;
+    let al=70*b.life;
+    stroke((a.hue+q.hue)*.5%360,70,100,al);
+    colorMode(HSB,360,100,100,255);
+    strokeWeight(1.2+3*b.life);
+    line(a.x,a.y,q.x,q.y);
+  }
+
+  colorMode(HSB,360,100,100,255);
+  for(let n of nodes){
+    let glow=10+25*n.energy;
+    noStroke();
+    fill(n.hue%360,55,100,35);
+    circle(n.x,n.y,glow);
+    fill(n.hue%360,35,100,210);
+    circle(n.x,n.y,max(1.5,n.size));
+    fill((n.hue+35)%360,25,100,180);
+    circle(n.x,n.y,max(1,n.size*.45));
+  }
+
+  // draw short living stems
+  for(let n of nodes){
+    if(dist(n.x,n.y,n.px,n.py)>1){
+      stroke(n.hue%360,45,100,80);
+      strokeWeight(max(.5,n.size*.25));
+      line(n.px,n.py,n.x,n.y);
+    }
+  }
+  colorMode(RGB);
 }
 
 function draw(){
-  phase = (frameCount * 0.006) % TWO_PI;
-  drawWorld(phase);
-}
-
-function drawWorld(t){
-  background(7,9,13);
-  noStroke();
-
-  // soft radial field
-  for(let y=-20;y<height+20;y+=12){
-    for(let x=-20;x<width+20;x+=12){
-      let nx=x/width, ny=y/height;
-      let field=0;
-      for(let i=0;i<anchors.length;i++){
-        let a=anchors[i];
-        let dx=x-a.x, dy=y-a.y;
-        let d2=dx*dx+dy*dy+1200;
-        field += 1700*a.r/d2;
-      }
-      let wave = 0.5+0.5*sin(field*9 + t*1.7 + nx*4.0 - ny*3.0 + seed);
-      let v = 5 + field*24 + wave*10;
-      fill(8+v*0.12, 18+v*0.22, 30+v*0.65, 95);
-      rect(x,y,13,13);
-    }
-  }
-
-  // tension curves: each anchor bends every orbit around it
-  noFill();
-  for(let ring=0;ring<18;ring++){
-    beginShape();
-    for(let i=0;i<=180;i++){
-      let ang=i/180*TWO_PI;
-      let base=32+ring*15;
-      let x=width/2+cos(ang)*base;
-      let y=height/2+sin(ang)*base*0.72;
-      for(let k=0;k<anchors.length;k++){
-        let a=anchors[k];
-        let dx=a.x-x, dy=a.y-y;
-        let d=sqrt(dx*dx+dy*dy)+1;
-        let pull=(a.r*260)/(d+70);
-        x += dx/d*pull;
-        y += dy/d*pull;
-      }
-      x += sin(ang*3+t*1.4+seed)*2.5;
-      y += cos(ang*2-t+seed)*2.5;
-      if(i===0) curveVertex(x,y); else curveVertex(x,y);
-    }
-    stroke(90+ring*6, 165+ring*4, 220, 32+ring*2);
-    strokeWeight(ring===0?1.5:0.65);
-    endShape(CLOSE);
-  }
-
-  // anchors are not particles: they are visible scars in the law
-  for(let a of anchors){
-    let pulse=1+0.14*sin(t*2.0+a.x*0.01);
-    noFill();
-    stroke(225,240,255,80);
-    strokeWeight(1);
-    circle(a.x,a.y,18*pulse);
-    stroke(150,220,255,150);
-    circle(a.x,a.y,4*pulse);
-  }
-
-  if(dragging){
-    stroke(255,255,255,70);
-    strokeWeight(1);
-    line(dragX-10,dragY,dragX+10,dragY);
-    line(dragX,dragY-10,dragX,dragY+10);
-  }
+  update();
+  drawWorld((frameCount*.008)%TWO_PI);
 }
 </script>
 </body>
