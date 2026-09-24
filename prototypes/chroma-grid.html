@@ -1,0 +1,113 @@
+<!doctype html>
+<!-- CHROMA GRID — ChatGPT作。参考動画の「発光する色面と縦横グリッド」を完全生成で再構成。ap-kit.js統合: ChatGPT -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>CHROMA GRID — 色の街が歪む</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#05020a}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#hint{position:fixed;left:0;right:0;bottom:calc(14% + env(safe-area-inset-bottom,0px));text-align:center;font:500 12px/1.9 "Hiragino Mincho ProN","Yu Mincho",serif;letter-spacing:.18em;color:rgba(255,235,225,.72);pointer-events:none;transition:opacity 1.5s;opacity:0;text-shadow:0 0 14px rgba(255,70,30,.5)}
+#hint.on{opacity:1}
+</style>
+<script src="../ap-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas><div id="hint">画面を押す<br>その場所から、色の法則がずれる</div>
+<script>
+(function(){
+'use strict';
+const TAU=Math.PI*2,canvas=document.getElementById('c'),hint=document.getElementById('hint');
+const gl=canvas.getContext('webgl2',{antialias:false,alpha:false,preserveDrawingBuffer:true});
+if(!gl){document.body.textContent='WebGL2 required';return}
+const VS=`#version 300 es
+in vec2 p;void main(){gl_Position=vec4(p,0.,1.);}`;
+const FS=`#version 300 es
+precision highp float;
+#define MAX 10
+uniform vec2 uRes,uTouch;
+uniform float uTime,uSeed,uBend,uHue;
+uniform int uTouchN;
+uniform vec4 uTouches[MAX];
+out vec4 outColor;
+float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453123);}
+float h21(vec2 p){return hash(p+uSeed);}
+vec3 hsv2rgb(vec3 c){
+ vec3 p=abs(fract(c.xxx+vec3(0.,.6666667,.3333333))*6.-3.);
+ return c.z*mix(vec3(1.),clamp(p-1.,0.,1.),c.y);
+}
+void main(){
+ vec2 uv=gl_FragCoord.xy/uRes, q=uv-.5;
+ q.x*=uRes.x/uRes.y;
+ float t=uTime;
+ float gx=q.x*7.0 + sin(q.y*2.2+t*.24)*.30;
+ float gy=q.y*11.0 + sin(q.x*1.7-t*.19)*.26;
+ float fx=fract(gx)-.5, fy=fract(gy)-.5;
+ float cx=abs(fx),cy=abs(fy);
+ float lineX=smoothstep(.055,.0,cx), lineY=smoothstep(.055,.0,cy);
+ float grid=max(lineX,lineY);
+ float localBend=0.;
+ for(int i=0;i<MAX;i++){
+   if(i>=uTouchN)break;
+   vec2 tp=uTouches[i].xy;
+   vec2 d=q-tp;
+   float rr=length(d);
+   float inf=exp(-rr*rr/(uTouches[i].z*uTouches[i].z));
+   float ang=atan(d.y,d.x);
+   localBend += inf*sin(ang*3.+uTouches[i].w)*.42;
+ }
+ float x=q.x+localBend*(.16+.05*sin(t*.7));
+ float y=q.y-localBend*.55;
+ float cellX=floor((x*7.0+sin(y*2.2+t*.24)*.3));
+ float cellY=floor((y*11.0+sin(x*1.7-t*.19)*.26));
+ float cell=cellX*17.0+cellY*31.0;
+ float hue=fract(.02 + cell*.031 + y*.10 + x*.06 + t*.025 + uHue + localBend*.32);
+ float field=.48+.28*sin(x*2.3-y*1.7+t*.34)+.18*cos(y*4.7+t*.17);
+ vec3 col=hsv2rgb(vec3(hue,.76,.66+field*.22));
+ float glow=pow(max(0.,grid),2.2);
+ col+=hsv2rgb(vec3(fract(hue+.08),.62,1.))*glow*1.25;
+ float horizon=exp(-pow((y+.02)/.06,2.));
+ col+=vec3(1.,.23,.05)*horizon*.32;
+ float grain=(h21(gl_FragCoord.xy*.31)-.5)*.025;
+ col+=grain;
+ float vign=1.-smoothstep(.48,.98,length(q));
+ col*=.72+.45*vign;
+ col=1.-exp(-col*1.65);
+ outColor=vec4(col,1.);
+}`;
+function sh(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(s));return s}
+const pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,VS));gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,FS));gl.linkProgram(pr);if(!gl.getProgramParameter(pr,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(pr));gl.useProgram(pr);
+gl.bindVertexArray(gl.createVertexArray());
+const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+const loc=gl.getAttribLocation(pr,'p');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+const U={};['uRes','uTouch','uTime','uSeed','uBend','uHue','uTouchN','uTouches'].forEach(n=>U[n]=gl.getUniformLocation(pr,n));
+const touches=[],touchBuf=new Float32Array(40);
+let W=0,H=0,t=0,seed=Math.random()*100,hue=Math.random(),bend=0,prev=performance.now(),hinted=false;
+function resize(){W=innerWidth;H=innerHeight;const d=Math.min(devicePixelRatio||1,1.5);canvas.width=Math.round(W*d);canvas.height=Math.round(H*d);gl.viewport(0,0,canvas.width,canvas.height)}
+addEventListener('resize',resize);
+function addTouch(x,y){
+ const qx=x/W-.5,qy=.5-y/H;
+ touches.unshift({x:qx*(W/H),y:qy,r:.24,w:Math.random()*TAU});
+ if(touches.length>10)touches.pop();bend=Math.min(1.5,bend+.18);hinted=true;hint.classList.remove('on');
+}
+function draw(time){
+ touchBuf.fill(0);
+ touches.forEach((v,i)=>{touchBuf[i*4]=v.x;touchBuf[i*4+1]=v.y;touchBuf[i*4+2]=v.r;touchBuf[i*4+3]=v.w});
+ gl.uniform2f(U.uRes,canvas.width,canvas.height);gl.uniform2f(U.uTouch,0,0);
+ gl.uniform1f(U.uTime,time);gl.uniform1f(U.uSeed,seed);gl.uniform1f(U.uBend,bend);gl.uniform1f(U.uHue,hue);
+ gl.uniform1i(U.uTouchN,touches.length);gl.uniform4fv(U.uTouches,touchBuf);gl.drawArrays(gl.TRIANGLES,0,3);
+}
+function frame(now){const dt=Math.min(.05,(now-prev)/1000);prev=now;t+=dt;draw(t);requestAnimationFrame(frame)}
+function loopFrame(phase){draw(phase)}
+function mutate(){seed=Math.random()*100;hue=Math.random();bend=Math.random()*1.2}
+function reset(){touches.length=0;bend=0;hue=.02;seed=18.4}
+canvas.addEventListener('pointerdown',e=>{if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;e.preventDefault();addTouch(e.clientX,e.clientY)},{passive:false});
+resize();requestAnimationFrame(frame);setTimeout(()=>{if(!hinted)hint.classList.add('on')},900);setTimeout(()=>hint.classList.remove('on'),6000);
+window.APKit.init({canvas:canvas,gifName:'chroma-grid-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,loopFrame:loopFrame,buttons:[
+ {label:'✦',name:'mutate',onClick:mutate},{label:'↻',name:'reset',onClick:reset}
+]});
+})();
+</script>
+</body>
+</html>
