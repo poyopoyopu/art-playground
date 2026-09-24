@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>TENSION FIELD — p5.js prototype</title>
+<script src="https://cdn.jsdelivr.net/npm/p5@1.11.10/lib/p5.min.js"></script>
+<script src="../ap-kit.js"></script>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#07090d;touch-action:none}
+canvas{display:block}
+</style>
+</head>
+<body>
+<script>
+// TENSION FIELD — ChatGPT作。p5.js prototype / ap-kit.js統合
+// 法則: 触れた場所が「固定点」になり、周囲の弾性場を恒久的に引き寄せる。
+// 触るほど、世界の基準点そのものが増えて形が変わる。
+
+let anchors = [];
+let seed = 0.0;
+let phase = 0;
+let dragging = false;
+let dragX = 0, dragY = 0;
+
+function setup(){
+  createCanvas(windowWidth, windowHeight);
+  pixelDensity(Math.min(2, window.devicePixelRatio || 1));
+  seed = random(1000);
+  APKit.init({
+    canvas: document.querySelector('canvas'),
+    gifName: 'p5-tension-loop',
+    clockFormat: 'spec',
+    dock: true,
+    autoHide: true,
+    fullscreenButton: false,
+    loopFrame: function(p){ drawWorld(p); },
+    buttons: [
+      {label:'✦', name:'mutate', onClick:function(){ mutate(); }},
+      {label:'↻', name:'reset', onClick:function(){ anchors=[]; }}
+    ]
+  });
+}
+
+function windowResized(){ resizeCanvas(windowWidth, windowHeight); }
+
+function mutate(){
+  seed = random(1000);
+  anchors = anchors.map(a => ({
+    x: constrain(a.x + random(-80,80), 0, width),
+    y: constrain(a.y + random(-80,80), 0, height),
+    r: random(0.65,1.35)
+  }));
+}
+
+function touchStarted(){
+  if(window.APKit && APKit.isUI(mouseX,mouseY)) return true;
+  addAnchor(mouseX, mouseY);
+  dragging = true;
+  dragX = mouseX; dragY = mouseY;
+  return false;
+}
+
+function touchMoved(){
+  if(window.APKit && APKit.isUI(mouseX,mouseY)) return true;
+  if(dragging){
+    dragX = mouseX; dragY = mouseY;
+    if(dist(mouseX,mouseY,dragX,dragY)>18) addAnchor(mouseX,mouseY);
+  }
+  return false;
+}
+
+function touchEnded(){
+  dragging=false;
+  return false;
+}
+
+function mousePressed(){
+  if(window.APKit && APKit.isUI(mouseX,mouseY)) return true;
+  addAnchor(mouseX,mouseY);
+  dragging=true;
+  return false;
+}
+function mouseDragged(){
+  if(window.APKit && APKit.isUI(mouseX,mouseY)) return true;
+  dragX=mouseX; dragY=mouseY;
+  return false;
+}
+function mouseReleased(){ dragging=false; }
+
+function addAnchor(x,y){
+  if(anchors.length && dist(x,y,anchors[anchors.length-1].x,anchors[anchors.length-1].y)<28) return;
+  anchors.push({x,y,r:random(.7,1.3)});
+  if(anchors.length>28) anchors.shift();
+}
+
+function draw(){
+  phase = (frameCount * 0.006) % TWO_PI;
+  drawWorld(phase);
+}
+
+function drawWorld(t){
+  background(7,9,13);
+  noStroke();
+
+  // soft radial field
+  for(let y=-20;y<height+20;y+=12){
+    for(let x=-20;x<width+20;x+=12){
+      let nx=x/width, ny=y/height;
+      let field=0;
+      for(let i=0;i<anchors.length;i++){
+        let a=anchors[i];
+        let dx=x-a.x, dy=y-a.y;
+        let d2=dx*dx+dy*dy+1200;
+        field += 1700*a.r/d2;
+      }
+      let wave = 0.5+0.5*sin(field*9 + t*1.7 + nx*4.0 - ny*3.0 + seed);
+      let v = 5 + field*24 + wave*10;
+      fill(8+v*0.12, 18+v*0.22, 30+v*0.65, 95);
+      rect(x,y,13,13);
+    }
+  }
+
+  // tension curves: each anchor bends every orbit around it
+  noFill();
+  for(let ring=0;ring<18;ring++){
+    beginShape();
+    for(let i=0;i<=180;i++){
+      let ang=i/180*TWO_PI;
+      let base=32+ring*15;
+      let x=width/2+cos(ang)*base;
+      let y=height/2+sin(ang)*base*0.72;
+      for(let k=0;k<anchors.length;k++){
+        let a=anchors[k];
+        let dx=a.x-x, dy=a.y-y;
+        let d=sqrt(dx*dx+dy*dy)+1;
+        let pull=(a.r*260)/(d+70);
+        x += dx/d*pull;
+        y += dy/d*pull;
+      }
+      x += sin(ang*3+t*1.4+seed)*2.5;
+      y += cos(ang*2-t+seed)*2.5;
+      if(i===0) curveVertex(x,y); else curveVertex(x,y);
+    }
+    stroke(90+ring*6, 165+ring*4, 220, 32+ring*2);
+    strokeWeight(ring===0?1.5:0.65);
+    endShape(CLOSE);
+  }
+
+  // anchors are not particles: they are visible scars in the law
+  for(let a of anchors){
+    let pulse=1+0.14*sin(t*2.0+a.x*0.01);
+    noFill();
+    stroke(225,240,255,80);
+    strokeWeight(1);
+    circle(a.x,a.y,18*pulse);
+    stroke(150,220,255,150);
+    circle(a.x,a.y,4*pulse);
+  }
+
+  if(dragging){
+    stroke(255,255,255,70);
+    strokeWeight(1);
+    line(dragX-10,dragY,dragX+10,dragY);
+    line(dragX,dragY-10,dragX,dragY+10);
+  }
+}
+</script>
+</body>
+</html>
