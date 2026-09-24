@@ -1,3 +1,4 @@
+- 2026-09-24 チャッピー: CHROMA GRIDを採用し、表示名をCOLOR LATTICEへ変更。AZURE DESCENTのWebGL2シェーダー型エラーを修正(prototypes/chroma-grid.html, prototypes/azure-descent.html, index.html)
 - 2026-09-24 チャッピー: 参考動画2本を元にCHROMA GRIDとAZURE DESCENTを新規制作。どちらも画像素材を使わずWebGL2で完全生成(prototypes/chroma-grid.html, prototypes/azure-descent.html)
 - 2026-09-24 クロード: おっちゃん提供の「CLOUD TREE」イメージ画像(雲でできた樹冠の一本木)を参考にOPEN SKYを新規制作。チャッピーのCLOUD TREE(触れると枝が露出)とは別ファイルで、法則は「開いた空へ、木は伸びる」。雲に触れるとそこだけ空が開いて二度と閉じず、空の下に出た枝が光を浴びて小枝を再帰的に伸ばす。小枝は開いた空の中では雲を付けられず、突き抜けた先で新しい雲を吐くので、木の形が開けた空の記録になる。なぞると細長く開く。✦で別の木と空(昼/朝焼け/夕暮れ/月夜)、↻で開ける前に戻す(prototypes/open-sky.html)
 - 2026-09-24 チャッピー: LINEAGEをBLOODLINEとして再構築。中心から牙の輪が増殖し、触れた輪が次世代の牙数・形質を引き継ぐ体験へ刷新(WebGL2)(prototypes/lineage.html)
