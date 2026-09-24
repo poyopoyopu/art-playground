@@ -86,10 +86,7 @@ void main(){
   vec2 q=(frag-uC)/uUnit; q.y=-q.y;           // 上が+
   float r=length(q);
   float th=atan(abs(q.x),q.y);                // 0=真上, PI=真下 (左右鏡映)
-  vec3 col=vec3(.008,.03,.045);
-  col+=vec3(.0,.02,.03)*(1.-smoothstep(0.,1.6,r));
-  // 縦の走査線(参考のにじんだモニター感)
-  col*=.92+.08*step(.5,fract(frag.x/3.));
+  vec3 col=vec3(.005,.008,.01);
   for(int i=0;i<MAXR;i++){
     if(i>=uN)break;
     vec4 R=uR[i];vec4 G1=uG1[i];vec4 G2=uG2[i];vec4 G3=uG3[i];
@@ -98,11 +95,11 @@ void main(){
     float Ig=ringI(r,th,R,G1,G2,G3);
     float Ib=ringI(r-ca,th,R,G1,G2,G3);
     float heat=G3.x;
-    vec3 base=mix(vec3(.25,.75,1.),vec3(1.,.28,.05),heat);
-    vec3 mid=mix(vec3(.6,.95,1.),vec3(1.,.72,.2),heat);
-    col.r+=base.r*Ir+mid.r*Ir*Ir+Ir*Ir*Ir*.8;
-    col.g+=base.g*Ig+mid.g*Ig*Ig+Ig*Ig*Ig*.8;
-    col.b+=base.b*Ib+mid.b*Ib*Ib+Ib*Ib*Ib*.8;
+    vec3 base=mix(vec3(1.,.72,.2),vec3(1.,.28,.05),heat);
+    vec3 mid=mix(vec3(1.,.95,.65),vec3(1.,.55,.12),heat);
+    col.r+=base.r*Ir+mid.r*Ir*Ir+Ir*Ir*Ir*1.2;
+    col.g+=base.g*Ig+mid.g*Ig*Ig+Ig*Ig*Ig*1.2;
+    col.b+=base.b*Ib+mid.b*Ib*Ib+Ib*Ib*Ib*1.2;
     // 外縁のシアンのにじみ
     col+=vec3(.05,.45,.6)*max(Ib-Ig,0.)*1.4;
   }
@@ -111,14 +108,14 @@ void main(){
   float rays=1.-tri(th/PI*uEyeN);
   float eyeDisc=smoothstep(e*1.02,e*.55,r);
   float rim=exp(-pow((r-e*(1.+.12*rays*rays))/(e*.12),2.));
-  vec3 eyeCol=mix(vec3(1.,.42,.08),vec3(1.,.95,.8),smoothstep(e,e*.35,r));
-  col+=eyeCol*eyeDisc*1.1+vec3(1.,.55,.15)*rim*1.2;
-  col+=vec3(1.,.4,.1)*exp(-r*r/(e*e*5.))*.5*(1.+uEyePulse);
+  vec3 eyeCol=mix(vec3(1.,.35,.08),vec3(1.,.98,.85),smoothstep(e,e*.35,r));
+  col+=eyeCol*eyeDisc*1.1+vec3(1.,.65,.18)*rim*1.2;
+  col+=vec3(1.,.45,.08)*exp(-r*r/(e*e*5.))*.5*(1.+uEyePulse);
   vec2 pq=(q-uPupil)/e;
   float pr=length(pq);
-  col=mix(col,vec3(.9,.12,.05),smoothstep(.42,.3,pr)*eyeDisc);          // 虹彩
+  col=mix(col,vec3(1.,.35,.08),smoothstep(.42,.3,pr)*eyeDisc);          // 虹彩
   col=mix(col,vec3(.02,.01,.02),smoothstep(.26,.16,pr)*eyeDisc);        // 瞳
-  col=col/(1.+col*.35);
+  col=col/(1.+col*.12);
   col+=(hash(frag+uT)-.5)*(3./255.);
   gl_FragColor=vec4(col,1.);
 }`;
@@ -139,7 +136,7 @@ function gauss(){return (Math.random()+Math.random()+Math.random()-1.5)*1.15}
 function randomGenome(){
   return {n:6+Math.floor(Math.random()*14),depth:1+Math.floor(Math.random()*4),ratio:Math.random()<.6?2:3,
     amp:.1+Math.random()*.22,dir:Math.random()<.65?1:-1,span:.5+Math.random()*1.,center:Math.random()<.4?0:Math.random()<.5?1:.3+Math.random()*.4,
-    thick:.012+Math.random()*.014,heat:Math.random()<.75?.75+Math.random()*.25:Math.random()*.4,
+    thick:.012+Math.random()*.014,heat:.7+Math.random()*.3,
     dots:Math.random()<.25?.6:0,twist:(Math.random()-.5)*.8,pair:Math.random()<.5?1:0};
 }
 const FIRST={n:7,depth:3,ratio:2,amp:.3,dir:1,span:.85,center:0,thick:.018,heat:.92,dots:0,twist:0,pair:1};
@@ -155,7 +152,7 @@ function mutate(g,k){
   if(Math.random()<.15*k)c.center=Math.random()<.5?0:(Math.random()<.5?1:.35+Math.random()*.3);
   if(Math.random()<.12*k)c.pair=c.pair?0:1;
   c.thick=clamp(c.thick*Math.exp(gauss()*.15*k),.01,.03);
-  c.heat=clamp(c.heat+gauss()*.12*k,0,1);
+  c.heat=clamp(c.heat+gauss()*.12*k,.7,1);
   if(Math.random()<.08*k)c.dots=c.dots>0?0:.6;
   c.twist=clamp(c.twist+gauss()*.15*k,-1,1);
   return c;
