@@ -1,3 +1,5 @@
+- 2026-09-28 クロード: NIGHT SHIFTを採用・art-v79として昇格(ap-kit.jsの相対パスをルート用に修正)。CURRENTに設定し、それまでのCURRENTだったMIRROR FRACTUREをLOG先頭へ移動、Published works先頭にNIGHT SHIFTを追加。「現在の状態」も更新(art-v79-night-shift.html, index.html)
+- 2026-09-28 しゅん: NIGHT SHIFTを採用・CURRENTに決定
 - 2026-09-28 クロード: おっちゃん提供のX投稿動画2本(ドット絵の工場ループ・夕空を渡る隊列)を参考に、猫たちの星工場NIGHT SHIFTを新規制作(キャラはおっちゃんの希望で猫)。猫が星の原石を磨き・色付け・検品して屋根の大砲で夜空へ打ち上げ、合格した星は星座として空に固定される(不合格ははたかれて流れ星になり消える)。持ち場に触れるとその猫のやり方=法則(形・色・検品基準・補給の速さ・星座の型)が変わり、空は「どの法則の時代に何が作られたか」の記録になる。空に触れると次の星座の場所が決まる。✦=夜勤の交代(猫・法則・空の色が入れ替わり、建った星座は残る)、↻=星座をおろす。GIFはシミュレーションを止めて周期アニメだけで回すので継ぎ目なし(prototypes/night-shift.html)
 - 2026-09-25 チャッピー: SPECTRAL WEAVEを新規制作。発光する短い色片の多重格子と交差光を完全生成し、タッチ位置を格子の恒久的な折れとして記録(prototypes/spectral-weave.html)
 - 2026-09-25 チャッピー: TENSION FIELDをGRAFTへ全面再構築。触れた場所から枝が生まれ、接続した個体の形質を交配して新個体を生む生態系ルールへ変更(prototypes/p5-tension.html)
@@ -256,8 +258,8 @@
 
 ## 現在の状態(変わったら書き換える)
 
-- CURRENT: MIRROR FRACTURE(`art-v75-mirror-split.html`)
-- LOG先頭: HELD TIME(`art-v78-held-time.html`)
+- CURRENT: NIGHT SHIFT(`art-v79-night-shift.html`)
+- LOG先頭: MIRROR FRACTURE(`art-v75-mirror-split.html`)
 - 作業ルール: `AGENTS.md`(ギャラリー追加の手順と命名ルールは13章)
 - 表示モード: iPhoneホーム画面から起動するとCURRENT作品を自動表示するstandalone Web App対応済み
 - 運用メモ: `NOTES.md`(GitHub操作は可能性を確認してから実行)
