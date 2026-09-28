@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>ART PLAYGROUND / ANALYTICS</title>
 <style>
+.tools{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px}.tools button{margin:0;padding:8px 11px;font-size:10px;color:#aaa}.tools button.active{color:#fff;border-color:#555;background:#19191f}.search{width:100%;border:1px solid #202027;border-radius:10px;background:#0b0b10;color:#fff;padding:10px 12px;font-size:12px;outline:none;margin-bottom:10px}.meta{color:#666;font-size:10px;margin:0 0 8px}.latest{display:grid;gap:8px}.latest-row{display:grid;grid-template-columns:1fr 58px;gap:10px;align-items:center;padding:11px 12px;border:1px solid #202027;border-radius:11px;background:#0b0b10}.latest-name{font-size:12px;font-weight:600}.latest-path{font-size:9px;color:#555;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.latest-views{text-align:right;font-size:15px;font-weight:700}.zero{color:#555;font-size:9px;margin-left:5px}
 *{box-sizing:border-box}
 html,body{margin:0;background:#050507;color:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif}
 body{padding:24px 16px 60px}.wrap{max-width:820px;margin:auto}
@@ -26,29 +27,23 @@ button{margin-top:20px;border:1px solid #333;background:#111118;color:#fff;borde
 <div class="stats">
 <div class="stat"><div class="label">TOTAL VIEWS</div><div class="num" id="total">—</div></div>
 <div class="stat"><div class="label">LAST 30 DAYS</div><div class="num" id="recent">—</div></div>
+<div class="stat"><div class="label">TODAY</div><div class="num" id="today">—</div></div>
 </div>
 <h2>DAILY VIEWS / 30 DAYS</h2><div class="chart" id="chart"></div>
-<h2>WORKS / ALL TIME</h2><div id="list"></div>
+<h2>LATEST WORKS</h2><div class="meta" id="catalogMeta">—</div><div class="latest" id="latest"></div>
+<h2>WORKS / ALL TIME</h2><div class="tools"><button id="sortViews" class="active" onclick="setSort('views')">閲覧数順</button><button id="sortNew" onclick="setSort('new')">新しい順</button></div><input id="search" class="search" type="search" placeholder="作品名・ファイル名で検索" oninput="renderWorks()"><div id="list"></div>
 <button onclick="load()">↻ 更新</button><div id="status"></div>
 </div>
 <script>
-async function load(){
- const status=document.getElementById('status');status.textContent='更新中…';
- try{
-  const r=await fetch('/api/views',{cache:'no-store'});const d=await r.json();
-  if(!r.ok)throw new Error((d.error||'API error')+(d.detail?(': '+d.detail):''));
-  document.getElementById('total').textContent=(d.total_views||0).toLocaleString();
-  document.getElementById('recent').textContent=(d.last_30_days||0).toLocaleString();
-  const days=d.daily||[], max=Math.max(1,...days.map(x=>Number(x.views)||0));
-  const byDay=new Map(days.map(x=>[x.day,Number(x.views)||0]));
-  const bars=[];
-  for(let i=29;i>=0;i--){const dt=new Date();dt.setHours(0,0,0,0);dt.setDate(dt.getDate()-i);const day=dt.toISOString().slice(0,10);const v=byDay.get(day)||0;bars.push('<div class="bar" style="height:'+Math.max(v?3:1,Math.round(v/max*140))+'px" title="'+day+': '+v+' views"></div>')}
-  document.getElementById('chart').innerHTML=bars.join('');
-  const works=(d.works||[]);document.getElementById('list').innerHTML=works.length?works.map((x,i)=>'<div class="row"><div>'+(i+1)+'</div><div><div class="name">'+esc(x.title)+'</div><div class="path">'+esc(x.path)+'</div></div><div class="views">'+Number(x.views||0).toLocaleString()+'</div><div class="last">'+formatDate(x.last_view)+'</div></div>').join(''):'まだアクセス記録がありません。';
-  status.textContent='最終更新：'+new Date().toLocaleString('ja-JP');
- }catch(e){status.textContent='解析データを取得できませんでした: '+e.message}
-}
+let analyticsData=null,catalog=[],sortMode='views';
+async function load(){const status=document.getElementById('status');status.textContent='更新中…';try{const [apiRes,indexRes]=await Promise.all([fetch('/api/views',{cache:'no-store'}),fetch('/',{cache:'no-store'})]);const d=await apiRes.json();if(!apiRes.ok)throw new Error((d.error||'API error')+(d.detail?(': '+d.detail):''));analyticsData=d;catalog=await readCatalog(indexRes);document.getElementById('total').textContent=(d.total_views||0).toLocaleString();document.getElementById('recent').textContent=(d.last_30_days||0).toLocaleString();const today=(d.daily||[]).find(x=>x.day===new Date().toISOString().slice(0,10));document.getElementById('today').textContent=Number(today?.views||0).toLocaleString();renderChart(d.daily||[]);const vm=viewMap();renderLatest(vm);renderWorks();document.getElementById('catalogMeta').textContent='公開作品 '+catalog.length+'件。0 views の作品も含めて表示。';status.textContent='最終更新：'+new Date().toLocaleString('ja-JP')}catch(e){status.textContent='解析データを取得できませんでした: '+e.message}}
+async function readCatalog(res){if(!res.ok)return[];const doc=new DOMParser().parseFromString(await res.text(),'text/html'),seen=new Set(),out=[];doc.querySelectorAll('.current,.entry').forEach(box=>{const iframe=box.querySelector('iframe[data-src]'),name=box.querySelector('.name');if(!iframe||!name)return;const path=iframe.getAttribute('data-src')||'',title=(name.textContent||'').trim();if(!path||!title||seen.has(path))return;seen.add(path);out.push({path,title})});return out}
+function viewMap(){return new Map((analyticsData?.works||[]).map(x=>[String(x.path),x]))}
+function renderChart(days){const max=Math.max(1,...days.map(x=>Number(x.views)||0)),byDay=new Map(days.map(x=>[x.day,Number(x.views)||0])),bars=[];for(let i=29;i>=0;i--){const dt=new Date();dt.setHours(0,0,0,0);dt.setDate(dt.getDate()-i);const day=dt.toISOString().slice(0,10),v=byDay.get(day)||0;bars.push('<div class="bar" style="height:'+Math.max(v?3:1,Math.round(v/max*140))+'px" title="'+day+': '+v+' views"></div>')}document.getElementById('chart').innerHTML=bars.join('')}
+function renderLatest(vm){document.getElementById('latest').innerHTML=catalog.slice(0,8).map(x=>{const v=Number(vm.get(x.path)?.views)||0;return '<div class="latest-row"><div><div class="latest-name">'+esc(x.title)+(v===0?'<span class="zero">NO VIEWS</span>':'')+'</div><div class="latest-path">'+esc(x.path)+'</div></div><div class="latest-views">'+v.toLocaleString()+'</div></div>'}).join('')||'作品情報を取得できませんでした。'}
+function setSort(mode){sortMode=mode;document.getElementById('sortViews').classList.toggle('active',mode==='views');document.getElementById('sortNew').classList.toggle('active',mode==='new');renderWorks()}
+function renderWorks(){const vm=viewMap(),q=(document.getElementById('search').value||'').trim().toLowerCase();let rows=catalog.map((x,i)=>{const s=vm.get(x.path);return{path:x.path,title:x.title,views:Number(s?.views)||0,last_view:s?.last_view||null,index:i}}).filter(x=>!q||(x.title+' '+x.path).toLowerCase().includes(q));if(sortMode==='views')rows.sort((a,b)=>b.views-a.views||a.title.localeCompare(b.title));document.getElementById('list').innerHTML=rows.map((x,i)=>'<div class="row"><div>'+(sortMode==='views'?i+1:'—')+'</div><div><div class="name">'+esc(x.title)+(x.views===0?'<span class="zero">NO VIEWS</span>':'')+'</div><div class="path">'+esc(x.path)+'</div></div><div class="views">'+x.views.toLocaleString()+'</div><div class="last">'+formatDate(x.last_view)+'</div></div>').join('')||'該当する作品がありません。'}
 function esc(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-function formatDate(s){if(!s)return'—';const d=new Date(s);return d.toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}
+function formatDate(s){if(!s)return'—';return new Date(s).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}
 load();setInterval(load,60000);
 </script></body></html>
