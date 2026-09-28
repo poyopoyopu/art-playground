@@ -1,3 +1,5 @@
+- 2026-09-28 クロード: RAINBOW WALKをart-v80として昇格(ap-kit.jsの相対パスをルート用に修正)。ギャラリーLOG先頭とPublished works(CURRENTのNIGHT SHIFTの直後)に追加し、「現在の状態」のLOG先頭も更新(art-v80-rainbow-walk.html, index.html)
+- 2026-09-28 しゅん: RAINBOW WALKを採用決定
 - 2026-09-28 クロード: RAINBOW WALKに横向き表示を追加(おっちゃん「本体を横にしたら横に歩くはできない？」)。画面が横長になると、道が左→右に流れて猫が横に歩く(空は右から左へ流れる)。縦・横どちらでも短い辺を同じ解像度にして猫の大きさをそろえ、途中で向きを変えると同じ猫・同じ並び順のまま新しい道で虹を描き直す(prototypes/rainbow-walk.html)
 - 2026-09-28 クロード: RAINBOW WALKを最初のドット絵版(bc6b9e7)に戻して猫を小さめに(おっちゃん「これはもうドットではない、最初のバージョンで小さめで」)。2倍・3倍の拡大猫をやめて全猫を原寸ドット(12x8)に統一し、画面解像度を少し上げて相対的に小さく表示。前2回の作り直し(ちびスプライト・3/4顔)は不採用(prototypes/rainbow-walk.html)
 - 2026-09-28 クロード: RAINBOW WALKの猫をさらに作り直し(おっちゃん「解像度を上げるならもっと可愛くできるでしょ」)。画面解像度をもう一段上げ、猫を丸い頭・丸い胴の3/4顔ちびキャラに。両目(白いハイライト付き)・ピンクの内耳・ほっぺ・ω口・頭のハイライトと胴の影・毛色に合わせた柔らかい縁取り。毛色9種(茶トラ・黒・白・サバトラ・三毛・クリーム・キジトラ・シャム・ハチワレ)、体型は子猫/ふつう/ぽっちゃり。スカーフは首に巻いて端がなびく。HUD文字は2倍に(prototypes/rainbow-walk.html)
@@ -264,7 +266,7 @@
 ## 現在の状態(変わったら書き換える)
 
 - CURRENT: NIGHT SHIFT(`art-v79-night-shift.html`)
-- LOG先頭: MIRROR FRACTURE(`art-v75-mirror-split.html`)
+- LOG先頭: RAINBOW WALK(`art-v80-rainbow-walk.html`)
 - 作業ルール: `AGENTS.md`(ギャラリー追加の手順と命名ルールは13章)
 - 表示モード: iPhoneホーム画面から起動するとCURRENT作品を自動表示するstandalone Web App対応済み
 - 運用メモ: `NOTES.md`(GitHub操作は可能性を確認してから実行)

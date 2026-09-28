@@ -1,0 +1,408 @@
+<!doctype html>
+<!-- RAINBOW WALK — クロード作(おっちゃん提供のX投稿動画=夕空の光の道を隊列が昇っていく映像を参考に、キャラは猫・法則はオリジナル)。ap-kit.js統合: クロード。2026-09-28 採用・art-v80として昇格(prototypes/rainbow-walk.html から) -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>RAINBOW WALK — 猫が渡るぶんだけ、虹になる</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#232760}
+canvas{display:block;width:100%;height:100%;touch-action:none;image-rendering:pixelated;image-rendering:crisp-edges}
+#hint{position:fixed;left:0;right:0;top:calc(18% + env(safe-area-inset-top,0px));text-align:center;
+  font:600 12px/1.9 "Hiragino Maru Gothic ProN","Hiragino Sans","Yu Gothic",sans-serif;letter-spacing:.12em;color:rgba(255,246,228,.92);
+  text-shadow:0 1px 0 rgba(30,30,70,.8);pointer-events:none;transition:opacity 1.6s ease;opacity:0}
+#hint.on{opacity:1}
+</style>
+<script src="ap-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">虹は、渡っている猫の色でできている<br>猫に触れると雲で昼寝して、その色が虹から消える<br>空に触れると、新しい猫が虹に加わる</div>
+<script>
+(function(){
+'use strict';
+/* ─────────────────────────────────────────────────────────────
+   世界のルール:「虹の色は、いま渡っている猫の数だけある」
+   ・猫はそれぞれ自分の色のスカーフを巻き、歩いた跡にその色の帯を残す。
+     虹の帯の数・順番・太さ = 隊列の猫の数・並び・体の大きさ。
+   ・猫に触れると、その猫は隊列を降りて雲の上で昼寝する。その高さから先、虹からその色が消える。
+   ・空に触れると、新しい猫が飛び込んで隊列の最後尾に加わり、虹に新しい色が増える(最大7色)。
+   ・昼寝中の猫に触れると起きて戻ってくる。
+   ・一度描かれた虹は書き換わらないので、虹の下の方は「誰がいつ渡っていたか」の記録になる。
+   ✦ = この先の道の曲がり方が変わり、隊列の並び順が入れ替わる / ↻ = 最初からやり直す
+   ───────────────────────────────────────────────────────────── */
+const TAU=Math.PI*2;
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+const buf=document.createElement('canvas'),g=buf.getContext('2d');
+const hintEl=document.getElementById('hint');
+let W=150,H=320,K=3,LEADY=115,LEADX=0,HORIZ=false;
+// portrait: the road climbs upward. landscape: the same road runs left→right and the cats walk sideways.
+// 'u' = distance along the road (world), 'lat' = position across it (screen x in portrait, screen y in landscape).
+let skyC=null,skyT=0,time=0,yCam=0;
+const SPEED=16;
+
+const rnd=(a,b)=>a+Math.random()*(b-a);
+const ri=(a,b)=>Math.floor(rnd(a,b+1));
+const pick=a=>a[Math.floor(Math.random()*a.length)];
+const clamp=(v,a,b)=>v<a?a:(v>b?b:v);
+const hash=k=>(((k*2654435761)>>>0)%1000)/1000;
+
+/* ---------- palettes (the sky turns as the cats climb) ---------- */
+const PAL=[
+ {stops:['#232760','#44468c','#7d64a8','#c98aa9','#f4b48d'],cl:['#ffd8d8','#d8a5c2','#9c80b3'],star:0.7},
+ {stops:['#0d1030','#1b2158','#323a80','#50529a','#7a6fae'],cl:['#9a9dd4','#6367a3','#41457e'],star:1},
+ {stops:['#2b3a78','#5570ae','#9d9ccc','#e9b9c0','#ffd6a4'],cl:['#fff2ea','#f1c3cf','#c19dc5'],star:0.35},
+ {stops:['#3a2f6e','#6a4f96','#b0719f','#ec9a8e','#ffc98a'],cl:['#ffe3cf','#e6a9b4','#a97fae'],star:0.5}
+];
+const RB=[{c:'#ff6b6b',ja:'あか'},{c:'#ffa94d',ja:'だいだい'},{c:'#ffe066',ja:'きいろ'},{c:'#69db7c',ja:'みどり'},
+ {c:'#4dabf7',ja:'あお'},{c:'#748ffc',ja:'あい'},{c:'#da77f2',ja:'むらさき'}];
+const SPARKC=['#ffffff','#ffe08a','#ff9fc8','#8fd3ff','#9ff0b8','#caa8ff'];
+
+function hx(h){return [parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];}
+function mixc(a,b,t){return [a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t];}
+function rgb(c){return 'rgb('+(c[0]|0)+','+(c[1]|0)+','+(c[2]|0)+')';}
+function palAt(alt){
+  const n=PAL.length,f=((alt%n)+n)%n,i=Math.floor(f),j=(i+1)%n;let t=f-i;t=t*t*(3-2*t);
+  const A=PAL[i],B=PAL[j];
+  return {stops:A.stops.map((s,k)=>mixc(hx(s),hx(B.stops[k]),t)),cl:A.cl.map((s,k)=>rgb(mixc(hx(s),hx(B.cl[k]),t))),star:A.star+(B.star-A.star)*t};
+}
+let pal=palAt(0);
+const ALT_PERIOD=2600;   // world px per palette step
+
+/* ---------- 3x5 font ---------- */
+const FONT={A:[".#.","#.#","###","#.#","#.#"],B:["##.","#.#","##.","#.#","##."],C:[".##","#..","#..","#..",".##"],D:["##.","#.#","#.#","#.#","##."],
+E:["###","#..","##.","#..","###"],I:["###",".#.",".#.",".#.","###"],K:["#.#","#.#","##.","#.#","#.#"],L:["#..","#..","#..","#..","###"],
+M:["#.#","###","###","#.#","#.#"],N:["##.","#.#","#.#","#.#","#.#"],O:[".#.","#.#","#.#","#.#",".#."],R:["##.","#.#","##.","#.#","#.#"],
+S:[".##","#..",".#.","..#","##."],T:["###",".#.",".#.",".#.",".#."],W:["#.#","#.#","###","###","#.#"],
+'0':["###","#.#","#.#","#.#","###"],'1':[".#.","##.",".#.",".#.","###"],'2':["##.","..#",".#.","#..","###"],'3':["##.","..#",".#.","..#","##."],
+'4':["#.#","#.#","###","..#","..#"],'5':["###","#..","##.","..#","##."],'6':[".##","#..","###","#.#","###"],'7':["###","..#",".#.",".#.",".#."],
+'8':["###","#.#","###","#.#","###"],'9':["###","#.#","###","..#","##."],'/':["..#","..#",".#.","#..","#.."]};
+function text(s,x,y,col,sh){x=Math.round(x);y=Math.round(y);
+  for(const ch of s){const gl=FONT[ch];if(gl)for(let r=0;r<5;r++)for(let c=0;c<3;c++)if(gl[r][c]==='#'){
+    if(sh){g.fillStyle=sh;g.fillRect(x+c,y+r+1,1,1);}g.fillStyle=col;g.fillRect(x+c,y+r,1,1);}x+=4;}}
+function textW(s){return s.length*4-1;}
+function rect(x,y,w,h,c){g.fillStyle=c;g.fillRect(Math.round(x),Math.round(y),w,h);}
+function px(x,y,c){g.fillStyle=c;g.fillRect(Math.round(x),Math.round(y),1,1);}
+
+/* ---------- the road (only the part ahead can change) ---------- */
+function newPath(){const m=Math.min(latSpan(),170);return {a1:m*rnd(0.2,0.3),a2:m*rnd(0.04,0.1),f1:rnd(0.014,0.024),f2:rnd(0.045,0.07),p1:rnd(0,TAU),p2:rnd(0,TAU)};}
+let paths=[{p:newPath(),y0:-1e9}];
+function latSpan(){return HORIZ?H:W;}
+function rawX(p,y){return latSpan()/2+p.a1*Math.sin(y*p.f1+p.p1)+p.a2*Math.sin(y*p.f2+p.p2);}
+function pathX(y){
+  let i=paths.length-1;while(i>0&&paths[i].y0>y)i--;
+  let x=rawX(paths[i].p,y);
+  if(i>0){const t=clamp((y-paths[i].y0)/90,0,1),s=t*t*(3-2*t);x=rawX(paths[i-1].p,y)*(1-s)+x*s;}
+  return HORIZ?clamp(x,26,H-12):clamp(x,12,W-12);
+}
+
+/* ---------- cats (side view, facing right) ---------- */
+const CAT=[
+"........B.B.",
+"B.......BBBB",
+"B.......BBOB",
+".B..BBBBBBBN",
+"..BBBBBBCCWW",
+"..BBBBBBBBB.",
+"..BBDBBDBBB."];
+const LEGS=["..B.B...B.B.","...BB....BB."];
+const COATS=[
+ {B:'#f2a24e',D:'#c86f2c',W:'#fff1dc',O:'#3a2a1e',N:'#ff8fa0'},
+ {B:'#2a2a38',D:'#1a1a24',W:'#4a4a60',O:'#ffd84a',N:'#ff9fb0'},
+ {B:'#f5f2ea',D:'#d9d0c0',W:'#ffffff',O:'#4aa3ff',N:'#ff9fb0'},
+ {B:'#9ea4b6',D:'#737a8f',W:'#e8eaf0',O:'#9cff7a',N:'#ff9fb0'},
+ {B:'#f7f0e4',D:'#e0913f',W:'#ffffff',O:'#2b2b2b',N:'#ff9fb0',patch:[[9,1,'#2b2b36'],[10,1,'#2b2b36'],[4,3,'#e0913f'],[5,3,'#e0913f'],[6,5,'#2b2b36'],[7,5,'#2b2b36']]},
+ {B:'#f3d9a8',D:'#d9b178',W:'#fff6e4',O:'#5a3b1e',N:'#ff8fa0'},
+ {B:'#6b5a4e',D:'#4a3d34',W:'#e9ddd0',O:'#8fe36b',N:'#ff9fb0'}
+];
+function randSize(){return 1;}   // dot cats stay at their native pixel size (blown-up cats looked coarse)
+function freeColors(){const used=new Set();for(const c of parade)used.add(c.ci);for(const j of joiners)used.add(j.cat.ci);
+  return RB.map((_,i)=>i).filter(i=>!used.has(i));}
+function newCat(ci){return {coat:ri(0,COATS.length-1),s:randSize(),ci,y:0,x:latSpan()/2,face:1,ph:rnd(0,3),lastRow:null,off:0};}
+function drawCat(cat,x,y,t,sleeping){
+  // (x,y) = bottom-centre of the cat on screen
+  const co=COATS[cat.coat],s=cat.s,f=sleeping?1:cat.face,w=12*s,h=(sleeping?7:8)*s;
+  const frame=sleeping?0:((Math.floor(t*6+cat.ph)%2)+2)%2;
+  const bob=(!sleeping&&frame===0)?-Math.max(1,s>>1):0;
+  const blink=sleeping||((t+cat.ph)%3.5)<0.15;
+  const x0=Math.round(x-w/2),y0=Math.round(y-h)+bob;
+  const put=(c,r,col)=>{g.fillStyle=col;const cx=f>0?c:11-c;g.fillRect(x0+cx*s,y0+r*s,s,s);};
+  for(let r=0;r<CAT.length;r++)for(let c=0;c<12;c++){
+    let ch=CAT[r][c];if(ch==='.')continue;
+    if(ch==='O'&&blink)ch='D';
+    put(c,r,ch==='C'?RB[cat.ci].c:co[ch]);
+  }
+  if(co.patch)for(const p of co.patch)put(p[0],p[1],p[2]);
+  if(!sleeping){const L=LEGS[frame];for(let c=0;c<12;c++)if(L[c]==='B')put(c,7,co.B);}
+  else{put(3,6,co.B);put(9,6,co.B);}
+  if(sleeping){const k=((t+cat.ph)%1.6)/1.6;g.globalAlpha=1-k;text('Z',x0+w-2,y0-6-Math.round(k*6),'#fff4d8');g.globalAlpha=1;}
+}
+FONT.Z=["###","..#",".#.","#..","###"];
+
+/* ---------- world state ---------- */
+let parade=[],joiners=[],nappers=[],rows=new Map(),sparks=[],clouds=[],lanterns=[],bgStars=[];
+let strayT=0,pruneT=0;
+function catGap(a,b){return (HORIZ?12:8)*b.s+5;}   // b walks behind (below) a
+function slotY(i){let y=yCam;for(let k=1;k<=i;k++)y-=catGap(parade[k-1],k<parade.length?parade[k]:parade[k-1]);return y;}
+function layoutOffsets(){
+  let T=0;for(const c of parade)T+=c.s+1;
+  let o=-T/2;for(const c of parade){c.off=Math.round(o);o+=c.s+1;}
+}
+function paintRow(k,cat){
+  let r=rows.get(k);if(!r){r={cx:Math.round(pathX(k)),segs:[]};rows.set(k,r);}
+  r.segs.push({c:RB[cat.ci].c,o:cat.off,w:cat.s+1});
+}
+
+/* ---------- clouds, lanterns, stars ---------- */
+function makeCloudImg(w,h){
+  const c=document.createElement('canvas');c.width=w;c.height=h;const s=c.getContext('2d');
+  const el=[[w/2,h-1,w/2,Math.max(2,h*0.3)]];for(let i=0;i<ri(2,4);i++)el.push([rnd(w*0.2,w*0.8),rnd(h*0.35,h*0.8),rnd(w*0.18,w*0.36),rnd(h*0.45,h*0.85)]);
+  const m=(x,y)=>y>=0&&y<h&&x>=0&&x<w&&el.some(e=>((x+0.5-e[0])/e[2])**2+((y+0.5-e[1])/e[3])**2<=1);
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){if(!m(x,y))continue;s.fillStyle=!m(x,y-1)?pal.cl[0]:(y>=h-2?pal.cl[2]:pal.cl[1]);s.fillRect(x,y,1,1);}
+  return c;
+}
+function makeCloud(top){
+  const d=pick([0.3,0.3,0.55,0.55,0.9]);const sc=d<0.4?0.7:(d<0.7?1:1.5);
+  const w=Math.round(rnd(18,34)*sc),h=Math.round(rnd(5,8)*sc);
+  if(HORIZ)return {img:makeCloudImg(w,h),w,h,d,x:top?W+rnd(0,30):rnd(-w,W),y:rnd(-h*0.5,H*0.8)};
+  return {img:makeCloudImg(w,h),w,h,d,x:rnd(-w*0.5,W-w*0.5),y:top?-h-rnd(0,30):rnd(-h,H)};
+}
+function buildWorld(){
+  clouds=[];const n=Math.round(W*H/2600);for(let i=0;i<n;i++)clouds.push(makeCloud(false));
+  lanterns=[];for(let i=0;i<Math.round(W*H/5200);i++)lanterns.push({x:rnd(4,W-4),y:rnd(0,H),v:rnd(2,5),ph:rnd(0,TAU)});
+  bgStars=[];for(let i=0;i<Math.round(W*H/700);i++)bgStars.push({x:Math.random(),y:Math.pow(Math.random(),1.5)*0.75,ph:rnd(0,TAU),m:ri(1,3),big:Math.random()<0.1});
+}
+const BAYER=[0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5];
+function buildSky(){
+  if(!skyC){skyC=document.createElement('canvas');}
+  skyC.width=W;skyC.height=H;const s=skyC.getContext('2d');
+  const B=12,bands=[];
+  for(let i=0;i<=B;i++){const f=i/B*(pal.stops.length-1),k=Math.min(pal.stops.length-2,Math.floor(f));bands.push(rgb(mixc(pal.stops[k],pal.stops[k+1],f-k)));}
+  for(let y=0;y<H;y++){
+    const t=y/(H-1)*B,b=Math.min(B-1,Math.floor(t)),fr=t-b;
+    s.fillStyle=bands[b];s.fillRect(0,y,W,1);s.fillStyle=bands[b+1];
+    for(let x=0;x<W;x++)if((BAYER[(y&3)*4+(x&3)]+0.5)/16<fr)s.fillRect(x,y,1,1);
+  }
+}
+
+function resize(){
+  const vw=Math.max(1,innerWidth),vh=Math.max(1,innerHeight);
+  const wasH=HORIZ;HORIZ=vw>vh*1.05;
+  if(HORIZ){H=150;W=Math.round(H*vw/vh);}else{W=150;H=Math.round(W*vh/vw);}
+  buf.width=W;buf.height=H;
+  const dpr=Math.min(window.devicePixelRatio||1,3);
+  K=Math.max(1,Math.min(12,Math.ceil(vw*dpr/W)));cv.width=W*K;cv.height=H*K;
+  LEADY=Math.round(H*0.36);LEADX=Math.round(W*0.62);
+  pal=palAt(yCam/ALT_PERIOD);buildSky();buildWorld();
+  if(parade.length&&wasH!==HORIZ)reorient();
+}
+function behindSpan(){return HORIZ?LEADX:H-LEADY;}
+function aheadSpan(){return HORIZ?W-LEADX:LEADY;}
+// the device was turned: same cats, same order — the rainbow starts afresh on the new road
+function reorient(){
+  rows=new Map();nappers=[];joiners=[];sparks=[];paths=[{p:newPath(),y0:-1e9}];
+  layoutOffsets();
+  for(let i=0;i<parade.length;i++){const c=parade[i];c.y=slotY(i);c.x=pathX(c.y);c.lastRow=Math.floor(yCam-behindSpan()-4);}
+}
+
+function reset(){
+  yCam=0;rows=new Map();nappers=[];joiners=[];sparks=[];parade=[];paths=[{p:newPath(),y0:-1e9}];
+  const cols=[0,1,2,3,4,5,6].sort(()=>Math.random()-0.5).slice(0,4);
+  for(const ci of cols){const c=newCat(ci);parade.push(c);}
+  layoutOffsets();
+  for(let i=0;i<parade.length;i++){const c=parade[i];c.y=slotY(i);c.x=pathX(c.y);c.lastRow=Math.floor(yCam-behindSpan()-4);}
+}
+
+/* ---------- simulation ---------- */
+function update(dt){
+  time+=dt;yCam+=SPEED*dt;
+  // sky follows the altitude
+  skyT+=dt;if(skyT>0.5){skyT=0;pal=palAt(yCam/ALT_PERIOD);buildSky();}
+  layoutOffsets();
+  for(let i=0;i<parade.length;i++){
+    const c=parade[i],target=slotY(i);
+    c.y+=SPEED*dt+(target-c.y)*Math.min(1,dt*2.2);
+    c.x=pathX(c.y);c.face=HORIZ?1:(pathX(c.y+3)>=pathX(c.y-3)?1:-1);
+    const r=Math.floor(c.y);
+    if(c.lastRow===null)c.lastRow=r;
+    for(let k=c.lastRow+1;k<=r;k++)paintRow(k,c);
+    if(r>c.lastRow)c.lastRow=r;
+    if(Math.random()<dt*6*c.s){const q=scr(c.x+rnd(-2,2)*c.s,c.y+rnd(-1,1));spark(q[0],q[1],Math.random()<0.6?RB[c.ci].c:pick(SPARKC),rnd(0.5,1.1),HORIZ?-rnd(2,6):rnd(-3,3),HORIZ?rnd(-3,3):rnd(2,6),Math.random()<0.3?1:0);}
+  }
+  // joining cats fly in to the tail
+  for(const j of joiners){
+    j.t+=dt;const p=Math.min(1,j.t/j.dur),e=p<0.5?2*p*p:1-Math.pow(-2*p+2,2)/2;
+    const ty=parade.length?parade[parade.length-1].y-catGap(parade[parade.length-1],j.cat):yCam;
+    j.sy0+=SPEED*dt;   // start point rides along with the camera
+    j.cat.y=j.sy0+(ty-j.sy0)*e+(HORIZ?0:Math.sin(p*Math.PI)*16);
+    j.cat.x=j.sx0+(pathX(ty)-j.sx0)*e-(HORIZ?Math.sin(p*Math.PI)*16:0);
+    j.cat.face=HORIZ?(ty>=j.sy0?1:-1):(pathX(ty)>=j.sx0?1:-1);
+    if(p>=1){j.done=true;j.cat.y=ty;j.cat.lastRow=Math.floor(ty);parade.push(j.cat);
+      const q=scr(j.cat.x,ty);for(let i=0;i<10;i++){const a=rnd(0,TAU),v=rnd(8,20);spark(q[0],q[1],Math.random()<0.5?RB[j.cat.ci].c:'#ffffff',rnd(0.4,0.8),Math.cos(a)*v,Math.sin(a)*v,0);}}
+  }
+  joiners=joiners.filter(j=>!j.done);
+  // nappers drift on their clouds (world coords, so they sink away below)
+  for(const n of nappers)n.x+=n.vx*dt;
+  nappers=nappers.filter(n=>n.y>yCam-behindSpan()-50&&n.x>-60&&n.x<latSpan()+60);
+  // empty rainbow → a stray cat turns up
+  if(!parade.length&&!joiners.length){strayT+=dt;if(strayT>4){strayT=0;const f=freeColors();if(HORIZ)addJoiner(newCat(pick(f)),rnd(LEADX+10,W-10),rnd(20,H-20));else addJoiner(newCat(pick(f)),rnd(10,W-10),rnd(10,LEADY-10));}}else strayT=0;
+  // clouds & lanterns (parallax: the camera is rising)
+  if(HORIZ){
+    for(let i=0;i<clouds.length;i++){const c=clouds[i];c.x-=SPEED*c.d*dt;if(c.x<-c.w-2)clouds[i]=makeCloud(true);}
+    for(const l of lanterns){l.x-=SPEED*0.45*dt;l.y-=l.v*0.35*dt;if(l.x<-4||l.y<-4){l.x=W+4;l.y=rnd(4,H-4);}}
+  }else{
+    for(let i=0;i<clouds.length;i++){const c=clouds[i];c.y+=SPEED*c.d*dt;if(c.y>H+2)clouds[i]=makeCloud(true);}
+    for(const l of lanterns){l.y+=(SPEED*0.45-l.v)*dt;if(l.y>H+4){l.y=-4;l.x=rnd(4,W-4);}}
+  }
+  for(const s of sparks){s.life-=dt;s.x+=s.vx*dt;s.y+=s.vy*dt;s.vx*=0.95;s.vy*=0.95;}
+  sparks=sparks.filter(s=>s.life>0);
+  pruneT+=dt;if(pruneT>1){pruneT=0;const lo=Math.floor(yCam-behindSpan()-20);for(const k of rows.keys())if(k<lo)rows.delete(k);}
+}
+function sy(yw){return LEADY-(yw-yCam);}
+// world (lat,u) → screen [x,y]
+function scr(lat,u){return HORIZ?[LEADX+(u-yCam),lat]:[lat,LEADY-(u-yCam)];}
+function spark(x,y,col,life,vx,vy,kind){sparks.push({x,y,col,life,max:life,vx,vy,kind});}
+function addJoiner(cat,x,screenY){
+  const yw=HORIZ?yCam+(x-LEADX):yCam+(LEADY-screenY),lat=HORIZ?screenY:x;cat.y=yw;cat.x=lat;
+  joiners.push({cat,sx0:lat,sy0:yw,t:0,dur:1.0});
+  for(let i=0;i<8;i++){const a=rnd(0,TAU),v=rnd(6,14);spark(x,screenY,'#ffffff',rnd(0.3,0.6),Math.cos(a)*v,Math.sin(a)*v,0);}
+}
+
+/* ---------- render ---------- */
+function drawRibbon(t){
+  const lo=Math.floor(yCam-behindSpan()),hi=Math.floor(yCam+aheadSpan());
+  let top=-Infinity;
+  for(let k=lo;k<=hi;k++){
+    const r=rows.get(k);if(!r)continue;top=Math.max(top,k);
+    const y=Math.round(HORIZ?LEADX+(k-yCam):sy(k));
+    for(const s of r.segs){g.fillStyle=s.c;if(HORIZ)g.fillRect(y,r.cx+s.o,1,s.w);else g.fillRect(r.cx+s.o,y,s.w,1);}
+    // glints running along the rainbow
+    const h=hash(k);
+    if(h<0.06&&r.segs.length){const tw=0.5+0.5*Math.sin(t*TAU*2/3+h*50);if(tw>0.6){g.globalAlpha=tw;const o=r.cx+r.segs[Math.floor(h*97)%r.segs.length].o;if(HORIZ)px(y,o,'#ffffff');else px(o,y,'#ffffff');g.globalAlpha=1;}}
+  }
+  // the road ahead: faint dots and little sparkles, not yet a rainbow
+  const start=Math.max(Math.floor(yCam)+3,top+2);
+  for(let k=start;k<=hi+4;k++){
+    const q=scr(pathX(k),k),x=Math.round(q[0]),y=Math.round(q[1]);if(y<0||x>W)break;
+    if(k%3===0){g.globalAlpha=0.45;px(x,y,'#fff4e0');g.globalAlpha=1;}
+    if(k%17===0){
+      const c=SPARKC[Math.floor(hash(k)*SPARKC.length)],tw=0.55+0.45*Math.sin(t*TAU*(1+(k%2))/3+hash(k)*20);
+      g.globalAlpha=tw;px(x,y,c);px(x-1,y,c);px(x+1,y,c);px(x,y-1,c);px(x,y+1,c);g.globalAlpha=1;
+    }
+  }
+}
+function drawLantern(l,t){
+  const fl=0.75+0.25*Math.sin(t*TAU*2/3+l.ph),x=Math.round(l.x),y=Math.round(l.y);
+  g.globalAlpha=0.25*fl;rect(x-2,y-2,5,6,'#ffcf7a');g.globalAlpha=1;
+  rect(x-1,y-1,3,4,'#ffb35c');px(x,y-1,'#ffe3a8');px(x,y+2,'#fff1c8');
+}
+function drawNapper(n,t){
+  const q=scr(n.x,n.y),x=Math.round(q[0]),y=Math.round(q[1]);
+  g.drawImage(n.img,Math.round(x-n.img.width/2),y-2);
+  drawCat(n.cat,x,y+1,t,true);
+}
+function render(t){
+  g.imageSmoothingEnabled=false;
+  g.drawImage(skyC,0,0);
+  for(const s of bgStars){
+    const a=pal.star*(0.3+0.7*(0.5+0.5*Math.sin(t*TAU*s.m/3+s.ph)));if(a<0.05)continue;
+    const x=Math.round(s.x*W),y=Math.round(s.y*H);g.globalAlpha=a;px(x,y,'#fff8e8');
+    if(s.big&&a>0.7){g.globalAlpha=a*0.5;px(x-1,y,'#fff8e8');px(x+1,y,'#fff8e8');px(x,y-1,'#fff8e8');px(x,y+1,'#fff8e8');}
+  }
+  g.globalAlpha=1;
+  for(const c of clouds)if(c.d<0.8)g.drawImage(c.img,Math.round(c.x),Math.round(c.y));
+  for(const l of lanterns)drawLantern(l,t);
+  drawRibbon(t);
+  for(const n of nappers)drawNapper(n,t);
+  for(const c of clouds)if(c.d>=0.8)g.drawImage(c.img,Math.round(c.x),Math.round(c.y));
+  // cats: back of the queue first so the lead is on top
+  for(let i=parade.length-1;i>=0;i--){const c=parade[i],q=scr(c.x,c.y);drawCat(c,q[0],q[1]+1,t,false);}
+  for(const j of joiners){const q=scr(j.cat.x,j.cat.y);drawCat(j.cat,q[0],q[1]+1,t,false);}
+  for(const s of sparks){
+    g.globalAlpha=Math.max(0,s.life/s.max);
+    if(s.kind===1){px(s.x,s.y,s.col);px(s.x-1,s.y,s.col);px(s.x+1,s.y,s.col);px(s.x,s.y-1,s.col);px(s.x,s.y+1,s.col);}else px(s.x,s.y,s.col);
+  }
+  g.globalAlpha=1;
+  // HUD
+  const alt=Math.floor(yCam/4);
+  text('RAINBOW WALK',4,H-22,'#fff4d8','rgba(20,20,50,.55)');
+  text(alt+'M  '+parade.length+'/7',4,H-15,'#e8e4f4','rgba(20,20,50,.55)');
+  ctx.imageSmoothingEnabled=false;ctx.drawImage(buf,0,0,W*K,H*K);
+}
+
+/* ---------- interaction ---------- */
+function say(m){if(window.APKit&&APKit.toast)APKit.toast(m,2400);}
+function hitCat(c,lx,ly,sleeping){
+  const q=scr(c.x,c.y),w=12*c.s,h=(sleeping?7:8)*c.s,x0=q[0]-w/2,y1=q[1]+1;
+  return lx>=x0-4&&lx<=x0+w+4&&ly>=y1-h-4&&ly<=y1+4;
+}
+cv.addEventListener('pointerdown',e=>{
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  const r=cv.getBoundingClientRect(),lx=(e.clientX-r.left)/r.width*W,ly=(e.clientY-r.top)/r.height*H;
+  hintEl.classList.remove('on');
+  // a walking cat steps off and naps on a cloud
+  for(let i=0;i<parade.length;i++){
+    const c=parade[i];
+    if(hitCat(c,lx,ly,false)){
+      parade.splice(i,1);
+      const w=16*c.s+8;
+      nappers.push({cat:c,x:c.x,y:c.y,vx:(c.x<latSpan()/2?-1:1)*rnd(2,4),img:makeCloudImg(w,Math.max(5,3*c.s+3))});
+      say(RB[c.ci].ja+'のスカーフの猫がおりた。虹から'+RB[c.ci].ja+'が消える');
+      return;
+    }
+  }
+  // a napping cat wakes up and comes back
+  for(let i=0;i<nappers.length;i++){
+    const n=nappers[i],c=n.cat;c.x=n.x;
+    if(hitCat({x:n.x,y:n.y,s:c.s},lx,ly,true)){
+      const f=freeColors();if(!f.length){say('虹は7色まで');return;}
+      if(!f.includes(c.ci))c.ci=pick(f);
+      nappers.splice(i,1);c.lastRow=null;{const q=scr(n.x,n.y);addJoiner(c,q[0],q[1]-4);}
+      say('起きて戻ってきた。虹に'+RB[c.ci].ja+'が加わる');return;
+    }
+  }
+  // empty sky: a new cat jumps in
+  const f=freeColors();
+  if(!f.length){say('虹は7色まで。猫に触れて一匹おろしてね');return;}
+  const c=newCat(pick(f));c.lastRow=null;addJoiner(c,lx,ly);
+  say(RB[c.ci].ja+'のスカーフの猫が加わった'+(c.s===3?'(大きい!)':''));
+});
+
+function mutate(){
+  paths.push({p:newPath(),y0:yCam+12});if(paths.length>3)paths.shift();
+  for(let i=parade.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[parade[i],parade[j]]=[parade[j],parade[i]];}
+  say('この先の道の曲がり方と、猫の並び順が変わった');
+}
+function resetAll(){reset();say('最初から');}
+
+/* ---------- boot ---------- */
+resize();reset();
+addEventListener('resize',()=>{resize();});
+setTimeout(()=>hintEl.classList.add('on'),700);
+setTimeout(()=>hintEl.classList.remove('on'),8500);
+let last=performance.now();
+function loop(now){
+  const dt=Math.max(0,Math.min(0.05,(now-last)/1000));last=now;
+  if(!(window.APKit&&APKit.isExporting&&APKit.isExporting())){update(dt);render(time);}
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+if(window.APKit)APKit.init({
+  canvas:cv,
+  gifName:'rainbow-walk-loop',
+  clockFormat:'spec',
+  clockPos:'top',
+  dock:true,
+  autoHide:true,
+  fullscreenButton:false,
+  loopFrame:function(phase){render(phase/TAU*3);},
+  buttons:[
+    {label:'✦',name:'mutate',onClick:mutate},
+    {label:'↻',name:'reset',onClick:resetAll}
+  ]
+});
+})();
+</script>
+</body>
+</html>
