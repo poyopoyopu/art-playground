@@ -35,9 +35,9 @@ const TAU=Math.PI*2;
 const cv=document.getElementById('c'),ctx=cv.getContext('2d');
 const buf=document.createElement('canvas'),g=buf.getContext('2d');
 const hintEl=document.getElementById('hint');
-let W=120,H=260,K=4,LEADY=94;
+let W=170,H=370,K=3,LEADY=133;
 let skyC=null,skyT=0,time=0,yCam=0;
-const SPEED=13;
+const SPEED=18;
 
 const rnd=(a,b)=>a+Math.random()*(b-a);
 const ri=(a,b)=>Math.floor(rnd(a,b+1));
@@ -83,71 +83,112 @@ function rect(x,y,w,h,c){g.fillStyle=c;g.fillRect(Math.round(x),Math.round(y),w,
 function px(x,y,c){g.fillStyle=c;g.fillRect(Math.round(x),Math.round(y),1,1);}
 
 /* ---------- the road (only the part ahead can change) ---------- */
-function newPath(){const m=Math.min(W,170);return {a1:m*rnd(0.2,0.3),a2:m*rnd(0.04,0.1),f1:rnd(0.014,0.024),f2:rnd(0.045,0.07),p1:rnd(0,TAU),p2:rnd(0,TAU)};}
+function newPath(){const m=Math.min(W,230);return {a1:m*rnd(0.26,0.33),a2:m*rnd(0.04,0.08),f1:rnd(0.012,0.02),f2:rnd(0.045,0.07),p1:rnd(0,TAU),p2:rnd(0,TAU)};}
 let paths=[{p:newPath(),y0:-1e9}];
 function rawX(p,y){return W/2+p.a1*Math.sin(y*p.f1+p.p1)+p.a2*Math.sin(y*p.f2+p.p2);}
 function pathX(y){
   let i=paths.length-1;while(i>0&&paths[i].y0>y)i--;
   let x=rawX(paths[i].p,y);
   if(i>0){const t=clamp((y-paths[i].y0)/90,0,1),s=t*t*(3-2*t);x=rawX(paths[i-1].p,y)*(1-s)+x*s;}
-  return clamp(x,12,W-12);
+  return clamp(x,16,W-16);
 }
 
-/* ---------- cats (side view, facing right) ---------- */
-const CAT=[
-"........B.B.",
-"B.......BBBB",
-"B.......BBOB",
-".B..BBBBBBBN",
-"..BBBBBBCCWW",
-"..BBBBBBBBB.",
-"..BBDBBDBBB."];
-const LEGS=["..B.B...B.B.","...BB....BB."];
+/* ---------- cats: small chibi sprites built from parts, auto-outlined ---------- */
+const OUT='#2a2140';
 const COATS=[
- {B:'#f2a24e',D:'#c86f2c',W:'#fff1dc',O:'#3a2a1e',N:'#ff8fa0'},
- {B:'#2a2a38',D:'#1a1a24',W:'#4a4a60',O:'#ffd84a',N:'#ff9fb0'},
- {B:'#f5f2ea',D:'#d9d0c0',W:'#ffffff',O:'#4aa3ff',N:'#ff9fb0'},
- {B:'#9ea4b6',D:'#737a8f',W:'#e8eaf0',O:'#9cff7a',N:'#ff9fb0'},
- {B:'#f7f0e4',D:'#e0913f',W:'#ffffff',O:'#2b2b2b',N:'#ff9fb0',patch:[[9,1,'#2b2b36'],[10,1,'#2b2b36'],[4,3,'#e0913f'],[5,3,'#e0913f'],[6,5,'#2b2b36'],[7,5,'#2b2b36']]},
- {B:'#f3d9a8',D:'#d9b178',W:'#fff6e4',O:'#5a3b1e',N:'#ff8fa0'},
- {B:'#6b5a4e',D:'#4a3d34',W:'#e9ddd0',O:'#8fe36b',N:'#ff9fb0'}
+ {B:'#f2a24e',D:'#cf7630',W:'#fff1dc',O:OUT,tabby:1},
+ {B:'#34344a',D:'#26263a',W:'#4a4a62',O:'#ffd84a',K:'#12101c'},
+ {B:'#f7f4ee',D:'#e3dccf',W:'#ffffff',O:'#3b7fd9'},
+ {B:'#a3a9ba',D:'#7c8397',W:'#eceef3',O:OUT,tabby:1},
+ {B:'#f7f0e4',D:'#e0913f',W:'#ffffff',O:OUT,calico:1},
+ {B:'#f3d9a8',D:'#dcb57c',W:'#fff6e4',O:OUT},
+ {B:'#8a6a52',D:'#654b38',W:'#eadccd',O:'#2a1a12',tabby:1},
+ {B:'#f1e6d2',D:'#5a4336',W:'#fffaf0',O:'#4aa3ff',points:1}
 ];
-function randSize(){const r=Math.random();return r<0.4?1:(r<0.92?2:3);}
+// three body types — kitten / regular / chubby. Size varies a little, never blown up.
+const SIZES=[{hw:7,hh:6,bl:6,bh:4},{hw:8,hh:6,bl:8,bh:5},{hw:8,hh:7,bl:10,bh:6}];
+function catGrid(co,size,frame,sleep){
+  const S=SIZES[size];
+  const bx0=4,bx1=bx0+S.bl-1,hx1=bx1+Math.max(2,S.hw-3),hx0=hx1-S.hw+1;
+  const hy0=3,hy1=hy0+S.hh-1,by0=hy1-2,by1=by0+S.bh-1,ly1=by1+2;
+  const w=hx1+3,h=ly1+2,G=new Array(w*h).fill('');
+  const set=(x,y,l)=>{if(x>=0&&y>=0&&x<w&&y<h)G[y*w+x]=l;};
+  const get=(x,y)=>(x>=0&&y>=0&&x<w&&y<h)?G[y*w+x]:'';
+  const rr=(x0,y0,x1,y1,l)=>{for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){if((x===x0||x===x1)&&(y===y0||y===y1))continue;set(x,y,l);}};
+  // tail
+  const tl=co.points?'D':'B';
+  if(sleep){[[bx0-1,by1],[bx0-2,by1],[bx0-3,by1-1]].forEach(p=>set(p[0],p[1],tl));}
+  else{const tip=frame?[bx0-3,by0-3]:[bx0-1,by0-3];[[bx0-1,by0+1],[bx0-2,by0],[bx0-2,by0-1],[bx0-2,by0-2],tip].forEach(p=>set(p[0],p[1],tl));}
+  // legs (a walking pair lifts on alternate frames)
+  if(!sleep){
+    const ll=co.points?'D':'B',A=[bx0+1,bx1-3],Bp=[bx0+3,bx1-1],down=frame?Bp:A,up=frame?A:Bp;
+    for(const x of down){set(x,by1+1,ll);set(x,by1+2,ll);}
+    for(const x of up)set(x,by1+1,ll);
+  }
+  // body
+  rr(bx0,by0,bx1,by1,'B');
+  if(co.tabby)for(let x=bx0+1;x<bx1;x++)if((x-bx0)%3===1){set(x,by0,'D');set(x,by0+1,'D');}
+  if(co.calico){for(let x=bx0+1;x<=bx0+3;x++){set(x,by0,'D');set(x,by0+1,'D');}set(bx1-2,by0+1,'X');set(bx1-3,by0+1,'X');}
+  for(let x=bx0+2;x<=bx1-2;x++)set(x,by1,'W');
+  // head
+  rr(hx0,hy0,hx1,hy1,'B');
+  const el=co.points?'D':'B';
+  [[hx0+1,hy0-1],[hx0+2,hy0-1],[hx0+1,hy0-2],[hx1-2,hy0-1],[hx1-1,hy0-1],[hx1-1,hy0-2]].forEach(p=>set(p[0],p[1],el));
+  if(co.tabby){set(hx0+3,hy0,'D');set(hx0+5,hy0,'D');}
+  if(co.calico){set(hx0+1,hy0,'X');set(hx0+2,hy0,'X');set(hx0+1,hy0+1,'X');}
+  const ex=hx1-2,ey=hy0+2;
+  if(co.points){for(let y=ey;y<=hy1-1;y++)for(let x=hx1-3;x<=hx1;x++)if(get(x,y)==='B')set(x,y,'D');}
+  if(sleep){set(ex,ey+1,'Z');set(ex-1,ey+1,'Z');}else{set(ex,ey,'O');set(ex,ey+1,'O');}
+  set(hx1-1,ey+2,'P');set(hx1,ey+1,'N');
+  // scarf
+  for(let x=hx0;x<=hx0+2;x++){set(x,hy1-1,'C');set(x,hy1,'C');}
+  set(hx0-1,hy1-1+(sleep?1:frame),'C');set(hx0-2,hy1+(sleep?1:frame),'C');
+  // outline
+  const out=G.slice();
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+    if(G[y*w+x])continue;
+    if(get(x-1,y)||get(x+1,y)||get(x,y-1)||get(x,y+1))out[y*w+x]='K';
+  }
+  return {G:out,w,h};
+}
+function buildSprite(cat){
+  const co=COATS[cat.coat],col={B:co.B,D:co.D,W:co.W,O:co.O,P:'#ff9fb4',N:'#ff8fa0',C:RB[cat.ci].c,X:'#2b2b36',K:co.K||OUT,Z:co.K||OUT};
+  const mk=(frame,sleep)=>{
+    const gr=catGrid(co,cat.size,frame,sleep),c=document.createElement('canvas');c.width=gr.w;c.height=gr.h;const x=c.getContext('2d');
+    for(let i=0;i<gr.G.length;i++){const l=gr.G[i];if(!l)continue;x.fillStyle=col[l];x.fillRect(i%gr.w,Math.floor(i/gr.w),1,1);}
+    return c;
+  };
+  cat.spr={f:[mk(0,false),mk(1,false)],sl:mk(0,true)};
+  cat.w=cat.spr.f[0].width;cat.h=cat.spr.f[0].height;
+}
+function randSize(){const r=Math.random();return r<0.3?0:(r<0.75?1:2);}
 function freeColors(){const used=new Set();for(const c of parade)used.add(c.ci);for(const j of joiners)used.add(j.cat.ci);
   return RB.map((_,i)=>i).filter(i=>!used.has(i));}
-function newCat(ci){return {coat:ri(0,COATS.length-1),s:randSize(),ci,y:0,x:W/2,face:1,ph:rnd(0,3),lastRow:null,off:0};}
+function newCat(ci){const c={coat:ri(0,COATS.length-1),size:randSize(),ci,y:0,x:W/2,face:1,ph:rnd(0,3),lastRow:null,off:0};buildSprite(c);c.bw=c.size===2?2:1;return c;}
 function drawCat(cat,x,y,t,sleeping){
-  // (x,y) = bottom-centre of the cat on screen
-  const co=COATS[cat.coat],s=cat.s,f=sleeping?1:cat.face,w=12*s,h=(sleeping?7:8)*s;
+  // (x,y) = bottom-centre (feet) of the cat on screen
   const frame=sleeping?0:((Math.floor(t*6+cat.ph)%2)+2)%2;
-  const bob=(!sleeping&&frame===0)?-Math.max(1,s>>1):0;
-  const blink=sleeping||((t+cat.ph)%3.5)<0.15;
-  const x0=Math.round(x-w/2),y0=Math.round(y-h)+bob;
-  const put=(c,r,col)=>{g.fillStyle=col;const cx=f>0?c:11-c;g.fillRect(x0+cx*s,y0+r*s,s,s);};
-  for(let r=0;r<CAT.length;r++)for(let c=0;c<12;c++){
-    let ch=CAT[r][c];if(ch==='.')continue;
-    if(ch==='O'&&blink)ch='D';
-    put(c,r,ch==='C'?RB[cat.ci].c:co[ch]);
-  }
-  if(co.patch)for(const p of co.patch)put(p[0],p[1],p[2]);
-  if(!sleeping){const L=LEGS[frame];for(let c=0;c<12;c++)if(L[c]==='B')put(c,7,co.B);}
-  else{put(3,6,co.B);put(9,6,co.B);}
-  if(sleeping){const k=((t+cat.ph)%1.6)/1.6;g.globalAlpha=1-k;text('Z',x0+w-2,y0-6-Math.round(k*6),'#fff4d8');g.globalAlpha=1;}
+  const img=sleeping?cat.spr.sl:cat.spr.f[frame];
+  const bob=(!sleeping&&frame===0)?-1:0;
+  const x0=Math.round(x-img.width/2),y0=Math.round(y-img.height)+bob;
+  if(!sleeping&&cat.face<0){g.save();g.translate(x0+img.width,y0);g.scale(-1,1);g.drawImage(img,0,0);g.restore();}
+  else g.drawImage(img,x0,y0);
+  if(sleeping){const k=((t+cat.ph)%1.6)/1.6;g.globalAlpha=1-k;text('Z',x0+img.width-3,y0-4-Math.round(k*6),'#fff4d8');g.globalAlpha=1;}
 }
 FONT.Z=["###","..#",".#.","#..","###"];
 
 /* ---------- world state ---------- */
 let parade=[],joiners=[],nappers=[],rows=new Map(),sparks=[],clouds=[],lanterns=[],bgStars=[];
 let strayT=0,pruneT=0;
-function catGap(a,b){return 8*b.s+5;}   // b walks behind (below) a
+function catGap(a,b){return b.h+4;}   // b walks behind (below) a
 function slotY(i){let y=yCam;for(let k=1;k<=i;k++)y-=catGap(parade[k-1],k<parade.length?parade[k]:parade[k-1]);return y;}
 function layoutOffsets(){
-  let T=0;for(const c of parade)T+=c.s+1;
-  let o=-T/2;for(const c of parade){c.off=Math.round(o);o+=c.s+1;}
+  let T=0;for(const c of parade)T+=c.bw;
+  let o=-T/2;for(const c of parade){c.off=Math.round(o);o+=c.bw;}
 }
 function paintRow(k,cat){
   let r=rows.get(k);if(!r){r={cx:Math.round(pathX(k)),segs:[]};rows.set(k,r);}
-  r.segs.push({c:RB[cat.ci].c,o:cat.off,w:cat.s+1});
+  r.segs.push({c:RB[cat.ci].c,o:cat.off,w:cat.bw});
 }
 
 /* ---------- clouds, lanterns, stars ---------- */
@@ -183,7 +224,7 @@ function buildSky(){
 
 function resize(){
   const vw=Math.max(1,innerWidth),vh=Math.max(1,innerHeight);
-  H=260;W=Math.round(H*vw/vh);if(W<110){W=110;H=Math.round(W*vh/vw);}
+  H=370;W=Math.round(H*vw/vh);if(W<160){W=160;H=Math.round(W*vh/vw);}
   buf.width=W;buf.height=H;
   const dpr=Math.min(window.devicePixelRatio||1,3);
   K=Math.max(1,Math.min(12,Math.ceil(vw*dpr/W)));cv.width=W*K;cv.height=H*K;
@@ -213,7 +254,7 @@ function update(dt){
     if(c.lastRow===null)c.lastRow=r;
     for(let k=c.lastRow+1;k<=r;k++)paintRow(k,c);
     if(r>c.lastRow)c.lastRow=r;
-    if(Math.random()<dt*6*c.s){spark(c.x+rnd(-2,2)*c.s,sy(c.y)+rnd(-1,1),Math.random()<0.6?RB[c.ci].c:pick(SPARKC),rnd(0.5,1.1),rnd(-3,3),rnd(2,6),Math.random()<0.3?1:0);}
+    if(Math.random()<dt*5){spark(c.x+rnd(-3,3),sy(c.y)+rnd(-1,1),Math.random()<0.6?RB[c.ci].c:pick(SPARKC),rnd(0.5,1.1),rnd(-3,3),rnd(2,6),Math.random()<0.3?1:0);}
   }
   // joining cats fly in to the tail
   for(const j of joiners){
@@ -313,7 +354,7 @@ function render(t){
 /* ---------- interaction ---------- */
 function say(m){if(window.APKit&&APKit.toast)APKit.toast(m,2400);}
 function hitCat(c,lx,ly,sleeping){
-  const w=12*c.s,h=(sleeping?7:8)*c.s,x0=c.x-w/2,y1=sy(c.y)+1;
+  const w=c.w,h=c.h,x0=c.x-w/2,y1=sy(c.y)+1;
   return lx>=x0-4&&lx<=x0+w+4&&ly>=y1-h-4&&ly<=y1+4;
 }
 cv.addEventListener('pointerdown',e=>{
@@ -325,8 +366,7 @@ cv.addEventListener('pointerdown',e=>{
     const c=parade[i];
     if(hitCat(c,lx,ly,false)){
       parade.splice(i,1);
-      const w=16*c.s+8;
-      nappers.push({cat:c,x:c.x,y:c.y,vx:(c.x<W/2?-1:1)*rnd(2,4),img:makeCloudImg(w,Math.max(5,3*c.s+3))});
+      nappers.push({cat:c,x:c.x,y:c.y,vx:(c.x<W/2?-1:1)*rnd(2,4),img:makeCloudImg(c.w+10,6)});
       say(RB[c.ci].ja+'のスカーフの猫がおりた。虹から'+RB[c.ci].ja+'が消える');
       return;
     }
@@ -334,9 +374,9 @@ cv.addEventListener('pointerdown',e=>{
   // a napping cat wakes up and comes back
   for(let i=0;i<nappers.length;i++){
     const n=nappers[i],c=n.cat;c.x=n.x;
-    if(hitCat({x:n.x,y:n.y,s:c.s},lx,ly,true)){
+    if(hitCat({x:n.x,y:n.y,w:c.w,h:c.h},lx,ly,true)){
       const f=freeColors();if(!f.length){say('虹は7色まで');return;}
-      if(!f.includes(c.ci))c.ci=pick(f);
+      if(!f.includes(c.ci)){c.ci=pick(f);buildSprite(c);}
       nappers.splice(i,1);c.lastRow=null;addJoiner(c,n.x,sy(n.y)-4);
       say('起きて戻ってきた。虹に'+RB[c.ci].ja+'が加わる');return;
     }
@@ -345,7 +385,7 @@ cv.addEventListener('pointerdown',e=>{
   const f=freeColors();
   if(!f.length){say('虹は7色まで。猫に触れて一匹おろしてね');return;}
   const c=newCat(pick(f));c.lastRow=null;addJoiner(c,lx,ly);
-  say(RB[c.ci].ja+'のスカーフの猫が加わった'+(c.s===3?'(大きい!)':''));
+  say(RB[c.ci].ja+'のスカーフの猫が加わった');
 });
 
 function mutate(){
