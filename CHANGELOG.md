@@ -1,3 +1,5 @@
+- 2026-09-28 クロード: RAIN RELAYをart-v81として昇格(ap-kit.jsの相対パスをルート用に修正)。ギャラリーLOG先頭とPublished works(CURRENTのNIGHT SHIFTの直後)に追加し、「現在の状態」のLOG先頭も更新(art-v81-rain-relay.html, index.html)
+- 2026-09-28 しゅん: RAIN RELAYを採用決定
 - 2026-09-28 クロード: おっちゃん提供のX投稿動画(おかず/Okazz氏の#p5js作品=暗い水面に色とりどりの雫が落ち、楕円の波紋としぶきが広がる映像)を参考にRAIN RELAYを新規制作。法則は「雨は、水面から降る」。空から降る雨はなく、波紋の輪が水面の雫の下を通るとその雫が跳ね上がり、跳ね上げた輪の色に染まって落ちて新しい輪を作る(雨がリレーのように水面を渡り、色が波紋から波紋へ感染する)。強い着水は雫を小さな雫に割って輪の中に輪ができ(自己相似)、雫どうしは触れると合わさる。水面はときどき自分で雫を跳ね上げ、色は受け継がれるだけなので放っておくと池は一色に寄っていく。触れるとそこに唯一の「空からの雫」が落ち、色はいま池で一番少ない色、長押しで重く大きなリレーに。池の色の割合は画面下の細い帯に出る。✦=色の組み合わせを替える(雫の系譜はそのまま)、↻=雫を撒き直す。GIFはシミュレーションを止めて固定の雫を3秒周期で回すので継ぎ目なし(prototypes/rain-relay.html)
 - 2026-09-28 チャッピー: OKAZZの参考作を基に、モジュール状の図形がリズムを伝播するRHYTHM GRIDを新規制作(prototypes/rhythm-grid.html)
 - 2026-09-28 クロード: RAINBOW WALKをart-v80として昇格(ap-kit.jsの相対パスをルート用に修正)。ギャラリーLOG先頭とPublished works(CURRENTのNIGHT SHIFTの直後)に追加し、「現在の状態」のLOG先頭も更新(art-v80-rainbow-walk.html, index.html)
@@ -268,7 +270,7 @@
 ## 現在の状態(変わったら書き換える)
 
 - CURRENT: NIGHT SHIFT(`art-v79-night-shift.html`)
-- LOG先頭: RAINBOW WALK(`art-v80-rainbow-walk.html`)
+- LOG先頭: RAIN RELAY(`art-v81-rain-relay.html`)
 - 作業ルール: `AGENTS.md`(ギャラリー追加の手順と命名ルールは13章)
 - 表示モード: iPhoneホーム画面から起動するとCURRENT作品を自動表示するstandalone Web App対応済み
 - 運用メモ: `NOTES.md`(GitHub操作は可能性を確認してから実行)
