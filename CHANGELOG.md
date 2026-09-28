@@ -1,3 +1,4 @@
+- 2026-09-28 チャッピー: OKAZZの参考作を基に、モジュール状の図形がリズムを伝播するRHYTHM GRIDを新規制作(prototypes/rhythm-grid.html)
 - 2026-09-28 クロード: RAINBOW WALKをart-v80として昇格(ap-kit.jsの相対パスをルート用に修正)。ギャラリーLOG先頭とPublished works(CURRENTのNIGHT SHIFTの直後)に追加し、「現在の状態」のLOG先頭も更新(art-v80-rainbow-walk.html, index.html)
 - 2026-09-28 しゅん: RAINBOW WALKを採用決定
 - 2026-09-28 クロード: RAINBOW WALKに横向き表示を追加(おっちゃん「本体を横にしたら横に歩くはできない？」)。画面が横長になると、道が左→右に流れて猫が横に歩く(空は右から左へ流れる)。縦・横どちらでも短い辺を同じ解像度にして猫の大きさをそろえ、途中で向きを変えると同じ猫・同じ並び順のまま新しい道で虹を描き直す(prototypes/rainbow-walk.html)
