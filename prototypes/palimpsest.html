@@ -395,15 +395,20 @@ const len=s=>Array.from(s).length;
 
 function relayout(c){
   /* where does the clock leave room?
-     landscape: the words stand to the right of the clock, using the full height
+     landscape: the clock sits between two hanging scrolls — the saying (with source and original)
+       stands to the right of the clock, its explanation to the left, both using the full height
      otherwise (or if they don't fit there): the words sit in the space below the clock */
-  const cr=clockRect(),baseTop=Math.max(44,H*0.09);
+  const cr=clockRect(),short=H<520;
+  const mTop=short?Math.max(14,H*0.06):Math.max(44,H*0.09),mBot=mTop;
+  const fq0=Math.max(22,Math.min(72,W*0.105,H*(short?0.13:0.075)));
   let r=null;
   if(cr&&W>H*1.15){
-    r=buildLayout(c,baseTop,cr.right+W*0.03,W*0.985);
-    if(!r.fits)r=null;
+    const g=Math.max(12,W*0.022);
+    r=buildLayout(c,{top:mTop,bot:mBot,fq0,main:[cr.right+g,W-g],exp:[g,cr.left-g]});
   }
-  if(!r)r=buildLayout(c,cr?Math.max(baseTop,cr.bottom+Math.max(14,H*0.025)):baseTop,0,W);
+  const fb=buildLayout(c,{top:cr?Math.max(mTop,cr.bottom+Math.max(12,H*0.025)):mTop,bot:mBot,fq0,main:[0,W],exp:null});
+  // keep the two scrolls unless they don't fit, or the layout below the clock gives clearly larger text
+  if(!r||!r.ok||(fb.ok&&fb.fq>r.fq*1.15))r=fb;
   const items=r.items;
   if(c.items&&c.items.length===items.length)items.forEach((it,i)=>{
     const o=c.items[i];it.revealAt=o.revealAt;
@@ -413,68 +418,81 @@ function relayout(c){
   let md=0;for(const it of items)md=Math.max(md,Math.hypot(it.x-c.x,it.y-c.y));
   c.Rt=md/0.78+12;
 }
-function buildLayout(c,topM,xLft,xRgt){
-  const q=c.q,RW=xRgt-xLft;
-  const botM=Math.max(44,H*0.09),Hh=H-topM-botM;
-  const fq0=Math.max(22,Math.min(72,W*0.105,H*0.068));
-  let fq=fq0,L=null;
-  for(let it=0;it<16;it++){
-    const fe=Math.max(11.5,fq*0.36),fa=Math.max(12,fq*0.42);
-    const qMax=Math.max(4,Math.floor(Hh*0.94/(fq*1.04)));
+function buildLayout(c,o){
+  const q=c.q,topM=o.top,Hh=H-o.top-o.bot,split=!!o.exp,short=H<520;
+  const MW=o.main[1]-o.main[0],EW=split?o.exp[1]-o.exp[0]:0;
+  function place(L){
+  const items=[],xR=(o.main[0]+o.main[1]+L.total)/2;
+    let qLenMax=0;
+    L.qcols.forEach((s,i)=>{
+      const cx=xR-L.fq*0.75-i*L.fq*1.5;qLenMax=Math.max(qLenMax,len(s));
+      Array.from(s).forEach((ch,j)=>items.push(mk('q',ch,cx,topM+L.fq*0.55+j*L.fq*1.04,L.fq)));
+    });
+    const qBottom=topM+qLenMax*L.fq*1.04;
+    const xa=xR-L.qW-L.gap1;
+    let aLen=0;L.acols.forEach(s=>aLen=Math.max(aLen,len(s)));
+    const ay=Math.max(topM+L.fq*1.3,qBottom-aLen*L.fa*1.06-L.fa*1.6);
+    L.acols.forEach((s,i)=>{
+      const cx=xa-L.fa*0.81-i*L.fa*1.62;
+      Array.from(s).forEach((ch,j)=>items.push(mk('a',ch,cx,ay+L.fa*0.53+j*L.fa*1.06,L.fa)));
+    });
+    const lastLen=len(L.acols[L.acols.length-1]);
+    items.push({kind:'seal',ch:PIG[q.f].seal,x:xa-L.fa*0.81-(L.acols.length-1)*L.fa*1.62,y:ay+lastLen*L.fa*1.06+L.fa*1.05,fs:L.fa*1.3,revealAt:null,ox:0,oy:0});
+    const xo=xa-L.aW,oy=topM+L.fq*1.3;
+    if(L.hasO){
+      if(L.oC){
+        L.ocols.forEach((s,i)=>{
+          const cx=xo-L.fa*0.81-i*L.fa*1.62;
+          Array.from(s).forEach((ch,j)=>items.push(mk('o',ch,cx,oy+L.fa*0.53+j*L.fa*1.06,L.fa)));
+        });
+      }else{
+        let fo=L.fa*1.08;ctx.font=fontL(fo);
+        const wd=ctx.measureText(q.o).width,maxW=Hh-L.fq*1.3;
+        if(wd>maxW)fo*=maxW/wd;
+        items.push({kind:'lat',ch:q.o,x:xo-L.fa*0.85,y:oy,fs:fo,lw:Math.min(wd,maxW),revealAt:null,ox:0,oy:0});
+      }
+    }
+    const nMain=items.length;
+    const xe=split?(o.exp[0]+o.exp[1]+L.eW)/2:xo-L.oW-L.gap2;let idx=0;
+    L.ecols.forEach((s,i)=>{
+      const cx=xe-L.fe*0.89-i*L.fe*1.78;
+      Array.from(s).forEach((ch,j)=>{const it=mk('e',ch,cx,topM+L.eTop+L.fe*0.56+j*L.fe*1.12,L.fe);it.idx=idx++;items.push(it);});
+    });
+    // centre vertically: one block, or each scroll on its own when split
+    const groups=split?[items.slice(0,nMain),items.slice(nMain)]:[items];
+    let tallOK=true;
+    for(const grp of groups){
+      let y0=Infinity,y1=-Infinity;
+      for(const it of grp){y0=Math.min(y0,it.y-it.fs*0.6);y1=Math.max(y1,it.y+(it.kind==='lat'?it.lw:it.fs*0.6));}
+      const shift=Math.max(0,topM+Math.max(0,(Hh-(y1-y0))*0.46)-y0);
+      if(shift>0)for(const it of grp)it.y+=shift;
+      if(y1-y0>Hh+4)tallOK=false;
+    }
+    return{items,tallOK,L};
+  }
+  let fq=o.fq0,L=null,fits=false,P=null;
+  for(let it=0;it<18;it++){
+    const fe=Math.max(short?15:11.5,fq*(short?0.44:0.36)),fa=Math.max(short?13:12,fq*0.42);
+    const qMax=Math.max(3,Math.floor(Hh*0.94/(fq*1.04)));
     const qcols=[].concat.apply([],q.q.split('／').map(s=>wrap(s,qMax)));
-    const eMax=Math.max(8,Math.min(26,Math.floor((Hh-fq*1.6)/(fe*1.12))));
+    const eTop=split?0:fq*1.6;
+    const eMax=Math.max(8,Math.min(26,Math.floor((Hh-eTop)/(fe*1.12))-1)); // -1: room for a hanging 、。
     const ecols=wrap(q.e,eMax);
-    const aMax=Math.max(6,Math.floor((Hh-fq*1.3-fa*2)/(fa*1.06)));
+    const aMax=Math.max(5,Math.floor((Hh-fq*1.3-fa*2)/(fa*1.06))-1);
     const acols=wrap(q.w,aMax);
     const hasO=!!q.o,oC=hasO&&isCJK(q.o);
     const ocols=oC?wrap(q.o,aMax):[];
     const qW=qcols.length*fq*1.5,aW=acols.length*fa*1.62,oW=hasO?(oC?ocols.length*fa*1.62:fa*1.7):0;
     const gap1=fq*0.62,gap2=fq*0.95,eW=ecols.length*fe*1.78;
-    const total=qW+gap1+aW+oW+gap2+eW;
-    L={fq,fe,fa,qcols,ecols,acols,ocols,oC,hasO,qW,aW,oW,gap1,gap2,eW,total};
-    if(total<=RW*0.92)break;
+    const mainW=qW+gap1+aW+oW,total=split?mainW:mainW+gap2+eW;
+    L={fq,fe,fa,qcols,ecols,acols,ocols,oC,hasO,qW,aW,oW,gap1,gap2,eW,mainW,total,eTop};
+    fits=split?(mainW<=MW*0.94&&eW<=EW*0.94):(total<=MW*0.92);
+    if(fits){P=place(L);if(P.tallOK)break;}
     fq*=0.93;
   }
-  const items=[],xR=(xLft+xRgt+L.total)/2;
-  let qLenMax=0;
-  L.qcols.forEach((s,i)=>{
-    const cx=xR-L.fq*0.75-i*L.fq*1.5;qLenMax=Math.max(qLenMax,len(s));
-    Array.from(s).forEach((ch,j)=>items.push(mk('q',ch,cx,topM+L.fq*0.55+j*L.fq*1.04,L.fq)));
-  });
-  const qBottom=topM+qLenMax*L.fq*1.04;
-  const xa=xR-L.qW-L.gap1;
-  let aLen=0;L.acols.forEach(s=>aLen=Math.max(aLen,len(s)));
-  const ay=Math.max(topM+L.fq*1.3,qBottom-aLen*L.fa*1.06-L.fa*1.6);
-  L.acols.forEach((s,i)=>{
-    const cx=xa-L.fa*0.81-i*L.fa*1.62;
-    Array.from(s).forEach((ch,j)=>items.push(mk('a',ch,cx,ay+L.fa*0.53+j*L.fa*1.06,L.fa)));
-  });
-  const lastLen=len(L.acols[L.acols.length-1]);
-  items.push({kind:'seal',ch:PIG[q.f].seal,x:xa-L.fa*0.81-(L.acols.length-1)*L.fa*1.62,y:ay+lastLen*L.fa*1.06+L.fa*1.05,fs:L.fa*1.3,revealAt:null});
-  const xo=xa-L.aW,oy=topM+L.fq*1.3;
-  if(L.hasO){
-    if(L.oC){
-      L.ocols.forEach((s,i)=>{
-        const cx=xo-L.fa*0.81-i*L.fa*1.62;
-        Array.from(s).forEach((ch,j)=>items.push(mk('o',ch,cx,oy+L.fa*0.53+j*L.fa*1.06,L.fa)));
-      });
-    }else{
-      let fo=L.fa*1.08;ctx.font=fontL(fo);
-      const wd=ctx.measureText(q.o).width,maxW=Hh-L.fq*1.3;
-      if(wd>maxW)fo*=maxW/wd;
-      items.push({kind:'lat',ch:q.o,x:xo-L.fa*0.85,y:oy,fs:fo,revealAt:null});
-    }
-  }
-  const xe=xo-L.oW-L.gap2;let idx=0;
-  L.ecols.forEach((s,i)=>{
-    const cx=xe-L.fe*0.89-i*L.fe*1.78;
-    Array.from(s).forEach((ch,j)=>{const it=mk('e',ch,cx,topM+L.fq*1.6+L.fe*0.56+j*L.fe*1.12,L.fe);it.idx=idx++;items.push(it);});
-  });
-  let y0=Infinity,y1=-Infinity;
-  for(const it of items){y0=Math.min(y0,it.y-it.fs*0.6);y1=Math.max(y1,it.y+(it.kind==='lat'?Math.min(Hh,it.fs*len(it.ch)*0.5):it.fs*0.6));}
-  const shift=Math.max(0,topM+Math.max(0,(Hh-(y1-y0))*0.46)-y0);
-  if(shift>0)for(const it of items)it.y+=shift;
-  return{items,fits:L.total<=RW*0.92&&L.fq>=fq0*0.8};
+  if(!P||P.L!==L)P=place(L);
+  const items=P.items;
+  return{items,fq:L.fq,ok:fits&&P.tallOK};
 }
 
 function drawChar(g,it,x,y){
