@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>RHYTHM GRID</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#050507;touch-action:none}
+canvas{display:block;width:100%;height:100%;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+</style>
+<script src="../ap-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+// RHYTHM GRID — ChatGPT作。
+// A modular field inspired by contemporary Japanese generative geometry.
+// WORLD RULE: every tile has a rhythm. Touching a tile makes its rhythm spread
+// through its neighbors; the local motif, orientation and color family mutate
+// together. The disturbance keeps traveling after the finger leaves.
+const canvas=document.getElementById('c');
+const ctx=canvas.getContext('2d',{alpha:false});
+let W=0,H=0,D=1,phase=0,seed=Math.random()*100000,last=performance.now();
+let cols=0,rows=0,size=40,cells=[],touches=new Map();
+
+const TAU=Math.PI*2;
+const PAL=[
+  [355,90,60],[330,84,65],[195,86,62],[52,94,60],
+  [210,78,62],[12,92,62],[178,72,58]
+];
+
+function hash(x,y){let n=Math.sin(x*127.1+y*311.7+seed)*43758.5453;return n-Math.floor(n)}
+function resize(){
+  D=Math.min(devicePixelRatio||1,2);
+  W=innerWidth;H=innerHeight;
+  canvas.width=Math.floor(W*D);canvas.height=Math.floor(H*D);
+  ctx.setTransform(D,0,0,D,0,0);
+  size=Math.max(30,Math.min(58,Math.min(W,H)/8.8));
+  cols=Math.ceil(W/size)+1;rows=Math.ceil(H/size)+1;
+  build();
+}
+addEventListener('resize',resize,{passive:true});
+
+function build(){
+  cells=new Array(cols*rows);
+  for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){
+    const h=hash(x,y),p=PAL[Math.floor(h*PAL.length)];
+    cells[y*cols+x]={
+      type:Math.floor(hash(x+8,y+3)*6),
+      hue:p[0]+(hash(x+4,y+9)-.5)*18,
+      sat:p[1],light:p[2],
+      rot:Math.floor(hash(x+11,y+17)*4)*Math.PI/2,
+      phase:hash(x+21,y+2)*TAU,
+      energy:.15+hash(x+6,y+30)*.35,
+      pulse:0
+    };
+  }
+}
+resize();
+
+function mutate(){
+  seed=Math.random()*100000;
+  build();
+}
+function reset(){
+  build();
+}
+
+function idx(x,y){
+  x=(x+cols)%cols;y=(y+rows)%rows;
+  return y*cols+x;
+}
+function cellAt(px,py){
+  return {x:Math.floor(px/size),y:Math.floor(py/size)};
+}
+
+function ignite(cx,cy,strength=1){
+  const base=cells[idx(cx,cy)];
+  base.energy=Math.min(1.35,base.energy+.75*strength);
+  base.pulse=Math.min(1.5,base.pulse+.9*strength);
+  // A touched tile becomes the temporary source of its own visual grammar.
+  base.type=(base.type+1+Math.floor(hash(cx+phase*2,cy)*5))%6;
+  base.rot+=Math.PI/2*(hash(cx+41,cy+17)>.5?1:-1);
+  base.hue=(base.hue+35+hash(cx+9,cy+7)*110)%360;
+}
+
+function propagate(dt){
+  // Slow diffusion of "rhythm energy". No particles: the tile grammar itself travels.
+  const next=cells.map(c=>({...c}));
+  for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){
+    const c=cells[idx(x,y)];
+    let e=c.energy*.985;
+    const ns=[cells[idx(x+1,y)],cells[idx(x-1,y)],cells[idx(x,y+1)],cells[idx(x,y-1)]];
+    for(const n of ns)e+=Math.max(0,n.energy-.42)*dt*.28;
+    next[idx(x,y)].energy=Math.min(1.35,e);
+    next[idx(x,y)].pulse=Math.max(0,c.pulse-dt*.9);
+  }
+  cells=next;
+}
+
+function drawMotif(c,x,y,s,t){
+  const k=Math.min(1.3,c.energy);
+  const wobble=Math.sin(t*2.0+c.phase)*(.025+.06*k);
+  const hue=(c.hue+t*8+c.type*17)%360;
+  const col=(a=1)=>`hsla(${hue},${c.sat}%,${Math.min(78,c.light+8*k)}%,${a})`;
+  ctx.save();
+  ctx.translate(x+s/2,y+s/2);
+  ctx.rotate(c.rot+wobble);
+  const q=s*.5-2;
+  ctx.strokeStyle=col(.96);
+  ctx.fillStyle=col(.96);
+  ctx.lineWidth=Math.max(1.3,s*.045);
+
+  if(c.type===0){
+    // concentric signal
+    for(let i=0;i<3;i++){
+      const r=q*(.25+i*.23)*(1+.06*Math.sin(t*2+c.phase+i));
+      ctx.beginPath();ctx.arc(0,0,r,0,TAU);ctx.stroke();
+    }
+    ctx.fillRect(-q*.07,-q*.07,q*.14,q*.14);
+  }else if(c.type===1){
+    // stacked bars
+    for(let i=-2;i<=2;i++){
+      const w=q*(.62+.16*Math.sin(c.phase+i*1.7));
+      ctx.fillRect(-w/2,i*q*.25-q*.055,w,q*.11);
+    }
+  }else if(c.type===2){
+    // broken square
+    const a=q*.78;
+    ctx.beginPath();
+    ctx.moveTo(-a,-a*.2);ctx.lineTo(-a,-a);ctx.lineTo(-a*.2,-a);
+    ctx.moveTo(a*.2,-a);ctx.lineTo(a,-a);ctx.lineTo(a,a*.2);
+    ctx.moveTo(a,a*.2);ctx.lineTo(a,a);ctx.lineTo(a*.2,a);
+    ctx.moveTo(-a,a);ctx.lineTo(-a*.2,a);ctx.lineTo(-a,a*.2);
+    ctx.stroke();
+    ctx.fillRect(-q*.09,-q*.09,q*.18,q*.18);
+  }else if(c.type===3){
+    // wave / frequency trace
+    ctx.beginPath();
+    const amp=q*.42*(.72+.28*k);
+    for(let i=0;i<=32;i++){
+      const xx=-q+2*q*i/32;
+      const yy=Math.sin(i*.72+t*2.2+c.phase)*amp*.34;
+      if(i===0)ctx.moveTo(xx,yy);else ctx.lineTo(xx,yy);
+    }
+    ctx.stroke();
+  }else if(c.type===4){
+    // checker field
+    const n=4,ss=q*2/n;
+    for(let yy=0;yy<n;yy++)for(let xx=0;xx<n;xx++)
+      if((xx+yy)%2===0)ctx.fillRect(-q+xx*ss,-q+yy*ss,ss,ss);
+    ctx.fillStyle=`hsla(${(hue+180)%360},${c.sat}%,72%,.95)`;
+    ctx.fillRect(-q*.16,-q*.16,q*.32,q*.32);
+  }else{
+    // diagonal blocks
+    for(let i=-2;i<=2;i++){
+      const off=i*q*.35;
+      ctx.fillRect(off-q*.18,-q*.7+i*q*.3,q*.36,q*.22);
+    }
+  }
+
+  if(c.pulse>0){
+    ctx.strokeStyle=`hsla(${(hue+60)%360},90%,78%,${Math.min(.8,c.pulse*.55)})`;
+    ctx.lineWidth=1.2+c.pulse*2;
+    ctx.strokeRect(-q*.92,-q*.92,q*1.84,q*1.84);
+  }
+  ctx.restore();
+}
+
+function render(t){
+  ctx.fillStyle='#050507';
+  ctx.fillRect(0,0,W,H);
+  const gap=Math.max(3,size*.075);
+
+  // The field is intentionally dense: each module is legible, but the whole reads
+  // as one animated composition rather than a collection of isolated widgets.
+  for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){
+    const c=cells[idx(x,y)];
+    const xx=x*size+gap*.5,yy=y*size+gap*.5,s=size-gap;
+    const beat=.5+.5*Math.sin(t*(1.15+c.energy*.7)+c.phase);
+    ctx.fillStyle=`hsla(${(c.hue+180)%360},18%,8%,1)`;
+    ctx.fillRect(xx,yy,s,s);
+    ctx.strokeStyle=`hsla(${c.hue},25%,34%,.18)`;
+    ctx.lineWidth=1;
+    ctx.strokeRect(xx+.5,yy+.5,s-1,s-1);
+
+    ctx.save();
+    ctx.globalAlpha=.74+.2*beat;
+    drawMotif(c,xx,yy,s,t);
+    ctx.restore();
+  }
+
+  // A sparse moving seam ties the independent modules into one composition.
+  ctx.globalCompositeOperation='screen';
+  for(let i=0;i<5;i++){
+    const yy=((i/5)*H+t*size*.16)%H;
+    ctx.strokeStyle=`hsla(${(t*24+i*71)%360},85%,66%,.07)`;
+    ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(0,yy);
+    for(let x=0;x<=W;x+=size/2)
+      ctx.lineTo(x,yy+Math.sin(x*.025+t*1.7+i)*size*.18);
+    ctx.stroke();
+  }
+  ctx.globalCompositeOperation='source-over';
+}
+
+function loopFrame(p){
+  // Quantize the phase to integer cycles so every animated term closes.
+  render(p);
+}
+function tick(now){
+  const dt=Math.min(.04,(now-last)/1000);last=now;
+  phase=(phase+dt*.55)%TAU;
+  propagate(dt);
+  render(phase);
+  requestAnimationFrame(tick);
+}
+
+function pointer(e){
+  const r=canvas.getBoundingClientRect();
+  return {x:e.clientX-r.left,y:e.clientY-r.top};
+}
+canvas.addEventListener('pointerdown',e=>{
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return true;
+  const p=pointer(e),g=cellAt(p.x,p.y);
+  touches.set(e.pointerId,{x:g.x,y:g.y});
+  ignite(g.x,g.y,1);
+  canvas.setPointerCapture(e.pointerId);
+  e.preventDefault();return false;
+},{passive:false});
+
+canvas.addEventListener('pointermove',e=>{
+  const a=touches.get(e.pointerId);if(!a)return;
+  const p=pointer(e),g=cellAt(p.x,p.y);
+  if(g.x!==a.x||g.y!==a.y){
+    ignite(g.x,g.y,.7);
+    a.x=g.x;a.y=g.y;
+  }
+  e.preventDefault();return false;
+},{passive:false});
+
+function release(e){touches.delete(e.pointerId)}
+canvas.addEventListener('pointerup',release);
+canvas.addEventListener('pointercancel',release);
+
+APKit.init({
+  canvas,
+  gifName:'rhythm-grid-loop',
+  clockFormat:'spec',
+  dock:true,
+  autoHide:true,
+  fullscreenButton:false,
+  loopFrame,
+  buttons:[
+    {label:'✦',name:'mutate',onClick:mutate},
+    {label:'↻',name:'reset',onClick:reset}
+  ]
+});
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
