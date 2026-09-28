@@ -23,7 +23,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 'use strict';
 /* ─────────────────────────────────────────────────────────────
    世界のルール:「この装置は、うさぎの持ち場でつながっている」
-   ・鉢で育ったにんじんが飛び出し、坂→坂→トランポリン→木琴の階段→シーソー(シーソー係が跳ねてベルに頭をぶつける)
+   ・鉢で育ったにんじんが飛び出し、立ったままぴょんぴょん跳ねて、坂→坂→トランポリン→木琴の階段→シーソー(シーソー係が跳ねてベルに頭をぶつける)
      →坂→ドミノ→坂のループ→ロープウェイのゴンドラ→水車→風車→床のループ→にんじん係の手へ。
    ・水車が回ると唐臼(からうす)の杵が持ち上がって「ぺったん」。その一突きでベルトコンベアが一コマ進み、
      だんごが串に刺さっていく(三つでおだんご係が食べる)。
@@ -132,7 +132,7 @@ function evs(q,lt){const u=cl((lt-q.t0)/q.d),a=q.a,b=q.b;
     case 'j':return[lerp(a[0],b[0],u),lerp(a[1],b[1],u)-q.h*Math.sin(Math.PI*u)];
     case 'o':{const an=lerp(q.a0,q.a1,u)*R;return[q.c[0]+q.rad*Math.cos(an),q.c[1]+q.rad*Math.sin(an)];}
     default:return qb(a,q.c,b,u);}}
-function carrotPos(lt){for(const q of S)if(lt<q.t0+q.d)return evs(q,lt);return null;}
+function carrotState(lt){for(const q of S)if(lt<q.t0+q.d)return{p:evs(q,lt),q,u:cl((lt-q.t0)/q.d)};return null;}
 
 /* ---------- gadgets ---------- */
 function sth(lt){const t=lt-M.see;let d;if(t<0)d=-12;else if(t<.15)d=-12+24*(t/.15)*(t/.15);else if(t<.85)d=12;else if(t<1)d=12-24*sm((t-.85)/.15);else d=-12;return d*R;}
@@ -200,7 +200,7 @@ g=bctx;
 let tau=0,stalled=false;
 function render(t,rt){
   g=bctx;g.globalAlpha=1;g.drawImage(st,0,0);
-  const P_=P,lt=mod(t,P_),cp=carrotPos(lt);
+  const P_=P,lt=mod(t,P_),cs=carrotState(lt);
   // pot, shishi-odoshi, water
   const gr=lt>=M.c+3.1?cl((lt-M.c-3.1)/.9):0;
   if(gr>0){const lh=Math.max(1,Math.round(gr*5));L(16,15,16,16-lh,'#5DBB63');if(lh>2){L(15,15,14,17-lh,'#3E8E46');L(17,15,18,17-lh,'#3E8E46');}if(gr>.7){px(15,16,'#FF9A3C');px(16,16,'#FF9A3C');px(17,16,'#FF9A3C');}}
@@ -281,7 +281,11 @@ function render(t,rt){
   const b2=buns[1],p2=bun2(lt);drawBun(b2,p2[0],p2[1],rt,{});
   const b4=buns[3],d4=dcat(lt);drawBun(b4,d4.x,d4.y,rt,{bob:d4.walk&&Math.floor(rt*8)%2?-1:0});
   const b5=buns[4],crank=(lt-M.g0>=1.85&&lt-M.g0<3.35);drawBun(b5,111,168,rt,{paw:[-2,crank?(Math.floor(rt*8)%2?5:7):7],bob:crank&&Math.floor(rt*8)%2?-1:0});
-  if(cp){const spin=(lt>=M.see&&lt<M.see+.4)?sa+Math.PI/2:(lt>=M.g0&&lt<M.g0+1.4)?Math.PI/2+ta:lt*9;carrot(cp[0],cp[1],lt>=M.c-.2?Math.PI/2:spin,1);}
+  if(cs){const q=cs.q;let x=cs.p[0],y=cs.p[1],a=Math.PI/2;
+    if(q.k==='o'&&(q.t0===M.loop||q.t0===M.loop2)){const an=lerp(q.a0,q.a1,cs.u)*R;x=q.c[0]+5.5*Math.cos(an);y=q.c[1]+5.5*Math.sin(an);a=an;}
+    else if(q.k==='r'){const len=Math.hypot(q.b[0]-q.a[0],q.b[1]-q.a[1]),e=cs.u*(.5+.5*cs.u),ph=Math.PI*e*len/7;y-=2+Math.abs(Math.sin(ph))*4;a+=Math.sin(ph*2)*.12;}
+    else{y-=2;if(q.k==='d'||q.k==='q'||q.k==='j')a+=Math.sin(lt*14)*.12;else if(q.k==='f'&&lt>=M.g0&&lt<M.g0+1.4)a+=ta;}
+    carrot(x,y,a,1);}
   else if(eat){carrot(92,241,Math.PI/2,1-.25*Math.min(4,Math.floor((lt-M.c-.3)/.45)));for(let j=0;j<3;j++){const u=mod(lt*2+j*.33,1);px(90+j*2,243+u*5,'#FF9A3C');}}
   if(lt>=M.c+2.1&&lt<M.c+2.9){heart(95,232-Math.round((lt-M.c-2.1)*8),'#FF7F96');}
 }
