@@ -1,0 +1,449 @@
+<!doctype html>
+<!-- INNER EYE — クロード作(おっちゃん提供の画像=黒地に真珠のような点で描いた多色のドット曼荼羅を参考に、法則はオリジナル)。ap-kit.js統合: クロード -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>INNER EYE — 小さな目が、全体を決める</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#04030a}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#hint{position:fixed;left:0;right:0;top:calc(14% + env(safe-area-inset-top,0px));text-align:center;
+  font:600 12px/1.95 "Hiragino Sans","Yu Gothic",sans-serif;letter-spacing:.12em;color:rgba(240,236,255,.94);
+  text-shadow:0 0 4px #000,0 0 10px #000,0 1px 2px #000;pointer-events:none;transition:opacity 1.8s ease;opacity:0}
+#hint.on{opacity:1}
+</style>
+<script src="ap-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">この曼荼羅の黒い目の中には<br>この曼荼羅そのものが入っている<br>目に触れると、その中の小さな曼荼羅が先に変わり<br>全体があとから追いつく(長押しで大きく)</div>
+<script>
+(function(){
+'use strict';
+/* ─────────────────────────────────────────────────────────────
+   世界のルール:「小さな目が、全体を決める」
+   ・点(ビーズ)で描かれた曼荼羅の、花弁の黒い目の中には、同じ曼荼羅が小さく入っている。
+     その小さな曼荼羅の目の中にも、さらに同じ曼荼羅が入っている(3階層以上の入れ子)。
+   ・ふつうは全体が部分を決めるが、ここでは逆。目に触れると、その目の中の小さな曼荼羅だけが
+     先に別の姿(色・花弁のふくらみ・炎の巻き・点の大きさ・ねじれ・広がり)へ変わる。
+   ・すると全体が、その目を起点に波のように、目の中の姿へ追いついていく。
+     波が通る間だけ曼荼羅の対称は崩れ、通り過ぎると新しい姿で対称に戻る。
+     全体が変われば、他のすべての目の中身も同じ姿に揃う。
+   ・長押しするほど、目の中の変化(=全体が追いつく先)は大きくなる。
+   ✦=別の曼荼羅(対称の数・姿を選び直す) / ↻=この曼荼羅の最初の姿に戻す
+   ───────────────────────────────────────────────────────────── */
+const TAU=Math.PI*2;
+const cv=document.getElementById('c');
+const ctx=cv.getContext('2d');
+let W=0,H=0,DPR=1,U=100;
+
+/* palette slots (h,s,l); the whole palette turns with gene.hue */
+const SLOTS=[[172,70,62],[198,85,68],[322,80,78],[262,85,76],[54,88,70],[30,95,72],[240,50,94],[250,90,64]];
+
+/* ── gene: hue, bulge, curl, dot, twist, bloom, sat ── */
+const KEYS=['hue','bulge','curl','dot','twist','bloom','sat'];
+const RANGES=[null,[0.6,1.1],[-1,1],[0.75,1.35],[-0.45,0.45],[0.86,1.12],[0.5,1]];
+function rnd(a,b){return a+Math.random()*(b-a)}
+function randGene(){return [rnd(0,360),rnd(0.75,1),rnd(-0.6,0.6),rnd(0.9,1.15),rnd(-0.15,0.15),rnd(0.95,1.05),rnd(0.75,0.95)];}
+
+let N=12,base=[0,0.9,0.35,1,0,1,0.85],initial=base.slice();
+let waves=[];            // {ox,oy,t0,d:[7],maxT,eye}
+const SPD=0.62,DUR=1.5;
+let simNow=0,time=0;
+const rot=new Float64Array(8);
+const ROTSPD=[0,-0.035,0.018,0.03,-0.012,0.02,-0.008,0.006];
+
+/* ── sprites: pearly beads, cached by quantised colour ── */
+const sprites=new Map();
+function sprite(slot,hue,sat){
+  const S=SLOTS[slot];
+  const h=Math.round(((S[0]+hue)%360+360)%360/8)*8;
+  const s=Math.round(S[1]*sat/8)*8,l=S[2];
+  const key=slot*100000+h*100+s;
+  let sp=sprites.get(key);
+  if(sp)return sp;
+  sp=document.createElement('canvas');sp.width=sp.height=40;
+  const c=sp.getContext('2d');
+  const g=c.createRadialGradient(14,13,0,20,20,20);
+  g.addColorStop(0,`hsla(${h},${Math.min(100,s)}%,98%,1)`);
+  g.addColorStop(0.2,`hsl(${h},${s}%,${Math.min(93,l+13)}%)`);
+  g.addColorStop(0.45,`hsl(${h},${s}%,${l}%)`);
+  g.addColorStop(0.62,`hsl(${(h+24)%360},${s}%,${Math.max(20,l-22)}%)`);
+  g.addColorStop(0.7,`hsla(${h},${s}%,${l}%,0.32)`);
+  g.addColorStop(1,`hsla(${h},${s}%,${l}%,0)`);
+  c.fillStyle=g;c.fillRect(0,0,40,40);
+  sprites.set(key,sp);
+  return sp;
+}
+const BODY=0.64; // bead body radius as a fraction of the sprite radius
+
+/* ── template: every dot is a parametric position, re-evaluated with its own gene ── */
+let dots=[],miniDots=[],eyes=[],FL=1.2,maxR=2.5;
+function petal(L,k,G,R){
+  const b=G[5],bul=G[1],tw=G[4];
+  switch(L){
+    case 1:{const n=2*N;return [0.23*b,0.055*b,0.031*bul*1.25,TAU*k/n+tw*0.5+R[1]];}
+    case 2:{const rc=0.5*b;return [rc,0.17*b,bul*Math.PI*rc/N*0.9,TAU*k/N+R[2]];}
+    case 3:{return [0.37*b,0.05*b,0.028*bul*1.3,TAU*k/N+Math.PI/N+tw*0.8+R[3]];}
+    default:{const rc=0.9*b;return [rc,0.25*b,bul*Math.PI*rc/N*0.9,TAU*k/N+Math.PI/N+tw*0.4+R[4]];}
+  }
+}
+const O={x:0,y:0,s:0,th:0};
+function place(rc,along,across,th){
+  const c=Math.cos(th),s=Math.sin(th),r=rc+along;
+  O.x=r*c-across*s;O.y=r*s+across*c;
+}
+function pos(d,G,R,tw){
+  const dm=G[3];
+  switch(d.t){
+    case 0:{ // core rings
+      if(d.i===0){O.x=0;O.y=0;O.s=d.sz*dm;return;}
+      const th=TAU*d.j/d.n+(tw/TAU)*(TAU/d.n)*(d.i%2?1:-1)*(1+(d.i>4));
+      const r=0.03*d.i*(0.9+0.1*G[5]);
+      O.x=r*Math.cos(th);O.y=r*Math.sin(th);O.s=d.sz*dm;return;}
+    case 1:{ // almond outline
+      const p=petal(d.L,d.k,G,R),dd=d.row;
+      const u=Math.cos(d.phi),sn=Math.sin(d.phi);
+      const along=u*(p[1]+dd*0.9);
+      const across=(p[2]+dd)*Math.pow(Math.abs(sn),1.9)*(sn<0?-1:1);
+      place(p[0],along,across,p[3]);O.s=d.sz*dm;return;}
+    case 2:{ // petal bead: centre (a=0) or outer tip (a=1)
+      const p=petal(d.L,d.k,G,R);
+      place(p[0],d.a?p[1]+0.06:0,0,p[3]);O.s=d.sz*dm;return;}
+    case 3:{ // bead band / outer rings
+      const th=TAU*d.j/d.n+G[4]*0.3*d.tws+R[d.L];
+      const r=d.rr*G[5];
+      O.x=r*Math.cos(th);O.y=r*Math.sin(th);O.s=d.sz*dm;return;}
+    case 4:{ // fans between the big petals
+      const D=Math.PI/N,th=TAU*d.k/N+R[2]+d.side*D*(0.1+0.07*d.j);
+      const r=(0.7+0.018*d.j)*G[5];
+      O.x=r*Math.cos(th);O.y=r*Math.sin(th);O.s=d.sz*dm;return;}
+    case 5:{ // flames: strings of beads that shrink as the paint runs out
+      const Df=Math.PI/(2*N),s=d.s;
+      const len=FL*(d.long?1:0.72);
+      const r=1.32*G[5]+s*len;
+      const aw=d.side*Df*0.85*Math.pow(Math.sin(Math.PI*Math.min(1,s)),0.8);
+      const curl=G[2]*Df*1.7*Math.pow(s,1.5)*(d.k%2?-1:1);
+      const th=TAU*d.k/(2*N)+R[7]+aw+curl;
+      O.x=r*Math.cos(th);O.y=r*Math.sin(th);
+      const flow=1+0.32*Math.sin(TAU*2.5*s-tw*2);
+      O.s=d.sz*dm*(d.side?(1-0.62*s):(1-0.75*s/0.55))*flow;return;}
+  }
+}
+function eyeGeom(e,G,R){
+  const p=petal(e.L,e.k,G,R);
+  O.x=p[0]*Math.cos(p[3]);O.y=p[0]*Math.sin(p[3]);O.s=p[2]*0.6;O.th=p[3];
+}
+
+function build(){
+  dots=[];eyes=[];
+  const nomG=[0,0.9,0,1,0,1,0.85],R0=new Float64Array(8);
+  const add=d=>{d.ph=Math.random()*TAU;d.w=1+((Math.random()*3)|0);pos(d,nomG,R0,0);d.nx=O.x;d.ny=O.y;dots.push(d);};
+  // core
+  add({t:0,i:0,sz:0.016,slot:6});
+  const coreSlots=[6,0,2,0,6,1,3,0];
+  for(let i=1;i<=7;i++){
+    const n=Math.max(8,Math.round(TAU*0.03*i/0.022));
+    for(let j=0;j<n;j++)add({t:0,i,j,n,sz:(i%2?0.0065:0.0048)*(i>5?0.9:1),slot:coreSlots[i]});
+  }
+  // L1 small teardrops + bead band
+  for(let k=0;k<2*N;k++){
+    for(let q=0;q<12;q++)add({t:1,L:1,k,phi:TAU*q/12,row:0,sz:0.0045,slot:0});
+    add({t:2,L:1,k,a:0,sz:0.012,slot:k%2?4:2});
+  }
+  for(let j=0;j<4*N;j++)add({t:3,L:1,j,n:4*N,rr:0.31,tws:1,sz:j%2?0.0085:0.0115,slot:j%2?2:4});
+  // L2 eye petals (inner ring of eyes)
+  const rowsA=[[0,0.0075,0],[0.022,0.0065,4],[0.04,0.0048,2]];
+  for(let k=0;k<N;k++){
+    for(const [dd,sz,slot] of rowsA){
+      const p=petal(2,0,nomG,R0),per=2*Math.hypot(2*(p[1]+dd),2*(p[2]+dd))*1.05;
+      const m=Math.max(12,Math.round(per/0.024));
+      for(let q=0;q<m;q++)add({t:1,L:2,k,phi:TAU*q/m,row:dd,sz,slot});
+    }
+    add({t:2,L:2,k,a:1,sz:0.014,slot:3});
+    eyes.push({L:2,k});
+  }
+  // L3 teardrops between
+  for(let k=0;k<N;k++){
+    for(let q=0;q<12;q++)add({t:1,L:3,k,phi:TAU*q/12,row:0,sz:0.0045,slot:1});
+    add({t:2,L:3,k,a:0,sz:0.012,slot:3});
+  }
+  // L4 eye petals (outer ring of eyes)
+  const rowsB=[[0,0.008,1],[0.024,0.0068,6],[0.045,0.005,3]];
+  for(let k=0;k<N;k++){
+    for(const [dd,sz,slot] of rowsB){
+      const p=petal(4,0,nomG,R0),per=2*Math.hypot(2*(p[1]+dd),2*(p[2]+dd))*1.05;
+      const m=Math.max(14,Math.round(per/0.027));
+      for(let q=0;q<m;q++)add({t:1,L:4,k,phi:TAU*q/m,row:dd,sz,slot});
+    }
+    add({t:2,L:4,k,a:1,sz:0.016,slot:5});
+    eyes.push({L:4,k});
+  }
+  // L5 fans
+  for(let k=0;k<N;k++)for(let j=0;j<7;j++)for(const side of [-1,1])add({t:4,k,j,side,sz:0.006,slot:j%2?4:5});
+  // outer rings
+  {const n=Math.round(TAU*1.2/0.03);for(let j=0;j<n;j++)add({t:3,L:6,j,n,rr:1.2,tws:0,sz:j%2?0.0052:0.0082,slot:j%2?4:5});}
+  {const n=Math.round(TAU*1.255/0.03);for(let j=0;j<n;j++)add({t:3,L:6,j,n,rr:1.255,tws:0,sz:0.0038,slot:0});}
+  // flames
+  const fsl=[6,0,1,3,7];
+  for(let k=0;k<2*N;k++){
+    const long=k%2===0;
+    for(const side of [-1,1])for(let q=0;q<20;q++){const s=q/19;add({t:5,k,s,side,long,sz:0.012,slot:fsl[Math.min(4,(s*5)|0)]});}
+    for(let q=0;q<10;q++){const s=q/9*0.55;add({t:5,k,s,side:0,long,sz:0.015,slot:q<5?4:5});}
+  }
+  miniDots=dots.filter(d=>Math.hypot(d.nx,d.ny)<1.3&&d.t!==5);
+  for(const e of eyes){
+    eyeGeom(e,nomG,R0);e.nx=O.x;e.ny=O.y;
+    e.cv=document.createElement('canvas');e.cv.width=e.cv.height=128;
+    e.last=null;e.sx=0;e.sy=0;e.er=0;
+  }
+  maxR=0;for(const d of dots)maxR=Math.max(maxR,Math.hypot(d.nx,d.ny));
+}
+
+/* ── waves: the part leads, the whole follows ── */
+const G=new Float64Array(7);
+let front=0;
+function smooth(x){return x<=0?0:x>=1?1:x*x*(3-2*x);}
+function geneAt(nx,ny,now,out){
+  for(let i=0;i<7;i++)out[i]=base[i];
+  front=0;
+  for(const w of waves){
+    const dist=Math.hypot(nx-w.ox,ny-w.oy);
+    const raw=(now-w.t0-dist/SPD)/DUR;
+    if(raw<=0)continue;
+    const p=smooth(raw);
+    if(raw<1)front=Math.max(front,Math.sin(Math.PI*raw));
+    for(let i=0;i<7;i++)out[i]+=w.d[i]*p;
+  }
+  return out;
+}
+function targetGene(){
+  const t=base.slice();
+  for(const w of waves)for(let i=0;i<7;i++)t[i]+=w.d[i];
+  return t;
+}
+function makeWave(eye,mag){
+  const T=targetGene(),d=new Array(7).fill(0);
+  d[0]=(Math.random()<0.5?-1:1)*rnd(55,135)*(0.7+0.4*mag);
+  const ks=[1,2,3,4,5,6].sort(()=>Math.random()-0.5);
+  const cnt=Math.min(6,2+Math.round(mag*2));
+  for(let q=0;q<cnt;q++){
+    const k=ks[q],[lo,hi]=RANGES[k],span=hi-lo;
+    let v=rnd(lo,hi);
+    const need=0.3*span*Math.min(1,mag);
+    if(Math.abs(v-T[k])<need){v=T[k]+(Math.random()<0.5?-1:1)*need;if(v<lo)v=T[k]+need;if(v>hi)v=T[k]-need;}
+    d[k]=Math.min(hi,Math.max(lo,v))-T[k];
+  }
+  const od=Math.hypot(eye.nx,eye.ny);
+  waves.push({ox:eye.nx,oy:eye.ny,t0:simNow,d,maxT:(maxR+od)/SPD+DUR+0.1,eye});
+  eye.lead=simNow;
+}
+function foldWaves(){
+  for(let i=waves.length-1;i>=0;i--){
+    const w=waves[i];
+    if(simNow-w.t0>w.maxT){for(let k=0;k<7;k++)base[k]+=w.d[k];base[0]=((base[0]%360)+360)%360;waves.splice(i,1);}
+  }
+}
+
+/* ── minis: each eye holds the whole mandala, whose eyes hold the previous one ── */
+const scratch=document.createElement('canvas');scratch.width=scratch.height=128;
+const sctx=scratch.getContext('2d');
+const ROT0=new Float64Array(8);
+function renderMini(c2cv,Gm){
+  const c=c2cv.getContext('2d'),S=c2cv.width,mu=S/2/1.3;
+  sctx.clearRect(0,0,S,S);sctx.drawImage(c2cv,0,0);
+  c.fillStyle='#000';c.fillRect(0,0,S,S);
+  for(const d of miniDots){
+    pos(d,Gm,ROT0,0);
+    let rp=O.s*mu;if(rp<0.28)continue;rp=Math.max(rp,0.6)/BODY;
+    c.drawImage(sprite(d.slot,Gm[0],Gm[6]),S/2+O.x*mu-rp,S/2+O.y*mu-rp,rp*2,rp*2);
+  }
+  for(const e of eyes){
+    eyeGeom(e,Gm,ROT0);
+    const ex=S/2+O.x*mu,ey=S/2+O.y*mu,er=O.s*mu;
+    if(er<0.8)continue;
+    c.save();c.beginPath();c.arc(ex,ey,er,0,TAU);c.fillStyle='#000';c.fill();c.clip();
+    c.translate(ex,ey);c.rotate(O.th);c.drawImage(scratch,-er,-er,er*2,er*2);c.restore();
+  }
+}
+function resetMinis(){
+  const first=eyes[0].cv;
+  first.getContext('2d').clearRect(0,0,128,128);
+  for(let i=0;i<3;i++)renderMini(first,base);
+  for(const e of eyes){
+    if(e!==eyes[0]){const c=e.cv.getContext('2d');c.clearRect(0,0,128,128);c.drawImage(first,0,0);}
+    e.last=base.slice();e.lead=-1;
+  }
+}
+let rr=0;
+function updateMinis(){
+  const Ge=new Float64Array(7),dirty=[];
+  for(const e of eyes){
+    geneAt(e.nx,e.ny,simNow,Ge);
+    let diff=Math.abs(Ge[0]-e.last[0])/300;
+    for(let i=1;i<7;i++)diff=Math.max(diff,Math.abs(Ge[i]-e.last[i]));
+    if(diff>0.005)dirty.push(e);
+  }
+  if(!dirty.length)return;
+  dirty.sort((a,b)=>(b.lead||-1)-(a.lead||-1));
+  const pick=[dirty[0]];
+  if(dirty.length>1)pick.push(dirty[1+(rr++)%(dirty.length-1)]);
+  if(dirty.length>2)pick.push(dirty[1+(rr++)%(dirty.length-1)]);
+  for(const e of pick){
+    const g=Array.from(geneAt(e.nx,e.ny,simNow,Ge));
+    renderMini(e.cv,g);e.last=g;
+  }
+}
+
+/* ── render ── */
+let bgCv=null;
+function makeBg(){
+  bgCv=document.createElement('canvas');bgCv.width=Math.round(W*DPR);bgCv.height=Math.round(H*DPR);
+  const c=bgCv.getContext('2d');c.setTransform(DPR,0,0,DPR,0,0);
+  c.fillStyle='#04030a';c.fillRect(0,0,W,H);
+  const g=c.createRadialGradient(W/2,H/2,0,W/2,H/2,Math.hypot(W,H)/2);
+  g.addColorStop(0,'rgba(40,30,70,0.35)');g.addColorStop(0.5,'rgba(18,24,48,0.25)');g.addColorStop(1,'rgba(30,10,50,0.3)');
+  c.fillStyle=g;c.fillRect(0,0,W,H);
+  const n=Math.round(W*H/90);
+  for(let i=0;i<n;i++){
+    const s=SLOTS[(Math.random()*SLOTS.length)|0];
+    c.fillStyle=`hsla(${s[0]},${s[1]}%,${s[2]}%,${rnd(0.08,0.3)})`;
+    const z=rnd(0.5,1.4);c.fillRect(rnd(0,W),rnd(0,H),z,z);
+  }
+}
+
+function draw(tw,R,now){
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.drawImage(bgCv,0,0);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  const cx=W/2,cy=H/2;
+  for(const d of dots){
+    geneAt(d.nx,d.ny,now,G);
+    pos(d,G,R,tw);
+    const x=cx+O.x*U,y=cy+O.y*U;
+    let r=O.s*U*(1+0.45*front);
+    if(x<-20||x>W+20||y<-20||y>H+20||r<0.25)continue;
+    r=Math.max(r,0.55)/BODY;
+    // core beads travel one step per loop, so their twinkle is tied to where they are, not to which bead they are
+    const ph=d.t===0?(O.x*61.7+O.y*93.1):d.ph,w=d.t===0?1:d.w;
+    ctx.globalAlpha=Math.min(1,0.72+0.24*Math.sin(tw*w+ph)+0.3*front);
+    ctx.drawImage(sprite(d.slot,G[0],G[6]),x-r,y-r,r*2,r*2);
+  }
+  ctx.globalAlpha=1;
+  // eyes
+  for(const e of eyes){
+    geneAt(e.nx,e.ny,now,G);
+    eyeGeom(e,G,R);
+    const ex=cx+O.x*U,ey=cy+O.y*U,er=O.s*U,th=O.th;
+    e.sx=ex;e.sy=ey;e.er=er;
+    if(ex<-er||ex>W+er||ey<-er||ey>H+er)continue;
+    ctx.save();ctx.beginPath();ctx.arc(ex,ey,er,0,TAU);ctx.fillStyle='#000';ctx.fill();ctx.clip();
+    ctx.translate(ex,ey);ctx.rotate(th);ctx.drawImage(e.cv,-er,-er,er*2,er*2);ctx.restore();
+    ctx.globalAlpha=0.28;ctx.strokeStyle='#e6f2ff';ctx.lineWidth=0.7;
+    ctx.beginPath();ctx.arc(ex,ey,er,0,TAU);ctx.stroke();ctx.globalAlpha=1;
+  }
+  // held eyes: a ring of light beads gathers around
+  for(const h of holds.values()){
+    const e=h.eye,n=Math.min(24,6+Math.floor(h.age*14));
+    const rr2=e.er*1.28+3;
+    for(let i=0;i<n;i++){
+      const a=TAU*i/n+time*1.4;
+      const sp=sprite(6,G[0],0.5),r=(1.3+Math.min(1.2,h.age))/BODY;
+      ctx.globalAlpha=0.6+0.4*Math.sin(time*6+i);
+      ctx.drawImage(sp,e.sx+Math.cos(a)*rr2-r,e.sy+Math.sin(a)*rr2-r,r*2,r*2);
+    }
+    ctx.globalAlpha=1;
+  }
+}
+
+/* ── input ── */
+const holds=new Map();
+function say(m){if(window.APKit&&APKit.toast)APKit.toast(m,2400);}
+function nearestEye(x,y){
+  let best=null,bd=Infinity;
+  for(const e of eyes){
+    const d=Math.hypot(e.sx-x,e.sy-y)/Math.max(8,e.er);
+    if(d<bd){bd=d;best=e;}
+  }
+  return best;
+}
+cv.addEventListener('pointerdown',e=>{
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  e.preventDefault();
+  try{cv.setPointerCapture(e.pointerId)}catch(_){}
+  const eye=nearestEye(e.clientX,e.clientY);if(!eye)return;
+  holds.set(e.pointerId,{eye,age:0});
+  hint.classList.remove('on');
+});
+function release(e){
+  const h=holds.get(e.pointerId);if(!h)return;
+  holds.delete(e.pointerId);
+  if(waves.length>=6)waves.shift();
+  makeWave(h.eye,0.55+Math.min(1,h.age/1.3)*0.95);
+}
+cv.addEventListener('pointerup',release);
+cv.addEventListener('pointercancel',release);
+const hint=document.getElementById('hint');
+setTimeout(()=>{hint.classList.add('on');setTimeout(()=>hint.classList.remove('on'),7000);},700);
+
+/* ── buttons ── */
+function mutate(){
+  const opts=[10,12,14,16].filter(n=>n!==N);
+  N=opts[(Math.random()*opts.length)|0];
+  base=randGene();initial=base.slice();waves=[];holds.clear();
+  build();resetMinis();
+  say('別の曼荼羅 — 対称の数 '+N);
+}
+function resetAll(){
+  base=initial.slice();waves=[];holds.clear();
+  resetMinis();
+  say('この曼荼羅の最初の姿に戻した');
+}
+
+/* ── boot ── */
+function resize(){
+  DPR=Math.min(window.devicePixelRatio||1,2);
+  W=innerWidth;H=innerHeight;
+  cv.width=Math.round(W*DPR);cv.height=Math.round(H*DPR);
+  U=Math.min(W,H)/2/1.12;
+  FL=Math.max(0.6,Math.hypot(W,H)/2/U-1.2);
+  makeBg();build();resetMinis();
+}
+addEventListener('resize',resize,{passive:true});
+resize();
+
+let last=performance.now();
+function frame(t){
+  const dt=Math.min(0.05,(t-last)/1000);last=t;
+  const exp=window.APKit&&APKit.isExporting&&APKit.isExporting();
+  if(!exp){
+    time+=dt;simNow+=dt;
+    for(let i=1;i<8;i++)rot[i]+=ROTSPD[i]*dt;
+    for(const h of holds.values())h.age+=dt;
+    foldWaves();updateMinis();
+    draw(time*TAU/3,rot,simNow);
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+if(window.APKit)APKit.init({
+  canvas:cv,
+  gifName:'inner-eye-loop',
+  clockFormat:'spec',
+  dock:true,
+  autoHide:true,
+  fullscreenButton:false,
+  // GIF: waves and ring rotations are frozen where they are; only the core rings
+  // (one bead step per loop), the twinkle and the flow along the flames move, all periodic.
+  loopFrame:function(phase){draw(phase,rot,simNow);},
+  buttons:[
+    {label:'✦',name:'mutate',onClick:mutate},
+    {label:'↻',name:'reset',onClick:resetAll}
+  ]
+});
+})();
+</script>
+</body>
+</html>
