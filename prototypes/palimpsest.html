@@ -1,0 +1,541 @@
+<!doctype html>
+<!-- PALIMPSEST — クロード作(おっちゃんの「タップごとに有名な格言を簡単に説明する作品」の依頼から)。ap-kit.js統合: クロード -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>PALIMPSEST — 読んだ言葉は、紙に沁みる</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital@1&family=Shippori+Mincho+B1:wght@500;700&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#172342}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#hint{position:fixed;left:0;right:0;bottom:calc(6% + env(safe-area-inset-bottom,0px));text-align:center;
+  font:500 12px/2 "Shippori Mincho B1","Hiragino Mincho ProN","Yu Mincho",serif;letter-spacing:.14em;color:rgba(239,236,226,.9);
+  text-shadow:0 0 6px #000,0 0 14px #000;pointer-events:none;transition:opacity 1.6s ease;opacity:0}
+#hint.on{opacity:1}
+</style>
+<script src="../ap-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">紙に触れると、そこから次の言葉が滲み出す<br>沁みた色に触れると、同じ系譜の言葉が呼ばれる<br>長く押すほど、深く沁みる</div>
+<script>
+(function(){
+'use strict';
+/* ─────────────────────────────────────────────────────────────
+   世界のルール:「読んだ言葉は、紙に沁みる」
+   ・藍の紙に触れると、そこへ顔料がひとしずく落ち、滲みの広がりに沿って格言が浮かび上がる。
+     近い文字から先に現れ、解説は読む順に後から書かれていく。
+   ・次の言葉に進むと、前の言葉は消えずに紙へ沁みる(顔料の滲みと、文字の薄い跡)。
+     紙は読んだ言葉の重ね書き=パリンプセストになっていく。古い沁みほど少しずつ薄れる。
+   ・顔料の色は言葉の系譜(中国の古典=朱、日本=若竹、古代地中海=金、聖書=藤、
+     ヨーロッパの思想=浅葱、英米=紅梅)。沁みた色の上に触れると、同じ系譜の言葉が呼ばれる。
+     何もない紙に触れると、まだあまり読んでいない系譜から呼ばれる。
+     → 読み進めるほど紙が「系譜の地図」になり、その地図を触って次の言葉を選ぶ。
+   ・長く押すほど、しずくは大きく深く沁み、その系譜の領土が広がる。
+   ・滲みの縁は自己相似:しずくの周りに小さなしずく、その周りにさらに小さなしずく(3階層)。
+     縁の揺らぎも周波数を倍々に重ねている。
+   ✦=紙の地色と繊維を替える(沁みはそのまま) / ↻=まっさらな紙に戻す
+   ───────────────────────────────────────────────────────────── */
+
+const PIG={
+  china:  {rgb:[229,85,63],  seal:'漢', pig:'朱',   name:'中国の古典'},
+  japan:  {rgb:[95,191,143], seal:'和', pig:'若竹', name:'日本の言葉'},
+  greco:  {rgb:[216,176,76], seal:'古', pig:'金',   name:'古代ギリシャ・ローマ'},
+  bible:  {rgb:[168,139,224],seal:'聖', pig:'藤',   name:'聖書'},
+  europe: {rgb:[63,182,200], seal:'欧', pig:'浅葱', name:'ヨーロッパの思想'},
+  english:{rgb:[236,143,176],seal:'英', pig:'紅梅', name:'英米の言葉'}
+};
+const FAMS=Object.keys(PIG);
+
+/* q=格言(／で改行) w=出典 o=原文 e=解説 */
+const QUOTES=[
+ {f:'china',q:'己の欲せざる所は／人に施すこと勿れ',w:'孔子『論語』',o:'己所不欲，勿施於人',
+  e:'自分がされて嫌なことは、人にもしない。人づきあいの物差しは、もう自分の心の中にある、という教え。'},
+ {f:'china',q:'過ぎたるは／猶及ばざるがごとし',w:'孔子『論語』',o:'過猶不及',
+  e:'やりすぎは、足りないのと同じくらいよくない。ちょうどいい加減を見つけることこそが難しい。'},
+ {f:'china',q:'故きを温ねて／新しきを知る',w:'孔子『論語』',o:'温故而知新',
+  e:'古いことを学び直すと、そこから新しい考えが見えてくる。四字熟語「温故知新」の元になった言葉。'},
+ {f:'china',q:'学びて思わざれば／則ち罔し',w:'孔子『論語』',o:'學而不思則罔',
+  e:'知識を詰め込むだけで自分の頭で考えなければ、結局なにも分かっていない。続きは「思いて学ばざれば則ち殆うし」。'},
+ {f:'china',q:'千里の行も／足下に始まる',w:'老子',o:'千里之行，始於足下',
+  e:'どんなに遠い旅も、足もとの一歩から始まる。大きなことほど、最初の小さな一歩を軽く見てはいけない。'},
+ {f:'china',q:'上善は／水の如し',w:'老子',o:'上善若水',
+  e:'最高の生き方は水のようなもの。争わず、低いところへ流れ、器に合わせて形を変え、それでいて岩をも削る。'},
+ {f:'china',q:'足るを知る者は／富む',w:'老子',o:'知足者富',
+  e:'もう十分に持っていると知っている人こそ、本当の意味で豊かだ。欲しがる気持ちには終わりがないから。'},
+ {f:'china',q:'彼を知り己を知れば／百戦して殆うからず',w:'孫子',o:'知彼知己，百戰不殆',
+  e:'相手のことと自分のことを両方よく知っていれば、何度戦っても危うくならない。勝つ前に、まず知ること。'},
+ {f:'china',q:'人間万事／塞翁が馬',w:'『淮南子』の故事から',o:'塞翁失馬',
+  e:'馬に逃げられた老人に、幸運と不運が次々と入れ替わって訪れた話から。良いことも悪いことも、先になるまで分からない。'},
+
+ {f:'japan',q:'一期一会',w:'茶の湯の心得',o:'',
+  e:'この出会いは一生に一度きり、と思って心を尽くすこと。同じ人と過ごす同じ時間は、二度とやって来ない。'},
+ {f:'japan',q:'初心／忘るべからず',w:'世阿弥『花鏡』',o:'',
+  e:'始めたころの未熟さと、それを乗り越えた時のことを忘れるな、という意味。「最初の情熱」だけの話ではない。'},
+ {f:'japan',q:'秘すれば花',w:'世阿弥『風姿花伝』',o:'秘すれば花なり、秘せずは花なるべからず',
+  e:'全部を見せてしまわないから、人は心を動かされる。隠しておくこと自体が、そのまま魅力になる。'},
+ {f:'japan',q:'行く河の流れは絶えずして／しかも、もとの水にあらず',w:'鴨長明『方丈記』',o:'',
+  e:'川は同じに見えても、流れている水はいつも入れ替わっている。人も町も、変わらないようで少しずつ別のものになっていく。'},
+ {f:'japan',q:'急がば回れ',w:'日本のことわざ',o:'',
+  e:'危ない近道より、確かな遠回りのほうが結局は早く着く。琵琶湖を舟で渡るより、陸の橋を回れと詠んだ歌が元とされる。'},
+ {f:'japan',q:'石の上にも三年',w:'日本のことわざ',o:'',
+  e:'冷たい石でも三年座り続ければ温まる。すぐに結果が出なくても、辛抱して続ければいつか報われる。'},
+ {f:'japan',q:'人は城、人は石垣／人は堀',w:'武田信玄の言葉と伝わる',o:'',
+  e:'立派な城よりも、人こそが国を守る。人を大切にすることが、いちばん強い守りになる、という考え方。'},
+
+ {f:'greco',q:'汝自身を知れ',w:'デルポイの神殿の銘',o:'γνῶθι σεαυτόν',
+  e:'古代ギリシャの神殿の入口に刻まれていた言葉。自分が何者で、どこまでの者かをわきまえよ、という戒めとされる。'},
+ {f:'greco',q:'万物は流転する',w:'ヘラクレイトスの言葉と伝わる',o:'πάντα ῥεῖ',
+  e:'すべては流れ、とどまるものはない。同じ川に二度入ることはできない、という考えを短く言い表した言葉。'},
+ {f:'greco',q:'知らないことを／知っているとは思わない',w:'ソクラテス／プラトン『弁明』',o:'ἃ μὴ οἶδα οὐδὲ οἴομαι εἰδέναι',
+  e:'いわゆる「無知の知」。知ったつもりにならないこと。自分の無知に気づいている分だけ、知ったかぶりの人より一歩先にいる。'},
+ {f:'greco',q:'来た、見た、勝った',w:'カエサル',o:'Veni, vidi, vici',
+  e:'あっという間の勝利を、ローマへたった三語で報告したと伝わる。簡潔さの見本のような言葉。'},
+ {f:'greco',q:'賽は投げられた',w:'カエサル',o:'Alea iacta est',
+  e:'軍を率いてルビコン川を渡る時の言葉。もう後戻りはできない、あとはやり抜くだけ、という決断の瞬間。'},
+ {f:'greco',q:'技芸は長く／人生は短い',w:'ヒポクラテス',o:'Ars longa, vita brevis',
+  e:'医術を身につける道のりは長く、人生はそれに比べて短い。だから一日も無駄にするな、という医者の心得。'},
+
+ {f:'bible',q:'人はパンのみにて／生くるにあらず',w:'『新約聖書』マタイ伝',o:'Man shall not live by bread alone',
+  e:'体を満たす食べ物だけでは、人は生きていけない。心を支える言葉や意味もまた、人には必要だ。'},
+ {f:'bible',q:'狭き門より入れ',w:'『新約聖書』マタイ伝',o:'Enter ye in at the strait gate',
+  e:'広く楽な道は滅びに続き、正しい道への門は狭い。受験の話ではなく、安易な道を選ぶなという教え。'},
+ {f:'bible',q:'求めよ、さらば／与えられん',w:'『新約聖書』マタイ伝',o:'Ask, and it shall be given you',
+  e:'自分から願い、探し、扉を叩く者にこそ道は開ける。ただ待っているだけでは、何も始まらない。'},
+ {f:'bible',q:'汝の敵を愛せ',w:'『新約聖書』マタイ伝',o:'Love your enemies',
+  e:'自分を憎む人のためにさえ祈れ、という教え。仕返しの連鎖を、自分のところで止めるという考え方。'},
+
+ {f:'europe',q:'我思う、ゆえに我あり',w:'デカルト『方法序説』',o:'Je pense, donc je suis',
+  e:'すべてを疑っても、疑っている自分がいることだけは疑えない。そこを土台に、確かな知識を組み立て直そうとした。'},
+ {f:'europe',q:'人間は／考える葦である',w:'パスカル『パンセ』',o:'un roseau pensant',
+  e:'人は葦のように弱く、ひと吹きの風で倒れる。それでも、自分の弱さを知っているその「考える力」に人間の尊さがある。'},
+ {f:'europe',q:'深淵をのぞくとき／深淵もまたこちらをのぞいている',w:'ニーチェ『善悪の彼岸』',o:'blickt der Abgrund auch in dich hinein',
+  e:'直前には「怪物と戦う者は、自分が怪物にならぬよう気をつけよ」とある。闇を見つめすぎると、闇に染まる。'},
+ {f:'europe',q:'ローマは／一日にして成らず',w:'ヨーロッパのことわざ',o:'Rome was not built in a day',
+  e:'大きな仕事は、長い時間の積み重ねでできあがる。すぐに形にならなくても、焦らず積み上げていけばいい。'},
+
+ {f:'english',q:'時は金なり',w:'ベンジャミン・フランクリン',o:'Time is money',
+  e:'働けば稼げた時間を遊んで過ごせば、その分のお金を失っている。若い商人への助言として書かれた言葉。'},
+ {f:'english',q:'天才とは／一パーセントのひらめきと／九十九パーセントの汗である',w:'エジソン',o:'ninety-nine percent perspiration',
+  e:'日本では「努力」と訳されがちだが、元は「汗」。すごい発想も、それを形にする地道な作業がなければ生まれない。'},
+ {f:'english',q:'生きるべきか、死ぬべきか／それが問題だ',w:'シェイクスピア『ハムレット』',o:'To be, or not to be',
+  e:'父を殺された王子が、耐えて生きるか、立ち向かって死ぬかに悩む独白の冒頭。訳し方がずっと議論されてきた一行。'},
+ {f:'english',q:'転がる石に／苔むさず',w:'英語のことわざ',o:'A rolling stone gathers no moss',
+  e:'イギリスでは「腰の落ち着かない人は何も身につかない」、アメリカでは「動き続ける人はいつも新鮮」。国で意味が逆になる。'},
+ {f:'english',q:'天は自ら助くる者を／助く',w:'スマイルズ『自助論』',o:'Heaven helps those who help themselves',
+  e:'人に頼る前に、自分で努力する人にこそ運は味方する。明治の日本でも『西国立志編』として大ベストセラーになった。'}
+];
+
+const PAPERS=[
+  {name:'藍',  c:[23,35,66]},
+  {name:'紫紺',c:[36,27,57]},
+  {name:'鉄紺',c:[24,36,50]},
+  {name:'煤竹',c:[42,35,31]}
+];
+const GOFUN=[239,236,226];
+
+/* ── canvases ── */
+const cv=document.getElementById('c'), ctx=cv.getContext('2d');
+const paper=document.createElement('canvas'), pctx=paper.getContext('2d');
+const stain=document.createElement('canvas'), sctx=stain.getContext('2d',{willReadFrequently:true});
+let W=0,H=0,DPR=1;
+let paperIdx=0, paperSeed=(Math.random()*1e9)|0;
+
+function mulberry(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+const cl=v=>v<0?0:v>1?1:v;
+const ease=k=>k*k*(3-2*k);
+const rgbs=(c,a)=>'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')';
+function mix(a,b,k){return[Math.round(a[0]+(b[0]-a[0])*k),Math.round(a[1]+(b[1]-a[1])*k),Math.round(a[2]+(b[2]-a[2])*k)];}
+
+function makePaper(){
+  const p=PAPERS[paperIdx].c, rnd=mulberry(paperSeed);
+  pctx.setTransform(DPR,0,0,DPR,0,0);
+  pctx.fillStyle=rgbs(p,1);pctx.fillRect(0,0,W,H);
+  const M=Math.max(W,H);
+  for(let i=0;i<14;i++){
+    const x=rnd()*W,y=rnd()*H,r=(0.2+rnd()*0.5)*M,lt=rnd()<0.5;
+    const g=pctx.createRadialGradient(x,y,0,x,y,r);
+    g.addColorStop(0,lt?'rgba(255,255,255,0.035)':'rgba(0,0,0,0.09)');g.addColorStop(1,'rgba(0,0,0,0)');
+    pctx.fillStyle=g;pctx.fillRect(0,0,W,H);
+  }
+  const n=Math.round(W*H/420);
+  pctx.lineCap='round';
+  for(let i=0;i<n;i++){
+    const x=rnd()*W,y=rnd()*H,a=rnd()*6.2832,l=6+rnd()*rnd()*46,b=(rnd()-0.5)*l*0.6;
+    const ex=x+Math.cos(a)*l,ey=y+Math.sin(a)*l,mx=(x+ex)/2-Math.sin(a)*b,my=(y+ey)/2+Math.cos(a)*b;
+    pctx.strokeStyle=rnd()<0.75?'rgba(235,238,255,'+(0.02+rnd()*0.05)+')':'rgba(0,0,0,'+(0.08+rnd()*0.1)+')';
+    pctx.lineWidth=0.4+rnd()*0.7;
+    pctx.beginPath();pctx.moveTo(x,y);pctx.quadraticCurveTo(mx,my,ex,ey);pctx.stroke();
+  }
+  const g=pctx.createRadialGradient(W/2,H*0.45,Math.min(W,H)*0.2,W/2,H/2,Math.hypot(W,H)*0.62);
+  g.addColorStop(0,'rgba(0,0,0,0)');g.addColorStop(1,'rgba(0,0,0,0.42)');
+  pctx.fillStyle=g;pctx.fillRect(0,0,W,H);
+  document.body.style.background=rgbs(p,1);
+}
+
+function resize(){
+  let old=null;
+  if(stain.width>0){old=document.createElement('canvas');old.width=stain.width;old.height=stain.height;old.getContext('2d').drawImage(stain,0,0);}
+  W=innerWidth;H=innerHeight;DPR=Math.min(2,window.devicePixelRatio||1);
+  for(const c of [cv,paper,stain]){c.width=Math.max(1,Math.round(W*DPR));c.height=Math.max(1,Math.round(H*DPR));}
+  ctx.setTransform(DPR,0,0,DPR,0,0);sctx.setTransform(DPR,0,0,DPR,0,0);
+  if(old){sctx.save();sctx.setTransform(1,0,0,1,0,0);sctx.drawImage(old,0,0,stain.width,stain.height);sctx.restore();}
+  makePaper();
+  if(cur)relayout(cur);
+}
+
+/* ── ink bloom: self-similar drops (3 levels), edge = octave-doubling ripple ── */
+const FREQ=[3,6,13,27], AMP=[0.10,0.06,0.034,0.02];
+function node(x,y,r,delay,depth,rnd){
+  const n={x,y,r,delay,ph:[rnd()*6.2832,rnd()*6.2832,rnd()*6.2832,rnd()*6.2832],kids:[]};
+  const counts=[7,4,3];
+  if(depth<3){
+    const k=counts[depth]+Math.floor(rnd()*2),a0=rnd()*6.2832;
+    for(let i=0;i<k;i++){
+      const a=a0+i/k*6.2832+(rnd()-0.5)*0.9,d=r*(0.92+rnd()*0.6),kr=r*(0.14+rnd()*0.16);
+      n.kids.push(node(x+Math.cos(a)*d,y+Math.sin(a)*d,kr,delay+0.3+rnd()*0.45,depth+1,rnd));
+    }
+  }
+  return n;
+}
+function shapeR(n,th,w){let s=1;for(let k=0;k<4;k++)s+=AMP[k]*Math.sin(FREQ[k]*th+n.ph[k]+0.5*Math.sin(w+k*1.7));return s;}
+function drawBloom(g,n,t,w,am,pc){
+  const gr=t<n.delay?0:1-Math.exp(-(t-n.delay)/0.7);
+  const rr=n.r*gr;
+  if(rr>=0.6){
+    const N=rr>40?84:rr>12?44:24;
+    g.beginPath();
+    for(let i=0;i<=N;i++){
+      const th=i/N*6.2832,R=rr*shapeR(n,th,w),px=n.x+Math.cos(th)*R,py=n.y+Math.sin(th)*R;
+      if(i)g.lineTo(px,py);else g.moveTo(px,py);
+    }
+    g.closePath();
+    // watercolor: pale middle, pigment pooling toward the rim (coffee-ring)
+    const gr2=g.createRadialGradient(n.x,n.y,0,n.x,n.y,rr*1.22);
+    gr2.addColorStop(0,rgbs(pc,0.035*am));gr2.addColorStop(0.62,rgbs(pc,0.075*am));
+    gr2.addColorStop(0.9,rgbs(pc,0.15*am));gr2.addColorStop(1,rgbs(pc,0.2*am));
+    g.fillStyle=gr2;g.fill();
+    g.lineWidth=Math.max(2,rr*0.06);g.strokeStyle=rgbs(pc,0.05*am);g.stroke();
+    g.lineWidth=Math.max(0.7,rr*0.01);g.strokeStyle=rgbs(pc,0.22*am);g.stroke();
+  }
+  for(const k of n.kids)drawBloom(g,k,t,w,am,pc);
+}
+
+/* ── vertical typesetting ── */
+const ROT=new Set(Array.from('ー〜…「」『』（）―─〈〉《》【】'));
+const TR=new Set(Array.from('、。，．'));
+const SMALL=new Set(Array.from('ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮヵヶ'));
+const NOSTART='、。，．」』）ー…ぁぃぅぇぉっゃゅょァィゥェォッャュョ';
+function isCJK(s){return /[\u3000-\u9fff\uff00-\uffef]/.test(s);}
+function wrap(str,max){
+  const out=[];let line=[];
+  for(const ch of Array.from(str)){
+    if(line.length>=max){
+      if(NOSTART.indexOf(ch)>=0){line.push(ch);continue;}
+      out.push(line.join(''));line=[];
+    }
+    line.push(ch);
+  }
+  if(line.length)out.push(line.join(''));
+  return out;
+}
+const fontQ=fs=>'700 '+fs.toFixed(1)+'px "Shippori Mincho B1","Hiragino Mincho ProN","Yu Mincho","YuMincho",serif';
+const fontE=fs=>'500 '+fs.toFixed(1)+'px "Shippori Mincho B1","Hiragino Mincho ProN","Yu Mincho","YuMincho",serif';
+const fontL=fs=>'italic 400 '+fs.toFixed(1)+'px "EB Garamond",Georgia,"Times New Roman",serif';
+function mk(kind,ch,x,y,fs){return{kind,ch,x,y,fs,rot:ROT.has(ch),tr:TR.has(ch),sm:SMALL.has(ch),revealAt:null,idx:0};}
+const len=s=>Array.from(s).length;
+
+function relayout(c){
+  const q=c.q;
+  const topM=Math.max(44,H*0.09),botM=Math.max(44,H*0.09),Hh=H-topM-botM;
+  let fq=Math.max(22,Math.min(72,W*0.105,H*0.068)),L=null;
+  for(let it=0;it<16;it++){
+    const fe=Math.max(11.5,fq*0.36),fa=Math.max(12,fq*0.42);
+    const qMax=Math.max(4,Math.floor(Hh*0.94/(fq*1.04)));
+    const qcols=[].concat.apply([],q.q.split('／').map(s=>wrap(s,qMax)));
+    const eMax=Math.max(8,Math.min(26,Math.floor((Hh-fq*1.6)/(fe*1.12))));
+    const ecols=wrap(q.e,eMax);
+    const aMax=Math.max(6,Math.floor((Hh-fq*1.3-fa*2)/(fa*1.06)));
+    const acols=wrap(q.w,aMax);
+    const hasO=!!q.o,oC=hasO&&isCJK(q.o);
+    const ocols=oC?wrap(q.o,aMax):[];
+    const qW=qcols.length*fq*1.5,aW=acols.length*fa*1.62,oW=hasO?(oC?ocols.length*fa*1.62:fa*1.7):0;
+    const gap1=fq*0.62,gap2=fq*0.95,eW=ecols.length*fe*1.78;
+    const total=qW+gap1+aW+oW+gap2+eW;
+    L={fq,fe,fa,qcols,ecols,acols,ocols,oC,hasO,qW,aW,oW,gap1,gap2,eW,total};
+    if(total<=W*0.9)break;
+    fq*=0.93;
+  }
+  const items=[],xR=(W+L.total)/2;
+  let qLenMax=0;
+  L.qcols.forEach((s,i)=>{
+    const cx=xR-L.fq*0.75-i*L.fq*1.5;qLenMax=Math.max(qLenMax,len(s));
+    Array.from(s).forEach((ch,j)=>items.push(mk('q',ch,cx,topM+L.fq*0.55+j*L.fq*1.04,L.fq)));
+  });
+  const qBottom=topM+qLenMax*L.fq*1.04;
+  const xa=xR-L.qW-L.gap1;
+  let aLen=0;L.acols.forEach(s=>aLen=Math.max(aLen,len(s)));
+  const ay=Math.max(topM+L.fq*1.3,qBottom-aLen*L.fa*1.06-L.fa*1.6);
+  L.acols.forEach((s,i)=>{
+    const cx=xa-L.fa*0.81-i*L.fa*1.62;
+    Array.from(s).forEach((ch,j)=>items.push(mk('a',ch,cx,ay+L.fa*0.53+j*L.fa*1.06,L.fa)));
+  });
+  const lastLen=len(L.acols[L.acols.length-1]);
+  items.push({kind:'seal',ch:PIG[q.f].seal,x:xa-L.fa*0.81-(L.acols.length-1)*L.fa*1.62,y:ay+lastLen*L.fa*1.06+L.fa*1.05,fs:L.fa*1.3,revealAt:null});
+  const xo=xa-L.aW,oy=topM+L.fq*1.3;
+  if(L.hasO){
+    if(L.oC){
+      L.ocols.forEach((s,i)=>{
+        const cx=xo-L.fa*0.81-i*L.fa*1.62;
+        Array.from(s).forEach((ch,j)=>items.push(mk('o',ch,cx,oy+L.fa*0.53+j*L.fa*1.06,L.fa)));
+      });
+    }else{
+      let fo=L.fa*1.08;ctx.font=fontL(fo);
+      const wd=ctx.measureText(q.o).width,maxW=Hh-L.fq*1.3;
+      if(wd>maxW)fo*=maxW/wd;
+      items.push({kind:'lat',ch:q.o,x:xo-L.fa*0.85,y:oy,fs:fo,revealAt:null});
+    }
+  }
+  const xe=xo-L.oW-L.gap2;let idx=0;
+  L.ecols.forEach((s,i)=>{
+    const cx=xe-L.fe*0.89-i*L.fe*1.78;
+    Array.from(s).forEach((ch,j)=>{const it=mk('e',ch,cx,topM+L.fq*1.6+L.fe*0.56+j*L.fe*1.12,L.fe);it.idx=idx++;items.push(it);});
+  });
+  let y0=Infinity,y1=-Infinity;
+  for(const it of items){y0=Math.min(y0,it.y-it.fs*0.6);y1=Math.max(y1,it.y+(it.kind==='lat'?Math.min(Hh,it.fs*len(it.ch)*0.5):it.fs*0.6));}
+  const shift=Math.max(0,(H-(y1-y0))*0.46-y0);
+  if(shift>0)for(const it of items)it.y+=shift;
+  if(c.items&&c.items.length===items.length)items.forEach((it,i)=>it.revealAt=c.items[i].revealAt);
+  c.items=items;
+  let md=0;for(const it of items)md=Math.max(md,Math.hypot(it.x-c.x,it.y-c.y));
+  c.Rt=md/0.78+12;
+}
+
+function drawChar(g,it,x,y){
+  if(it.rot){g.save();g.translate(x,y);g.rotate(Math.PI/2);g.fillText(it.ch,0,0);g.restore();}
+  else if(it.tr)g.fillText(it.ch,x+it.fs*0.32,y-it.fs*0.3);
+  else if(it.sm)g.fillText(it.ch,x+it.fs*0.08,y-it.fs*0.08);
+  else g.fillText(it.ch,x,y);
+}
+function drawItems(o,gif,fade){
+  const pc=PIG[o.fam].rgb;
+  ctx.textAlign='center';ctx.textBaseline='middle';
+  let lastFont='';
+  for(const it of o.items){
+    let k,k2;
+    if(gif){k=1;k2=1;}
+    else{if(it.revealAt==null)continue;k=cl((o.age-it.revealAt)/0.55);k2=cl((o.age-it.revealAt)/1.6);}
+    const a=ease(k)*(1-fade);if(a<=0.003)continue;
+    const dy=(1-ease(k))*it.fs*0.14+fade*10;
+    if(it.kind==='seal'){
+      const s=it.fs,x=it.x-s/2,y=it.y-s/2+dy;
+      ctx.shadowBlur=0;ctx.globalAlpha=a*0.88;ctx.fillStyle=rgbs(pc,1);
+      ctx.beginPath();
+      if(ctx.roundRect)ctx.roundRect(x,y,s,s,s*0.14);else ctx.rect(x,y,s,s);
+      ctx.fill();
+      ctx.globalAlpha=a;ctx.fillStyle=rgbs(PAPERS[paperIdx].c,1);
+      ctx.font=fontQ(s*0.64);lastFont='';
+      ctx.fillText(it.ch,it.x,it.y+dy+s*0.02);
+      continue;
+    }
+    if(it.kind==='lat'){
+      ctx.shadowBlur=0;ctx.globalAlpha=a*0.62;ctx.fillStyle=rgbs(mix(pc,GOFUN,0.55+0.45*ease(k2)),1);
+      ctx.font=fontL(it.fs);lastFont='';
+      ctx.save();ctx.translate(it.x,it.y+dy);ctx.rotate(Math.PI/2);ctx.textAlign='left';ctx.fillText(it.ch,0,0);ctx.restore();
+      ctx.textAlign='center';
+      continue;
+    }
+    const base=it.kind==='q'?1:it.kind==='e'?0.8:0.62;
+    const f=it.kind==='q'?fontQ(it.fs):fontE(it.fs);
+    if(f!==lastFont){ctx.font=f;lastFont=f;}
+    ctx.globalAlpha=a*base;
+    ctx.fillStyle=rgbs(mix(pc,GOFUN,ease(k2)),1);
+    if(!gif&&k2<1&&it.kind==='q'){ctx.shadowColor=rgbs(pc,0.9*(1-k2));ctx.shadowBlur=it.fs*0.6*(1-k2);}
+    else ctx.shadowBlur=0;
+    drawChar(ctx,it,it.x,it.y+dy);
+  }
+  ctx.shadowBlur=0;ctx.globalAlpha=1;
+}
+
+/* ── state ── */
+let cur=null,outgoing=[],press=null,time=0;
+const seen=new Set(),readCount={};
+FAMS.forEach(f=>readCount[f]=0);
+let stainToasts=0;
+
+function leastRead(){
+  let m=Infinity;FAMS.forEach(f=>m=Math.min(m,readCount[f]));
+  const c=FAMS.filter(f=>readCount[f]===m&&!(cur&&cur.fam===f&&FAMS.length>1));
+  const pool=c.length?c:FAMS.filter(f=>readCount[f]===m);
+  return pool[Math.floor(Math.random()*pool.length)];
+}
+function famAt(x,y){
+  try{
+    const r=3,px=Math.floor(x*DPR)-r,py=Math.floor(y*DPR)-r;
+    const d=sctx.getImageData(Math.max(0,px),Math.max(0,py),r*2+1,r*2+1).data;
+    let sr=0,sg=0,sb=0,sa=0;
+    for(let i=0;i<d.length;i+=4){const al=d[i+3];sr+=d[i]*al;sg+=d[i+1]*al;sb+=d[i+2]*al;sa+=al;}
+    if(sa/(d.length/4)<22)return null;
+    const c=[sr/sa,sg/sa,sb/sa];let best=null,bd=1e9;
+    for(const f of FAMS){const p=PIG[f].rgb,dd=(p[0]-c[0])**2+(p[1]-c[1])**2+(p[2]-c[2])**2;if(dd<bd){bd=dd;best=f;}}
+    return best;
+  }catch(_){return null;}
+}
+function pickQuote(fam){
+  let pool=QUOTES.filter(q=>q.f===fam&&!seen.has(q)&&!(cur&&cur.q===q));
+  if(!pool.length){
+    QUOTES.forEach(q=>{if(q.f===fam)seen.delete(q);});
+    pool=QUOTES.filter(q=>q.f===fam&&!(cur&&cur.q===q));
+  }
+  return pool[Math.floor(Math.random()*pool.length)];
+}
+
+function commit(c){
+  const pc=PIG[c.fam].rgb,w=time*0.25;
+  sctx.save();
+  sctx.globalCompositeOperation='destination-out';sctx.fillStyle='rgba(0,0,0,0.05)';sctx.fillRect(0,0,W,H);
+  sctx.restore();
+  sctx.save();
+  drawBloom(sctx,c.root,c.age,w,0.55,pc);
+  try{sctx.filter='blur(2px)';}catch(_){}
+  sctx.fillStyle=rgbs(pc,0.085);sctx.textAlign='center';sctx.textBaseline='middle';
+  for(const it of c.items){
+    if(it.kind!=='q'||it.revealAt==null)continue;
+    sctx.font=fontQ(it.fs);drawChar(sctx,it,it.x,it.y);
+  }
+  try{sctx.filter='none';}catch(_){}
+  sctx.restore();
+}
+
+function drop(x,y,fam,scale){
+  if(cur){commit(cur);cur.fade=0;outgoing.push(cur);if(outgoing.length>3)outgoing.shift();}
+  const q=pickQuote(fam);seen.add(q);readCount[fam]++;
+  const P=Math.min(W,H)*0.22*scale;
+  cur={q,fam,x,y,age:0,root:node(x,y,P,0,0,Math.random),items:null,Rt:0,fade:0};
+  relayout(cur);
+}
+
+function updateReveal(c,w){
+  const front=c.Rt*(1-Math.exp(-c.age/0.7));
+  for(const it of c.items){
+    if(it.revealAt!=null)continue;
+    if(it.kind==='e'&&c.age<1.1+it.idx*0.02)continue;
+    const dx=it.x-c.x,dy=it.y-c.y,d=Math.hypot(dx,dy);
+    if(d<=front*shapeR(c.root,Math.atan2(dy,dx),w))it.revealAt=c.age;
+  }
+}
+
+function render(w,gif){
+  ctx.globalAlpha=1;ctx.shadowBlur=0;
+  ctx.drawImage(paper,0,0,W,H);
+  ctx.globalCompositeOperation='screen';
+  ctx.drawImage(stain,0,0,W,H);
+  if(!gif)for(const o of outgoing)drawBloom(ctx,o.root,o.age,w,0.45*(1-o.fade),PIG[o.fam].rgb);
+  if(cur)drawBloom(ctx,cur.root,gif?Math.max(cur.age,6):cur.age,w,1,PIG[cur.fam].rgb);
+  ctx.globalCompositeOperation='source-over';
+  if(!gif)for(const o of outgoing)drawItems(o,false,o.fade);
+  if(cur)drawItems(cur,gif,0);
+  if(press&&!gif){
+    const pc=PIG[press.fam].rgb,r=5+Math.min(1,press.t/1.4)*18;
+    ctx.beginPath();ctx.arc(press.x,press.y,r,0,6.2832);
+    ctx.fillStyle=rgbs(pc,0.35);ctx.fill();
+    ctx.lineWidth=1.2;ctx.strokeStyle=rgbs(pc,0.85);ctx.stroke();
+  }
+}
+
+let last=performance.now();
+function frame(now){
+  const dt=Math.min(0.05,(now-last)/1000);last=now;
+  const exp=window.APKit&&APKit.isExporting&&APKit.isExporting();
+  if(!exp){
+    time+=dt;
+    const w=time*0.25;
+    if(cur){cur.age+=dt;updateReveal(cur,w);}
+    for(const o of outgoing){o.age+=dt;o.fade=Math.min(1,o.fade+dt/1.1);}
+    outgoing=outgoing.filter(o=>o.fade<1);
+    if(press)press.t+=dt;
+    render(w,false);
+  }
+  requestAnimationFrame(frame);
+}
+
+/* ── input ── */
+const hint=document.getElementById('hint');
+let hintShown=false,hintTimer=null;
+function hideHint(){hint.classList.remove('on');if(hintTimer){clearTimeout(hintTimer);hintTimer=null;}}
+function say(m){if(window.APKit&&APKit.toast)APKit.toast(m,2400);}
+
+cv.addEventListener('pointerdown',e=>{
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  e.preventDefault();
+  if(press)return;
+  try{cv.setPointerCapture(e.pointerId)}catch(_){}
+  const sf=famAt(e.clientX,e.clientY);
+  if(sf&&stainToasts<3){stainToasts++;say(PIG[sf].pig+'の沁み ─ '+PIG[sf].name+'から');}
+  press={id:e.pointerId,x:e.clientX,y:e.clientY,fam:sf||leastRead(),t:0};
+  hintShown=true;hideHint();
+});
+cv.addEventListener('pointermove',e=>{if(press&&press.id===e.pointerId){press.x=e.clientX;press.y=e.clientY;}});
+cv.addEventListener('pointerup',e=>{
+  if(!press||press.id!==e.pointerId)return;
+  const p=press;press=null;
+  drop(p.x,p.y,p.fam,1+Math.min(1,p.t/1.4)*0.75);
+});
+cv.addEventListener('pointercancel',e=>{if(press&&press.id===e.pointerId)press=null;});
+
+function mutate(){
+  const n=PAPERS.length;
+  paperIdx=(paperIdx+1+Math.floor(Math.random()*(n-1)))%n;
+  paperSeed=(Math.random()*1e9)|0;
+  makePaper();
+  say('紙を'+PAPERS[paperIdx].name+'に替えた(沁みはそのまま)');
+}
+function resetAll(){
+  sctx.clearRect(0,0,W,H);
+  seen.clear();FAMS.forEach(f=>readCount[f]=0);
+  outgoing=[];cur=null;press=null;
+  drop(W*0.6,H*0.4,FAMS[Math.floor(Math.random()*FAMS.length)],1.1);
+  say('まっさらな紙に戻した');
+}
+
+let rt=null;
+addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(resize,150);});
+resize();
+drop(W*0.6,H*0.4,FAMS[Math.floor(Math.random()*FAMS.length)],1.1);
+requestAnimationFrame(frame);
+
+hintTimer=setTimeout(()=>{
+  if(hintShown)return;
+  hint.classList.add('on');
+  hintTimer=setTimeout(hideHint,9000);
+},3200);
+
+addEventListener('load',()=>{
+  if(!document.fonts||!document.fonts.load)return;
+  const jp=QUOTES.map(q=>q.q+q.w+q.e+(isCJK(q.o)?q.o:'')).join('')+'漢和古聖欧英';
+  document.fonts.load('700 40px "Shippori Mincho B1"',jp).catch(()=>{});
+  document.fonts.load('500 20px "Shippori Mincho B1"',jp).catch(()=>{});
+  document.fonts.load('italic 20px "EB Garamond"',QUOTES.map(q=>q.o).join('')).then(()=>{if(cur)relayout(cur);}).catch(()=>{});
+});
+
+if(window.APKit)APKit.init({
+  canvas:cv,
+  gifName:'palimpsest-loop',
+  clockFormat:'spec',
+  dock:true,
+  autoHide:true,
+  fullscreenButton:false,
+  // GIF: the current saying is shown fully written; only the ink edges breathe (periodic in phase).
+  loopFrame:function(phase){render(phase,true);},
+  buttons:[
+    {label:'✦',name:'mutate',onClick:mutate},
+    {label:'↻',name:'reset',onClick:resetAll}
+  ]
+});
+})();
+</script>
+</body>
+</html>
