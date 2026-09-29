@@ -101,7 +101,7 @@ export default {
     // Count explicit full-screen opens from the gallery, plus direct top-level opens of published art pages.
     // Gallery preview iframes are excluded: they carry neither ap_view=1 nor Sec-Fetch-Dest=document.
     const isGalleryOpen = url.searchParams.get('ap_view') === '1';
-    const isPublishedWork = /^\\/art-v\\d+-[^/]+\\.html$/i.test(url.pathname);
+    const isPublishedWork = /^\/art-v\d+-[^/]+\.html$/i.test(url.pathname);
     const isDirectDocument = request.headers.get('sec-fetch-dest') === 'document';
     if (env.DB && (isGalleryOpen || (isPublishedWork && isDirectDocument))) {
       const workPath = url.pathname;
