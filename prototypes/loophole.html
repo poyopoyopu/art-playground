@@ -1,14 +1,15 @@
 <!doctype html>
-<!-- LOOPHOLE — クロード作(おっちゃんが見せてくれた「回る虹色の輪から小さな生き物が抜け出していく」ドット絵動画から着想。演出・法則はオリジナル、住人はHAMSTER DROPの動物たち)。ap-kit.js統合: クロード -->
+<!-- LOOPHOLE — クロード作(おっちゃんが見せてくれた「回る虹色の輪から小さな生き物が抜け出していく」ドット絵動画から着想。
+     おっちゃん「もはやアートではなくゲーム」→「かけらが積もって記録になる」「輪が入れ子で増殖する」の二つで作り直し。住人はHAMSTER DROPの動物たち)。ap-kit.js統合: クロード -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<title>LOOPHOLE — 輪をくぐるたび、仲間がふえる</title>
+<title>LOOPHOLE — 抜けた輪は、地面に積もる</title>
 <style>
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#CFE8F7}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#D2EAF8}
 canvas{display:block;width:100%;height:100%;touch-action:none}
-#hint{position:fixed;left:0;right:0;bottom:calc(17% + env(safe-area-inset-bottom,0px));text-align:center;
+#hint{position:fixed;left:0;right:0;top:calc(9% + env(safe-area-inset-top,0px));text-align:center;
   font:600 12px/1.9 "Hiragino Maru Gothic ProN","Hiragino Sans","Yu Gothic",sans-serif;letter-spacing:.12em;color:rgba(255,255,255,.97);
   text-shadow:0 1px 0 rgba(30,40,70,.85),0 0 6px rgba(30,40,70,.7);pointer-events:none;transition:opacity 1.6s ease;opacity:0}
 #hint.on{opacity:1}
@@ -17,47 +18,35 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hint">輪をひとつくぐるたび、ガチャから仲間がひとり出てくる<br>輪に触れると逆回り、長押しのあいだは止まる</div>
+<div id="hint">輪をくぐり抜けた子のまわりに、ひとまわり小さな輪が生まれる<br>はじけた輪は、地面に積もっていく<br>輪に触れると逆回り、長押しのあいだは止まる</div>
 <script>
 (function(){
 'use strict';
 /* ─────────────────────────────────────────────────────────────
-   世界のルール:「輪をひとつくぐるたび、仲間がひとり増える」
-   ・回り続ける虹色の輪が何重にもあり、それぞれに一か所だけ隙間(抜け穴)がある。
-   ・中の動物は壁で跳ね返りながら走り回り、いちばん内側の輪の隙間をくぐった瞬間、その輪ははじけて消える。
-   ・輪がはじけるたびに、真ん中にガチャのカプセルが転がり出て、新しい動物(20種からまだ出ていない子)が一匹ふえる。
-     仲間がふえるほど隙間に当たる子もふえて、輪はどんどん速くはじけていく(抜けるほど抜けやすくなる)。
-   ・全部の輪がはじけたら FREE!。みんな画面の外へ走り去り、次の輪が組み上がって、またひとつのカプセルから始まる。
-   ・触れた輪は逆回りになり、そのラウンドのあいだずっと逆のまま(隙間を仲間のほうへ呼び寄せられる)。
-     長押しのあいだ、その輪は止まる。
-   ✦ = 空と輪の組み合わせ・輪の数を替える / ↻ = いまの輪を最初から
+   世界のルール:「くぐり抜けた子のまわりには、ひとまわり小さな輪が生まれる。はじけた輪は、地面に積もる」
+   ・空に、回り続ける虹色の輪の巣がひとつ。どの輪にも隙間が一か所あり、中の動物が隙間をくぐると、その輪ははじける。
+   ・巣の最後の輪をくぐり抜けた子のまわりには、同じ形のひとまわり小さな巣が生まれ、カプセルから仲間がひとり加わる。
+     大きな巣(6重)→ 中の巣(4重)→ 小さな巣(3重)→ いちばん小さな巣(2重)と、同じ形が縮みながら 1→1→2→4 つに増えていく(入れ子の増殖)。
+     いちばん小さな巣を抜けた子たちは地面に降りて、積もった層の上を歩いて去っていく。巣が全部消えたら、また大きな巣から。
+   ・はじけた輪のかけらは落ちて地面に積もる。どの輪がいつはじけたかが色の層になって残り、層が厚くなると古い層から下へ沈んでいく。
+     ✦で空と輪の色を替えると、その時代の色が新しい層として重なる(地面は「いつ、どの色の世界だったか」の記録になる)。
+   ・触れた輪は逆回りになり、長押しのあいだは止まる(隙間を呼び寄せたり、閉じ込めたりできる)。
+   ✦ = 空と輪の色を替える(積もった層はそのまま) / ↻ = 地面をならして最初から
    ───────────────────────────────────────────────────────────── */
-const TAU=Math.PI*2,S=180,RA=3.6;let V=55,GA=16,GB=.55,MG=.4,POPD=0;
-let W=S,H=390;
+const TAU=Math.PI*2,S=180,RA=3.6,TOP=4;let V=70,GA=18,GB=1.1,GM=1.7;
+const GENS=[{f:.92,n:5},{f:.52,n:4},{f:.32,n:3},{f:.2,n:2}];
+let W=S,H=390,K=4;
 const cv=document.getElementById('c'),ctx=cv.getContext('2d'),hintEl=document.getElementById('hint');
 const buf=document.createElement('canvas');let g=buf.getContext('2d');
-const bufB=document.createElement('canvas');let gB=bufB.getContext('2d'),K=4;
-const cl=(u,a,b)=>u<a?a:u>b?b:u,lerp=(a,b,u)=>a+(b-a)*u,rnd=(a,b)=>a+Math.random()*(b-a),wrap=a=>{a=(a+Math.PI)%TAU;if(a<0)a+=TAU;return a-Math.PI;};
+const sedCv=document.createElement('canvas');let sq=sedCv.getContext('2d');
+const skyCv=document.createElement('canvas');
+const scr=document.createElement('canvas');let sg=scr.getContext('2d');
+const cl=(u,a,b)=>u<a?a:u>b?b:u,rnd=(a,b)=>a+Math.random()*(b-a),wrap=a=>{a=(a+Math.PI)%TAU;if(a<0)a+=TAU;return a-Math.PI;};
 function px(x,y,c){g.fillStyle=c;g.fillRect(Math.floor(x),Math.floor(y),1,1);}
-function RT(x,y,w,h,c){g.fillStyle=c;g.fillRect(Math.round(x),Math.round(y),w,h);}
 function hx(c){const n=parseInt(c.slice(1),16);return[n>>16&255,n>>8&255,n&255];}
-function mix(a,b,u){const A=hx(a),B=hx(b);return'#'+A.map((v,i)=>Math.round(lerp(v,B[i],u)).toString(16).padStart(2,'0')).join('');}
+function mix(a,b,u){const A=hx(a),B=hx(b);return'#'+A.map((v,i)=>Math.round(v+(B[i]-v)*u).toString(16).padStart(2,'0')).join('');}
 
-/* ---------- 3x5 font ---------- */
-const FONT={A:[".#.","#.#","###","#.#","#.#"],B:["##.","#.#","##.","#.#","##."],C:[".##","#..","#..","#..",".##"],D:["##.","#.#","#.#","#.#","##."],
-E:["###","#..","##.","#..","###"],F:["###","#..","##.","#..","#.."],G:[".##","#..","#.#","#.#",".##"],H:["#.#","#.#","###","#.#","#.#"],
-I:["###",".#.",".#.",".#.","###"],K:["#.#","#.#","##.","#.#","#.#"],L:["#..","#..","#..","#..","###"],
-M:["#.#","###","###","#.#","#.#"],N:["##.","#.#","#.#","#.#","#.#"],O:[".#.","#.#","#.#","#.#",".#."],P:["##.","#.#","##.","#..","#.."],R:["##.","#.#","##.","#.#","#.#"],
-S:[".##","#..",".#.","..#","##."],T:["###",".#.",".#.",".#.",".#."],U:["#.#","#.#","#.#","#.#","###"],W:["#.#","#.#","###","###","#.#"],Y:["#.#","#.#",".#.",".#.",".#."],
-'0':["###","#.#","#.#","#.#","###"],'1':[".#.","##.",".#.",".#.","###"],'2':["##.","..#",".#.","#..","###"],'3':["##.","..#",".#.","..#","##."],
-'4':["#.#","#.#","###","..#","..#"],'5':["###","#..","##.","..#","##."],'6':[".##","#..","###","#.#","###"],'7':["###","..#",".#.",".#.",".#."],
-'8':["###","#.#","###","#.#","###"],'9':["###","#.#","###","..#","##."],'!':[".#.",".#.",".#.","...",".#."],'.':["...","...","...","...",".#."]};
-const tw=(s,k)=>(s.length*4-1)*(k||1);
-function text(s,x,y,col,k){k=k||1;x=Math.round(x);y=Math.round(y);g.fillStyle=col;
-  for(const ch of s){const gl=FONT[ch];if(gl)for(let r=0;r<5;r++)for(let c=0;c<3;c++)if(gl[r][c]==='#')g.fillRect(x+c*k,y+r*k,k,k);x+=4*k;}}
-function box(x,y,w,h,fill,edge){x=Math.round(x);y=Math.round(y);RT(x+1,y,w-2,1,edge);RT(x+1,y+h-1,w-2,1,edge);RT(x,y+1,1,h-2,edge);RT(x+w-1,y+1,1,h-2,edge);RT(x+1,y+1,w-2,h-2,fill);}
-
-/* ---------- animals (HAMSTER DROPの20種・右向き。左へ走る時は反転) ---------- */
+/* ---------- animals (HAMSTER DROPの20種・右向き。左へ動く時は反転) ---------- */
 const PK='#FFC2D1';
 const SP=[
 {n:'ハムスター',O:'#B8672A',p:{B:'#F2A24E',W:'#FFF6EA',E:'#F2A7A0',N:'#FF8FA3',C:PK,F:'#F7B5B5'},s:["...E....","..EBBB..",".BBBBBB.","BBBBBKBB","BBBBBBCN","BBBBWWWW",".WWWWWW.","..F..F.."]},
@@ -91,264 +80,252 @@ function hamster(x,y,sp,o){o=o||{};const A=SP[sp],gr=o.frame||A.fr[0],h=gr.lengt
     if(ch==='K'&&o.blink){const nb=gr[r][c-1]||gr[r][c+1];if(nb&&nb!=='.'&&nb!=='K')ch=nb;}
     px(X(c),y0+r,ch==='K'?'#2A1E1A':(A.p[ch]||'#2A1E1A'));}}
 
-/* ---------- themes (空と輪の組み合わせ) ---------- */
+/* ---------- themes (空と輪の色。✦で替わり、積もる層の色も時代ごとに変わる) ---------- */
 const THEMES=[
- {sky:['#D2EAF8','#C2E0F4'],far:'#B9DEC0',hill:'#8FC984',hillD:'#7AB872',water:['#3F8FDB','#3480CC','#8CC8F2'],hud:'#3A4460',night:0,
-  ring:['#E8453C','#F2842A','#F4C22E','#8CC63F','#2BA84A','#1FB5A8','#2E9AE0','#3B5BDB','#7B4FD6','#E0529C']},
- {sky:['#FFE0C4','#FFD2B4'],far:'#EBC2C4',hill:'#C79DB4',hillD:'#B489A2',water:['#7E72BC','#6F63AE','#F6B09A'],hud:'#5A4058',night:0,
-  ring:['#FF6F61','#FF9A5A','#FFC857','#F9E07F','#B5E48C','#76C9B8','#6FA8DC','#8E7CC3','#C27BA0','#F28DB2']},
- {sky:['#1F2548','#252C54'],far:'#34466A',hill:'#2C4658',hillD:'#243B4B',water:['#1C3C6E','#17325E','#5A8CD0'],hud:'#1F2548',night:1,
-  ring:['#FF4D6D','#FF8E3C','#FFE14D','#9BF55A','#3DF0A0','#3DE6F0','#4DA8FF','#7A6CFF','#C15CFF','#FF5CC8']},
- {sky:['#E6F4E4','#D8EDD6'],far:'#C9E2B8','hill':'#A8D08D',hillD:'#94C27A',water:['#4FA6B8','#4396A8','#A6DDE4'],hud:'#3C5040',night:0,
-  ring:['#F28BA8','#F5A97F','#EFCB68','#A9D67A','#6FCB9F','#5FC4C4','#76A9E0','#9A8FE0','#C48FE0','#EA8FC4']}];
-let TH=0,theme=THEMES[0],NR=10;
+ {sky:['#D2EAF8','#C2E0F4'],soil:['#9C7B5B','#8A6B4E'],night:0,ring:['#E8453C','#F2842A','#F4C22E','#8CC63F','#2BA84A','#1FB5A8','#2E9AE0','#3B5BDB','#7B4FD6','#E0529C']},
+ {sky:['#FFE0C4','#FFD2B4'],soil:['#8E6A6E','#7E5C62'],night:0,ring:['#FF6F61','#FF9A5A','#FFC857','#F9E07F','#B5E48C','#76C9B8','#6FA8DC','#8E7CC3','#C27BA0','#F28DB2']},
+ {sky:['#1F2548','#252C54'],soil:['#3A3A58','#2F2F4A'],night:1,ring:['#FF4D6D','#FF8E3C','#FFE14D','#9BF55A','#3DF0A0','#3DE6F0','#4DA8FF','#7A6CFF','#C15CFF','#FF5CC8']},
+ {sky:['#E6F4E4','#D8EDD6'],soil:['#8FA27A','#7F926C'],night:0,ring:['#F28BA8','#F5A97F','#EFCB68','#A9D67A','#6FCB9F','#5FC4C4','#76A9E0','#9A8FE0','#C48FE0','#EA8FC4']}];
+let TH=0,theme=THEMES[0];
 
-/* ---------- layout ---------- */
-let cx=90,cy=170,Rmax=84,r0=15,sp=7.7,RW=3,waterTop=356,hillTop=330;
-let rings=[],mates=[],parts=[],labels=[],caps=[],stars=[];
-let phase='build',tPhase=0,tRound=0,best=null,pals=0,rtime=0,bag=[];
-const skyCv=document.createElement('canvas'),groundCv=document.createElement('canvas');
+/* ---------- state ---------- */
+let nests=[],walkers=[],parts=[],stars=[],cols=[],sedW=0;
+let limitH=90,skyBot=290,Rmax=80,cx0=90,cy0=140,rtime=0,idle=0,cycles=0,bag=[];
 
 function resize(){
   const d=Math.min(3,window.devicePixelRatio||1);cv.width=Math.round(innerWidth*d);cv.height=Math.round(innerHeight*d);
-  /* 1ドット=画面のkピクセル(整数)にそろえる。動くものは画面のピクセル単位でなめらかに動かし、ドットの大きさは変えない */
+  /* 1ドット=画面のKピクセル(整数)。動くものは画面のピクセル単位でなめらかに動かし、ドットの大きさは変えない */
   K=Math.max(1,Math.round(Math.min(cv.width,cv.height)/S));
   W=Math.ceil(cv.width/K);H=Math.ceil(cv.height/K);
-  buf.width=W;buf.height=H;g=buf.getContext('2d');bufB.width=W;bufB.height=H;gB=bufB.getContext('2d');
+  buf.width=W;buf.height=H;g=buf.getContext('2d');
   layout();}
 function layout(){
-  const wH=Math.round(H>W?H*.085:H*.09);waterTop=H-wH;hillTop=waterTop-(H>W?16:10);
-  const top=17,bot=waterTop-8;
-  Rmax=Math.floor(Math.min(W/2-5,(bot-top)/2-1));
-  cx=Math.round(W/2);cy=Math.round(cl(top+(bot-top)*.46,top+Rmax+1,bot-Rmax));
-  placeRings();buildBg();
-  const k=innermost();if(k>=0){const lim=rings[k].r-RW/2-RA;for(const m of mates)if(m.in){const dd=Math.hypot(m.x,m.y);if(dd>lim){m.x*=lim/dd;m.y*=lim/dd;}}}}
-function ringCount(){return Math.min(NR,Math.floor((Rmax-r0)/4.6)+1);}
-function placeRings(){
-  const n=rings.length;if(!n)return;
-  sp=(Rmax-r0)/Math.max(1,n-1);RW=sp>=6.5?3:2;
-  rings.forEach((R,i)=>{R.r=r0+sp*i;R.gap=(GA+R.r*GB)/R.r;buildPix(R);});}
-function buildPix(R){
-  const xs=[],ys=[],as=[],sh=[],e=RW/2;
-  for(let y=Math.floor(cy-R.r-3);y<=cy+R.r+3;y++)for(let x=Math.floor(cx-R.r-3);x<=cx+R.r+3;x++){
-    const dx=x+.5-cx,dy=y+.5-cy,o=Math.hypot(dx,dy)-R.r;if(Math.abs(o)>e)continue;
-    xs.push(x);ys.push(y);as.push(Math.atan2(dy,dx));sh.push(RW===3?(o>.5?2:o<-.5?1:0):(o>0?2:0));}
-  R.cvs={};R.px={x:Int16Array.from(xs),y:Int16Array.from(ys),a:Float32Array.from(as),s:Uint8Array.from(sh)};}
-function ringColors(){
-  const P=theme.ring,n=rings.length;
-  rings.forEach((R,i)=>{const f=n>1?i*(P.length-1)/(n-1):0,a=Math.floor(f),b=Math.min(P.length-1,a+1);
-    R.cvs={};R.col=mix(P[a],P[b],f-a);R.dark=mix(R.col,theme.night?'#000000':'#1A1030',.28);R.light=mix(R.col,'#FFFFFF',.38);});}
-
-/* ---------- background (空の菱形チェック・丘・水面をキャッシュ) ---------- */
+  limitH=Math.round(H*(H>W?.24:.2));skyBot=H-limitH-3;
+  Rmax=Math.floor(Math.min(W/2-4,(skyBot-TOP)/2));
+  cx0=W/2;cy0=Math.round(cl(TOP+(skyBot-TOP)*.47,TOP+Rmax,skyBot-Rmax));
+  resampleSed();buildBg();
+  for(const N of nests){geom(N);N.x=cl(N.x,N.R+2,W-N.R-2);N.y=cl(N.y,TOP+N.R,skyBot-N.R);}}
 function buildBg(){
-  skyCv.width=W+12;skyCv.height=H+12;const s=skyCv.getContext('2d');
-  for(let y=0;y<H+12;y++)for(let x=0;x<W+12;x++){
-    const u=Math.floor((x+y)/12),v=Math.floor((x-y+600)/12);
-    if(((u+v)&1)===0)continue;s.fillStyle=theme.sky[1];s.fillRect(x,y,1,1);}
-  groundCv.width=W;groundCv.height=H;const q=groundCv.getContext('2d');
-  const col=(c,x,y,w,h)=>{q.fillStyle=c;q.fillRect(x,y,w,h);};
-  for(let x=0;x<W;x++){
-    const f=Math.round(hillTop-8-5*Math.sin(x*.031+1.3)-3*Math.sin(x*.083+.4));col(theme.far,x,f,1,waterTop-f);
-    const n=Math.round(hillTop+2-3*Math.sin(x*.047+2.1)-2*Math.sin(x*.13));col(theme.hill,x,n,1,waterTop-n);col(theme.hillD,x,n,1,1);}
-  col(theme.water[0],0,waterTop,W,H-waterTop);col(mix(theme.water[0],'#FFFFFF',.55),0,waterTop,W,1);
-  for(let y=waterTop+3;y<H;y+=3)for(let x=(y*7)%11;x<W;x+=11)col(theme.water[1],x,y,5,1);
-  stars=[];if(theme.night)for(let i=0;i<Math.round(W*H/700);i++)stars.push([Math.floor(rnd(0,W)),Math.floor(rnd(0,hillTop-10)),rnd(0,TAU),rnd(1.5,3.5)]);
+  skyCv.width=W+12;skyCv.height=H+12;const s=skyCv.getContext('2d');s.fillStyle=theme.sky[1];
+  for(let y=0;y<H+12;y++)for(let x=0;x<W+12;x++){const u=Math.floor((x+y)/12),v=Math.floor((x-y+600)/12);if((u+v)&1)s.fillRect(x,y,1,1);}
+  stars=[];if(theme.night)for(let i=0;i<Math.round(W*H/700);i++)stars.push([Math.floor(rnd(0,W)),Math.floor(rnd(0,skyBot)),rnd(0,TAU),Math.round(rnd(1,4))]);
   document.body.style.background=theme.sky[0];}
 
-/* ---------- round ---------- */
-function innermost(){for(let i=0;i<rings.length;i++)if(rings[i].alive)return i;return -1;}
-function nextSpecies(){if(!bag.length){bag=[...Array(NS).keys()];for(let i=bag.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[bag[i],bag[j]]=[bag[j],bag[i]];}}return bag.pop();}
-function newRound(){
-  const n=ringCount();rings=[];
-  let dir=Math.random()<.5?1:-1;
-  for(let i=0;i<n;i++){
-    if(Math.random()<.78)dir=-dir;
-    rings.push({alive:true,ang:rnd(0,TAU),w:dir*rnd(.55,1.25),born:.2+i*.065,flash:0,hold:false,flip:false,close:0});}
-  placeRings();ringColors();
-  mates=[];caps=[];parts=[];labels=labels.filter(l=>l.t<.5);pals=0;tRound=0;tPhase=0;phase='build';
-  caps.push({x:0,y:0,t:-(.35+n*.065),col:capColor()});}
-const CAPC=['#FF8FA3','#7CC6FF','#FFE066','#8EDB8A','#C3A6FF','#FFB547','#9FE0E0'];
-function capColor(){return CAPC[Math.floor(Math.random()*CAPC.length)];}
+/* ---------- sediment (はじけた輪のかけらが積もる地面) ---------- */
+function initSed(){cols=[];for(let x=0;x<W;x++){const c=[];for(let i=0;i<5;i++)c.push(theme.soil[((x*7+i*3)%5)<2?1:0]);cols.push(c);}sedW=W;drawSed();}
+function maxH(){let m=0;for(const c of cols)if(c.length>m)m=c.length;return m;}
+function drawSed(){sedCv.width=W;sedCv.height=H;sq=sedCv.getContext('2d');
+  for(let x=0;x<W;x++){const c=cols[x];for(let i=0;i<c.length;i++){sq.fillStyle=c[i];sq.fillRect(x,H-1-i,1,1);}}}
+function resampleSed(){
+  if(!cols.length){initSed();return;}
+  if(sedW!==W){const o=cols;cols=[];for(let x=0;x<W;x++)cols.push(o[Math.min(o.length-1,Math.floor(x*o.length/W))].slice());sedW=W;}
+  while(maxH()>limitH)for(const c of cols)if(c.length>1)c.shift();
+  drawSed();}
+/* 層が厚くなったら、いちばん古い(下の)層から沈んで見えなくなる */
+function sinkSed(){for(const c of cols)if(c.length>1)c.shift();drawSed();}
+function surf(x){return H-cols[cl(Math.floor(x),0,W-1)].length;}
+function deposit(xf,c){
+  let x=Math.floor(xf),dir=Math.random()<.5?-1:1;if(x<0||x>=W)return;
+  /* かけらは低いほうへ転がり、平らな段の上も転がり続けるので、ほぼ平らな層になって広がる(=色の縞が時間の記録になる) */
+  const L=i=>i<0||i>=W?1e9:cols[i].length;
+  for(let n=0;n<W*2;n++){const h=L(x),a=L(x+dir),b=L(x-dir);
+    if(a<h){x+=dir;continue;}if(b<h){dir=-dir;x+=dir;continue;}
+    if(a===h&&Math.random()<.99){x+=dir;continue;}break;}
+  cols[x].push(c);sq.fillStyle=c;sq.fillRect(x,H-cols[x].length,1,1);
+  if(cols[x].length>limitH)sinkSed();}
 
-/* ---------- effects ---------- */
-function say(m){if(window.APKit&&APKit.toast)APKit.toast(m,2200);}
-function label(s,x,y,col){labels.push({s,x:cl(x,tw(s)/2+3,W-tw(s)/2-3),y:cl(y,24,waterTop-6),col,t:0});}
-function popRing(k,ex,ey){
-  const R=rings[k];R.alive=false;const P=R.px;
-  for(let i=0;i<P.x.length;i+=2){
-    const rel=wrap(P.a[i]-R.ang);if(Math.abs(rel)<R.gap/2)continue;
-    const c=Math.cos(P.a[i]),s=Math.sin(P.a[i]),v=rnd(8,42);
-    parts.push({x:P.x[i]+.5,y:P.y[i]+.5,vx:c*v+rnd(-10,10),vy:s*v+rnd(-14,6),c:P.s[i]===2?R.dark:P.s[i]===1?R.light:R.col,life:rnd(.6,1.3),t:0});}
-  label('POP!',cx+ex,cy+ey-8,'#E8453C');
-  const nk=innermost();
-  if(nk<0){phase='free';tPhase=0;const t=tRound;const nb=best===null||t<best;if(nb)best=t;freeInfo={t,nb};
-    for(const m of mates)m.in=false;return;}
-  rings[nk].flash=.25;
-  caps.push({x:rnd(-2,2),y:rnd(-2,2),t:0,col:capColor()});}
-let freeInfo=null;
-function openCap(c){
-  const sp2=nextSpecies(),a=rnd(0,TAU);
-  mates.push({x:c.x,y:c.y,vx:Math.cos(a)*V,vy:Math.sin(a)*V,sp:sp2,t:rnd(0,3),in:true,hop:.35,out:false});
-  pals=mates.length;
-  for(let i=0;i<14;i++){const b=rnd(0,TAU),v=rnd(10,30);parts.push({x:cx+c.x,y:cy+c.y,vx:Math.cos(b)*v,vy:Math.sin(b)*v-10,c:i%2?c.col:'#FFFFFF',life:rnd(.3,.6),t:0});}
-  if(phase==='build'){phase='run';tRound=0;}}
+/* ---------- nests (輪の巣。どの世代も同じ形で、縮みながら増える) ---------- */
+function innermost(N){for(let i=0;i<N.rings.length;i++)if(N.rings[i].alive)return i;return -1;}
+function nextSpecies(){if(!bag.length){bag=[...Array(NS).keys()];for(let i=bag.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[bag[i],bag[j]]=[bag[j],bag[i]];}}return bag.pop();}
+const CAPC=['#FF8FA3','#7CC6FF','#FFE066','#8EDB8A','#C3A6FF','#FFB547','#9FE0E0'];
+function makeNest(gen,x,y,mates){
+  const spec=GENS[gen],N={gen,x,y,vx:0,vy:0,t:0,rings:[],mates:mates||[],caps:[],dead:false};
+  let dir=Math.random()<.5?1:-1;
+  for(let i=0;i<spec.n;i++){if(Math.random()<.75)dir=-dir;N.rings.push({alive:true,ang:rnd(0,TAU),w:dir*rnd(.6,1.3),born:.08+i*.07,flash:0,hold:false});}
+  geom(N);colorNest(N);
+  N.caps.push({x:rnd(-1.5,1.5),y:rnd(-1.5,1.5),t:-(spec.n*.07+.15),col:CAPC[Math.floor(Math.random()*CAPC.length)]});
+  N.x=cl(N.x,N.R+2,W-N.R-2);N.y=cl(N.y,TOP+N.R,skyBot-N.R);
+  nests.push(N);return N;}
+function geom(N){
+  const n=N.rings.length;let R=Math.max(12,Rmax*GENS[N.gen].f);const r0=Math.max(11,R*.4);R=Math.max(R,r0+(n-1)*5);
+  N.R=R;N.sp=n>1?(R-r0)/(n-1):6;N.RW=N.sp>=7?3:2;
+  N.rings.forEach((Q,i)=>{Q.r=n>1?r0+N.sp*i:R;Q.gap=Math.min(GM,(GA+GB*Q.r)/Q.r);buildPix(Q,N.RW);});
+  const k=innermost(N);if(k>=0){const lim=N.rings[k].r-N.RW/2-RA;for(const m of N.mates){const d=Math.hypot(m.x,m.y);if(d>lim){m.x*=lim/d;m.y*=lim/d;}}}}
+function buildPix(Q,RW){
+  const n=2*Math.ceil(Q.r+3),xs=[],ys=[],as=[],sh=[],e=RW/2;
+  for(let y=0;y<n;y++)for(let x=0;x<n;x++){const dx=x+.5-n/2,dy=y+.5-n/2,o=Math.hypot(dx,dy)-Q.r;if(Math.abs(o)>e)continue;
+    xs.push(x);ys.push(y);as.push(Math.atan2(dy,dx));sh.push(RW===3?(o>.5?2:o<-.5?1:0):(o>0?2:0));}
+  Q.n=n;Q.cvs={};Q.px={x:Int16Array.from(xs),y:Int16Array.from(ys),a:Float32Array.from(as),s:Uint8Array.from(sh)};
+  if(scr.width<n||scr.height<n){const m=Math.max(n,scr.width,scr.height);scr.width=m;scr.height=m;sg=scr.getContext('2d');}}
+function colorNest(N){
+  const P=theme.ring,n=N.rings.length;
+  N.rings.forEach((Q,i)=>{const f=n>1?i*(P.length-1)/(n-1):0,a=Math.floor(f),b=Math.min(P.length-1,a+1);
+    Q.cvs={};Q.col=mix(P[a],P[b],f-a);Q.dark=mix(Q.col,theme.night?'#000000':'#1A1030',.28);Q.light=mix(Q.col,'#FFFFFF',.38);});}
+function ringCanvas(Q,v,colsh){
+  if(Q.cvs[v])return Q.cvs[v];
+  const c=document.createElement('canvas');c.width=Q.n;c.height=Q.n;const q=c.getContext('2d'),P=Q.px;
+  for(let s=0;s<3;s++){q.fillStyle=colsh[s];for(let i=0;i<P.x.length;i++)if(P.s[i]===s)q.fillRect(P.x[i],P.y[i],1,1);}
+  return Q.cvs[v]=c;}
+
+function newCycle(){cycles++;idle=0;makeNest(0,cx0,cy0,[]);}
+function say(m){if(window.APKit&&APKit.toast)APKit.toast(m,2400);}
+
+/* 輪がはじける:かけらの一部は落ちて地面に積もる */
+function popRing(N,k,m){
+  const Q=N.rings[k],P=Q.px,o=Q.n/2;Q.alive=false;
+  for(let i=0;i<P.x.length;i++){
+    if(Math.abs(wrap(P.a[i]-Q.ang))<Q.gap/2)continue;
+    const dep=i%4===0;if(!dep&&(i&1))continue;
+    const c=Math.cos(P.a[i]),s=Math.sin(P.a[i]),v=rnd(6,30);
+    parts.push({x:N.x-o+P.x[i]+.5,y:N.y-o+P.y[i]+.5,vx:c*v+rnd(-8,8),vy:s*v+rnd(-12,4),c:dep?Q.col:(P.s[i]===2?Q.dark:P.s[i]===1?Q.light:Q.col),life:rnd(.5,1.1),t:0,dep});}
+  for(let i=0;i<8;i++){const b=rnd(0,TAU),v=rnd(12,30);parts.push({x:N.x+m.x,y:N.y+m.y,vx:Math.cos(b)*v,vy:Math.sin(b)*v,c:'#FFFFFF',life:rnd(.25,.45),t:0,dep:false});}
+  const nk=innermost(N);
+  if(nk<0)release(N);else N.rings[nk].flash=.2;}
+/* 巣の最後の輪を抜けた:ひとまわり小さな巣が、抜けた子それぞれのまわりに生まれる(いちばん小さな巣の子は地面へ) */
+function release(N){
+  N.dead=true;
+  for(const m of N.mates){
+    const ax=N.x+m.x,ay=N.y+m.y;
+    if(N.gen<GENS.length-1){m.x=0;m.y=0;m.hop=.35;const a=rnd(0,TAU);m.vx=Math.cos(a)*V;m.vy=Math.sin(a)*V;makeNest(N.gen+1,ax,ay,[m]);}
+    else walkers.push({x:ax,y:ay,vy:-24,sp:m.sp,dir:ax<W/2?-1:1,t:m.t,st:'fall'});}}
+function openCap(N,c){
+  const a=rnd(0,TAU);N.mates.push({x:c.x,y:c.y,vx:Math.cos(a)*V,vy:Math.sin(a)*V,sp:nextSpecies(),t:rnd(0,3),hop:.35});
+  for(let i=0;i<12;i++){const b=rnd(0,TAU),v=rnd(10,28);parts.push({x:N.x+c.x,y:N.y+c.y,vx:Math.cos(b)*v,vy:Math.sin(b)*v-10,c:i%2?c.col:'#FFFFFF',life:rnd(.3,.6),t:0,dep:false});}}
 
 /* ---------- simulation ---------- */
+let press=null;
 function step(dt){
-  rtime+=dt;tPhase+=dt;if(phase==='run')tRound+=dt;
-  for(const R of rings){if(!R.hold)R.ang=wrap(R.ang+R.w*dt);if(R.flash>0)R.flash-=dt;if(R.close>0)R.close-=dt;}
-  if(press&&!press.R.hold&&rtime-press.t0>.28){press.R.hold=true;}
-  for(const c of caps){c.t+=dt;}
-  for(let i=caps.length-1;i>=0;i--)if(caps[i].t>=.55){openCap(caps[i]);caps.splice(i,1);}
-  const k=innermost(),sub=Math.max(1,Math.ceil(dt/.006)),h=dt/sub;
-  for(let s=0;s<sub;s++){
-    for(const m of mates){m.x+=m.vx*h;m.y+=m.vy*h;
-      if(!m.in){const d=Math.hypot(m.x,m.y)||1;m.vx+=m.x/d*34*h;m.vy+=m.y/d*34*h;}}
-    for(let i=0;i<mates.length;i++)for(let j=i+1;j<mates.length;j++){
-      const a=mates[i],b=mates[j];if(a.in!==b.in)continue;const dx=b.x-a.x,dy=b.y-a.y,d2=dx*dx+dy*dy,md=RA*2-.4;
-      if(d2>=md*md||d2<1e-6)continue;const d=Math.sqrt(d2),nx=dx/d,ny=dy/d,o=(md-d)/2;
-      a.x-=nx*o;a.y-=ny*o;b.x+=nx*o;b.y+=ny*o;
-      const rv=(b.vx-a.vx)*nx+(b.vy-a.vy)*ny;if(rv<0){a.vx+=rv*nx;a.vy+=rv*ny;b.vx-=rv*nx;b.vy-=rv*ny;}}
-    if(k>=0&&phase!=='free'){const R=rings[innermost()];if(!R)break;
-      for(const m of mates){if(!m.in)continue;
-        const d=Math.hypot(m.x,m.y)||1e-6,lim=R.r-RW/2-RA;
-        if(d<=lim)continue;
-        const a=Math.atan2(m.y,m.x),rel=wrap(a-R.ang),half=R.gap/2,mg=RA*MG/R.r;
-        if(Math.abs(rel)<half-mg){
-          if(d>R.r+POPD){const kk=rings.indexOf(R);popRing(kk,m.x,m.y);break;}
-          continue;}
+  rtime+=dt;
+  if(press&&!press.Q.hold&&rtime-press.t0>.28)press.Q.hold=true;
+  /* 巣どうしは押し合い、空の中にとどまる */
+  for(let i=0;i<nests.length;i++){const A=nests[i];
+    for(let j=i+1;j<nests.length;j++){const B=nests[j],dx=B.x-A.x,dy=B.y-A.y,d=Math.hypot(dx,dy)||.01,ov=A.R+B.R+3-d;
+      if(ov>0){const nx=dx/d,ny=dy/d,ma=A.R*A.R,mb=B.R*B.R,f=ov*10*dt;A.vx-=nx*f*mb/(ma+mb);A.vy-=ny*f*mb/(ma+mb);B.vx+=nx*f*ma/(ma+mb);B.vy+=ny*f*ma/(ma+mb);}}
+    const R=A.R+2;let sb=skyBot;for(let s=-1;s<=1;s++)sb=Math.min(sb,surf(A.x+s*A.R*.7)-3);
+    if(A.x<R)A.vx+=(R-A.x)*10*dt;if(A.x>W-R)A.vx-=(A.x-(W-R))*10*dt;
+    if(A.y<TOP+R)A.vy+=(TOP+R-A.y)*10*dt;if(A.y>sb-R)A.vy-=(A.y-(sb-R))*10*dt;
+    A.vx+=(cx0-A.x)*.8*dt;A.vy+=(cy0-A.y)*.8*dt;/* 空の真ん中へゆるく引かれ、押し合って並ぶ */
+    A.vx*=1-3*dt;A.vy*=1-3*dt;A.x+=A.vx*dt;A.y+=A.vy*dt;A.t+=dt;
+    for(const Q of A.rings){if(!Q.hold)Q.ang=wrap(Q.ang+Q.w*dt);if(Q.flash>0)Q.flash-=dt;}
+    for(const c of A.caps)c.t+=dt;
+    for(let c=A.caps.length-1;c>=0;c--)if(A.caps[c].t>=.55){openCap(A,A.caps[c]);A.caps.splice(c,1);}}
+  /* 動物:壁で跳ね返り、隙間をくぐると輪がはじける */
+  const sub=Math.max(1,Math.ceil(dt/.006)),h=dt/sub;
+  for(const N of nests.slice()){
+    for(let s=0;s<sub&&!N.dead;s++){
+      const ms=N.mates;
+      for(const m of ms){m.x+=m.vx*h;m.y+=m.vy*h;}
+      for(let i=0;i<ms.length;i++)for(let j=i+1;j<ms.length;j++){
+        const a=ms[i],b=ms[j],dx=b.x-a.x,dy=b.y-a.y,d2=dx*dx+dy*dy,md=RA*2-.4;
+        if(d2>=md*md||d2<1e-6)continue;const d=Math.sqrt(d2),nx=dx/d,ny=dy/d,o=(md-d)/2;
+        a.x-=nx*o;a.y-=ny*o;b.x+=nx*o;b.y+=ny*o;
+        const rv=(b.vx-a.vx)*nx+(b.vy-a.vy)*ny;if(rv<0){a.vx+=rv*nx;a.vy+=rv*ny;b.vx-=rv*nx;b.vy-=rv*ny;}}
+      const k=innermost(N);if(k<0)break;const Q=N.rings[k];
+      for(const m of ms){
+        const d=Math.hypot(m.x,m.y)||1e-6,lim=Q.r-N.RW/2-RA;if(d<=lim)continue;
+        const a=Math.atan2(m.y,m.x),rel=wrap(a-Q.ang),half=Q.gap/2,mg=RA*.4/Q.r;
+        if(Math.abs(rel)<half-mg){if(d>Q.r){popRing(N,k,m);break;}continue;}
         const nx=m.x/d,ny=m.y/d;m.x=nx*lim;m.y=ny*lim;
         const vn=m.vx*nx+m.vy*ny;
         if(vn>0){m.vx-=2*vn*nx;m.vy-=2*vn*ny;
-          const q=rnd(-.2,.2),c=Math.cos(q),sn=Math.sin(q),vx=m.vx*c-m.vy*sn,vy=m.vx*sn+m.vy*c;
-          if(vx*nx+vy*ny<0){m.vx=vx;m.vy=vy;}
-          if(Math.abs(rel)<half+RA*2.6/R.r&&R.close<=0&&phase==='run'){R.close=1.4;label('CLOSE!',cx+m.x,cy+m.y-9,theme.hud);}}}}
-    for(const m of mates){const sp2=Math.hypot(m.vx,m.vy)||1,tv=m.in?V:Math.max(V,sp2);m.vx*=tv/sp2;m.vy*=tv/sp2;}}
-  for(const m of mates){m.t+=dt;if(m.hop>0)m.hop-=dt;
-    if(!m.in&&!m.out){const X=cx+m.x,Y=cy+m.y;if(X<-8||X>W+8||Y<-8||Y>H+8){m.out=true;label('OUT!',X,Y,'#E0529C');}}}
-  mates=mates.filter(m=>!m.out||m.t<0);
-  for(const p of parts){p.t+=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=70*dt;p.vx*=1-1.2*dt;}
-  parts=parts.filter(p=>p.t<p.life);
-  for(const l of labels){l.t+=dt;l.y-=9*dt;}labels=labels.filter(l=>l.t<.95);
-  if(phase==='free'&&(tPhase>4.2||(tPhase>1.6&&!mates.length)))newRound();}
+          const q=rnd(-.2,.2),c=Math.cos(q),sn=Math.sin(q),vx=m.vx*c-m.vy*sn,vy=m.vx*sn+m.vy*c;if(vx*nx+vy*ny<0){m.vx=vx;m.vy=vy;}}}
+      for(const m of ms){const sp=Math.hypot(m.vx,m.vy)||1;m.vx*=V/sp;m.vy*=V/sp;}}
+    for(const m of N.mates){m.t+=dt;if(m.hop>0)m.hop-=dt;}}
+  nests=nests.filter(N=>!N.dead);
+  /* 地面に降りた子は、積もった層の上を歩いて去る */
+  for(const w of walkers){w.t+=dt;const hh=4;
+    if(w.st==='fall'){w.vy+=140*dt;w.y+=w.vy*dt;w.x+=w.dir*6*dt;if(w.y>=surf(w.x)-hh){w.y=surf(w.x)-hh;w.st='walk';}}
+    else{w.x+=w.dir*13*dt;const ty=surf(w.x)-hh;w.y+=(ty-w.y)*Math.min(1,14*dt);}}
+  walkers=walkers.filter(w=>w.x>-14&&w.x<W+14);
+  for(const p of parts){p.t+=dt;p.vy+=(p.dep?110:70)*dt;p.vx*=1-1.2*dt;p.x+=p.vx*dt;p.y+=p.vy*dt;
+    if(p.dep&&p.y>=surf(p.x)){deposit(p.x,p.c);p.t=1e9;}}
+  parts=parts.filter(p=>p.x>-2&&p.x<W+2&&(p.dep?p.t<1e8:p.t<p.life));
+  if(!nests.length){idle+=dt;if(idle>2.4)newCycle();}}
 
 /* ---------- render ----------
-   なめらかさのしくみ:
-   ・丘・水面・輪・HUDは低解像度の板に描いて、整数倍(K)でそのまま拡大(=ドットの格子)。
-   ・動物・カプセル・かけら・吹き出し・空の模様・水面のきらめきは、ドット絵を小さな板に一度だけ描いておき、
-     画面のピクセル単位の位置に整数倍で貼る(ドットの大きさはそのまま、位置だけなめらか)。
-   ・輪の隙間の端のドットは、隙間がどこまで来ているかに合わせて薄く描くので、隙間がするすると回って見える。 */
+   地面(積もった層)と星はドットの格子に描いて整数倍で拡大。
+   輪・カプセル・動物・かけらは、ドット絵を小さな板に描いてから画面のピクセル単位の位置に整数倍で貼る(ドットはそのまま、動きはなめらか)。
+   輪の隙間は扇形で抜くので、端のドットが半分だけ残り、隙間がするすると回って見える。 */
 const sprCache=new Map();
 function sprite(key,w,h,fn){let c=sprCache.get(key);if(!c){c=document.createElement('canvas');c.width=w;c.height=h;const og=g;g=c.getContext('2d');fn();g=og;sprCache.set(key,c);}return c;}
-function blit(c,x,y){ctx.drawImage(c,Math.round(x*K),Math.round(y*K),c.width*K,c.height*K);}
-function dot(x,y,w,col){ctx.fillStyle=col;ctx.fillRect(Math.round(x*K),Math.round(y*K),w*K,K);}
-const scr=document.createElement('canvas');let sg=scr.getContext('2d');
-function ringCanvas(R,v,cols){
-  if(R.cvs[v])return R.cvs[v];
-  const n=Math.ceil(R.r*2+8),c=document.createElement('canvas');c.width=n;c.height=n;R.ox=Math.floor(cx-n/2);R.oy=Math.floor(cy-n/2);
-  if(scr.width<n||scr.height<n){const m=Math.max(n,scr.width,scr.height);scr.width=m;scr.height=m;sg=scr.getContext('2d');}
-  const q=c.getContext('2d'),P=R.px;
-  for(let sh=0;sh<3;sh++){q.fillStyle=cols[sh];for(let i=0;i<P.x.length;i++)if(P.s[i]===sh)q.fillRect(P.x[i]-R.ox,P.y[i]-R.oy,1,1);}
-  return R.cvs[v]=c;}
-function ringAng(R,gp){return gp===null?R.ang:R.ang+Math.sign(R.w)*gp;}
-function render(gp){
-  const T=gp===null?rtime:gp/TAU*3;
-  ctx.imageSmoothingEnabled=false;
-  /* sky (菱形チェックはなめらかに流れる) */
-  ctx.fillStyle=theme.sky[0];ctx.fillRect(0,0,cv.width,cv.height);
-  const off=gp===null?(rtime*3)%12:gp/TAU*12;
-  ctx.drawImage(skyCv,Math.round(-off*K),Math.round(-off*K),skyCv.width*K,skyCv.height*K);
-  /* grid layer: stars, hills, water, rings */
-  g.clearRect(0,0,W,H);
-  for(const s of stars){const b=.5+.5*Math.sin(s[2]+T*TAU/3*Math.round(s[3]));if(b>.35)px(s[0],s[1],b>.8?'#FFFFFF':'#9FB0E0');}
-  g.drawImage(groundCv,0,0);
-  for(const R of rings){
-    if(!R.alive)continue;const age=tPhase-R.born;if(phase==='build'&&age<0)continue;
-    const a0=ringAng(R,gp),P=R.px,white=(phase==='build'&&age<.14)||R.flash>0,hg=R.gap/2,rr=R.r;
-    const cols=R.hold?[R.light,mix(R.light,'#FFFFFF',.4),R.col]:white?['#FFFFFF','#FFFFFF','#E4EEF8']:[R.col,R.light,R.dark];
-    const rc=ringCanvas(R,R.hold?'h':white?'w':'n',cols),n=rc.width,lx=cx-R.ox,ly=cy-R.oy,rx=rr+4;
-    /* 輪の絵を作業板に写し、隙間の扇形だけ抜く(扇形の縁はドットが半分だけ残る=隙間の端がなめらかに回る) */
-    sg.globalCompositeOperation='copy';sg.drawImage(rc,0,0);
-    sg.globalCompositeOperation='destination-out';sg.beginPath();sg.moveTo(lx,ly);
-    sg.lineTo(lx+rx*2*Math.cos(a0-hg),ly+rx*2*Math.sin(a0-hg));sg.arc(lx,ly,rx*2,a0-hg,a0+hg);sg.closePath();sg.fill();
-    g.drawImage(scr,0,0,n,n,R.ox,R.oy,n,n);}
-  ctx.drawImage(buf,0,0,W*K,H*K);
-  /* water sparkles (なめらか) */
-  for(let i=0;i<Math.max(3,W/40);i++){const x=((i*47+T*(6+i%3*3))%(W+10))-5,y=waterTop+3+((i*5)%Math.max(1,H-waterTop-5));dot(x,y,3+i%3,theme.water[2]);}
-  /* capsules */
-  for(const c of caps){
-    if(phase==='build'&&c.t<-.2&&gp===null)continue;
-    const bob=c.t<0?0:-Math.abs(Math.sin(c.t*12))*2*(1-c.t/.55),wob=c.t>.3?Math.sin(c.t*60)*.8:0;
-    const cc=sprite('c'+c.col,11,11,()=>drawCap(5.5,5.5,c.col));
-    blit(cc,cx+c.x+wob-5.5,cy+c.y+bob-5.5);}
-  /* animals */
-  const order=mates.slice().sort((a,b)=>a.y-b.y);
-  order.forEach((m,i)=>{
-    const run=gp===null?m.t:gp/TAU*3+i*.37,fr=Math.floor(run*8)%2,A=SP[m.sp],gr=A.fw[fr],w=gr[0].length,h=gr.length;
-    const fl=m.vx<0,bl=(run+i)%3.3<.12;
-    const hop=m.hop>0?-Math.sin((1-m.hop/.35)*Math.PI)*3:0,bob=gp===null?0:Math.sin(gp*2+i)*.6;
-    const c=sprite('a'+m.sp+'_'+fr+(fl?'f':'')+(bl?'b':''),w+2,h+2,()=>hamster(1+w/2,1+h/2,m.sp,{center:true,flip:fl,frame:gr,blink:bl}));
-    blit(c,cx+m.x-w/2-1,cy+m.y+hop+bob-h/2-1);});
-  if(gp===null){
-    for(const p of parts){const a=1-p.t/p.life;if(a<.25&&(Math.floor(p.t*30)&1))continue;dot(p.x-.5,p.y-.5,1,p.c);}
-    for(const l of labels){const w=tw(l.s)+4,ed=theme.night?'#1F2548':'#3A4460';
-      const c=sprite('l'+l.s+l.col+ed,w,9,()=>{box(0,0,w,9,'#FFFFFF',ed);text(l.s,2,2,l.col);});
-      blit(c,l.x-w/2,l.y-4);}}
-  /* HUD (grid layer on top) */
-  const og=g;g=gB;g.clearRect(0,0,W,H);
-  const nr=phase==='build'?rings.length:Math.max(0,rings.filter(r=>r.alive).length);
-  const hud=[['RINGS',String(nr)],['TIME',(phase==='build'?0:tRound).toFixed(1)],['PALS',String(pals)]];
-  const span=Math.min(W,230)-8,L0=Math.round((W-span)/2),ws=hud.map(h=>tw(h[0]+' '+h[1])+6);
-  hud.forEach((h,i)=>{const x=i===0?L0:i===2?L0+span-ws[i]:Math.round(W/2-ws[i]/2);
-    box(x,4,ws[i],10,'#FFFFFF',theme.hud);text(h[0],x+3,7,mix(theme.hud,'#FFFFFF',.4));text(h[1],x+3+tw(h[0]+' '),7,theme.hud);});
-  if(phase==='free'&&freeInfo&&gp===null){
-    const bw=64,bh=freeInfo.nb||best!==null?34:28,bx=Math.round(cx-bw/2),by=Math.round(cy-bh/2);
-    box(bx,by,bw,bh,'#FFFFFF',theme.hud);
-    const f='FREE!';text(f,cx-tw(f,2)/2,by+4,'#2BA84A',2);
-    const s=freeInfo.t.toFixed(1)+' SEC';text(s,cx-tw(s)/2,by+17,theme.hud);
-    const b=(freeInfo.nb?'NEW BEST':'BEST '+best.toFixed(1));text(b,cx-tw(b)/2,by+25,freeInfo.nb?'#E0529C':mix(theme.hud,'#FFFFFF',.35));}
-  g=og;ctx.drawImage(bufB,0,0,W*K,H*K);}
+function blit(c,x,y,sw,sh){sw=sw||c.width;sh=sh||c.height;ctx.drawImage(c,0,0,sw,sh,Math.round(x*K),Math.round(y*K),sw*K,sh*K);}
+function dot(x,y,col){ctx.fillStyle=col;ctx.fillRect(Math.round(x*K),Math.round(y*K),K,K);}
 function drawCap(x,y,col){
   const CAP=["..TTTTT..",".TTLTTTT.","TTLTTTTTT","TTTTTTTTT","DDDDDDDDD","BBBBBBBBB","BBBBBBBBB",".BBBBBBB.","..BBBBB.."];
   const pal={T:col,L:mix(col,'#FFFFFF',.6),D:mix(col,'#3A3050',.35),B:'#FFFFFF'},x0=Math.round(x-4.5),y0=Math.round(y-4.5);
   g.fillStyle='#4A4660';
   for(let r=0;r<9;r++)for(let c=0;c<9;c++)if(CAP[r][c]!=='.'){g.fillRect(x0+c-1,y0+r,1,1);g.fillRect(x0+c+1,y0+r,1,1);g.fillRect(x0+c,y0+r-1,1,1);g.fillRect(x0+c,y0+r+1,1,1);}
   for(let r=0;r<9;r++)for(let c=0;c<9;c++){const ch=CAP[r][c];if(ch!=='.')px(x0+c,y0+r,pal[ch]);}}
+function animal(x,y,sp,run,flip,blinkKey){
+  const A=SP[sp],fr=Math.floor(run*8)%2,gr=A.fw[fr],w=gr[0].length,h=gr.length,bl=(run+blinkKey)%3.3<.12;
+  const c=sprite('a'+sp+'_'+fr+(flip?'f':'')+(bl?'b':''),w+2,h+2,()=>hamster(1+w/2,1+h/2,sp,{center:true,flip,frame:gr,blink:bl}));
+  blit(c,x-w/2-1,y-h/2-1);}
+function render(gp){
+  const T=gp===null?rtime:gp/TAU*3;
+  ctx.imageSmoothingEnabled=false;
+  ctx.fillStyle=theme.sky[0];ctx.fillRect(0,0,cv.width,cv.height);
+  const off=gp===null?(rtime*3)%12:gp/TAU*12;
+  ctx.drawImage(skyCv,Math.round(-off*K),Math.round(-off*K),skyCv.width*K,skyCv.height*K);
+  g.clearRect(0,0,W,H);
+  for(const s of stars){const b=.5+.5*Math.sin(s[2]+T*TAU/3*s[3]);if(b>.35)px(s[0],s[1],b>.8?'#FFFFFF':'#9FB0E0');}
+  g.drawImage(sedCv,0,0);
+  ctx.drawImage(buf,0,0,W*K,H*K);
+  /* rings */
+  for(const N of nests)for(const Q of N.rings){
+    if(!Q.alive)continue;const age=N.t-Q.born;if(age<0)continue;
+    const a0=gp===null?Q.ang:Q.ang+Math.sign(Q.w)*gp,white=age<.14||Q.flash>0,hg=Q.gap/2,n=Q.n,c=n/2,rx=Q.r*2+8;
+    const colsh=Q.hold?[Q.light,mix(Q.light,'#FFFFFF',.4),Q.col]:white?['#FFFFFF','#FFFFFF','#E4EEF8']:[Q.col,Q.light,Q.dark];
+    const rc=ringCanvas(Q,Q.hold?'h':white?'w':'n',colsh);
+    sg.globalCompositeOperation='copy';sg.drawImage(rc,0,0);
+    sg.globalCompositeOperation='destination-out';sg.beginPath();sg.moveTo(c,c);
+    sg.lineTo(c+rx*Math.cos(a0-hg),c+rx*Math.sin(a0-hg));sg.arc(c,c,rx,a0-hg,a0+hg);sg.closePath();sg.fill();
+    blit(scr,N.x-c,N.y-c,n,n);}
+  /* capsules */
+  for(const N of nests)for(const cp of N.caps){
+    if(cp.t<-.25)continue;
+    const bob=cp.t<0?0:-Math.abs(Math.sin(cp.t*12))*2*(1-cp.t/.55),wob=cp.t>.3?Math.sin(cp.t*60)*.8:0;
+    blit(sprite('c'+cp.col,11,11,()=>drawCap(5.5,5.5,cp.col)),N.x+cp.x+wob-5.5,N.y+cp.y+bob-5.5);}
+  /* animals (巣の中の子と、地面を歩く子) */
+  const list=[];
+  for(const N of nests)for(const m of N.mates)list.push([N.x+m.x,N.y+m.y,m]);
+  list.sort((a,b)=>a[1]-b[1]);
+  list.forEach(([x,y,m],i)=>{const run=gp===null?m.t:gp/TAU*3+i*.37,hop=m.hop>0?-Math.sin((1-m.hop/.35)*Math.PI)*3:0,bob=gp===null?0:Math.sin(gp*2+i)*.6;
+    animal(x,y+hop+bob,m.sp,run,m.vx<0,i);});
+  walkers.forEach((w,i)=>{const run=gp===null?w.t:gp/TAU*3+i*.29;animal(w.x,w.y-(w.st==='walk'?Math.abs(Math.sin(run*TAU*2))*.8:0),w.sp,run,w.dir<0,i+5);});
+  if(gp===null)for(const p of parts){if(!p.dep){const a=1-p.t/p.life;if(a<.3&&(Math.floor(p.t*30)&1))continue;}dot(p.x-.5,p.y-.5,p.c);}}
 function draw(){/* renderが画面へ直接描く */}
 
 /* ---------- interaction ---------- */
-let press=null;
 function toBuf(e){return[e.clientX*cv.width/innerWidth/K,e.clientY*cv.height/innerHeight/K];}
-function ringAt(bx,by){const d=Math.hypot(bx-cx,by-cy);let best2=null,bd=Math.max(sp/2,3.2);
-  for(const R of rings){if(!R.alive)continue;const o=Math.abs(d-R.r);if(o<bd){bd=o;best2=R;}}return best2;}
+function ringAt(bx,by){let best=null,bd=1e9;
+  for(const N of nests){const d=Math.hypot(bx-N.x,by-N.y),tol=Math.max(N.sp/2,2.6);
+    for(const Q of N.rings){if(!Q.alive)continue;const o=Math.abs(d-Q.r);if(o<tol&&o<bd){bd=o;best=Q;}}}
+  return best;}
 cv.addEventListener('pointerdown',e=>{
   if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
   e.preventDefault();hintEl.classList.remove('on');
-  const[bx,by]=toBuf(e);
-  if(phase==='free'&&tPhase>.8){newRound();return;}
-  const R=ringAt(bx,by);if(R)press={R,t0:rtime,id:e.pointerId};});
-function release(e){if(!press||(e&&press.id!==e.pointerId))return;const R=press.R;
-  if(R.hold){R.hold=false;}
-  else if(R.alive){R.w=-R.w;R.flip=!R.flip;R.flash=.12;}
+  const[bx,by]=toBuf(e),Q=ringAt(bx,by);if(Q)press={Q,t0:rtime,id:e.pointerId};});
+function release2(e){if(!press||(e&&press.id!==e.pointerId))return;const Q=press.Q;
+  if(Q.hold)Q.hold=false;else if(Q.alive){Q.w=-Q.w;Q.flash=.12;}
   press=null;}
-cv.addEventListener('pointerup',release);cv.addEventListener('pointercancel',release);
+cv.addEventListener('pointerup',release2);cv.addEventListener('pointercancel',release2);
 
 function mutate(){
   let n;do{n=Math.floor(Math.random()*THEMES.length);}while(n===TH&&THEMES.length>1);
-  TH=n;theme=THEMES[TH];NR=Math.floor(rnd(8,13));buildBg();newRound();say('空と輪を替えた(輪 '+ringCount()+' 本)');}
-function resetAll(){newRound();say('この輪を、最初から');}
+  TH=n;theme=THEMES[TH];buildBg();for(const N of nests)colorNest(N);say('空と輪の色を替えた(積もった層はそのまま)');}
+function resetAll(){nests=[];walkers=[];parts=[];initSed();newCycle();say('地面をならして、最初から');}
 
 /* ---------- boot ---------- */
-resize();newRound();addEventListener('resize',resize);
+resize();newCycle();addEventListener('resize',resize);
 setTimeout(()=>hintEl.classList.add('on'),700);
-setTimeout(()=>hintEl.classList.remove('on'),8500);
+setTimeout(()=>hintEl.classList.remove('on'),9000);
 let last=performance.now();
 function loop(now){
   const dt=Math.max(0,Math.min(.05,(now-last)/1000));last=now;
-  if(!(window.APKit&&APKit.isExporting&&APKit.isExporting())){step(dt);render(null);draw();}
+  if(!(window.APKit&&APKit.isExporting&&APKit.isExporting())){step(dt);render(null);}
   requestAnimationFrame(loop);}
 requestAnimationFrame(loop);
-if(location.hash==='#debug')window.__lh={rings:()=>rings,theme:(i)=>{TH=i;theme=THEMES[i];buildBg();ringColors();},set:(o)=>{if('V'in o)V=o.V;if('GA'in o)GA=o.GA;if('GB'in o)GB=o.GB;if('MG'in o)MG=o.MG;if('POPD'in o)POPD=o.POPD;},step,get:()=>({phase,tRound,best,pals,alive:rings.filter(r=>r.alive).length,n:rings.length}),newRound,mutate,render,draw};
+if(location.hash==='#debug')window.__lh={set:o=>{if('V'in o)V=o.V;if('GA'in o)GA=o.GA;if('GB'in o)GB=o.GB;if('GM'in o)GM=o.GM;},step,render,mutate,resetAll,prof:()=>cols.map(c=>c.length),get:()=>({nests:nests.length,gens:nests.map(n=>n.gen),mates:nests.reduce((a,n)=>a+n.mates.length,0),walkers:walkers.length,maxH:maxH(),limitH,cycles})};
 
 if(window.APKit)APKit.init({
   canvas:cv,
@@ -357,7 +334,7 @@ if(window.APKit)APKit.init({
   dock:true,
   autoHide:true,
   fullscreenButton:false,
-  loopFrame:function(phase){render(phase);draw();},
+  loopFrame:function(phase){render(phase);},
   buttons:[
     {label:'✦',name:'mutate',onClick:mutate},
     {label:'↻',name:'reset',onClick:resetAll}
