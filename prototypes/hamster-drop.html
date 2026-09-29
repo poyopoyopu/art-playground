@@ -17,7 +17,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hint">ハムスターが、部屋から部屋へころがり落ちていく<br>部屋に触れると、そこの住人が行列に加わる</div>
+<div id="hint">動物たちが、部屋から部屋へころがり落ちていく<br>部屋に触れると、そこの住人が行列に加わる</div>
 <script>
 (function(){
 'use strict';
@@ -52,27 +52,39 @@ function disc(cx,cy,r,c){for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++)if(dx
 function ring(cx,cy,r,c,n){for(let k=0;k<n;k++){const a=k*TAU/n;px(cx+Math.round(r*Math.cos(a)),cy+Math.round(r*Math.sin(a)),c);}}
 function qb(a,c,b,u){const m=1-u;return[m*m*a[0]+2*m*u*c[0]+u*u*b[0],m*m*a[1]+2*m*u*c[1]+u*u*b[1]];}
 
-/* ---------- hamsters ---------- */
-const HS=[".EE...EE.",".EBBBBBE.","BBBBBBBBB","BBkBBBkBB","BCKWNWKCB","BBWWMWWBB",".BWWWWWB.",".BWPWPWB.","..F...F.."];
-const HS2=[".EE...EE.",".EBBBBBE.","BBBBBBBBB","BBkBBBkBB","BCKWNWKCB","BBWWMWWBB",".BWWWWWB.",".BWPWPWB.","...F.F..."];
-const COATS=[
- {B:'#F2A24E',W:'#FFF6EA',O:'#B8672A'},
- {B:'#F6DDB0',W:'#FFFFFF',O:'#C49A62'},
- {B:'#B9B6C4',W:'#FFFFFF',O:'#7C7890'},
- {B:'#B98A60',W:'#F5E8DA',O:'#7A5436'},
- {B:'#FFFFFF',W:'#F2ECF4',O:'#B8A8B8'},
- {B:'#E8B8A0',W:'#FFF6F0',O:'#B07860'}];
+/* ---------- animals (20種・基本は横向き=右向き。左へ進む時は反転) ---------- */
+const PK='#FFC2D1';
+const SP=[
+{n:'ハムスター',O:'#B8672A',p:{B:'#F2A24E',W:'#FFF6EA',E:'#F2A7A0',N:'#FF8FA3',C:PK,F:'#F7B5B5'},s:["...E....","..EBBB..",".BBBBBB.","BBBBBKBB","BBBBBBCN","BBBBWWWW",".WWWWWW.","..F..F.."]},
+{n:'モルモット',O:'#6B4A2E',p:{B:'#E8A060',D:'#8A6448',W:'#FFFFFF',E:'#F2A7A0',N:'#FF8FA3',F:'#F7B5B5'},s:["......EE..","..DDBWBBB.",".DDDBWBKBB","DDDBBWBBBN","DDBBBWWWWW",".WWWWWWWW.","..F....F.."]},
+{n:'ねずみ',O:'#7C7890',p:{B:'#B9B6C4',E:'#FFB3C6',N:'#FF8FA3',T:'#FFB3C6',W:'#FFFFFF',F:'#F7B5B5'},s:[".....BBB...","....BEEEB..","..BBBEEBBB.",".BBBBBBBKB.","TBBBBBBBBBN","T.BBBBBBBW.",".T.F...F..."]},
+{n:'りす',O:'#8A5028',p:{T:'#C07A40',L:'#E8B070',B:'#D98C48',W:'#FFF0DC',E:'#8A5028',N:'#4A3428',F:'#D98C48'},s:["..TT....E..",".TTTT..BBB.","TTTLT.BBBKB","TTTLTBBBBBN",".TTTBBWWBB.","..TTBBWWB..","....F..F..."]},
+{n:'うさぎ',O:'#B8A8B8',p:{B:'#FFFFFF',E:'#FFB3C6',T:'#F4F0F4',N:'#FF8FA3',C:PK,F:'#F7B5B5'},s:["......BB..","......BE..","......BE..",".....BBBB.",".BBBBBBKBB","TBBBBBBBCN",".BBBBBBBB.","..F...FF.."]},
+{n:'ひよこ',O:'#C9A227',p:{B:'#FFE066',W:'#F2C94C',N:'#FF9F43',C:'#FFB3A0',F:'#FF9F43'},s:[".....B...","...BBBB..","..BBBBKB.",".BBWWBBCN","BBBWWWBB.",".BBBBBBB.","..BBBBB..","...F.F..."]},
+{n:'アヒル',O:'#B8B0B8',p:{B:'#FFFFFF',W:'#E6E6EE',N:'#FFB547',T:'#FFFFFF',F:'#FF9F43'},s:["......BBB..",".....BBBKB.",".....BBBBNN","T....BBB...","TBBBBBBB...","BBBBWWBBB..",".BBBBBBBB..","...F..F...."]},
+{n:'ペンギン',O:'#232B3C',p:{B:'#3E4A63',W:'#FFFFFF',D:'#2E3850',N:'#FF9F43',F:'#FF9F43'},s:["..BBBB..",".BBBWKB.",".BBBBBNN",".BBWWWW.","BDBWWWW.",".BBWWWW.",".BBWWW..","..FF.F.."]},
+{n:'ハリネズミ',O:'#5E4630',p:{S:'#8A6A4A',W:'#F6E3C8',N:'#2A1E1A',F:'#F7B5B5'},s:["..S.S.S...",".SSSSSSS..","SSSSSSSWW.","SSSSSSWKWW","SSSSSSWWWN",".WWWWWWWW.","..F...F..."]},
+{n:'カピバラ',O:'#6B4A30',p:{B:'#A07A55',Y:'#FFB547',E:'#6B4A30',N:'#4A3428',F:'#8A6448'},s:["...YY.E....","....BBBBB..","..BBBBBKBB.",".BBBBBBBBBB","BBBBBBBBBBN","BBBBBBBBBB.",".BBBBBBBB..","..F....F..."]},
+{n:'こぶた',O:'#D9708E',p:{B:'#FFC2D1',E:'#FF8FAE',N:'#FF8FAE',T:'#FF8FAE',F:'#FF8FAE'},s:["......E...","...BBBEB..",".BBBBBBKB.","TBBBBBBBNN",".BBBBBBBNN",".BBBBBBBB.","..F...F..."]},
+{n:'ひつじ',O:'#C8C0B8',p:{W:'#FFFFFF',H:'#F2DCC0',C:PK,D:'#6B5A50'},s:["..W.W.W....",".WWWWWWWHH.","WWWWWWWHHKH","WWWWWWWWHHC","WWWWWWWWW..",".WWWWWWWW..","..D...D...."]},
+{n:'子ぐま',O:'#7A5436',p:{B:'#B98A60',E:'#E0B890',W:'#F2DCC0',N:'#2A1E1A',C:PK,F:'#E0B890'},s:[".....BB...","....BEBBB.",".BBBBBBBKB","BBBBBBBBWN","BBBBBBBCWW","BBBBBBBBB.",".BBBBBBB..","..F...F..."]},
+{n:'コアラ',O:'#6E6A78',p:{B:'#A7A6B0',W:'#FFFFFF',N:'#3A3440',C:PK,F:'#8A8894'},s:["...BBB....","..BWWBBB..","..BWWBBBB.",".BBBBBBKNN","BBBBBBBCNN","BBBWWWBBB.",".BBWWWBB..","..F...F..."]},
+{n:'フクロウ',O:'#6B4A2E',p:{B:'#B98A60',W:'#FFFFFF',D:'#8A6448',L:'#F2DCC0',N:'#FFB547',F:'#FFB547'},s:["B.....B","BBBBBBB","BWWBWWB","BWKBKWB","BBBNBBB","BDLLLDB",".DLLLD.",".F...F."]},
+{n:'タヌキ',O:'#4A3428',p:{B:'#A07A55',D:'#5A4232',W:'#F2E6D0',E:'#4A3428',T:'#A07A55',N:'#2A1E1A',F:'#5A4232'},s:["......E...",".....BBB..","TT..BBDKW.","TTBBBBDWWN","DTBBBBBWW.","..BBBBBB..","..F...F..."]},
+{n:'キツネ',O:'#A0501C',p:{B:'#F08A3C',T:'#F08A3C',L:'#FFFFFF',W:'#FFFFFF',E:'#4A3428',N:'#2A1E1A',F:'#4A3428'},s:[".......E...","......BBB..","T.....BBKB.","TT.BBBBBWWN","LTTBBBBBW..","LLTBBBBB...","...F..F...."]},
+{n:'レッサーパンダ',O:'#7A3418',p:{B:'#C8602C',T:'#C8602C',S:'#7A3418',W:'#FFFFFF',N:'#2A1E1A',F:'#4A2A20'},s:["......W...",".....BBB..","S...BWBKB.","TS.BBBBWWN","ST.BBBBBW.",".TSBBBBB..","...F..F..."]},
+{n:'カメ',O:'#3C7A30',p:{S:'#6FB05A',L:'#A8D88A',R:'#E8C88A',B:'#9AD07A',F:'#9AD07A'},s:["..SSSS.....",".SSLLSS....","SSLSSLSSBB.","SSSSSSSSBKB","RRRRRRRRBBB",".F.F..F.F.."]},
+{n:'ちびゾウ',O:'#6E7890',p:{B:'#A9B4C8',E:'#FFC2D1',C:'#FFC2D1',F:'#A9B4C8'},s:["....BBBBB.","..BBEEBBBB",".BBBEEBKBB","BBBBEEBBBB","BBBBBBBB.B","BBBBBBBB.C",".BF..BF..."]}];
+const NS=SP.length;
 function rotGrid(gr,k){let a=gr.map(r=>r.split(''));for(let n=0;n<k;n++){const h=a.length,w=a[0].length,b=[];for(let x=0;x<w;x++){const row=[];for(let y=h-1;y>=0;y--)row.push(a[y][x]);b.push(row);}a=b;}return a;}
-const FR=[0,1,2,3].map(k=>rotGrid(HS,k));const FW=[rotGrid(HS,0),rotGrid(HS2,0)];
-function hamster(x,y,coat,o){o=o||{};const gr=o.frame||FR[0],h=gr.length,w=gr[0].length,co=COATS[coat];
-  const x0=Math.round(x-w/2),y0=o.center?Math.round(y-h/2):Math.round(y)-h+1;
-  g.fillStyle=co.O;
-  for(let r=0;r<h;r++)for(let c=0;c<w;c++){if(gr[r][c]==='.')continue;g.fillRect(x0+c-1,y0+r,1,1);g.fillRect(x0+c+1,y0+r,1,1);g.fillRect(x0+c,y0+r-1,1,1);g.fillRect(x0+c,y0+r+1,1,1);}
-  for(let r=0;r<h;r++)for(let c=0;c<w;c++){const ch=gr[r][c];if(ch==='.')continue;let col;
-    if(ch==='B')col=co.B;else if(ch==='W')col=co.W;else if(ch==='E')col='#F2A7A0';else if(ch==='N')col='#FF8FA3';else if(ch==='F'||ch==='P')col='#F7B5B5';
-    else if(ch==='C')col='#FF9EB0';else if(ch==='M')col='#C9707E';else if(ch==='k')col=o.blink?co.B:'#2A1E1A';
-    else col='#2A1E1A';px(x0+c,y0+r,col);}
-  if(o.munch&&!o.center){for(const yy of [4,5]){px(x0-1,y0+yy,co.W);px(x0+w,y0+yy,co.W);}}}
+SP.forEach(a=>{a.fr=[0,1,2,3].map(k=>rotGrid(a.s,k));const s2=a.s.slice(),lr=s2[s2.length-1];s2[s2.length-1]='.'+lr.slice(0,-1);a.fw=[rotGrid(a.s,0),rotGrid(s2,0)];});
+function hamster(x,y,sp,o){o=o||{};const A=SP[sp],gr=o.frame||A.fr[0],h=gr.length,w=gr[0].length,fl=!!o.flip;
+  const x0=Math.round(x-w/2),y0=o.center?Math.round(y-h/2):Math.round(y)-h+1,X=c=>x0+(fl?w-1-c:c);
+  g.fillStyle=A.O;
+  for(let r=0;r<h;r++)for(let c=0;c<w;c++){if(gr[r][c]==='.')continue;const xx=X(c);g.fillRect(xx-1,y0+r,1,1);g.fillRect(xx+1,y0+r,1,1);g.fillRect(xx,y0+r-1,1,1);g.fillRect(xx,y0+r+1,1,1);}
+  for(let r=0;r<h;r++)for(let c=0;c<w;c++){let ch=gr[r][c];if(ch==='.')continue;
+    if(ch==='K'&&o.blink){const nb=gr[r][c-1]||gr[r][c+1];if(nb&&nb!=='.'&&nb!=='K')ch=nb;}
+    px(X(c),y0+r,ch==='K'?'#2A1E1A':(A.p[ch]||'#2A1E1A'));}}
 function heart(x,y,c){px(x+1,y,c);px(x+3,y,c);RT(x,y+1,5,1,c);RT(x+1,y+2,3,1,c);px(x+2,y+3,c);}
 
 /* ---------- the path through one room (dir=+1 coords; entry hole x=14, exit hole x=106) ---------- */
@@ -135,9 +147,9 @@ const WALLS=[['#FCE4D6','#F1D2BC'],['#E2F0F8','#CCE3F0'],['#EFE6D8','#E2D4BE'],[
 const SKY=[['#9FD3F2','#FFFFFF'],['#9FD3F2','#FFFFFF'],['#F7C59F','#FFE7C4'],['#E59BB0','#FFD3B5'],['#4A4F8A','#FFF3B0'],['#2F335E','#FFF3B0']];
 const hash=r=>{let h=(r*2654435761)>>>0;h^=h>>>13;h=(h*1274126177)>>>0;return h;};
 function shuffled(seed){const o=[0,1,2,3,4,5,6,7,8,9,10,11];let s=seed;for(let i=o.length-1;i>0;i--){s=hash(s+i);const j=s%(i+1);[o[i],o[j]]=[o[j],o[i]];}return o;}
-function makeHouse(i){return{order:i===0?[0,1,2,3,4,5,6,7,8,9,10,11]:shuffled(i*7919),off:i*D*.43,seed:i*1000,train:[mod(i,2)===0?0:1+(i%5)],gone:new Set()};}
+function makeHouse(i){return{order:i===0?[0,1,2,3,4,5,6,7,8,9,10,11]:shuffled(i*7919),off:i*D*.43,seed:i*1000,train:[i===0?0:(i*7)%NS],gone:new Set()};}
 let houses=[makeHouse(0)];
-const typeOf=(h,r)=>h.order[mod(r,NT)],resCoat=(h,r)=>1+hash(r+h.seed)%(COATS.length-1);
+const typeOf=(h,r)=>h.order[mod(r,NT)],resCoat=(h,r)=>hash(r+h.seed)%NS;
 const bgCache=new Map();
 function roomBG(h,hi,r){const key=hi+':'+r;let c=bgCache.get(key);if(c)return c;
   c=document.createElement('canvas');c.width=W;c.height=RH;const saved=g;g=c.getContext('2d');
@@ -168,7 +180,7 @@ function drawRoom(h,hi,r,sy,t,ox){
   if(lit>0){g.globalAlpha=.18*lit;disc(78,14,8,'#FFF3B0');g.globalAlpha=1;}
   gadget(ty,lt,Math.max(1,h.train.length));
   if(!h.gone.has(r)){const lj=lt-PATHS[ty].land,hop=(lj>0&&lj<.6)?Math.round(4*Math.abs(Math.sin(lj*Math.PI*2/.6))):0;
-    hamster(93,21-hop,resCoat(h,r),{blink:mod(t+hash(r)%7*.4,3.1)<.12});
+    hamster(93,21-hop,resCoat(h,r),{blink:mod(t+hash(r)%7*.4,3.1)<.12,flip:true});
     if(lj>0&&lj<.9)heart(91,6-hop-Math.round(lj*4),'#FF6F91');}
   g.setTransform(1,0,0,1,0,0);
   if(lit<1){g.fillStyle='rgba(30,22,40,'+(.5*(1-lit))+')';g.fillRect(ox,sy,W,RH);}}
@@ -274,12 +286,13 @@ function render(t,rt){lastT=t;
     for(let i=h.train.length-1;i>=0;i--){const tt=ht-i*LAG,r=Math.floor(tt/D),lt=tt-r*D,ty=typeOf(h,r),dir=dirOf(r);
       const p=evalPath(ty,lt,{i,n:h.train.length});if(p[2]==='hide')continue;
       const x=ox+(dir>0?p[0]:W-p[0]),y=r*RH+p[1]-camY,co=h.train[i],blink=mod(rt+i*.7+c,2.9)<.12;
-      if(p[2]==='tumble')hamster(x,y-4,co,{frame:FR[mod(Math.floor(tt*12),4)],center:true});
-      else if(p[2]==='roll')hamster(x,y-4,co,{frame:FR[mod(Math.floor((x-ox)/3)*dir,4)],center:true});
-      else if(p[2]==='walk')hamster(x,y-(Math.floor(tt*8)%2),co,{frame:FW[Math.floor(tt*8)%2],blink});
-      else if(p[2]==='run')hamster(x,y-(Math.floor(tt*16)%2),co,{frame:FW[Math.floor(tt*16)%2]});
-      else if(p[2]==='float'){hamster(x,y,co,{blink});L(x,y-9,x,y-15,'#9A968C');disc(Math.round(x),Math.round(y-18),3,RBC[i%RBC.length]);px(Math.round(x)-1,Math.round(y)-19,'#FFFFFF');}
-      else hamster(x,y,co,{blink,munch:p[2]==='munch'&&Math.floor(tt*6)%2===0});}
+      const A=SP[co],fl=dir<0;
+      if(p[2]==='tumble')hamster(x,y-4,co,{frame:A.fr[mod(Math.floor(tt*12)*dir,4)],center:true,flip:fl});
+      else if(p[2]==='roll')hamster(x,y-4,co,{frame:A.fr[mod(Math.floor((x-ox)/3)*dir,4)],center:true,flip:fl});
+      else if(p[2]==='walk')hamster(x,y-(Math.floor(tt*8)%2),co,{frame:A.fw[Math.floor(tt*8)%2],blink,flip:fl});
+      else if(p[2]==='run')hamster(x,y-(Math.floor(tt*16)%2),co,{frame:A.fw[Math.floor(tt*16)%2],flip:fl});
+      else if(p[2]==='float'){const hh=A.s.length;hamster(x,y,co,{blink,flip:fl});L(x,y-hh,x,y-hh-6,'#9A968C');disc(Math.round(x),Math.round(y-hh-9),3,RBC[i%RBC.length]);px(Math.round(x)-1,Math.round(y)-hh-10,'#FFFFFF');}
+      else hamster(x,y-(p[2]==='munch'&&Math.floor(tt*6)%2===0?1:0),co,{blink,flip:fl});}
     if(c>0)RT(ox,0,1,buf.height,'#2B2430');});}
 function plate(h,t,sx,sy,k){const fl=Math.max(1,Math.floor((t+h.off)/D)+1),s='B'+String(fl);
   ctx.fillStyle='rgba(43,36,48,.8)';ctx.fillRect(sx+3*k,sy+3*k,(6+s.length*4)*k,9*k);ctx.fillStyle='#FFE7C4';
@@ -311,7 +324,7 @@ cv.addEventListener('pointerdown',e=>{
   const r=Math.floor((ly+camOf(tau+h.off))/RH);
   if(h.gone.has(r)){say('この部屋の住人は、もう行列の中');return;}
   if(h.train.length>=8){say('行列はいっぱい(8匹)');return;}
-  h.gone.add(r);h.train.push(resCoat(h,r));say('住人が行列に加わった('+h.train.length+'匹)');
+  h.gone.add(r);const sp=resCoat(h,r);h.train.push(sp);say(SP[sp].n+'が行列に加わった('+h.train.length+'匹)');
 });
 function mutate(){bgCache.clear();houses.forEach(h=>{const o=h.order;for(let i=o.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[o[i],o[j]]=[o[j],o[i]];}});say('部屋の並びが入れ替わった');}
 function resetAll(){bgCache.clear();const n=houses.length;houses=[];for(let i=0;i<n;i++)houses.push(makeHouse(i));tau=D*1.2;say('一匹に戻して、最初から');}
