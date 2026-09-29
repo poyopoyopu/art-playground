@@ -12,12 +12,43 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
   font:600 12px/1.9 "Hiragino Maru Gothic ProN","Hiragino Sans","Yu Gothic",sans-serif;letter-spacing:.12em;color:rgba(255,255,255,.97);
   text-shadow:0 1px 0 rgba(30,40,70,.85),0 0 6px rgba(30,40,70,.7);pointer-events:none;transition:opacity 1.6s ease;opacity:0}
 #hint.on{opacity:1}
+#guide{position:fixed;inset:0;z-index:60;display:none;align-items:flex-end;justify-content:center;background:rgba(20,26,56,.45);
+  padding:env(safe-area-inset-top,0px) 0 0}
+#guide.on{display:flex}
+#guide .sheet{width:min(560px,100%);max-height:86%;overflow-y:auto;-webkit-overflow-scrolling:touch;background:#FFF8EC;color:#4A3428;
+  border-radius:18px 18px 0 0;padding:18px 18px calc(84px + env(safe-area-inset-bottom,0px));box-sizing:border-box;
+  font:500 13px/1.75 "Hiragino Maru Gothic ProN","Hiragino Sans","Yu Gothic",sans-serif;box-shadow:0 -6px 24px rgba(20,26,56,.25)}
+#guide h2{margin:0 0 2px;font-size:18px;letter-spacing:.08em}
+#guide .law{margin:0 0 14px;color:#8A6A48}
+#guide h3{margin:16px 0 6px;font-size:14px;color:#B8604A}
+#guide .ops div{display:flex;gap:10px;align-items:baseline;margin:3px 0}
+#guide .ops b{flex:0 0 5.5em;color:#4A3428}
+#guide .res{display:grid;grid-template-columns:1fr;gap:4px}
+@media (min-width:520px){#guide .res{grid-template-columns:1fr 1fr}}
+#guide .r{display:flex;gap:10px;align-items:center;padding:5px 8px;border-radius:10px;background:#F6ECDA}
+#guide .r.now{background:#FFE9B8}
+#guide .r .ic{flex:0 0 44px;display:flex;justify-content:center}
+#guide .r canvas{image-rendering:pixelated;image-rendering:crisp-edges}
+#guide .r .t{font-size:12px;line-height:1.5}
+#guide .r .n{font-weight:700;font-size:13px}
+#guide .r .tag{font-size:10px;margin-left:6px;padding:0 6px;border-radius:8px;background:#3A4478;color:#FFF6D8;vertical-align:1px}
+#guide .r .tag.in{background:#E8A23A;color:#FFF}
+#guide .close{position:sticky;top:0;float:right;border:0;background:#F0DFC4;color:#4A3428;width:34px;height:34px;border-radius:17px;font-size:18px;line-height:34px}
 </style>
 <script src="../ap-kit.js"></script>
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hint">ひと部屋に一匹。部屋は、住む子に似る<br>部屋に触ると、お引っ越し</div>
+<div id="hint">ひと部屋に一匹。部屋は、住む子に似る<br>部屋に触ると、お引っ越し ・ ？で住人の紹介</div>
+<div id="guide"><div class="sheet"><button class="close" aria-label="閉じる">×</button>
+<h2>ANIMAL MANSION</h2><p class="law">部屋は、住む子に似る。ひと部屋に一匹ずつ、その子の好きなもので部屋ができている。</p>
+<h3>さわりかた</h3><div class="ops">
+<div><b>部屋に触る</b><span>その子がお引っ越し。荷物を背負って出ていき、家具は段ボールに、壁紙は塗り替え。引っ越しトラックも来る。新しい子がやって来て荷ほどきすると、その子の部屋になる。</span></div>
+<div><b>✦</b><span>引っ越しシーズン。何部屋かが一度に入れ替わる。</span></div>
+<div><b>↻</b><span>顔ぶれを全部替えて、朝からやり直す(建物の色も替わる)。</span></div>
+<div><b>一日</b><span>約96秒でめぐる。昼の子は夜に灯りをつけて過ごし、寝床に入ると灯りを消す。夜の子は昼はカーテンを閉めて眠り、夜に起きだす。</span></div>
+<div><b>表の通り</b><span>ときどき車やバスが通り、歩道を動物たちがおさんぽする。</span></div></div>
+<h3>住人たち(全25種)</h3><div class="res" id="resList"></div></div></div>
 <script>
 (function(){
 'use strict';
@@ -710,6 +741,30 @@ function mutate(){const live=rooms.filter(r=>r.ph==='live');const n=Math.min(liv
 function resetAll(){const fi=Math.floor(Math.random()*FAC.length);facade=FAC[fi][0];roofC=FAC[fi][1];
   T=DAY*.1;bag=[];const old=rooms;rooms=[];for(const o of old){const rm=makeRoom(o.c,o.r);rm.ix=o.ix;rm.iy=o.iy;rooms.push(rm);}parts=[];say('新しい顔ぶれで、朝から');}
 
+/* ---------- 住人の紹介(？ボタン) ---------- */
+const DESC=['綿の寝床・ひまわりの種・回し車','牧草ラック・木の小屋・野菜のお皿','マッチ箱のベッド・糸巻きのテーブル・大きなチーズ','部屋を貫く木のうろで眠る・どんぐりの山',
+ 'にんじんのプランター・ふかふかクッション・時計','たまごの殻のベッド・エサ皿・ブランコ','ゴムのアヒルが浮かぶプール・かごのベッド','氷のベッド・魚のバケツ・氷のすべり台',
+ '落ち葉の寝床・キノコのランプ・りんご','柚子の露天風呂・畳のお布団・のれん','どろんこ風呂・ピンクのベッド・ブタの貯金箱','雲のベッド・糸車・編むほど伸びるマフラー',
+ 'はちみつ壺とミツバチ・ゆり椅子で読書','ユーカリの枝で眠る・葉っぱのお皿・柱時計','止まり木・天井までの本棚・望遠鏡・地球儀','和室・こたつ・掛け軸・行灯・腹太鼓',
+ 'お月見の窓・油あげのお膳・ちょうちん・すすき','ハンモック・笹の鉢・丸太','水草の池・日向ぼっこの岩とライト','猫足バスタブで鼻シャワー・ピーナッツ',
+ '小枝の巣・白樺の枝・つるした餌台','深い海の部屋・貝がらのベッド・クラゲのランプ','水草の水そうで泳ぐ・土管から顔を出して眠る','流氷のベッド・つめたい海のプール・ビーチボール',
+ '部屋の小川で泳ぐ・流木のベッド・石あそび'];
+const guideEl=document.getElementById('guide'),resList=document.getElementById('resList');
+function openGuide(){const here=new Set(rooms.map(r=>r.sp));resList.innerHTML='';
+  const order=[...Array(NS).keys()].sort((a,b)=>(here.has(b)?1:0)-(here.has(a)?1:0));
+  for(const i of order){const A=SP[i],gr=A.s,w=gr[0].length,h=gr.length,Z=4;
+    const src=sprite('a'+i+'_0',w+2,h+2,()=>drawAnimal(1+w/2,h,i,{frame:gr}));
+    const c=document.createElement('canvas');c.width=(w+2)*Z;c.height=(h+2)*Z;c.style.width=(w+2)*Z/1.4+'px';c.style.height=(h+2)*Z/1.4+'px';
+    const cx=c.getContext('2d');cx.imageSmoothingEnabled=false;cx.drawImage(src,0,0,c.width,c.height);
+    const d=document.createElement('div');d.className='r'+(here.has(i)?' now':'');
+    const ic=document.createElement('div');ic.className='ic';ic.appendChild(c);d.appendChild(ic);const t=document.createElement('div');t.className='t';
+    t.innerHTML='<span class="n">'+A.n+'</span>'+(TH[i].noct?'<span class="tag">夜の子</span>':'')+(here.has(i)?'<span class="tag in">入居中</span>':'')+'<br>'+DESC[i];
+    d.appendChild(t);resList.appendChild(d);}
+  guideEl.classList.add('on');hintEl.classList.remove('on');}
+function closeGuide(){guideEl.classList.remove('on');}
+guideEl.addEventListener('pointerdown',e=>{if(e.target===guideEl)closeGuide();});
+guideEl.querySelector('.close').addEventListener('click',closeGuide);
+
 /* ---------- boot ---------- */
 resize();addEventListener('resize',resize);
 setTimeout(()=>hintEl.classList.add('on'),700);
@@ -722,19 +777,18 @@ function loop(now){
 requestAnimationFrame(loop);
 if(location.hash.indexOf('debug')>=0)window.__am={step,render,startMove,mutate,resetAll,setT:v=>{T=v;},rooms:()=>rooms,veh:(k,l)=>spawnVeh(k,l,0),walk:()=>spawnWalker(),truck:()=>callTruck(),traffic:()=>traffic,setSp:(i,s)=>{const rm=rooms[i];setSpecies(rm,s);rm.res=newRes(s);placeAtSpot(rm);},get:()=>({T,u:dayU(T),n:rooms.length,cols,rowsN,W,H,K})};
 
-/* GIF:住人はその場で止め、家具の動き(回し車・ブランコ・水面・ミツバチ・時計…)と粒だけが3秒周期で回る。
-   家具の動きの周期はそろっていないので、一部に小さな継ぎ目が出る */
+/* GIF書き出しはなし(おっちゃんの希望で、◉の代わりに ？=住人とさわりかたの紹介) */
 if(window.APKit)APKit.init({
   canvas:cv,
-  gifName:'animal-mansion-loop',
+  gifName:'animal-mansion',
   clockFormat:'spec',
   dock:true,
   autoHide:true,
   fullscreenButton:false,
-  loopFrame:function(phase){const sa=animT;animT=sa+phase/TAU*3;render();animT=sa;},
   buttons:[
     {label:'✦',name:'mutate',onClick:mutate},
-    {label:'↻',name:'reset',onClick:resetAll}
+    {label:'↻',name:'reset',onClick:resetAll},
+    {label:'？',name:'guide',onClick:openGuide}
   ]
 });
 })();
