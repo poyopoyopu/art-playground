@@ -85,10 +85,7 @@ APKit.init({
   dock: true,                       // ← 必須。下の表を参照
   autoHide: true,                   // ← 必須。下の表を参照
   fullscreenButton: false,          // ← 必須。下の表を参照
-  loopFrame: function(phase){
-    // phaseは0〜2πのループ位相。GIF書き出し中に呼ばれる。
-    // 既存の描画関数を、時間変数の代わりにphaseを使って呼べるようにすること。
-  },
+  // loopFrame は渡さない(2026/09/29〜 新作はGIF書き出しなし。8章を参照)
   buttons: [
     {label:'✦', name:'mutate', onClick:function(){ /* 後述4章 */ }},
     {label:'↻', name:'reset',  onClick:function(){ /* 既存にリセット処理があれば */ }}
@@ -106,7 +103,7 @@ APKit.init({
 | `dock: true` | **必須**(2026/09〜) | ボタンが右下にバラバラの丸ボタンで浮く。他作品と見た目が揃わない |
 | `autoHide: true` | **必須**(2026/09〜) | 無操作時にボタン類が消えず常時画面に残る |
 | `fullscreenButton: false` | **必須**(2026/09〜) | ⛶ボタンが余分に出る(ブラウザ/OS/ホーム画面アプリに既にあるので二重になる) |
-| `loopFrame` | GIF機能を使うなら必須 | ◉ボタンが出ない、または壊れる |
+| `loopFrame` | **渡さない**(2026/09/29〜) | 渡すと◉(GIF書き出し)ボタンが出る。新作はGIF書き出しなしがしゅんの方針 |
 | `buttons` | 空配列でも良いが、まず4章を読むこと | ✦や↻が出ない |
 
 `dock` / `autoHide` / `fullscreenButton` の3つは元々このドキュメントに書かれていなかった不文律で、v35〜v58は守られていたがv59〜v63で崩れていた(2026/09、クロードとチャッピーの認識がズレて発覚)。しゅんの判断で**この3点セットを正式ルールとして確定**。以後の新作・改修は必ずこの3つを渡すこと。古い作品(v1〜v33, v59〜v63など)を見つけても、勝手に一括修正はせず、触る機会があったときにこの3つを追加する形で構わない。
@@ -164,6 +161,8 @@ if (window.APKit && APKit.isUI(x, y)) return true;
 ---
 
 ## 8. GIFループについて
+
+> **2026/09/29〜 新作はGIF書き出しをしない(しゅんの方針)。** `loopFrame` は渡さず、◉ボタンを出さないこと。NIGHT SHIFT〜HAMSTER DROP(v79〜v84)と最近の試作からも◉を外した。◉の代わりに、キャラや操作の説明が要る作品は `buttons` に `{label:'？',name:'guide',...}` を足して紹介パネルを出す形が好評(例: `prototypes/animal-mansion.html`)。以下は古い作品に残っているGIF機能の参考。
 
 `loopFrame(phase)` は、`phase` が `0` のときと `2π` のときに**まったく同じ画になる**のが理想です(継ぎ目のないループ)。
 
