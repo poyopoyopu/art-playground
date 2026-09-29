@@ -104,7 +104,9 @@ export default {
     const isPublishedWork = /^\/art-v\d+-[^/]+\.html$/i.test(url.pathname);
     const isDirectDocument = request.headers.get('sec-fetch-dest') === 'document';
     if (env.DB && (isGalleryOpen || (isPublishedWork && isDirectDocument))) {
-      const workPath = url.pathname;
+      // ギャラリー(index.html)のdata-srcと同じ形「art-vNN-xxx.html」(先頭の/なし・.htmlつき)で記録する
+      let workPath = url.pathname.replace(/^\/+/, '');
+      if (workPath && !/\.html$/i.test(workPath)) workPath += '.html';
       const workTitle = (url.searchParams.get('ap_title') || workPath).slice(0, 120);
       ctx.waitUntil(recordView(env.DB, workPath, workTitle));
     }
@@ -157,7 +159,7 @@ async function onRequestGetAnalytics({env}){
     await ensureAnalyticsSchema(db);
     const total=await db.prepare('SELECT COUNT(*) AS views FROM art_views').first();
     const recent=await db.prepare("SELECT COUNT(*) AS views FROM art_views WHERE created_at >= datetime('now','-30 days')").first();
-    const works=await db.prepare('SELECT path,title,COUNT(*) AS views,MAX(created_at) AS last_view FROM art_views GROUP BY path,title ORDER BY views DESC,title ASC').all();
+    const works=await db.prepare('SELECT path,MAX(title) AS title,COUNT(*) AS views,MAX(created_at) AS last_view FROM art_views GROUP BY path ORDER BY views DESC').all();
     const daily=await db.prepare("SELECT substr(created_at,1,10) AS day,COUNT(*) AS views FROM art_views WHERE created_at >= datetime('now','-30 days') GROUP BY day ORDER BY day ASC").all();
     return json({total_views:Number(total?.views||0),last_30_days:Number(recent?.views||0),works:works.results||[],daily:daily.results||[]});
   }catch(e){

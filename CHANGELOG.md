@@ -1,3 +1,4 @@
+- 2026-09-29 クロード: アクセス解析で作品ごとの回数が全部0になる不具合を修正(おっちゃん「個別作品がカウントされない」)。原因は記録と表示でパスの形が違っていたこと:worker.jsは「/art-vNN-xxx.html」(先頭に/)で記録、analytics.htmlはギャラリーのdata-src「art-vNN-xxx.html」(/なし)で照合していたため、合計には入るのに作品別には一件も一致しなかった。analytics.htmlで両方を同じ形(先頭の/なし・.htmlつき)にそろえて合算するように(これまでの記録もそのまま作品別に出る)。worker.jsも今後はその形で記録し、作品別の集計はタイトル違いで行が分かれないようパスだけでまとめる(worker.js, analytics.html)
 - 2026-09-29 クロード: ANIMAL MANSIONを採用・art-v85として昇格(ap-kit.jsの相対パスをルート用に修正)。CURRENTに設定し、それまでのCURRENTだったHAMSTER DROPをLOG先頭へ移動、Published works先頭にANIMAL MANSIONを追加。「現在の状態」も更新(art-v85-animal-mansion.html, index.html)
 - 2026-09-29 しゅん: ANIMAL MANSIONを採用・CURRENTに決定
 - 2026-09-29 クロード: HAMSTER DROPに？ボタンの説明パネルを追加(おっちゃん「ハムスターのやつには説明ほしい」)。作品の法則、さわりかた(部屋に触る=棚の住人が行列に加わる・✦・↻・横にすると家が並ぶ・窓の空の移り変わり)、部屋の仕掛け12種とそれぞれの連鎖、住人一覧(ドット絵つき、行列にいる子は上に並んで「行列中」の印)。あわせて住人にANIMAL MANSIONのまるっこい新入り5種(シマエナガ・メンダコ・ウーパールーパー・アザラシ・カワウソ)を追加して全25種に。棚の住人や行列にランダムで出てくる(art-v84-hamster-drop.html, prototypes/hamster-drop.html)
