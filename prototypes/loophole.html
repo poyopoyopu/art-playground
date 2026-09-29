@@ -36,6 +36,7 @@ const TAU=Math.PI*2,S=180,RA=3.6;let V=55,GA=16,GB=.55,MG=.4,POPD=0;
 let W=S,H=390;
 const cv=document.getElementById('c'),ctx=cv.getContext('2d'),hintEl=document.getElementById('hint');
 const buf=document.createElement('canvas');let g=buf.getContext('2d');
+const bufB=document.createElement('canvas');let gB=bufB.getContext('2d'),K=4;
 const cl=(u,a,b)=>u<a?a:u>b?b:u,lerp=(a,b,u)=>a+(b-a)*u,rnd=(a,b)=>a+Math.random()*(b-a),wrap=a=>{a=(a+Math.PI)%TAU;if(a<0)a+=TAU;return a-Math.PI;};
 function px(x,y,c){g.fillStyle=c;g.fillRect(Math.floor(x),Math.floor(y),1,1);}
 function RT(x,y,w,h,c){g.fillStyle=c;g.fillRect(Math.round(x),Math.round(y),w,h);}
@@ -109,10 +110,11 @@ let phase='build',tPhase=0,tRound=0,best=null,pals=0,rtime=0,bag=[];
 const skyCv=document.createElement('canvas'),groundCv=document.createElement('canvas');
 
 function resize(){
-  const d=Math.min(2,window.devicePixelRatio||1);cv.width=Math.round(innerWidth*d);cv.height=Math.round(innerHeight*d);
-  if(innerWidth<=innerHeight){W=S;H=Math.max(S,Math.round(S*innerHeight/innerWidth));}
-  else{H=S;W=Math.max(S,Math.round(S*innerWidth/innerHeight));}
-  buf.width=W;buf.height=H;g=buf.getContext('2d');
+  const d=Math.min(3,window.devicePixelRatio||1);cv.width=Math.round(innerWidth*d);cv.height=Math.round(innerHeight*d);
+  /* 1ドット=画面のkピクセル(整数)にそろえる。動くものは画面のピクセル単位でなめらかに動かし、ドットの大きさは変えない */
+  K=Math.max(1,Math.round(Math.min(cv.width,cv.height)/S));
+  W=Math.ceil(cv.width/K);H=Math.ceil(cv.height/K);
+  buf.width=W;buf.height=H;g=buf.getContext('2d');bufB.width=W;bufB.height=H;gB=bufB.getContext('2d');
   layout();}
 function layout(){
   const wH=Math.round(H>W?H*.085:H*.09);waterTop=H-wH;hillTop=waterTop-(H>W?16:10);
@@ -131,11 +133,11 @@ function buildPix(R){
   for(let y=Math.floor(cy-R.r-3);y<=cy+R.r+3;y++)for(let x=Math.floor(cx-R.r-3);x<=cx+R.r+3;x++){
     const dx=x+.5-cx,dy=y+.5-cy,o=Math.hypot(dx,dy)-R.r;if(Math.abs(o)>e)continue;
     xs.push(x);ys.push(y);as.push(Math.atan2(dy,dx));sh.push(RW===3?(o>.5?2:o<-.5?1:0):(o>0?2:0));}
-  R.px={x:Int16Array.from(xs),y:Int16Array.from(ys),a:Float32Array.from(as),s:Uint8Array.from(sh)};}
+  R.cvs={};R.px={x:Int16Array.from(xs),y:Int16Array.from(ys),a:Float32Array.from(as),s:Uint8Array.from(sh)};}
 function ringColors(){
   const P=theme.ring,n=rings.length;
   rings.forEach((R,i)=>{const f=n>1?i*(P.length-1)/(n-1):0,a=Math.floor(f),b=Math.min(P.length-1,a+1);
-    R.col=mix(P[a],P[b],f-a);R.dark=mix(R.col,theme.night?'#000000':'#1A1030',.28);R.light=mix(R.col,'#FFFFFF',.38);});}
+    R.cvs={};R.col=mix(P[a],P[b],f-a);R.dark=mix(R.col,theme.night?'#000000':'#1A1030',.28);R.light=mix(R.col,'#FFFFFF',.38);});}
 
 /* ---------- background (空の菱形チェック・丘・水面をキャッシュ) ---------- */
 function buildBg(){
@@ -230,38 +232,71 @@ function step(dt){
   for(const l of labels){l.t+=dt;l.y-=9*dt;}labels=labels.filter(l=>l.t<.95);
   if(phase==='free'&&(tPhase>4.2||(tPhase>1.6&&!mates.length)))newRound();}
 
-/* ---------- render ---------- */
+/* ---------- render ----------
+   なめらかさのしくみ:
+   ・丘・水面・輪・HUDは低解像度の板に描いて、整数倍(K)でそのまま拡大(=ドットの格子)。
+   ・動物・カプセル・かけら・吹き出し・空の模様・水面のきらめきは、ドット絵を小さな板に一度だけ描いておき、
+     画面のピクセル単位の位置に整数倍で貼る(ドットの大きさはそのまま、位置だけなめらか)。
+   ・輪の隙間の端のドットは、隙間がどこまで来ているかに合わせて薄く描くので、隙間がするすると回って見える。 */
+const sprCache=new Map();
+function sprite(key,w,h,fn){let c=sprCache.get(key);if(!c){c=document.createElement('canvas');c.width=w;c.height=h;const og=g;g=c.getContext('2d');fn();g=og;sprCache.set(key,c);}return c;}
+function blit(c,x,y){ctx.drawImage(c,Math.round(x*K),Math.round(y*K),c.width*K,c.height*K);}
+function dot(x,y,w,col){ctx.fillStyle=col;ctx.fillRect(Math.round(x*K),Math.round(y*K),w*K,K);}
+const scr=document.createElement('canvas');let sg=scr.getContext('2d');
+function ringCanvas(R,v,cols){
+  if(R.cvs[v])return R.cvs[v];
+  const n=Math.ceil(R.r*2+8),c=document.createElement('canvas');c.width=n;c.height=n;R.ox=Math.floor(cx-n/2);R.oy=Math.floor(cy-n/2);
+  if(scr.width<n){scr.width=n;scr.height=n;sg=scr.getContext('2d');}
+  const q=c.getContext('2d'),P=R.px;
+  for(let sh=0;sh<3;sh++){q.fillStyle=cols[sh];for(let i=0;i<P.x.length;i++)if(P.s[i]===sh)q.fillRect(P.x[i]-R.ox,P.y[i]-R.oy,1,1);}
+  return R.cvs[v]=c;}
 function ringAng(R,gp){return gp===null?R.ang:R.ang+Math.sign(R.w)*gp;}
 function render(gp){
   const T=gp===null?rtime:gp/TAU*3;
-  g.fillStyle=theme.sky[0];g.fillRect(0,0,W,H);
-  const off=gp===null?(rtime*3)%12:gp/TAU*12;g.drawImage(skyCv,-Math.round(off),-Math.round(off));
+  ctx.imageSmoothingEnabled=false;
+  /* sky (菱形チェックはなめらかに流れる) */
+  ctx.fillStyle=theme.sky[0];ctx.fillRect(0,0,cv.width,cv.height);
+  const off=gp===null?(rtime*3)%12:gp/TAU*12;
+  ctx.drawImage(skyCv,Math.round(-off*K),Math.round(-off*K),skyCv.width*K,skyCv.height*K);
+  /* grid layer: stars, hills, water, rings */
+  g.clearRect(0,0,W,H);
   for(const s of stars){const b=.5+.5*Math.sin(s[2]+T*TAU/3*Math.round(s[3]));if(b>.35)px(s[0],s[1],b>.8?'#FFFFFF':'#9FB0E0');}
   g.drawImage(groundCv,0,0);
-  for(let i=0;i<Math.max(3,W/40);i++){const x=Math.round(((i*47+T*(6+i%3*3))%(W+10))-5),y=waterTop+3+((i*5)%Math.max(1,H-waterTop-5));RT(x,y,3+i%3,1,theme.water[2]);}
-  /* rings */
   for(const R of rings){
     if(!R.alive)continue;const age=tPhase-R.born;if(phase==='build'&&age<0)continue;
-    const a0=ringAng(R,gp),P=R.px,white=(phase==='build'&&age<.14)||R.flash>0;
+    const a0=ringAng(R,gp),P=R.px,white=(phase==='build'&&age<.14)||R.flash>0,hg=R.gap/2,rr=R.r;
     const cols=R.hold?[R.light,mix(R.light,'#FFFFFF',.4),R.col]:white?['#FFFFFF','#FFFFFF','#E4EEF8']:[R.col,R.light,R.dark];
-    for(let sh=0;sh<3;sh++){g.fillStyle=cols[sh];
-      for(let i=0;i<P.x.length;i++){if(P.s[i]!==sh)continue;if(Math.abs(wrap(P.a[i]-a0))<R.gap/2)continue;g.fillRect(P.x[i],P.y[i],1,1);}}}
+    const rc=ringCanvas(R,R.hold?'h':white?'w':'n',cols),n=rc.width,lx=cx-R.ox,ly=cy-R.oy,rx=rr+4;
+    /* 輪の絵を作業板に写し、隙間の扇形だけ抜く(扇形の縁はドットが半分だけ残る=隙間の端がなめらかに回る) */
+    sg.globalCompositeOperation='copy';sg.drawImage(rc,0,0);
+    sg.globalCompositeOperation='destination-out';sg.beginPath();sg.moveTo(lx,ly);
+    sg.lineTo(lx+rx*2*Math.cos(a0-hg),ly+rx*2*Math.sin(a0-hg));sg.arc(lx,ly,rx*2,a0-hg,a0+hg);sg.closePath();sg.fill();
+    g.drawImage(scr,0,0,n,n,R.ox,R.oy,n,n);}
+  ctx.drawImage(buf,0,0,W*K,H*K);
+  /* water sparkles (なめらか) */
+  for(let i=0;i<Math.max(3,W/40);i++){const x=((i*47+T*(6+i%3*3))%(W+10))-5,y=waterTop+3+((i*5)%Math.max(1,H-waterTop-5));dot(x,y,3+i%3,theme.water[2]);}
   /* capsules */
   for(const c of caps){
-    const u=cl(c.t,0,1),bob=c.t<0?0:-Math.round(Math.abs(Math.sin(c.t*12))*2*(1-c.t/.55)),wob=c.t>.3?Math.round(Math.sin(c.t*60)):0;
     if(phase==='build'&&c.t<-.2&&gp===null)continue;
-    drawCap(cx+c.x+wob,cy+c.y+bob,c.col);}
+    const bob=c.t<0?0:-Math.abs(Math.sin(c.t*12))*2*(1-c.t/.55),wob=c.t>.3?Math.sin(c.t*60)*.8:0;
+    const cc=sprite('c'+c.col,11,11,()=>drawCap(5.5,5.5,c.col));
+    blit(cc,cx+c.x+wob-5.5,cy+c.y+bob-5.5);}
   /* animals */
   const order=mates.slice().sort((a,b)=>a.y-b.y);
   order.forEach((m,i)=>{
-    const run=gp===null?m.t:gp/TAU*3+i*.37,fr=Math.floor(run*8)%2,A=SP[m.sp];
-    const hop=m.hop>0?-Math.round(Math.sin((1-m.hop/.35)*Math.PI)*3):0,bob=gp===null?0:Math.round(Math.sin(gp*2+i)*.6);
-    hamster(cx+m.x,cy+m.y+hop+bob,m.sp,{center:true,flip:m.vx<0,frame:A.fw[fr],blink:(run+i)%3.3<.12});});
+    const run=gp===null?m.t:gp/TAU*3+i*.37,fr=Math.floor(run*8)%2,A=SP[m.sp],gr=A.fw[fr],w=gr[0].length,h=gr.length;
+    const fl=m.vx<0,bl=(run+i)%3.3<.12;
+    const hop=m.hop>0?-Math.sin((1-m.hop/.35)*Math.PI)*3:0,bob=gp===null?0:Math.sin(gp*2+i)*.6;
+    const c=sprite('a'+m.sp+'_'+fr+(fl?'f':'')+(bl?'b':''),w+2,h+2,()=>hamster(1+w/2,1+h/2,m.sp,{center:true,flip:fl,frame:gr,blink:bl}));
+    blit(c,cx+m.x-w/2-1,cy+m.y+hop+bob-h/2-1);});
   if(gp===null){
-    for(const p of parts){const a=1-p.t/p.life;if(a<.25&&(Math.floor(p.t*30)&1))continue;px(p.x,p.y,p.c);}
-    for(const l of labels){const w=tw(l.s)+4;box(l.x-w/2,l.y-4,w,9,'#FFFFFF',theme.night?'#1F2548':'#3A4460');text(l.s,l.x-w/2+2,l.y-2,l.col);}}
-  /* HUD */
-  const k=innermost(),nr=phase==='build'?rings.length:Math.max(0,rings.filter(r=>r.alive).length);
+    for(const p of parts){const a=1-p.t/p.life;if(a<.25&&(Math.floor(p.t*30)&1))continue;dot(p.x-.5,p.y-.5,1,p.c);}
+    for(const l of labels){const w=tw(l.s)+4,ed=theme.night?'#1F2548':'#3A4460';
+      const c=sprite('l'+l.s+l.col+ed,w,9,()=>{box(0,0,w,9,'#FFFFFF',ed);text(l.s,2,2,l.col);});
+      blit(c,l.x-w/2,l.y-4);}}
+  /* HUD (grid layer on top) */
+  const og=g;g=gB;g.clearRect(0,0,W,H);
+  const nr=phase==='build'?rings.length:Math.max(0,rings.filter(r=>r.alive).length);
   const hud=[['RINGS',String(nr)],['TIME',(phase==='build'?0:tRound).toFixed(1)],['PALS',String(pals)]];
   const span=Math.min(W,230)-8,L0=Math.round((W-span)/2),ws=hud.map(h=>tw(h[0]+' '+h[1])+6);
   hud.forEach((h,i)=>{const x=i===0?L0:i===2?L0+span-ws[i]:Math.round(W/2-ws[i]/2);
@@ -271,18 +306,19 @@ function render(gp){
     box(bx,by,bw,bh,'#FFFFFF',theme.hud);
     const f='FREE!';text(f,cx-tw(f,2)/2,by+4,'#2BA84A',2);
     const s=freeInfo.t.toFixed(1)+' SEC';text(s,cx-tw(s)/2,by+17,theme.hud);
-    const b=(freeInfo.nb?'NEW BEST':'BEST '+best.toFixed(1));text(b,cx-tw(b)/2,by+25,freeInfo.nb?'#E0529C':mix(theme.hud,'#FFFFFF',.35));}}
+    const b=(freeInfo.nb?'NEW BEST':'BEST '+best.toFixed(1));text(b,cx-tw(b)/2,by+25,freeInfo.nb?'#E0529C':mix(theme.hud,'#FFFFFF',.35));}
+  g=og;ctx.drawImage(bufB,0,0,W*K,H*K);}
 function drawCap(x,y,col){
   const CAP=["..TTTTT..",".TTLTTTT.","TTLTTTTTT","TTTTTTTTT","DDDDDDDDD","BBBBBBBBB","BBBBBBBBB",".BBBBBBB.","..BBBBB.."];
   const pal={T:col,L:mix(col,'#FFFFFF',.6),D:mix(col,'#3A3050',.35),B:'#FFFFFF'},x0=Math.round(x-4.5),y0=Math.round(y-4.5);
   g.fillStyle='#4A4660';
   for(let r=0;r<9;r++)for(let c=0;c<9;c++)if(CAP[r][c]!=='.'){g.fillRect(x0+c-1,y0+r,1,1);g.fillRect(x0+c+1,y0+r,1,1);g.fillRect(x0+c,y0+r-1,1,1);g.fillRect(x0+c,y0+r+1,1,1);}
   for(let r=0;r<9;r++)for(let c=0;c<9;c++){const ch=CAP[r][c];if(ch!=='.')px(x0+c,y0+r,pal[ch]);}}
-function draw(){ctx.imageSmoothingEnabled=false;ctx.drawImage(buf,0,0,cv.width,cv.height);}
+function draw(){/* renderが画面へ直接描く */}
 
 /* ---------- interaction ---------- */
 let press=null;
-function toBuf(e){return[e.clientX*W/innerWidth,e.clientY*H/innerHeight];}
+function toBuf(e){return[e.clientX*cv.width/innerWidth/K,e.clientY*cv.height/innerHeight/K];}
 function ringAt(bx,by){const d=Math.hypot(bx-cx,by-cy);let best2=null,bd=Math.max(sp/2,3.2);
   for(const R of rings){if(!R.alive)continue;const o=Math.abs(d-R.r);if(o<bd){bd=o;best2=R;}}return best2;}
 cv.addEventListener('pointerdown',e=>{
