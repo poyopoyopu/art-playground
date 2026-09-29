@@ -1,3 +1,5 @@
+- 2026-09-29 クロード: ANIMAL MANSIONを採用・art-v85として昇格(ap-kit.jsの相対パスをルート用に修正)。CURRENTに設定し、それまでのCURRENTだったHAMSTER DROPをLOG先頭へ移動、Published works先頭にANIMAL MANSIONを追加。「現在の状態」も更新(art-v85-animal-mansion.html, index.html)
+- 2026-09-29 しゅん: ANIMAL MANSIONを採用・CURRENTに決定
 - 2026-09-29 クロード: HAMSTER DROPに？ボタンの説明パネルを追加(おっちゃん「ハムスターのやつには説明ほしい」)。作品の法則、さわりかた(部屋に触る=棚の住人が行列に加わる・✦・↻・横にすると家が並ぶ・窓の空の移り変わり)、部屋の仕掛け12種とそれぞれの連鎖、住人一覧(ドット絵つき、行列にいる子は上に並んで「行列中」の印)。あわせて住人にANIMAL MANSIONのまるっこい新入り5種(シマエナガ・メンダコ・ウーパールーパー・アザラシ・カワウソ)を追加して全25種に。棚の住人や行列にランダムで出てくる(art-v84-hamster-drop.html, prototypes/hamster-drop.html)
 - 2026-09-29 クロード: ANIMAL MANSIONのシマエナガが大きすぎたので小さく(おっちゃん「シマエナガはデカすぎる」)。横13×縦9ドット→横9×縦7ドットにして、ほかの住人と同じくらいの大きさに(prototypes/animal-mansion.html)
 - 2026-09-29 クロード: 最近の作品からGIF書き出し(◉)を外した(おっちゃん「最近の作品はギフ出力要らない」)。APKit.initのloopFrameを削除:NIGHT SHIFT・RAINBOW WALK・RAIN RELAY・INNER EYE・PALIMPSEST・HAMSTER DROP(art-v79〜v84と各prototypes版)、試作のBUNNY WORKS・PAW POWERED・LOOPHOLE・OSHIKURA。AGENTS.mdの3章の表・テンプレートと8章に「2026/09/29〜 新作はGIF書き出しなし(loopFrameは渡さない)。説明が要る作品は？ボタンで紹介パネル」を追記
@@ -303,8 +305,8 @@
 
 ## 現在の状態(変わったら書き換える)
 
-- CURRENT: HAMSTER DROP(`art-v84-hamster-drop.html`)
-- LOG先頭: NIGHT SHIFT(`art-v79-night-shift.html`)
+- CURRENT: ANIMAL MANSION(`art-v85-animal-mansion.html`)
+- LOG先頭: HAMSTER DROP(`art-v84-hamster-drop.html`)
 - 作業ルール: `AGENTS.md`(ギャラリー追加の手順と命名ルールは13章)
 - 表示モード: iPhoneホーム画面から起動するとCURRENT作品を自動表示するstandalone Web App対応済み
 - 運用メモ: `NOTES.md`(GitHub操作は可能性を確認してから実行)

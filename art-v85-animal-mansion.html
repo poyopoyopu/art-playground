@@ -1,0 +1,797 @@
+<!doctype html>
+<!-- ANIMAL MANSION(どうぶつマンション) (art-v85) — クロード作(おっちゃんが3案から「どうぶつマンション」を選択、「部屋もちゃんと作り込んで」。住人はHAMSTER DROPの動物20種)。ap-kit.js統合: クロード -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>ANIMAL MANSION — 部屋は、住む子に似る</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#8FD0F5}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#hint{position:fixed;left:0;right:0;top:calc(3% + env(safe-area-inset-top,0px));text-align:center;
+  font:600 12px/1.9 "Hiragino Maru Gothic ProN","Hiragino Sans","Yu Gothic",sans-serif;letter-spacing:.12em;color:rgba(255,255,255,.97);
+  text-shadow:0 1px 0 rgba(30,40,70,.85),0 0 6px rgba(30,40,70,.7);pointer-events:none;transition:opacity 1.6s ease;opacity:0}
+#hint.on{opacity:1}
+#guide{position:fixed;inset:0;z-index:60;display:none;align-items:flex-end;justify-content:center;background:rgba(20,26,56,.45);
+  padding:env(safe-area-inset-top,0px) 0 0}
+#guide.on{display:flex}
+#guide .sheet{width:min(560px,100%);max-height:86%;overflow-y:auto;-webkit-overflow-scrolling:touch;background:#FFF8EC;color:#4A3428;
+  border-radius:18px 18px 0 0;padding:18px 18px calc(84px + env(safe-area-inset-bottom,0px));box-sizing:border-box;
+  font:500 13px/1.75 "Hiragino Maru Gothic ProN","Hiragino Sans","Yu Gothic",sans-serif;box-shadow:0 -6px 24px rgba(20,26,56,.25)}
+#guide h2{margin:0 0 2px;font-size:18px;letter-spacing:.08em}
+#guide .law{margin:0 0 14px;color:#8A6A48}
+#guide h3{margin:16px 0 6px;font-size:14px;color:#B8604A}
+#guide .ops div{display:flex;gap:10px;align-items:baseline;margin:3px 0}
+#guide .ops b{flex:0 0 5.5em;color:#4A3428}
+#guide .res{display:grid;grid-template-columns:1fr;gap:4px}
+@media (min-width:520px){#guide .res{grid-template-columns:1fr 1fr}}
+#guide .r{display:flex;gap:10px;align-items:center;padding:5px 8px;border-radius:10px;background:#F6ECDA}
+#guide .r.now{background:#FFE9B8}
+#guide .r .ic{flex:0 0 44px;display:flex;justify-content:center}
+#guide .r canvas{image-rendering:pixelated;image-rendering:crisp-edges}
+#guide .r .t{font-size:12px;line-height:1.5}
+#guide .r .n{font-weight:700;font-size:13px}
+#guide .r .tag{font-size:10px;margin-left:6px;padding:0 6px;border-radius:8px;background:#3A4478;color:#FFF6D8;vertical-align:1px}
+#guide .r .tag.in{background:#E8A23A;color:#FFF}
+#guide .close{position:sticky;top:0;float:right;border:0;background:#F0DFC4;color:#4A3428;width:34px;height:34px;border-radius:17px;font-size:18px;line-height:34px}
+</style>
+<script src="ap-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">ひと部屋に一匹。部屋は、住む子に似る<br>部屋に触ると、お引っ越し ・ ？で住人の紹介</div>
+<div id="guide"><div class="sheet"><button class="close" aria-label="閉じる">×</button>
+<h2>ANIMAL MANSION</h2><p class="law">部屋は、住む子に似る。ひと部屋に一匹ずつ、その子の好きなもので部屋ができている。</p>
+<h3>さわりかた</h3><div class="ops">
+<div><b>部屋に触る</b><span>その子がお引っ越し。荷物を背負って出ていき、家具は段ボールに、壁紙は塗り替え。引っ越しトラックも来る。新しい子がやって来て荷ほどきすると、その子の部屋になる。</span></div>
+<div><b>✦</b><span>引っ越しシーズン。何部屋かが一度に入れ替わる。</span></div>
+<div><b>↻</b><span>顔ぶれを全部替えて、朝からやり直す(建物の色も替わる)。</span></div>
+<div><b>一日</b><span>約96秒でめぐる。昼の子は夜に灯りをつけて過ごし、寝床に入ると灯りを消す。夜の子は昼はカーテンを閉めて眠り、夜に起きだす。</span></div>
+<div><b>表の通り</b><span>ときどき車やバスが通り、歩道を動物たちがおさんぽする。</span></div></div>
+<h3>住人たち(全25種)</h3><div class="res" id="resList"></div></div></div>
+<script>
+(function(){
+'use strict';
+/* ─────────────────────────────────────────────────────────────
+   世界のルール:「部屋は、住む子に似る」
+   ・断面図のマンション。ひと部屋に一匹ずつ住んでいて、部屋の中身はぜんぶその子の好きなもの
+     (ハムスターなら回し車と綿の寝床、カピバラなら柚子の温泉、フクロウなら本棚と止まり木…20種それぞれに専用の部屋)。
+   ・一日がゆっくりめぐる(約96秒)。昼の子は夜になると灯りをつけて過ごし、寝床に入ると灯りを消す。
+     夜の子(ハムスター・ハリネズミ・フクロウ・タヌキ)は昼はカーテンを閉めて眠り、夜に灯りをともして起きだす。
+     だから外から見ると、灯りのついた部屋の並びが時間とともに移り変わる。
+   ・部屋に触ると、その子は荷物をまとめてドアから出ていく。家具は段ボールに詰められ、壁紙が塗り替えられ、
+     新しい子が段ボールを連れてやって来て、荷ほどきすると部屋はその子の部屋になる。
+   ✦ = 引っ越しシーズン(何部屋かが一度に入れ替わる) / ↻ = 顔ぶれを全部替えて、朝からやり直す
+   ───────────────────────────────────────────────────────────── */
+const TAU=Math.PI*2,S=128,DAY=96,IW=50,IH=34,FL=31,FT=30,CW=IW+2,CH=IH+3;
+let W=S,H=300,K=4;
+const cv=document.getElementById('c'),ctx=cv.getContext('2d'),hintEl=document.getElementById('hint');
+const bufS=document.createElement('canvas');let gs=bufS.getContext('2d');
+const buf=document.createElement('canvas');let g=buf.getContext('2d');
+const cl=(u,a,b)=>u<a?a:u>b?b:u,lerp=(a,b,u)=>a+(b-a)*u,rnd=(a,b)=>a+Math.random()*(b-a);
+const ss=v=>v<=0?0:v>=1?1:v*v*(3-2*v);
+function hx(c){const n=parseInt(c.slice(1),16);return[n>>16&255,n>>8&255,n&255];}
+function mix(a,b,u){const A=hx(a),B=hx(b);return'#'+A.map((v,i)=>Math.round(v+(B[i]-v)*u).toString(16).padStart(2,'0')).join('');}
+function srand(s){return function(){s|=0;s=s+0x6D2B79F5|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+
+/* ---------- 描画ヘルパー(同じ絵を、ドットの格子にも画面にも描ける) ----------
+   tgt=0: 低解像度の板gに描く / tgt=1: 画面ctxにドット格子のまま描く(住人より手前に来るもの用) */
+let tgt=0,RX=0,RY=0;
+function R(x,y,w,h,c){x=Math.round(x);y=Math.round(y);w=Math.round(w);h=Math.round(h);if(w<=0||h<=0)return;
+  if(tgt){ctx.fillStyle=c;ctx.fillRect((RX+x)*K,(RY+y)*K,w*K,h*K);}else{g.fillStyle=c;g.fillRect(RX+x,RY+y,w,h);}}
+function P(x,y,c){R(x,y,1,1,c);}
+function C(cx,cy,r,c,top){for(let y=-r;y<=(top?0:r);y++){const w=Math.floor(Math.sqrt(Math.max(0,r*r-y*y+r*.7)));R(cx-w,cy+y,w*2+1,1,c);}}
+function ring(cx,cy,r,c){const n=Math.ceil(r*7);for(let i=0;i<n;i++){const a=i/n*TAU;P(Math.round(cx+Math.cos(a)*r),Math.round(cy+Math.sin(a)*r),c);}}
+function L(x0,y0,x1,y1,c){x0=Math.round(x0);y0=Math.round(y0);x1=Math.round(x1);y1=Math.round(y1);
+  const dx=Math.abs(x1-x0),dy=-Math.abs(y1-y0),sx=x0<x1?1:-1,sy=y0<y1?1:-1;let e=dx+dy;
+  for(let n=0;n<200;n++){P(x0,y0,c);if(x0===x1&&y0===y1)break;const e2=2*e;if(e2>=dy){e+=dy;x0+=sx;}if(e2<=dx){e+=dx;y0+=sy;}}}
+function SPR(x,y,rows,pal){for(let r=0;r<rows.length;r++)for(let c=0;c<rows[r].length;c++){const ch=rows[r][c];if(ch!=='.'&&pal[ch])P(x+c,y+r,pal[ch]);}}
+
+/* ---------- 住人(HAMSTER DROPの20種・右向き) ---------- */
+const PK='#FFC2D1';
+const SP=[
+{n:'ハムスター',O:'#B8672A',p:{B:'#F2A24E',W:'#FFF6EA',E:'#F2A7A0',N:'#FF8FA3',C:PK,F:'#F7B5B5'},s:["...E....","..EBBB..",".BBBBBB.","BBBBBKBB","BBBBBBCN","BBBBWWWW",".WWWWWW.","..F..F.."]},
+{n:'モルモット',O:'#6B4A2E',p:{B:'#E8A060',D:'#8A6448',W:'#FFFFFF',E:'#F2A7A0',N:'#FF8FA3',F:'#F7B5B5'},s:["......EE..","..DDBWBBB.",".DDDBWBKBB","DDDBBWBBBN","DDBBBWWWWW",".WWWWWWWW.","..F....F.."]},
+{n:'ねずみ',O:'#7C7890',p:{B:'#B9B6C4',E:'#FFB3C6',N:'#FF8FA3',T:'#FFB3C6',W:'#FFFFFF',F:'#F7B5B5'},s:[".....BBB...","....BEEEB..","..BBBEEBBB.",".BBBBBBBKB.","TBBBBBBBBBN","T.BBBBBBBW.",".T.F...F..."]},
+{n:'りす',O:'#8A5028',p:{T:'#C07A40',L:'#E8B070',B:'#D98C48',W:'#FFF0DC',E:'#8A5028',N:'#4A3428',F:'#D98C48'},s:["..TT....E..",".TTTT..BBB.","TTTLT.BBBKB","TTTLTBBBBBN",".TTTBBWWBB.","..TTBBWWB..","....F..F..."]},
+{n:'うさぎ',O:'#B8A8B8',p:{B:'#FFFFFF',E:'#FFB3C6',T:'#F4F0F4',N:'#FF8FA3',C:PK,F:'#F7B5B5'},s:["......BB..","......BE..","......BE..",".....BBBB.",".BBBBBBKBB","TBBBBBBBCN",".BBBBBBBB.","..F...FF.."]},
+{n:'ひよこ',O:'#C9A227',p:{B:'#FFE066',W:'#F2C94C',N:'#FF9F43',C:'#FFB3A0',F:'#FF9F43'},s:[".....B...","...BBBB..","..BBBBKB.",".BBWWBBCN","BBBWWWBB.",".BBBBBBB.","..BBBBB..","...F.F..."]},
+{n:'アヒル',O:'#B8B0B8',p:{B:'#FFFFFF',W:'#E6E6EE',N:'#FFB547',T:'#FFFFFF',F:'#FF9F43'},s:["......BBB..",".....BBBKB.",".....BBBBNN","T....BBB...","TBBBBBBB...","BBBBWWBBB..",".BBBBBBBB..","...F..F...."]},
+{n:'ペンギン',O:'#232B3C',p:{B:'#3E4A63',W:'#FFFFFF',D:'#2E3850',N:'#FF9F43',F:'#FF9F43'},s:["..BBBB..",".BBBWKB.",".BBBBBNN",".BBWWWW.","BDBWWWW.",".BBWWWW.",".BBWWW..","..FF.F.."]},
+{n:'ハリネズミ',O:'#5E4630',p:{S:'#8A6A4A',W:'#F6E3C8',N:'#2A1E1A',F:'#F7B5B5'},s:["..S.S.S...",".SSSSSSS..","SSSSSSSWW.","SSSSSSWKWW","SSSSSSWWWN",".WWWWWWWW.","..F...F..."]},
+{n:'カピバラ',O:'#6B4A30',p:{B:'#A07A55',Y:'#FFB547',E:'#6B4A30',N:'#4A3428',F:'#8A6448'},s:["...YY.E....","....BBBBB..","..BBBBBKBB.",".BBBBBBBBBB","BBBBBBBBBBN","BBBBBBBBBB.",".BBBBBBBB..","..F....F..."]},
+{n:'こぶた',O:'#D9708E',p:{B:'#FFC2D1',E:'#FF8FAE',N:'#FF8FAE',T:'#FF8FAE',F:'#FF8FAE'},s:["......E...","...BBBEB..",".BBBBBBKB.","TBBBBBBBNN",".BBBBBBBNN",".BBBBBBBB.","..F...F..."]},
+{n:'ひつじ',O:'#C8C0B8',p:{W:'#FFFFFF',H:'#F2DCC0',C:PK,D:'#6B5A50'},s:["..W.W.W....",".WWWWWWWHH.","WWWWWWWHHKH","WWWWWWWWHHC","WWWWWWWWW..",".WWWWWWWW..","..D...D...."]},
+{n:'子ぐま',O:'#7A5436',p:{B:'#B98A60',E:'#E0B890',W:'#F2DCC0',N:'#2A1E1A',C:PK,F:'#E0B890'},s:[".....BB...","....BEBBB.",".BBBBBBBKB","BBBBBBBBWN","BBBBBBBCWW","BBBBBBBBB.",".BBBBBBB..","..F...F..."]},
+{n:'コアラ',O:'#6E6A78',p:{B:'#A7A6B0',W:'#FFFFFF',N:'#3A3440',C:PK,F:'#8A8894'},s:["...BBB....","..BWWBBB..","..BWWBBBB.",".BBBBBBKNN","BBBBBBBCNN","BBBWWWBBB.",".BBWWWBB..","..F...F..."]},
+{n:'フクロウ',O:'#6B4A2E',p:{B:'#B98A60',W:'#FFFFFF',D:'#8A6448',L:'#F2DCC0',N:'#FFB547',F:'#FFB547'},s:["B.....B","BBBBBBB","BWWBWWB","BWKBKWB","BBBNBBB","BDLLLDB",".DLLLD.",".F...F."]},
+{n:'タヌキ',O:'#4A3428',p:{B:'#A07A55',D:'#5A4232',W:'#F2E6D0',E:'#4A3428',T:'#A07A55',N:'#2A1E1A',F:'#5A4232'},s:["......E...",".....BBB..","TT..BBDKW.","TTBBBBDWWN","DTBBBBBWW.","..BBBBBB..","..F...F..."]},
+{n:'キツネ',O:'#A0501C',p:{B:'#F08A3C',T:'#F08A3C',L:'#FFFFFF',W:'#FFFFFF',E:'#4A3428',N:'#2A1E1A',F:'#4A3428'},s:[".......E...","......BBB..","T.....BBKB.","TT.BBBBBWWN","LTTBBBBBW..","LLTBBBBB...","...F..F...."]},
+{n:'レッサーパンダ',O:'#7A3418',p:{B:'#C8602C',T:'#C8602C',S:'#7A3418',W:'#FFFFFF',N:'#2A1E1A',F:'#4A2A20'},s:["......W...",".....BBB..","S...BWBKB.","TS.BBBBWWN","ST.BBBBBW.",".TSBBBBB..","...F..F..."]},
+{n:'カメ',O:'#3C7A30',p:{S:'#6FB05A',L:'#A8D88A',R:'#E8C88A',B:'#9AD07A',F:'#9AD07A'},s:["..SSSS.....",".SSLLSS....","SSLSSLSSBB.","SSSSSSSSBKB","RRRRRRRRBBB",".F.F..F.F.."]},
+{n:'ちびゾウ',O:'#6E7890',p:{B:'#A9B4C8',E:'#FFC2D1',C:'#FFC2D1',F:'#A9B4C8'},s:["....BBBBB.","..BBEEBBBB",".BBBEEBKBB","BBBBEEBBBB","BBBBBBBB.B","BBBBBBBB.C",".BF..BF..."]},
+/* ここから、まるっこい新しい住人5種(クロちゃんオリジナル) */
+{n:'シマエナガ',O:'#9AA0AC',p:{B:'#FFFFFF',G:'#E2E6EE',D:'#4A4A58',T:'#3A3A48',C:'#FFC2D1',N:'#2A1E1A',F:'#8A7060'},s:["...BBB...",".BBBBBKB.","BBBBBBBCN","TDGBBBBB.","TDDGBBBB.",".BBBBBB..","..F..F..."]},
+{n:'メンダコ',O:'#B8483A',p:{B:'#F08A6A',L:'#FFB49C',E:'#E8705A',C:'#FFD6C8',F:'#E8705A'},s:["..E.BBBB.E..","..EBBBBBBE..",".BBBBLLBBBB.","BBBBKBBBKBBB","BBBCBBBBBCBB","BBBBBBBBBBBB",".BLBBLBBLBB.","..F.F..F.F.."]},
+{n:'ウーパールーパー',O:'#C8708A',p:{B:'#FFD0DC',G:'#FF7A9A',T:'#FFB8CC',M:'#E0708E',F:'#FFB8CC'},s:[".......G.G...","......GGGG...","...BBBBBBBBB.","TBBBBBBGBBKBB","TTBBBBBBBBBMB",".TBBBBBBBBBB.","...F.F...F.F."]},
+{n:'アザラシ',O:'#9AA0B0',p:{B:'#EEF1F6',S:'#D4D9E4',N:'#4A4A58',C:'#FFC2D1',T:'#C4CAD8',F:'#C4CAD8'},s:[".....BBBBB...","...BBBBBBBBB.","..BBBBBBBBKBB","SBBBBBBBBBBNB","SBBBBBBBBBCBB","TSBBBBBBBBBB.","TT..FF...FF.."]},
+{n:'カワウソ',O:'#6E4A30',p:{B:'#A0704A',W:'#F2DCC0',N:'#2A1E1A',E:'#8A5A3A',F:'#8A5A3A'},s:["........E.E.","........BBBB","...BBBBBWKWN","..BBBBBBWWWW","TBBBBBBBBWW.","TTBBBBBBBB..","...F....F..."]}];
+const NS=SP.length;
+SP.forEach(a=>{const s2=a.s.slice(),lr=s2[s2.length-1];s2[s2.length-1]='.'+lr.slice(0,-1);a.fw=[a.s,s2];});
+function drawAnimal(x,y,sp,o){const A=SP[sp],gr=o.frame||A.s,h=gr.length,w=gr[0].length,fl=!!o.flip;
+  const x0=Math.round(x-w/2),y0=Math.round(y)-h+1,X=c=>x0+(fl?w-1-c:c);
+  g.fillStyle=A.O;
+  for(let r=0;r<h;r++)for(let c=0;c<w;c++){if(gr[r][c]==='.')continue;const xx=X(c);g.fillRect(xx-1,y0+r,1,1);g.fillRect(xx+1,y0+r,1,1);g.fillRect(xx,y0+r-1,1,1);g.fillRect(xx,y0+r+1,1,1);}
+  for(let r=0;r<h;r++)for(let c=0;c<w;c++){let ch=gr[r][c];if(ch==='.')continue;
+    if(ch==='K'&&o.blink){const nb=gr[r][c-1]||gr[r][c+1];if(nb&&nb!=='.'&&nb!=='K')ch=nb;}
+    g.fillStyle=ch==='K'?'#2A1E1A':(A.p[ch]||'#2A1E1A');g.fillRect(X(c),y0+r,1,1);}}
+
+/* ---------- 部屋:20種それぞれの「好きなもの」でできた部屋 ----------
+   座標は部屋の内側(横50×縦34ドット)。床の上面はy=31、床に立つ足はy=30。ドアは左端(x1〜7)、窓は奥の壁。
+   items=家具(引っ越しで段ボールになる単位)、spots=住人の居場所(act=そこで何をするか、front=住人より手前に来る部分) */
+const WD='#B07A4A',WDD='#7E5230',WDL='#D6A46C';
+function bed(x,w,fr,frD,sheet,pil){R(x,27,1,4,frD);R(x+w-1,27,1,4,frD);R(x,24,w,2,sheet);R(x,26,w,1,fr);
+  R(x+w-2,18,2,9,fr);R(x+w-2,18,2,1,frD);R(x-1,21,1,6,fr);R(x-1,21,1,1,frD);R(x+w-6,22,4,2,pil);R(x+w-6,23,4,1,mix(pil,'#000000',.12));}
+function blanket(x,w,c,c2){R(x,20,w-8,4,c);for(let i=x+1;i<x+w-8;i+=3)R(i,21,1,2,c2);R(x,23,w-8,1,c2);R(x+w-9,20,1,4,c2);}
+function bedSpot(x,w,c,c2){return{x:x+w-7,y:23,act:'sleep',dir:1,front:()=>blanket(x,w,c,c2)};}
+function shelf(x,y,w,c){R(x,y,w,1,c||WD);R(x+1,y+1,1,2,WDD);R(x+w-2,y+1,1,2,WDD);}
+function frame(x,y,w,h,fc,ic,fn){R(x,y,w,h,fc);R(x+1,y+1,w-2,h-2,ic);if(fn)fn(x+1,y+1);}
+function plant(x,pot,leaf,hgt){R(x,27,5,4,pot);R(x-1,27,7,1,mix(pot,'#000000',.15));const h=hgt||6;
+  for(let i=0;i<h;i++){P(x+2,26-i,leaf);if(i%2===0){P(x+1-(i%4?0:1),25-i,leaf);P(x+3+(i%4?0:1),25-i,leaf);}}
+  P(x,27-h,leaf);P(x+4,26-h,leaf);}
+function clock(x,y,t,fc){C(x,y,3,fc);C(x,y,2,'#FFFDF4');P(x,y,'#2A1E1A');const a=t*.9;P(x+Math.round(Math.cos(a)*2),y+Math.round(Math.sin(a)*2),'#D8483A');P(x,y-1,'#2A1E1A');}
+function stones(x0,y){const ws=[4,3,5,3,4,2,5,3],cs=['#9AA0A8','#B0B6BE','#8A9098','#A4AAB2'];let x=x0,i=0;while(x<x0+27){const w=Math.min(ws[i%8],x0+27-x);R(x,y,w,2,cs[i%4]);P(x,y,mix(cs[i%4],'#FFFFFF',.35));R(x+w-1,y+1,1,1,mix(cs[i%4],'#000000',.2));x+=w;i++;}}
+function box(x,w,h){const bw=Math.max(6,Math.min(12,w)),bh=Math.max(5,Math.min(8,h)),bx=Math.round(x+w/2-bw/2),by=FL-bh;
+  R(bx,by,bw,bh,'#D2A36A');R(bx,by,bw,1,'#E6BC84');R(bx+Math.floor(bw/2)-1,by,2,bh,'#B8844A');R(bx,by+bh-1,bw,1,'#A8743E');}
+
+const TH=[
+/* 0 ハムスター(夜の子):綿の寝床・ひまわりの種・回し車・給水ボトル */
+{wall:{k:'dot',c1:'#FFF1D6',c2:'#F2CF98',wain:'#EBC58E'},floor:{k:'chip',c1:'#E9C98E',c2:'#C9A06A'},door:'#C98A4E',cur:'#F2A24E',lamp:{k:'bulb',x:26},noct:1,
+ items:[
+  {x:9,w:14,h:7,d:()=>{C(12,28,3,'#E6E1EA');C(16,27,4,'#FFFFFF');C(20,28,3,'#F4F0F6');R(9,29,14,2,'#F4F0F6');P(14,25,'#E6E1EA');P(18,24,'#E6E1EA');}},
+  {x:27,w:7,h:6,d:()=>{const rows=["...s...","..sws..",".swsws.","swswsws","wswswsw"];SPR(27,26,rows,{s:'#5A4A3A',w:'#F4EEDC'});}},
+  {x:33,w:16,h:18,d:(t,rm)=>{const cx=41,cy=20,r=8,a=rm.wa;L(cx,cy,cx-5,30,'#8C98AC');L(cx,cy,cx+5,30,'#8C98AC');R(cx-6,30,3,1,'#6E7A90');R(cx+4,30,3,1,'#6E7A90');
+     ring(cx,cy,r,'#5CAEDB');ring(cx,cy,r-1,'#A6DAF2');for(let k=0;k<12;k++){const aa=a+k*TAU/12;P(Math.round(cx+Math.cos(aa)*(r-1)),Math.round(cy+Math.sin(aa)*(r-1)),'#3E86B4');}C(cx,cy,1,'#3E86B4');}},
+  {x:45,w:5,h:10,d:()=>{R(46,7,3,9,'#BFE6F7');R(46,7,3,1,'#6CB8E0');R(46,11,3,5,'#8FD0F0');R(47,16,1,3,'#9AA6B8');P(47,19,'#6CB8E0');R(45,9,1,5,'#9AA6B8');}},
+  {x:9,w:8,h:5,d:()=>{shelf(9,14,8);R(10,10,4,4,'#FFF6E0');R(10,10,4,1,'#D8483A');R(10,12,4,2,'#5A4A3A');P(11,12,'#F4EEDC');P(15,12,'#F2A24E');R(15,13,1,1,'#E08A3A');}}],
+ spots:[{x:16,y:30,act:'sleep',dir:1,front:()=>{C(11,30,2,'#FFFFFF');C(15,31,2,'#F4F0F6');C(20,30,2,'#FFFFFF');}},
+  {x:23,y:30,act:'eat',dir:1,fx:'crumb'},{x:41,y:27,act:'run',dir:1,front:(t,rm)=>{const cx=41,cy=20,a=rm.wa;for(let k=0;k<2;k++){const aa=a*.5+k*Math.PI/2;L(cx-Math.cos(aa)*6,cy-Math.sin(aa)*6,cx+Math.cos(aa)*6,cy+Math.sin(aa)*6,'#A6DAF2');}C(cx,cy,1,'#3E86B4');}},
+  {x:30,y:30,act:'look',dir:-1}]},
+/* 1 モルモット:牧草ラック・木の小屋・野菜のお皿 */
+{wall:{k:'stripe',c1:'#E6F3D2',c2:'#D6EBBE',wain:'#BFD99C'},floor:{k:'straw',c1:'#EDD58A',c2:'#D2B25A'},door:'#8FB86A',cur:'#F2C94C',lamp:{k:'pend',x:26,c:'#8FB86A'},
+ items:[
+  {x:9,w:11,h:12,d:()=>{R(9,15,11,1,WDD);for(let i=0;i<5;i++)L(10+i*2,16,11+i,23,WD);L(19,16,15,23,WD);R(11,23,8,1,WDD);
+     for(let i=0;i<9;i++){P(10+i,15-(i%3),'#E8D070');P(10+i,16+(i%2),'#D9BE52');}R(10,28,9,3,'#E8D070');for(let i=0;i<9;i+=2)P(10+i,27,'#D9BE52');}},
+  {x:22,w:16,h:11,d:()=>{R(23,23,14,8,'#D6A46C');for(let y=24;y<31;y+=2)R(23,y,14,1,'#C8925A');L(21,24,30,19,'#B8653A');L(39,24,30,19,'#B8653A');L(22,24,30,20,'#B8653A');L(38,24,30,20,'#B8653A');
+     C(30,29,3,'#5A3A26',true);R(27,29,7,2,'#5A3A26');}},
+  {x:40,w:9,h:5,d:()=>{R(40,29,9,2,'#FFFFFF');R(41,30,7,1,'#E0E8EE');C(43,27,2,'#7FC860');P(42,26,'#A8E08A');R(46,26,1,3,'#FF9F43');R(45,25,3,1,'#7FC860');}},
+  {x:40,w:9,h:8,d:()=>frame(40,7,9,8,WD,'#FFF8E8',(x,y)=>{R(x+3,y+2,2,4,'#FF9F43');R(x+2,y+1,4,1,'#7FC860');})}],
+ spots:[{x:30,y:30,act:'sleep',dir:1,front:()=>{R(23,23,4,8,'#D6A46C');R(34,23,3,8,'#D6A46C');R(27,23,7,3,'#D6A46C');L(22,24,30,20,'#B8653A');L(38,24,30,20,'#B8653A');}},
+  {x:15,y:30,act:'eat',dir:1,fx:'crumb'},{x:37,y:30,act:'eat',dir:1,fx:'crumb'},{x:20,y:30,act:'hop',dir:1}]},
+/* 2 ねずみ:大きなチーズ・マッチ箱のベッド・糸巻きのテーブル */
+{wall:{k:'brick',c1:'#EEDFCB',c2:'#D8C2A4'},floor:{k:'wood',c1:'#C08A58',c2:'#9C6A40'},door:'#8A6A9A',cur:'#8FC0E8',lamp:{k:'bulb',x:26},
+ items:[
+  {x:9,w:14,h:7,d:()=>{R(9,25,14,6,'#D8483A');R(9,25,14,1,'#F07060');R(11,27,6,3,'#F4E4C0');P(12,28,'#D8483A');P(14,28,'#2A1E1A');R(9,24,14,1,'#F4E8D8');}},
+  {x:25,w:7,h:10,d:()=>{R(25,21,7,1,'#E0C090');R(26,22,5,7,'#E86A8A');for(let y=23;y<29;y+=2)R(26,y,5,1,'#D0507A');R(25,29,7,2,'#E0C090');R(30,19,2,2,'#C8CCD8');P(30,18,'#A8ACBA');}},
+  {x:35,w:14,h:10,d:()=>{for(let y=0;y<9;y++){const w=Math.round(y*1.5)+1;R(48-w,22+y,w,1,'#FFD35A');}R(35,30,14,1,'#E8B838');P(44,26,'#E8B838');P(46,28,'#E8B838');P(43,29,'#E8B838');P(47,25,'#E8B838');}},
+  {x:37,w:8,h:8,d:()=>frame(37,6,8,8,'#8A6A9A','#FFF6D8',(x,y)=>{R(x+1,y+2,4,3,'#FFD35A');P(x+2,y+3,'#E8B838');})},
+  {x:9,w:8,h:5,d:()=>{shelf(9,13,8);R(10,10,2,3,'#8FC0E8');R(13,11,3,2,'#E86A8A');}}],
+ spots:[bedSpot(9,14,'#8FC0E8','#6CA0D0'),{x:32,y:30,act:'eat',dir:1,fx:'crumb'},{x:22,y:30,act:'sit',dir:1},{x:27,y:20,act:'look',dir:-1}]},
+/* 3 りす:部屋を貫く木(うろが寝床)・どんぐりの山・木の実のびん */
+{wall:{k:'leaf',c1:'#DDEBCD',c2:'#A9CC92',wain:'#9CBF82'},floor:{k:'wood',c1:'#B98150',c2:'#946238'},door:'#9C6A40',cur:'#E88A48',lamp:{k:'pend',x:24,c:'#D98C48'},
+ items:[
+  {x:36,w:13,h:31,d:()=>{R(39,0,8,31,'#9A6A40');for(let y=2;y<31;y+=4)P(40+(y%3),y,'#7A4E2C');for(let y=0;y<31;y+=5)P(45,y+2,'#7A4E2C');R(38,28,10,3,'#8A5A34');
+     C(43,15,3,'#4A3020');R(40,15,7,4,'#4A3020');R(39,19,9,1,'#B07A4A');R(32,22,7,2,'#9A6A40');P(32,21,'#7FB060');
+     for(let i=0;i<14;i++){const x=30+i*1.4|0;C(x,1+(i%3),2,i%2?'#7FB060':'#6A9C50');}}},
+  {x:23,w:8,h:5,d:()=>{const ac=(x,y)=>{R(x,y,2,1,'#6B4A2E');R(x,y+1,2,2,'#C88A48');};ac(24,28);ac(26,28);ac(28,28);ac(25,26);ac(27,26);ac(26,24);R(23,30,8,1,'#8A5A34');}},
+  {x:9,w:10,h:8,d:()=>{shelf(9,14,10);R(10,9,3,5,'#CFEAF4');R(10,9,3,1,'#8A5028');R(10,11,3,3,'#C88A48');R(14,10,3,4,'#CFEAF4');R(14,10,3,1,'#8A5028');R(14,12,3,2,'#6B4A2E');}},
+  {x:9,w:10,h:2,d:()=>{R(9,30,11,1,'#E88A48');for(let i=9;i<20;i+=2)P(i,30,'#F4B070');}}],
+ spots:[{x:43,y:18,act:'sleep',dir:-1,front:()=>{R(39,19,9,1,'#B07A4A');R(39,18,1,1,'#9A6A40');R(47,18,1,1,'#9A6A40');}},
+  {x:19,y:30,act:'eat',dir:1,fx:'crumb'},{x:35,y:21,act:'look',dir:-1},{x:14,y:30,act:'hop',dir:1}]},
+/* 4 うさぎ:にんじんのプランター・ふかふかクッション・時計 */
+{wall:{k:'check',c1:'#F8E8F2',c2:'#F0D8E8',wain:'#E4C0D8'},floor:{k:'grass',c1:'#A6D884',c2:'#86BD66'},door:'#E48AB0',cur:'#FFB8CF',lamp:{k:'pend',x:26,c:'#FFB8CF'},
+ items:[
+  {x:9,w:14,h:6,d:()=>{C(15,28,4,'#FFB8CF');R(9,27,14,4,'#FFB8CF');R(10,26,12,1,'#FFD6E4');R(9,30,14,1,'#E890B0');P(12,28,'#FFD6E4');P(18,29,'#FFD6E4');}},
+  {x:35,w:14,h:10,d:(t)=>{R(35,26,14,5,'#B07A4A');R(35,26,14,1,'#D6A46C');R(36,28,12,1,'#8A5A34');
+     for(let i=0;i<4;i++){const x=37+i*3,sw=Math.round(Math.sin(t*1.7+i)*.6);R(x,24,2,2,'#FF9F43');P(x+sw,23,'#7FC860');P(x+sw-1,22,'#7FC860');P(x+sw+1,22,'#7FC860');P(x+sw,21,'#A8E08A');}}},
+  {x:37,w:8,h:8,d:(t)=>clock(41,10,t*.4,'#E48AB0')},
+  {x:9,w:8,h:8,d:()=>frame(10,6,8,8,'#E48AB0','#2E3A66',(x,y)=>{C(x+3,y+3,2,'#FFE9A0');P(x+4,y+2,'#2E3A66');})}],
+ spots:[{x:15,y:25,act:'sleep',dir:1,front:()=>{R(9,26,3,2,'#FFB8CF');R(19,26,4,2,'#FFB8CF');}},
+  {x:32,y:30,act:'eat',dir:1,fx:'crumb'},{x:26,y:30,act:'hop',dir:1},{x:27,y:30,act:'look',dir:-1}]},
+/* 5 ひよこ:たまごの殻のベッド・エサ皿・ブランコ */
+{wall:{k:'dot',c1:'#FFF7CC',c2:'#FFE27A',wain:'#F6D98A'},floor:{k:'straw',c1:'#F0DC98',c2:'#D8BE6A'},door:'#F2A64A',cur:'#8FD0F0',lamp:{k:'bulb',x:26},
+ items:[
+  {x:9,w:13,h:9,d:()=>{C(15,27,5,'#E8DCC0');C(15,27,4,'#8A7A60');R(10,27,11,4,'#FFFDF4');C(15,28,5,'#FFFDF4');R(10,27,11,1,'#FFFDF4');for(let i=0;i<11;i+=2)P(10+i,26,'#FFFDF4');R(9,30,13,1,'#E8DCC0');}},
+  {x:29,w:8,h:4,d:()=>{R(29,28,8,3,'#6FA8DC');R(30,30,6,1,'#4A88C0');for(let i=0;i<6;i++)P(30+i,27+(i%2),'#F2C94C');}},
+  {x:39,w:10,h:24,d:(t,rm)=>{const sw=rm.swing;L(40,0,41+sw,21,'#A08060');L(47,0,46+sw,21,'#A08060');R(40+sw,22,8,1,WD);R(40+sw,23,8,1,WDD);}},
+  {x:36,w:8,h:8,d:()=>frame(10,8,7,7,'#F2A64A','#FFFFFF',(x,y)=>{C(x+2,y+2,2,'#FFB547');})}],
+ spots:[{x:15,y:29,act:'sleep',dir:1,front:()=>{R(10,26,11,5,'#FFFDF4');for(let i=0;i<11;i+=2)P(10+i,25,'#FFFDF4');R(9,30,13,1,'#E8DCC0');}},
+  {x:26,y:30,act:'eat',dir:1,fx:'crumb'},{x:44,y:21,act:'swing',dir:-1},{x:22,y:30,act:'hop',dir:1}]},
+/* 6 アヒル:小さなプール(ゴムのアヒル)・かごのベッド・タオル掛け */
+{wall:{k:'tile',c1:'#E2F5F8',c2:'#C6E6EC',wain:'#AEDCE4'},floor:{k:'tile',c1:'#F6FCFD',c2:'#D2EAF0'},door:'#6CB8C8',cur:'#FFE066',lamp:{k:'bulb',x:26},
+ items:[
+  {x:9,w:13,h:6,d:()=>{R(9,25,13,6,'#C9965A');for(let y=26;y<31;y+=2)R(9,y,13,1,'#B07A40');for(let x=10;x<22;x+=3)R(x,25,1,6,'#B07A40');R(10,24,11,1,'#FFFFFF');}},
+  {x:26,w:23,h:9,d:(t)=>{R(26,22,23,9,'#FFFFFF');R(27,23,21,7,'#6EC6E8');R(26,22,23,1,'#E8F4F8');R(26,30,23,1,'#9FC8D6');}},
+  {x:10,w:7,h:11,d:()=>{R(10,12,7,1,'#9AA6B8');R(11,13,5,8,'#FF9FB8');for(let y=14;y<21;y+=3)R(11,y,5,1,'#FFFFFF');}},
+  {x:40,w:8,h:7,d:()=>{shelf(38,14,9);R(39,11,2,3,'#FFFFFF');R(42,10,2,4,'#8FC0E8');P(42,9,'#FFFFFF');R(45,12,2,2,'#FFB8CF');}}],
+ spots:[{x:15,y:27,act:'sleep',dir:1,front:()=>{R(9,27,13,4,'#C9965A');R(9,28,13,1,'#B07A40');for(let x=10;x<22;x+=3)R(x,27,1,4,'#B07A40');}},
+  {x:37,y:28,act:'swim',dir:1,range:6,fx:'bubble',front:(t)=>{const w=Math.round(t*3)%4;R(27,26,21,4,'#6EC6E8');for(let i=0;i<21;i++)if((i+w)%4===0)P(27+i,26,'#BFEAF7');R(26,23,1,8,'#FFFFFF');R(48,23,1,8,'#FFFFFF');R(26,30,23,1,'#9FC8D6');
+     const dx=Math.round(Math.sin(t*.7)*3),by=Math.round(Math.sin(t*2.3)*.6);R(43+dx,24+by,3,2,'#FFE066');P(45+dx,23+by,'#FFE066');P(46+dx,23+by,'#FF9F43');}},
+  {x:23,y:30,act:'look',dir:-1}]},
+/* 7 ペンギン:氷のベッド・魚のバケツ・氷のすべり台・雪だるま */
+{wall:{k:'snow',c1:'#DCEEFA',c2:'#FFFFFF',wain:'#C2E0F4'},floor:{k:'ice',c1:'#EEF8FF',c2:'#C8E4F6'},door:'#5C88B8',cur:'#FFFFFF',lamp:{k:'pend',x:26,c:'#8FC0E8'},
+ items:[
+  {x:9,w:11,h:7,d:()=>{R(9,25,11,6,'#F4FBFF');R(10,24,9,1,'#F4FBFF');R(9,25,11,1,'#FFFFFF');R(9,28,11,1,'#CFE6F4');R(14,25,1,6,'#CFE6F4');R(9,30,11,1,'#B4D6EC');}},
+  {x:23,w:6,h:8,d:()=>{R(23,26,6,5,'#7A8CA8');R(23,26,6,1,'#9AAAC4');R(24,24,1,2,'#9FB8D0');R(26,23,1,3,'#9FB8D0');P(25,23,'#9FB8D0');P(27,23,'#9FB8D0');R(27,25,1,1,'#9FB8D0');}},
+  {x:32,w:17,h:15,d:()=>{for(let i=0;i<14;i++){const x=34+i,ys=17+Math.round((13-i)*.9);R(x,ys,1,2,'#F4FBFF');P(x,ys+2,'#A8D4F0');R(x,ys+3,1,31-ys-3,'#BFE0F4');}
+     R(48,16,1,15,'#8FC0E0');for(let s=0;s<5;s++)R(47,18+s*3,2,1,'#8FC0E0');R(33,30,15,1,'#A8D4F0');}},
+  {x:38,w:8,h:8,d:()=>{shelf(9,14,8);C(12,11,1,'#FFFFFF');C(12,13,1,'#FFFFFF');P(12,9,'#2E3850');P(13,11,'#FF9F43');R(15,11,1,3,'#8FC0E8');}}],
+ spots:[{x:14,y:23,act:'sleep',dir:1},{x:20,y:30,act:'eat',dir:1,fx:'crumb'},{x:47,y:16,act:'slide',dir:-1,x2:31,y2:30},{x:28,y:30,act:'look',dir:-1}]},
+/* 8 ハリネズミ(夜の子):落ち葉の寝床・りんご・キノコのランプ・切り株 */
+{wall:{k:'shroom',c1:'#EADFC8',c2:'#D86A5A',wain:'#C9B48E'},floor:{k:'moss',c1:'#86A862',c2:'#6A8A48'},door:'#8A6A48',cur:'#C86A4A',lamp:{k:'none',x:43,y:21},noct:1,
+ items:[
+  {x:9,w:14,h:6,d:()=>{const cs=['#E88A48','#D8563A','#F2C94C','#C86A4A'];for(let i=0;i<22;i++){const x=9+(i*7)%14,y=26+(i*3)%5;R(x,y,2,1,cs[i%4]);}R(9,29,14,2,'#C86A4A');for(let i=0;i<14;i+=2)P(9+i,28,'#E88A48');}},
+  {x:27,w:6,h:6,d:()=>{C(29,28,2,'#D8303A');R(27,28,5,3,'#D8303A');P(28,27,'#F06A70');P(29,25,'#6B4A2E');P(30,25,'#7FC860');}},
+  {x:40,w:8,h:11,d:(t,rm)=>{const on=rm.light>.5;R(42,24,3,7,'#F6E8D0');C(43,22,4,on?'#FF6A5A':'#D8483A',true);R(39,22,9,1,on?'#FF6A5A':'#D8483A');P(41,20,'#FFFFFF');P(45,21,'#FFFFFF');P(43,19,'#FFFFFF');if(on)R(42,23,3,1,'#FFE8A0');}},
+  {x:33,w:6,h:7,d:()=>{R(33,24,6,7,'#9A6A40');R(33,24,6,1,'#D6A46C');P(35,24,'#B88A58');R(32,30,8,1,'#7A4E2C');}},
+  {x:9,w:8,h:8,d:()=>frame(10,7,7,8,'#8A6A48','#FFF6E0',(x,y)=>{C(x+2,y+3,2,'#D8303A');P(x+2,y,'#7FC860');})}],
+ spots:[{x:15,y:28,act:'sleep',dir:1,front:()=>{R(9,29,14,2,'#C86A4A');for(let i=0;i<14;i+=3)P(9+i,28,'#F2C94C');}},
+  {x:24,y:30,act:'eat',dir:1,fx:'crumb'},{x:36,y:23,act:'look',dir:-1},{x:30,y:30,act:'sit',dir:1}]},
+/* 9 カピバラ:柚子の露天風呂・畳のお布団・のれん */
+{wall:{k:'plank',c1:'#DDBF92',c2:'#C4A070'},floor:{k:'stone',c1:'#C6CACF',c2:'#A4A9B0'},door:'#7E5230',cur:'#FFFFFF',lamp:{k:'chochin',x:44},noren:1,
+ items:[
+  {x:8,w:13,h:4,d:()=>{R(8,28,13,3,'#C8D48A');R(8,30,13,1,'#6E8A3A');R(8,28,13,1,'#DCE6A8');}},
+  {x:22,w:27,h:10,d:()=>{R(24,24,24,6,'#7FD0D8');R(24,24,24,1,'#A8E4EA');stones(22,22);R(22,24,2,7,'#8A9098');R(47,24,2,7,'#8A9098');stones(22,29);}},
+  {x:9,w:8,h:5,d:()=>{shelf(9,14,9);R(10,10,5,4,'#C8925A');R(10,11,5,1,'#8A5A34');R(16,11,2,3,'#FFFFFF');}},
+  {x:34,w:8,h:10,d:()=>{R(34,4,8,11,'#F4F0E8');R(34,4,8,1,WDD);R(34,14,8,1,WDD);R(37,6,2,2,'#D8483A');for(let y=9;y<13;y++)R(36,y,4,1,'#2A1E1A');}}],
+ spots:[{x:14,y:27,act:'sleep',dir:1,front:()=>blanket(8,15,'#8FA8D8','#6A88C0')},
+  {x:36,y:29,act:'bath',dir:1,range:5,fx:'steam',front:(t)=>{R(24,26,24,4,'#7FD0D8');const w=Math.round(t*2)%3;for(let i=0;i<24;i++)if((i+w)%3===0)P(24+i,26,'#B8ECF0');
+     for(let k=0;k<3;k++){const x=28+k*7+Math.round(Math.sin(t*.8+k*2)*2),y=25+Math.round(Math.sin(t*2+k)*.5);C(x,y,1,'#FFD84A');P(x,y-1,'#FFE890');}
+     stones(22,29);R(22,24,2,7,'#8A9098');R(47,24,2,7,'#8A9098');}},
+  {x:18,y:30,act:'look',dir:1}]},
+/* 10 こぶた:どろんこ風呂・ピンクのベッド・ブタの貯金箱 */
+{wall:{k:'heart',c1:'#FFE6EE',c2:'#FFB8CC',wain:'#F6C6D6'},floor:{k:'wood',c1:'#D8A870',c2:'#B8844A'},door:'#E47A9A',cur:'#FFFFFF',lamp:{k:'pend',x:26,c:'#FF8FAE'},
+ items:[
+  {x:8,w:15,h:13,d:()=>bed(8,15,'#FF8FAE','#D9708E','#FFFFFF','#FFE6EE')},
+  {x:28,w:21,h:8,d:()=>{R(28,24,21,7,'#8A5A34');R(28,24,21,1,'#B07A4A');R(29,25,19,5,'#7A4A2A');R(28,30,21,1,'#6E4A30');}},
+  {x:36,w:12,h:6,d:()=>{shelf(36,14,12);R(37,10,6,4,'#FF9FB8');R(42,11,2,2,'#FF8FAE');P(37,9,'#FF9FB8');P(40,9,'#FF9FB8');R(39,10,2,1,'#D9708E');P(41,12,'#2A1E1A');R(44,11,1,3,'#FFFFFF');P(44,10,'#7FC860');P(45,11,'#FF8FAE');}},
+  {x:10,w:8,h:8,d:()=>frame(11,6,7,7,'#E47A9A','#FFF6FA',(x,y)=>{C(x+2,y+2,2,'#FFB8CC');})}],
+ spots:[bedSpot(8,15,'#FFC2D1','#FF9FB8'),
+  {x:38,y:29,act:'bath',dir:-1,range:4,fx:'bubble',front:(t)=>{R(29,26,19,4,'#7A4A2A');for(let i=0;i<19;i+=4)P(29+i+Math.round(Math.sin(t+i)),26,'#9A6A44');R(28,24,1,7,'#8A5A34');R(48,24,1,7,'#8A5A34');R(28,30,21,1,'#6E4A30');}},
+  {x:25,y:30,act:'hop',dir:1},{x:33,y:30,act:'look',dir:-1}]},
+/* 11 ひつじ:雲のベッド・毛糸玉のかご・糸車 */
+{wall:{k:'cloud',c1:'#DAEFFF',c2:'#FFFFFF',wain:'#C0E0F6'},floor:{k:'carpet',c1:'#BCDB92',c2:'#A2C47A'},door:'#8FA8D8',cur:'#FFC2D1',lamp:{k:'bulb',x:26},
+ items:[
+  {x:9,w:14,h:7,d:()=>{C(12,27,3,'#FFFFFF');C(17,26,4,'#FFFFFF');C(21,28,2,'#FFFFFF');R(9,27,14,4,'#FFFFFF');R(9,30,14,1,'#DCE8F4');P(15,24,'#EEF4FA');}},
+  {x:25,w:7,h:6,d:()=>{R(25,27,7,4,'#C9965A');R(25,27,7,1,'#B07A40');C(27,26,1,'#FF9FB8');C(30,26,1,'#8FC0E8');P(28,24,'#FFE066');R(28,25,2,1,'#FFE066');}},
+  {x:37,w:12,h:18,d:(t,rm)=>{const cx=43,cy=18,a=rm.wa;ring(cx,cy,6,'#B07A4A');for(let k=0;k<6;k++){const aa=a+k*TAU/6;L(cx,cy,cx+Math.cos(aa)*5,cy+Math.sin(aa)*5,'#D6A46C');}C(cx,cy,1,WDD);
+     L(cx,cy,39,30,WDD);L(cx,cy,47,30,WDD);R(38,29,11,2,WD);}},
+  {x:9,w:8,h:5,d:(t,rm)=>{shelf(9,13,9);const n=Math.min(4,rm.made);for(let i=0;i<n;i++)R(10+i*2,10+(i%2),2,3,['#FF9FB8','#8FC0E8','#FFE066','#A8E08A'][i]);}}],
+ spots:[{x:16,y:25,act:'sleep',dir:1,front:()=>{C(11,28,2,'#FFFFFF');C(20,28,2,'#FFFFFF');R(9,28,14,3,'#FFFFFF');R(9,30,14,1,'#DCE8F4');}},
+  {x:35,y:30,act:'knit',dir:-1,front:(t,rm)=>{const n=Math.floor(rm.scarf);L(29,23,31,26,'#C8C0B8');L(33,23,31,26,'#C8C0B8');for(let i=0;i<n;i++)R(30,26+i,2,1,i%2?'#FF9FB8':'#FFC2D1');}},
+  {x:21,y:30,act:'look',dir:1}]},
+/* 12 子ぐま:はちみつの壺(ミツバチ)・パッチワークのベッド・ゆり椅子と本棚 */
+{wall:{k:'hex',c1:'#FFE7B0',c2:'#F2C46A',wain:'#DCA450'},floor:{k:'wood',c1:'#B98150',c2:'#946238'},door:'#9C6A40',cur:'#E8A23A',lamp:{k:'pend',x:26,c:'#E8A23A'},
+ items:[
+  {x:8,w:15,h:13,d:()=>bed(8,15,WD,WDD,'#FFF6E0','#FFFFFF')},
+  {x:24,w:8,h:9,d:(t)=>{R(25,23,6,8,'#E8A23A');R(24,24,8,6,'#E8A23A');R(26,21,4,2,'#F4C06A');R(25,22,6,1,'#C8802A');R(26,25,4,3,'#FFF6E0');P(27,26,'#E8A23A');R(29,23,1,3,'#FFC94A');
+     const bx=28+Math.round(Math.cos(t*1.3)*5),by=15+Math.round(Math.sin(t*2.6)*3);R(bx,by,2,1,'#FFD84A');P(bx,by+1,'#2A1E1A');P(bx+1,by-1,'#FFFFFF');}},
+  {x:35,w:12,h:10,d:(t,rm)=>{const k=Math.round(Math.sin(rm.rock)*1);R(38,21+k,1,8,WDD);R(38,26,8,1,WD);R(45,24,1,3,WDD);L(36,30,47,30-k,WDD);R(39,26,6,1,'#D8483A');}},
+  {x:36,w:13,h:8,d:()=>{shelf(36,14,13);const cs=['#D8483A','#6CA0D0','#7FB060','#E8A23A','#8A6A9A','#FFFFFF'];for(let i=0;i<6;i++)R(37+i*2,9+(i%2),2,5-(i%2),cs[i]);}}],
+ spots:[bedSpot(8,15,'#6CA0D0','#D8483A'),{x:21,y:30,act:'eat',dir:1,fx:'heart'},{x:41,y:25,act:'read',dir:-1,front:()=>{R(35,24,3,3,'#D8483A');R(36,24,1,3,'#FFFFFF');}},{x:32,y:30,act:'look',dir:-1}]},
+/* 13 コアラ:ユーカリの木(枝で眠る)・葉っぱのお皿・柱時計 */
+{wall:{k:'stripe',c1:'#E8F3E2',c2:'#D8EAD0',wain:'#BCD6B0'},floor:{k:'wood',c1:'#C8925A',c2:'#A07040'},door:'#6E8A7A',cur:'#8FB8A0',lamp:{k:'bulb',x:26},
+ items:[
+  {x:33,w:16,h:30,d:()=>{R(38,25,7,6,'#C8925A');R(37,25,9,1,'#A07040');R(41,6,2,19,'#8A7060');L(41,16,35,11,'#8A7060');L(42,12,48,7,'#8A7060');R(36,17,10,2,'#8A7060');
+     const lf=(x,y)=>{R(x,y,3,2,'#7FB8A0');P(x+1,y-1,'#9FD0BC');};lf(33,9);lf(36,6);lf(40,3);lf(44,4);lf(46,8);lf(34,13);lf(47,12);lf(38,10);}},
+  {x:21,w:7,h:5,d:()=>{R(21,28,7,3,'#E8E0D0');R(22,30,5,1,'#C8C0B0');R(22,26,2,2,'#7FB8A0');R(25,26,2,2,'#9FD0BC');P(24,25,'#7FB8A0');}},
+  {x:9,w:9,h:18,d:(t)=>{R(10,8,7,17,'#8A6448');R(11,9,5,5,'#FFFDF4');P(13,11,'#2A1E1A');P(13+Math.round(Math.cos(t*.3)*2),11+Math.round(Math.sin(t*.3)*2),'#2A1E1A');R(12,16,3,7,'#6E4A30');const sw=Math.round(Math.sin(t*3)*1);R(13+sw,20,1,2,'#E8C048');P(13+sw,22,'#E8C048');R(9,25,9,1,'#6E4A30');}}],
+ spots:[{x:41,y:16,act:'sleep',dir:-1,front:()=>{R(36,17,10,2,'#8A7060');R(35,13,3,2,'#7FB8A0');}},{x:18,y:30,act:'eat',dir:1,fx:'crumb'},{x:28,y:30,act:'sit',dir:1},{x:25,y:30,act:'look',dir:-1}]},
+/* 14 フクロウ(夜の子):止まり木・天井までの本棚・窓辺の望遠鏡・地球儀 */
+{wall:{k:'star',c1:'#33406E',c2:'#FFE9A0',wain:'#28345C'},floor:{k:'wood',c1:'#6E4C34',c2:'#56392A'},door:'#8A6A48',cur:'#8A5A9A',lamp:{k:'candle',x:31,y:27},noct:1,
+ items:[
+  {x:9,w:12,h:15,d:()=>{R(14,18,2,12,WD);R(10,17,10,2,WDD);R(10,17,10,1,WD);R(11,29,8,2,WDD);}},
+  {x:37,w:12,h:29,d:()=>{R(37,2,12,29,'#6B4A2E');for(let s=0;s<5;s++){const y=3+s*6;R(38,y+5,10,1,'#4A3020');const cs=['#D8483A','#6CA0D0','#7FB060','#E8A23A','#C8B8E0','#F4E8D0'];for(let i=0;i<5;i++)R(38+i*2,y+1+((i+s)%2),2,4-((i+s)%2),cs[(i+s*2)%6]);}}},
+  {x:22,w:9,h:14,d:()=>{L(26,22,23,30,'#8A6448');L(26,22,29,30,'#8A6448');L(26,22,26,30,'#8A6448');L(23,21,30,15,'#C8A060');L(23,20,30,14,'#E8C888');P(31,14,'#8FC0E8');}},
+  {x:29,w:5,h:6,d:(t)=>{R(30,29,3,2,WDD);R(31,26,1,3,'#8A6448');C(31,24,2,'#6CA0D0');const k=Math.round(t*.8)%4;P(30+(k%3),23+(k>>1),'#7FB060');P(32-(k%2),24,'#7FB060');}}],
+ spots:[{x:15,y:16,act:'sleep',dir:1},{x:34,y:30,act:'read',dir:-1,front:()=>{R(29,26,2,3,'#6CA0D0');P(30,26,'#FFFFFF');}},{x:21,y:30,act:'look',dir:1},{x:14,y:30,act:'sit',dir:1}]},
+/* 15 タヌキ(夜の子):和室・こたつ(みかん)・掛け軸・行灯 */
+{wall:{k:'tsuchi',c1:'#EADCBC',c2:'#D8C49C',wain:'#8A6A48'},floor:{k:'tatami',c1:'#CDD890',c2:'#A8B86A'},door:'#6E5236',cur:'#EADCBC',lamp:{k:'andon',x:12},noct:1,win:{k:'shoji'},
+ items:[
+  {x:25,w:17,h:9,d:()=>{R(25,22,17,2,'#8A5A34');R(25,22,17,1,'#B07A4A');R(26,24,15,7,'#D8563A');for(let y=25;y<31;y+=2)for(let x=26;x<41;x+=4)R(x+(y%4?2:0),y,2,1,'#E88A48');C(30,20,1,'#FF9F43');P(30,18,'#7FC860');C(34,20,1,'#FF9F43');R(37,19,2,3,'#FFFFFF');R(37,19,2,1,'#7FB060');}},
+  {x:39,w:7,h:14,d:()=>{R(40,2,1,1,'#2A1E1A');R(39,3,7,13,'#F4F0E8');R(38,3,9,1,WDD);R(38,15,9,1,WDD);C(42,7,2,'#FFE9A0');for(let y=10;y<14;y++)P(42,y,'#2A1E1A');P(43,11,'#2A1E1A');}},
+  {x:9,w:7,h:10,d:(t,rm)=>{const on=rm.light>.5;R(9,21,7,10,WDD);R(10,22,5,8,on?'#FFE6A8':'#F4F0E8');R(10,25,5,1,WDD);R(12,22,1,8,WDD);R(8,21,9,1,WDD);R(9,30,7,1,WDD);}},
+  {x:17,w:6,h:5,d:()=>{R(17,27,6,4,'#8A6448');R(17,27,6,1,'#A07A55');C(20,25,1,'#A07A55');P(19,24,'#5A4232');P(21,24,'#5A4232');}}],
+ spots:[{x:44,y:30,act:'sleep',dir:1,front:()=>{R(26,24,15,7,'#D8563A');for(let y=25;y<31;y+=2)for(let x=26;x<41;x+=4)R(x+(y%4?2:0),y,2,1,'#E88A48');}},
+  {x:33,y:30,act:'drum',dir:1,fx:'note',front:()=>{R(26,24,15,7,'#D8563A');for(let y=25;y<31;y+=2)for(let x=26;x<41;x+=4)R(x+(y%4?2:0),y,2,1,'#E88A48');}},
+  {x:20,y:26,act:'sit',dir:1},{x:26,y:30,act:'look',dir:-1}]},
+/* 16 キツネ:お月見の窓・油あげのお膳・ちょうちん・すすき */
+{wall:{k:'leaf',c1:'#FAE6CE',c2:'#E8A060',wain:'#C98A5A'},floor:{k:'tatami',c1:'#D4DC98',c2:'#AEBE70'},door:'#A0501C',cur:'#F4F0E8',lamp:{k:'chochin',x:40},moon:1,
+ items:[
+  {x:9,w:12,h:4,d:()=>{R(9,28,12,3,'#8A5AA8');R(9,28,12,1,'#A87AC8');R(9,30,12,1,'#6E4A88');P(9,27,'#E8C048');P(20,27,'#E8C048');}},
+  {x:25,w:9,h:6,d:()=>{R(25,27,9,2,'#B8403A');R(26,29,1,2,'#8A2A28');R(32,29,1,2,'#8A2A28');R(26,26,7,1,'#FFFFFF');R(27,24,5,2,'#E8B048');P(28,24,'#F8D078');P(30,25,'#C8903A');}},
+  {x:44,w:5,h:14,d:(t)=>{R(44,26,4,5,'#C8B89A');R(44,26,4,1,'#E0D4BC');for(let i=0;i<3;i++){const sw=Math.round(Math.sin(t*1.2+i)*1);L(45+i,25,44+i*2+sw,16+i*2,'#C8B060');P(44+i*2+sw,15+i*2,'#F4E8C0');P(45+i*2+sw,16+i*2,'#F4E8C0');}}},
+  {x:36,w:7,h:9,d:()=>{R(36,23,7,2,'#FFFFFF');C(37,21,1,'#FFFFFF');C(39,20,1,'#FFFFFF');C(41,21,1,'#FFFFFF');R(38,25,3,6,'#8A5A34');R(36,30,7,1,'#6E4A30');}}],
+ spots:[{x:15,y:27,act:'sleep',dir:1},{x:22,y:30,act:'eat',dir:1,fx:'heart'},{x:27,y:30,act:'look',dir:-1},{x:32,y:30,act:'sit',dir:1}]},
+/* 17 レッサーパンダ:ハンモック・笹の鉢・丸太 */
+{wall:{k:'bamboo',c1:'#EAF3DA',c2:'#CFE3AE',wain:'#A8C888'},floor:{k:'wood',c1:'#B98150',c2:'#946238'},door:'#C8602C',cur:'#FFE9A0',lamp:{k:'bulb',x:26},
+ items:[
+  {x:30,w:19,h:10,d:(t,rm)=>{P(30,13,'#6B4A2E');P(48,13,'#6B4A2E');const sw=rm.swing;for(let i=0;i<=18;i++){const u=i/18,y=13+Math.round(Math.sin(u*Math.PI)*8+sw*Math.sin(u*Math.PI));P(30+i,y,'#E8C888');P(30+i,y+1,'#D8A860');}}},
+  {x:9,w:8,h:28,d:(t)=>{R(10,26,6,5,'#6CA0D0');R(9,26,8,1,'#4A80B0');for(let k=0;k<3;k++){const x=11+k*2;R(x,4+k*4,1,22-k*4,'#7FB060');for(let y=8+k*4;y<26;y+=5)P(x,y,'#5A8A40');const sw=Math.round(Math.sin(t*1.1+k)*1);P(x+1+sw,6+k*4,'#9FD080');P(x+2+sw,5+k*4,'#9FD080');P(x-1+sw,9+k*4,'#9FD080');P(x-2+sw,8+k*4,'#9FD080');}}},
+  {x:21,w:8,h:6,d:()=>{R(21,25,8,6,'#9A6A40');R(21,25,8,1,'#B88A58');C(21,28,2,'#D6A46C');P(21,28,'#9A6A40');R(22,27,6,1,'#7A4E2C');}},
+  {x:36,w:8,h:7,d:()=>frame(37,4,8,7,'#C8602C','#FFF6E0',(x,y)=>{R(x+1,y+1,4,3,'#C8602C');P(x+2,y+2,'#FFFFFF');})}],
+ spots:[{x:39,y:20,act:'sleep',dir:1,swing:1,front:(t,rm)=>{const sw=rm.swing;for(let i=2;i<=16;i++){const u=i/18,y=13+Math.round(Math.sin(u*Math.PI)*8+sw*Math.sin(u*Math.PI));if(y>=19)P(30+i,y-1,'#E8C888');}}},
+  {x:19,y:30,act:'eat',dir:-1,fx:'crumb'},{x:25,y:24,act:'sit',dir:1},{x:32,y:30,act:'look',dir:1}]},
+/* 18 カメ:水の池(水草)・日向ぼっこの岩とライト・レタス */
+{wall:{k:'wave',c1:'#D6EEFA',c2:'#B4DCF2',wain:'#9CCFEA'},floor:{k:'sand',c1:'#F2E2B8',c2:'#DCC690'},door:'#5C9A7A',cur:'#FFE066',lamp:{k:'none',x:15,y:13},
+ items:[
+  {x:23,w:26,h:9,d:(t)=>{R(24,24,24,7,'#6FC0DE');R(23,23,26,1,'#8A9098');R(23,23,1,8,'#8A9098');R(48,23,1,8,'#8A9098');for(let i=0;i<3;i++){const x=28+i*8,sw=Math.round(Math.sin(t*1.4+i*2));for(let y=0;y<5;y++)P(x+(y%2?sw:0),29-y,'#4A9A6A');}}},
+  {x:8,w:13,h:6,d:()=>{C(14,29,4,'#A4AAB2',true);R(9,28,11,3,'#A4AAB2');R(10,26,3,1,'#C0C6CC');R(9,30,12,1,'#8A9098');}},
+  {x:9,w:10,h:8,d:(t,rm)=>{R(9,6,1,4,'#6E7A90');L(10,7,15,10,'#6E7A90');C(16,12,2,'#6E7A90',true);R(14,12,5,1,rm.light>.5||dayLight(dayU(T))>.5?'#FFE890':'#C8C0A0');}},
+  {x:19,w:4,h:3,d:()=>{R(19,29,4,2,'#7FC860');P(20,28,'#A8E08A');}}],
+ spots:[{x:14,y:24,act:'sleep',dir:1},{x:14,y:24,act:'bask',dir:1,fx:'sparkle'},{x:36,y:29,act:'swim',dir:1,range:7,fx:'bubble',front:(t)=>{R(24,26,24,4,'#6FC0DE');const w=Math.round(t*2)%4;for(let i=0;i<24;i++)if((i+w)%4===0)P(24+i,26,'#A8E0F2');R(23,23,1,8,'#8A9098');R(48,23,1,8,'#8A9098');R(23,30,26,1,'#8A9098');}},
+  {x:19,y:30,act:'eat',dir:1,fx:'crumb'}]},
+/* 19 ちびゾウ:猫足のバスタブ(鼻でシャワー)・ピーナッツの袋・丸いクッション */
+{wall:{k:'dot',c1:'#FFE8DA',c2:'#FFC6A8',wain:'#F2B294'},floor:{k:'tile',c1:'#FAF2EC',c2:'#E8D8CC'},door:'#8A96B8',cur:'#A9B4C8',lamp:{k:'pend',x:26,c:'#A9B4C8'},
+ items:[
+  {x:8,w:11,h:4,d:()=>{R(8,27,11,4,'#8A96B8');R(9,26,9,1,'#A9B4C8');R(8,30,11,1,'#6E7890');for(let i=0;i<11;i+=3)P(8+i,28,'#C4CCDC');}},
+  {x:18,w:6,h:7,d:()=>{R(18,25,6,6,'#D8B888');R(19,24,4,1,'#C8A070');P(20,23,'#A07A50');R(18,30,6,1,'#B8986A');P(20,27,'#A07A50');P(22,28,'#A07A50');R(24,29,2,1,'#E8C898');}},
+  {x:29,w:20,h:10,d:()=>{R(30,22,18,7,'#FFFFFF');R(29,21,20,1,'#FFFFFF');R(31,23,16,4,'#8FD0F0');R(30,28,18,1,'#E0E8EE');R(31,29,1,2,'#C8B060');R(46,29,1,2,'#C8B060');C(33,21,1,'#FFFFFF');C(40,20,1,'#FFFFFF');C(44,21,1,'#FFFFFF');}},
+  {x:40,w:8,h:8,d:()=>{shelf(38,12,10);R(39,9,3,3,'#FFE066');R(43,8,2,4,'#FF9FB8');R(46,10,2,2,'#8FC0E8');}}],
+ spots:[{x:13,y:25,act:'sleep',dir:1},{x:28,y:30,act:'eat',dir:-1,fx:'crumb'},{x:39,y:27,act:'bath',dir:1,range:3,fx:'spray',front:()=>{R(30,24,18,5,'#FFFFFF');R(31,24,16,1,'#8FD0F0');R(30,28,18,1,'#E0E8EE');C(34,23,1,'#FFFFFF');C(42,23,1,'#FFFFFF');}},
+  {x:25,y:30,act:'hop',dir:1}]},
+/* 20 シマエナガ:冬の林の部屋・小枝の巣・白樺の枝・つるした餌台 */
+{wall:{k:'snow',c1:'#EEF3F8',c2:'#FFFFFF',wain:'#D8E2EC'},floor:{k:'wood',c1:'#C8A078',c2:'#A88058'},door:'#8A9AB0',cur:'#FFC2D1',lamp:{k:'bulb',x:26},
+ items:[
+  {x:9,w:12,h:6,d:()=>{R(9,26,12,5,'#A07A55');for(let y=26;y<31;y++)for(let x=9+(y%3);x<21;x+=4)R(x,y,2,1,'#7E5A3A');R(10,25,10,1,'#6B4A30');P(11,25,'#8FC080');P(17,25,'#8FC080');}},
+  {x:33,w:16,h:8,d:()=>{R(33,18,16,2,'#F2EEE6');for(let i=0;i<5;i++)R(34+i*3,18+(i%2),1,1,'#4A4A58');L(40,18,43,14,'#8A7060');P(43,13,'#8FC080');P(44,14,'#8FC080');P(42,13,'#A8D898');}},
+  {x:23,w:10,h:24,d:()=>{R(28,0,1,14,'#8A7060');R(25,14,7,1,'#C86A4A');R(26,15,5,5,'#E8C888');for(let i=0;i<4;i++)P(27+i%3,16+Math.floor(i/2)*2,'#8A6A40');R(24,23,9,1,WDD);R(28,20,1,3,WDD);}},
+  {x:37,w:8,h:8,d:()=>frame(10,8,7,7,'#8A9AB0','#DCEBF7',(x,y)=>{P(x+2,y+2,'#FFFFFF');P(x+1,y+2,'#FFFFFF');P(x+3,y+2,'#FFFFFF');P(x+2,y+1,'#FFFFFF');P(x+2,y+3,'#FFFFFF');})}],
+ spots:[{x:15,y:26,act:'sleep',dir:1,front:()=>{R(9,27,12,4,'#A07A55');for(let y=27;y<31;y++)for(let x=9+(y%3);x<21;x+=4)R(x,y,2,1,'#7E5A3A');}},
+  {x:41,y:17,act:'look',dir:-1,fx:'note'},{x:22,y:22,act:'eat',dir:1,fx:'crumb'},{x:30,y:30,act:'hop',dir:1}]},
+/* 21 メンダコ:深い海の部屋・貝がらのベッド・クラゲのランプ・宝箱 */
+{wall:{k:'wave',c1:'#2C4C7C',c2:'#3C6094',wain:'#22406A'},floor:{k:'sand',c1:'#D8C8A0',c2:'#B8A880'},door:'#5A7AA8',cur:'#8FD0F0',lamp:{k:'none',x:38,y:9},
+ items:[
+  {x:9,w:14,h:10,d:()=>{C(15,23,6,'#FFE6EE',true);for(let a=-5;a<=5;a+=2)L(15,23,15+a,18+Math.abs(a)*.4,'#F4C8D6');R(9,27,14,4,'#F4D0DC');for(let x=10;x<23;x+=3)R(x,27,1,4,'#E8B0C4');C(20,26,1,'#FFFFFF');}},
+  {x:34,w:9,h:14,d:(t)=>{const b=Math.round(Math.sin(t*1.3)*1.5);C(38,9+b,3,'#D8C8FF',true);R(35,9+b,7,1,'#C8B8F8');P(37,7+b,'#FFFFFF');for(let k=0;k<4;k++)for(let j=0;j<5;j++)P(36+k*2+Math.round(Math.sin(t*3+j+k)*.6),10+b+j,'#B8A8F0');}},
+  {x:44,w:5,h:18,d:(t)=>{for(let k=0;k<2;k++)for(let y=12;y<31;y++)P(45+k*3+Math.round(Math.sin(y*.5+t*1.5+k)*1),y,k?'#5AA870':'#4A9060');}},
+  {x:25,w:7,h:7,d:()=>{R(25,26,7,5,'#B07A4A');R(25,25,7,1,'#8A5A34');R(25,28,7,1,'#E8C048');R(28,26,1,2,'#E8C048');P(26,24,'#FFE066');P(29,24,'#FFE066');}}],
+ spots:[{x:16,y:26,act:'sleep',dir:1,front:()=>{R(9,28,14,3,'#F4D0DC');for(let x=10;x<23;x+=3)R(x,28,1,3,'#E8B0C4');}},
+  {x:30,y:20,act:'swim',dir:1,range:6,fx:'bubble'},{x:28,y:24,act:'sit',dir:1},{x:36,y:30,act:'look',dir:-1}]},
+/* 22 ウーパールーパー:水そう(水草)・素焼きの土管・ごはんのお皿 */
+{wall:{k:'tile',c1:'#DAF1EC',c2:'#C0E4DD',wain:'#A8D4CC'},floor:{k:'chip',c1:'#CFC7BE',c2:'#A09890'},door:'#6CA8A0',cur:'#FFC8D8',lamp:{k:'pend',x:22,c:'#6CA8A0'},
+ items:[
+  {x:28,w:21,h:14,d:(t)=>{R(28,16,21,15,'#E8F4F8');R(29,18,19,12,'#8FD0E0');R(29,17,19,1,'#BCE6EE');R(29,28,19,2,'#C8B8A0');for(let i=0;i<19;i+=3)P(29+i,28,'#A89880');
+     for(let k=0;k<3;k++){const x=31+k*7;for(let y=0;y<7;y++)P(x+Math.round(Math.sin(t*1.2+y*.6+k)*.8),27-y,'#4AA070');}}},
+  {x:9,w:12,h:6,d:()=>{R(9,25,11,6,'#C8704A');R(9,25,11,1,'#E0906A');R(9,30,11,1,'#A0583A');C(20,28,2,'#E0906A');C(20,28,1,'#5A3020');}},
+  {x:22,w:5,h:3,d:()=>{R(22,29,5,2,'#FFFFFF');R(23,28,3,1,'#D8483A');P(24,27,'#E86A5A');}}],
+ spots:[{x:18,y:30,act:'sleep',dir:1,front:()=>{R(9,25,8,6,'#C8704A');R(9,25,8,1,'#E0906A');R(9,30,8,1,'#A0583A');}},
+  {x:38,y:27,act:'swim',dir:1,range:6,fx:'bubble',front:()=>{R(28,16,1,15,'#E8F4F8');R(48,16,1,15,'#E8F4F8');R(28,30,21,1,'#E8F4F8');R(29,28,19,2,'#C8B8A0');}},
+  {x:20,y:30,act:'eat',dir:1,fx:'crumb'},{x:24,y:30,act:'look',dir:1}]},
+/* 23 アザラシ:流氷のベッド・つめたい海のプール・ビーチボール・魚の棚 */
+{wall:{k:'stripe',c1:'#E2F1FA',c2:'#D0E6F6',wain:'#B8DAF0'},floor:{k:'ice',c1:'#EEF8FF',c2:'#C8E4F6'},door:'#6A8AB0',cur:'#FFFFFF',lamp:{k:'bulb',x:26},
+ items:[
+  {x:8,w:15,h:4,d:()=>{R(8,27,15,4,'#F4FBFF');R(9,26,12,1,'#FFFFFF');R(8,29,15,1,'#CFE6F4');R(8,30,15,1,'#B4D6EC');}},
+  {x:30,w:19,h:7,d:(t)=>{R(30,24,19,7,'#F4FBFF');R(31,25,17,5,'#4A90C8');const w=Math.round(t*2)%4;for(let i=0;i<17;i++)if((i+w)%4===0)P(31+i,25,'#8FC0E8');}},
+  {x:24,w:5,h:5,d:()=>{C(26,28,2,'#FFFFFF');R(24,27,5,1,'#E8403A');R(26,26,1,5,'#3E86B4');P(25,29,'#F2C94C');P(27,29,'#F2C94C');}},
+  {x:9,w:9,h:5,d:()=>{shelf(9,13,9);R(10,11,5,2,'#9FB8D0');P(15,11,'#9FB8D0');P(15,12,'#9FB8D0');P(13,11,'#2A1E1A');}}],
+ spots:[{x:15,y:26,act:'sleep',dir:1},{x:40,y:29,act:'swim',dir:1,range:5,fx:'bubble',front:()=>{R(31,26,17,4,'#4A90C8');R(30,24,1,7,'#F4FBFF');R(48,24,1,7,'#F4FBFF');R(30,30,19,1,'#F4FBFF');}},
+  {x:21,y:30,act:'hop',dir:1},{x:26,y:30,act:'look',dir:-1,fx:'note'}]},
+/* 24 カワウソ:部屋の中の小川(小魚がはねる)・流木のベッド・貝がらのコレクション・石あそび */
+{wall:{k:'leaf',c1:'#E6F1DA',c2:'#B8D8A0',wain:'#98C080'},floor:{k:'stone',c1:'#C6CACF',c2:'#A4A9B0'},door:'#7E5230',cur:'#F2C94C',lamp:{k:'pend',x:24,c:'#7FB060'},
+ items:[
+  {x:8,w:13,h:5,d:()=>{R(8,27,13,4,'#9A6A40');R(8,27,13,1,'#B88A58');C(8,29,2,'#C8A070');P(8,29,'#9A6A40');R(10,29,9,1,'#7A4E2C');}},
+  {x:22,w:27,h:10,d:(t)=>{R(24,24,24,6,'#6FB8D8');R(24,24,24,1,'#A8DCEE');stones(22,22);R(22,24,2,7,'#8A9098');R(47,24,2,7,'#8A9098');stones(22,29);
+     const u=(t*.5)%1;if(u<.3){const v=u/.3,fx=30+Math.round(v*10),fy=24-Math.round(Math.sin(v*Math.PI)*5);R(fx,fy,2,1,'#8FA8C8');P(fx-1,fy,'#6A88B0');}}},
+  {x:9,w:10,h:5,d:()=>{shelf(9,13,10);C(11,11,1,'#FFC2D1');R(14,11,2,2,'#FFE6C8');P(14,10,'#FFE6C8');C(17,11,1,'#E8D0F0');}}],
+ spots:[{x:14,y:26,act:'sleep',dir:1,front:()=>{R(7,23,7,4,'#7FB060');R(7,26,7,1,'#5A8A40');P(9,22,'#9FD080');P(12,22,'#9FD080');}},
+  {x:36,y:29,act:'swim',dir:1,range:5,fx:'bubble',front:()=>{R(24,26,24,4,'#6FB8D8');stones(22,29);R(22,24,2,7,'#8A9098');R(47,24,2,7,'#8A9098');}},
+  {x:19,y:30,act:'juggle',dir:1,front:(t,rm)=>{const u=Math.abs(Math.sin(rm.res.t*3.2));const x=19+rm.res.dir*3,y=Math.round(21-u*6);R(x,y,2,2,'#9AA0A8');P(x,y,'#C0C6CC');}},
+  {x:24,y:30,act:'look',dir:1}]}
+];
+
+/* ---------- 壁紙と床(部屋の種類ごとに一度だけ描いて使い回す) ---------- */
+const wallCache=new Map();
+function wallArt(i){let c=wallCache.get(i);if(c)return c;c=document.createElement('canvas');c.width=IW;c.height=IH;
+  const og=g,ot=tgt,ox=RX,oy=RY;g=c.getContext('2d');tgt=0;RX=0;RY=0;
+  const th=TH[i],w=th.wall,f=th.floor,r=srand(i*977+13),wy=w.wain?22:FL-1;
+  R(0,0,IW,FL,w.c1);
+  const c2=w.c2;
+  if(w.k==='dot'){for(let y=3,row=0;y<wy;y+=6,row++)for(let x=(row%2?4:1);x<IW;x+=6)P(x,y,c2);}
+  else if(w.k==='stripe'){for(let x=1;x<IW;x+=6)R(x,0,2,wy,c2);}
+  else if(w.k==='check'){for(let y=0;y<wy;y+=4)for(let x=0;x<IW;x+=4)if(((x+y)>>2)&1)R(x,y,4,Math.min(4,wy-y),c2);}
+  else if(w.k==='brick'){for(let y=3,row=0;y<wy;y+=4,row++){R(0,y,IW,1,c2);for(let x=(row%2?4:0);x<IW;x+=8)R(x,y-3,1,3,c2);}}
+  else if(w.k==='plank'){for(let y=4;y<FL-1;y+=5)R(0,y,IW,1,c2);for(let k=0;k<8;k++)P(Math.floor(r()*IW),Math.floor(r()*(FL-2)),c2);}
+  else if(w.k==='tile'){for(let y=4;y<wy;y+=5)R(0,y,IW,1,c2);for(let x=4;x<IW;x+=5)R(x,0,1,wy,c2);}
+  else if(w.k==='leaf'){for(let y=4,row=0;y<wy;y+=7,row++)for(let x=(row%2?5:1);x<IW-2;x+=9){P(x,y+1,c2);P(x+1,y,c2);P(x+1,y+1,c2);P(x+2,y,c2);P(x,y+2,mix(c2,w.c1,.5));}}
+  else if(w.k==='star'){for(let k=0;k<26;k++){const x=Math.floor(r()*IW),y=Math.floor(r()*(wy-1));P(x,y,k%3?mix(c2,w.c1,.55):c2);if(k%5===0){P(x-1,y,mix(c2,w.c1,.5));P(x+1,y,mix(c2,w.c1,.5));P(x,y-1,mix(c2,w.c1,.5));P(x,y+1,mix(c2,w.c1,.5));}}}
+  else if(w.k==='snow'){for(let y=4,row=0;y<wy;y+=7,row++)for(let x=(row%2?6:2);x<IW-1;x+=9){P(x,y,c2);P(x-1,y,c2);P(x+1,y,c2);P(x,y-1,c2);P(x,y+1,c2);}}
+  else if(w.k==='hex'){for(let y=2,row=0;y<wy-3;y+=5,row++)for(let x=(row%2?4:0);x<IW-4;x+=8){R(x+1,y,3,1,c2);P(x,y+1,c2);P(x+4,y+1,c2);P(x,y+2,c2);P(x+4,y+2,c2);R(x+1,y+3,3,1,c2);}}
+  else if(w.k==='wave'){for(let y=4;y<wy;y+=6)for(let x=0;x<IW;x++)P(x,y+((x>>1)%3===0?1:0),c2);}
+  else if(w.k==='cloud'){for(let y=4,row=0;y<wy-2;y+=7,row++)for(let x=(row%2?6:1);x<IW-4;x+=10){R(x,y+1,5,1,c2);R(x+1,y,2,1,c2);R(x+2,y-1,2,1,c2);}}
+  else if(w.k==='heart'){for(let y=3,row=0;y<wy-3;y+=7,row++)for(let x=(row%2?5:1);x<IW-4;x+=9){P(x,y,c2);P(x+2,y,c2);R(x,y+1,3,1,c2);P(x+1,y+2,c2);}}
+  else if(w.k==='shroom'){for(let y=4,row=0;y<wy-2;y+=8,row++)for(let x=(row%2?6:1);x<IW-3;x+=10){R(x,y,3,1,c2);P(x+1,y-1,c2);P(x+1,y+1,'#F6E8D0');}}
+  else if(w.k==='tsuchi'){for(let k=0;k<60;k++)P(Math.floor(r()*IW),Math.floor(r()*wy),c2);}
+  else if(w.k==='bamboo'){for(let x=2;x<IW;x+=8){R(x,0,2,wy,c2);for(let y=5;y<wy;y+=7)R(x,y,2,1,mix(c2,'#5A8A40',.35));}}
+  R(0,0,IW,1,mix(w.c1,'#000000',.12));
+  if(w.wain){R(0,22,IW,FL-22,w.wain);R(0,22,IW,1,mix(w.wain,'#FFFFFF',.35));for(let x=4;x<IW;x+=8)R(x,24,1,FL-26,mix(w.wain,'#000000',.1));}
+  R(0,FL-1,IW,1,mix(w.wain||w.c1,'#000000',.22));
+  /* 床 */
+  R(0,FL,IW,IH-FL,f.c1);R(0,FL,IW,1,mix(f.c1,'#FFFFFF',.25));
+  if(f.k==='wood'){for(let y=FL+1;y<IH;y++)for(let x=(y*5)%11;x<IW;x+=11)P(x,y,f.c2);}
+  else if(f.k==='tatami'){R(0,FL,IW,1,'#3E6A3A');for(let x=10;x<IW;x+=12)R(x,FL+1,1,IH-FL-1,f.c2);}
+  else if(f.k==='tile'){for(let x=0;x<IW;x+=6)R(x,FL+1,1,IH-FL-1,f.c2);}
+  else if(f.k==='carpet'){R(0,FL+2,IW,1,f.c2);}
+  else{for(let k=0;k<30;k++)P(Math.floor(r()*IW),FL+1+Math.floor(r()*(IH-FL-1)),f.c2);}
+  g=og;tgt=ot;RX=ox;RY=oy;wallCache.set(i,c);return c;}
+
+/* ---------- 空と一日 ---------- */
+const dayU=t=>((t/DAY)%1+1)%1;
+function dayLight(u){if(u<.08)return ss(u/.08);if(u<.48)return 1;if(u<.58)return 1-ss((u-.48)/.1);if(u<.97)return 0;return ss((u-.97)/.11);}
+const SKY=[[0,'#6E7CC0','#F6C8A8'],[.08,'#8FD0F5','#DDF2FB'],[.47,'#8FD0F5','#DDF2FB'],[.53,'#7A84C8','#F8B48A'],[.6,'#1E2852','#3C4880'],[.96,'#161E44','#34406E'],[1,'#6E7CC0','#F6C8A8']];
+function skyCols(u){for(let i=0;i<SKY.length-1;i++){const a=SKY[i],b=SKY[i+1];if(u<=b[0]){const k=ss((u-a[0])/(b[0]-a[0]));return[mix(a[1],b[1],k),mix(a[2],b[2],k)];}}return[SKY[0][1],SKY[0][2]];}
+
+/* ---------- 世界 ---------- */
+let gH=20,traffic=[],tNext=2,wNext=3,T=DAY*.3,animT=0,rooms=[],parts=[],bag=[],stars=[],clouds=[],bx=0,by=0,cols=2,rowsN=4,facade='#E9D6BC',roofC='#C8604A';
+const FAC=[['#E9D6BC','#C8604A'],['#DDE4EC','#5C88B8'],['#F2DCD2','#8A6A9A'],['#E4E0C8','#6E8A5A']];
+function takeSpecies(){const used=new Set(rooms.filter(Boolean).map(r=>r.nsp!=null?r.nsp:r.sp));
+  for(let tries=0;tries<60;tries++){if(!bag.length){bag=[...Array(NS).keys()];for(let i=bag.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[bag[i],bag[j]]=[bag[j],bag[i]];}}const s=bag.pop();if(!used.has(s)||used.size>=NS)return s;}
+  return Math.floor(Math.random()*NS);}
+function newRes(sp){return{sp,x:rnd(14,40),y:FT,dir:1,q:[],mode:'idle',t:rnd(0,5),act:null,spot:-1,actT:0,asleep:false,lag:rnd(0,12),alpha:1,carry:false,hop:null};}
+function makeRoom(c,r){const rm={c,r,sp:0,nsp:null,oldSp:null,ph:'live',pt:0,items:[],res:null,light:0,door:0,wipe:1,wa:0,swing:0,rock:0,scarf:0,made:1,z:0,step:0,queued:0};
+  const s=takeSpecies();setSpecies(rm,s);rm.res=newRes(s);placeAtSpot(rm);return rm;}
+function setSpecies(rm,s){rm.sp=s;rm.items=TH[s].items.map(()=>'on');rm.made=1+Math.floor(Math.random()*3);rm.scarf=0;}
+function placeAtSpot(rm){const th=TH[rm.sp],res=rm.res;const i=Math.floor(Math.random()*th.spots.length),sp=th.spots[i];
+  res.x=sp.act==='slide'?sp.x2:sp.x;res.y=sp.act==='slide'?sp.y2:sp.y;res.dir=sp.dir||1;res.mode='act';res.spot=i;res.act=sp.act==='slide'?'look':sp.act;res.actT=rnd(2,6);
+  if(sp.act==='sleep'){res.act='look';}}
+
+function layout(){
+  const land=W>H;
+  const sideM=land?10:8,topM=land?16:12,groundH=land?16:20,roofH=12;
+  cols=Math.max(1,Math.floor((W-sideM*2-2)/CW));
+  rowsN=Math.max(1,Math.floor((H-topM-groundH-roofH-3)/CH));
+  const bw=cols*CW+2,bh=rowsN*CH+3;
+  bx=Math.floor((W-bw)/2);by=H-groundH-bh;gH=groundH;
+  const old=rooms;rooms=[];
+  for(let r=0;r<rowsN;r++)for(let c=0;c<cols;c++){const o=old.find(q=>q.c===c&&q.r===r);if(o){rooms.push(o);}else rooms.push(null);}
+  for(let i=0;i<rooms.length;i++)if(!rooms[i]){const c=i%cols,r=Math.floor(i/cols);rooms[i]=makeRoom(c,r);}
+  for(const rm of rooms){rm.ix=bx+2+rm.c*CW;rm.iy=by+3+rm.r*CH;}
+  stars=[];const sr=srand(7);for(let i=0;i<Math.round(W*H/180);i++)stars.push({x:Math.floor(sr()*W),y:Math.floor(sr()*by*1.1),p:sr()*TAU});
+  if(!clouds.length)for(let i=0;i<5;i++)clouds.push({x:rnd(-20,W),y:rnd(4,Math.max(8,by*.6)),w:Math.floor(rnd(10,20)),v:rnd(1.2,2.4)});}
+
+function resize(){
+  const d=Math.min(3,window.devicePixelRatio||1);cv.width=Math.round(innerWidth*d);cv.height=Math.round(innerHeight*d);
+  K=Math.max(1,Math.round(Math.min(cv.width,cv.height)/S));
+  W=Math.ceil(cv.width/K);H=Math.ceil(cv.height/K);
+  buf.width=W;buf.height=H;g=buf.getContext('2d');bufS.width=W;bufS.height=H;gs=bufS.getContext('2d');
+  layout();}
+
+/* ---------- 住人のくらし ---------- */
+function awakeNow(rm){const res=rm.res,dl=dayLight(dayU(T-res.lag)),n=TH[rm.sp].noct;
+  if(res.asleep)return n?dl<.3:dl>.55;return n?!(dl>.65):!(dl<.25);}
+function planTo(rm,i){const res=rm.res,sp=TH[rm.sp].spots[i];res.q=[];
+  const tx=sp.act==='slide'?sp.x:sp.x,ty=sp.y;
+  if(res.y!==FT)res.q.push({k:'hop',y:FT,x:res.x});
+  if(sp.act==='slide'){res.q.push({k:'walk',x:sp.x-3});res.q.push({k:'hop',y:ty,x:tx});}
+  else{if(Math.abs(res.x-tx)>.3)res.q.push({k:'walk',x:ty===FT?tx:tx});if(ty!==FT)res.q.push({k:'hop',y:ty,x:tx});}
+  res.q.push({k:'act',i});res.mode='go';res.act=null;}
+function chooseNext(rm){const th=TH[rm.sp],res=rm.res;
+  if(!awakeNow(rm)){const si=th.spots.findIndex(s=>s.act==='sleep');planTo(rm,si);return;}
+  const opts=[];th.spots.forEach((s,i)=>{if(s.act!=='sleep'&&i!==res.spot)opts.push(i);});
+  if(!opts.length)opts.push(th.spots.findIndex(s=>s.act!=='sleep'));
+  planTo(rm,opts[Math.floor(Math.random()*opts.length)]);}
+function stepRes(rm,dt){const res=rm.res,th=TH[rm.sp];res.t+=dt;
+  if(res.mode==='gone')return;
+  if(res.mode==='fade'){res.alpha=Math.max(0,res.alpha-dt*3);return;}
+  if(res.q.length){const s=res.q[0];
+    if(s.k==='walk'){const d=s.x-res.x,v=11*dt;res.dir=d>0?1:-1;if(Math.abs(d)<=v){res.x=s.x;res.q.shift();}else res.x+=Math.sign(d)*v;res.mode='walk';return;}
+    if(s.k==='hop'){if(!res.hop)res.hop={x0:res.x,y0:res.y,x1:s.x,y1:s.y,u:0};const h=res.hop;h.u+=dt/.5;const u=Math.min(1,h.u);
+      if(Math.abs(h.x1-h.x0)>.5)res.dir=h.x1>h.x0?1:-1;
+      res.x=lerp(h.x0,h.x1,u);res.y=lerp(h.y0,h.y1,u)-Math.sin(u*Math.PI)*(3+Math.abs(h.y1-h.y0)*.35);res.mode='hop';
+      if(u>=1){res.y=h.y1;res.x=h.x1;res.hop=null;res.q.shift();}return;}
+    if(s.k==='act'){const sp=th.spots[s.i];res.q.shift();res.spot=s.i;res.act=sp.act;res.mode='act';res.dir=sp.dir||res.dir;res.actT=sp.act==='sleep'?1e9:sp.act==='slide'?1.1:rnd(4,9);res.slideU=0;res.asleep=sp.act==='sleep';res.sit=res.t;return;}
+    if(s.k==='door'){res.q.shift();res.mode='fade';return;}
+    if(s.k==='wait'){s.d-=dt;if(s.d<=0)res.q.shift();res.mode='idle';return;}}
+  if(res.mode==='act'){const sp=th.spots[res.spot];res.actT-=dt;
+    if(res.act==='slide'){res.slideU=Math.min(1,(res.slideU||0)+dt/1.1);const u=Math.pow(res.slideU,1.6);res.x=lerp(sp.x,sp.x2,u);res.y=Math.min(FT,sp.y+(sp.x-res.x)*.9);if(res.slideU>=1){res.y=FT;res.act='look';res.actT=1.2;res.spot=-1;}return;}
+    if(res.act==='sleep'){if(awakeNow(rm)){res.asleep=false;chooseNext(rm);}return;}
+    if(!awakeNow(rm)&&res.act!=='sleep'){chooseNext(rm);return;}
+    if(res.actT<=0)chooseNext(rm);return;}
+  if(res.mode==='idle'||res.mode==='go'||res.mode==='walk'||res.mode==='hop'){if(rm.ph==='live')chooseNext(rm);}}
+
+/* ---------- お引っ越し ---------- */
+function startMove(rm){if(rm.ph!=='live')return false;const res=rm.res;
+  rm.ph='out';rm.pt=0;res.q=[];res.asleep=false;res.act=null;res.carry=true;
+  if(res.y!==FT)res.q.push({k:'hop',y:FT,x:res.x});res.q.push({k:'walk',x:4});res.q.push({k:'door'});res.mode='go';
+  burst(rm,res.x,res.y-9,'!',1);callTruck();return true;}
+function stepRoom(rm,dt){rm.pt+=dt;const res=rm.res;
+  if(rm.ph==='live'||rm.ph==='in2')stepRes(rm,dt);
+  /* 家具の動き */
+  const act=res&&res.mode==='act'?res.act:null;
+  if(act==='run')rm.wa+=dt*7;else if(act==='knit'){rm.wa+=dt*2.2;rm.scarf=Math.min(7,rm.scarf+dt*.35);};
+  if(act==='sleep'&&rm.sp===11&&rm.scarf>=6){rm.scarf=0;rm.made=Math.min(4,rm.made+1);}
+  const swingOn=act==='swing'||(act==='sleep'&&rm.sp===17);rm.swing=swingOn?Math.round(Math.sin(res.t*2.4)*(rm.sp===17?1:2)):0;
+  rm.rock=act==='read'?res.t*2.2:0;
+  /* 灯り:起きていて暗くなったらつける、寝床に入ったら少しして消す */
+  const dl=dayLight(dayU(T));let want=0;
+  if(rm.ph==='live'&&res){if(res.asleep){want=(res.t-res.sit<1.4)?rm.light:0;}else want=dl<.6?1:0;}
+  else if(rm.ph==='in'||rm.ph==='in2'||rm.ph==='paint'||rm.ph==='pack')want=dl<.6?1:0;
+  else want=rm.light;
+  rm.light+=(want-rm.light)*Math.min(1,dt*8);
+  if(rm.ph==='out'){stepRes(rm,dt);
+    if(res.x<=4.6&&res.mode!=='gone')rm.door=Math.min(1,rm.door+dt*5);
+    if(res.mode==='fade'&&res.alpha<=0){res.mode='gone';rm.ph='pack';rm.pt=0;}}
+  else if(rm.ph==='pack'){rm.door=Math.max(0,rm.door-dt*4);const n=rm.items.length,k=Math.floor(rm.pt/.28);
+    for(let i=0;i<n;i++){if(i<k&&rm.items[i]==='on'){rm.items[i]='box';const it=TH[rm.sp].items[i];puffAt(rm,it.x+it.w/2,FL-4,5);}}
+    const k2=Math.floor((rm.pt-n*.28-.5)/.2);
+    for(let i=0;i<n;i++){if(i<k2&&rm.items[i]==='box'){rm.items[i]='off';const it=TH[rm.sp].items[i];puffAt(rm,it.x+it.w/2,FL-3,4);}}
+    if(k2>=n){rm.ph='paint';rm.pt=0;rm.oldSp=rm.sp;rm.nsp=takeSpecies();setSpecies(rm,rm.nsp);rm.items=rm.items.map(()=>'off');rm.wipe=0;rm.nsp=null;}}
+  else if(rm.ph==='paint'){rm.wipe=Math.min(1,rm.pt/1.3);if(rm.wipe>=1){rm.ph='in';rm.pt=0;rm.oldSp=null;rm.res=newRes(rm.sp);rm.res.x=4;rm.res.alpha=0;rm.res.mode='idle';}}
+  else if(rm.ph==='in'){const r=rm.res;rm.door=rm.pt<1.2?Math.min(1,rm.door+dt*5):Math.max(0,rm.door-dt*4);
+    if(rm.pt>.25)r.alpha=Math.min(1,r.alpha+dt*4);
+    if(rm.pt>.5&&!r.walkedIn){r.walkedIn=1;r.q=[{k:'walk',x:14}];r.mode='go';}
+    if(r.q.length)stepRes(rm,dt);
+    const n=rm.items.length,k=Math.floor((rm.pt-.9)/.18);
+    for(let i=0;i<n;i++)if(i<k&&rm.items[i]==='off'){rm.items[i]='box';const it=TH[rm.sp].items[i];puffAt(rm,it.x+it.w/2,FL-3,3);}
+    const k2=Math.floor((rm.pt-.9-n*.18-.6)/.36);
+    for(let i=0;i<n;i++)if(i<k2&&rm.items[i]==='box'){rm.items[i]='on';const it=TH[rm.sp].items[i];puffAt(rm,it.x+it.w/2,FL-Math.min(10,it.h)/2-2,6);sparkAt(rm,it.x+it.w/2,FL-it.h);}
+    if(k2>=n&&!r.q.length){rm.ph='live';rm.pt=0;r.q=[];r.mode='idle';burst(rm,r.x,r.y-10,'♥',3);}}}
+
+/* ---------- 粒(寝息のz・ハート・音符・湯気・泡・くず・煙) ---------- */
+function addP(rm,p){p.x0=rm.ix;p.y0=rm.iy;p.fy=rm.iy+FL-1;parts.push(p);}
+function puffAt(rm,x,y,n){for(let i=0;i<n;i++)addP(rm,{k:'puff',x:rm.ix+x+rnd(-3,3),y:rm.iy+y+rnd(-2,2),vx:rnd(-6,6),vy:rnd(-7,-2),t:0,life:rnd(.35,.6),c:'#FFFFFF'});}
+function sparkAt(rm,x,y){for(let i=0;i<4;i++)addP(rm,{k:'dot',x:rm.ix+x+rnd(-4,4),y:rm.iy+y+rnd(-1,2),vx:rnd(-4,4),vy:rnd(-8,-3),t:0,life:.6,c:'#FFE890'});}
+function burst(rm,x,y,ch,n){for(let i=0;i<n;i++)addP(rm,{k:'glyph',g:ch,x:rm.ix+x+rnd(-2,2)+i*3-(n-1)*1.5,y:rm.iy+y,vx:0,vy:-5,t:-i*.12,life:1.3,c:ch==='!'?'#FFFFFF':'#FF6A8A'});}
+const GL={'z':["###","..#",".#.","###"],'♥':["#.#","###",".#."],'♪':[".##",".#.",".#.","##."],'!':["#","#","#",".","#"],'✦':[".#.","###",".#."]};
+function emitFx(rm,dt){const res=rm.res;if(!res||res.mode!=='act'||rm.ph!=='live')return;const sp=TH[rm.sp].spots[res.spot];if(!sp)return;
+  const hx=rm.ix+res.x+res.dir*4,hy=rm.iy+res.y-6;
+  const fx=res.act==='sleep'?'z':sp.fx||(res.act==='look'?'note?':null);
+  if(fx==='z'&&Math.random()<dt*.8)addP(rm,{k:'glyph',g:'z',x:rm.ix+res.x+rnd(-1,2),y:rm.iy+res.y-9,vx:(res.x>IW-14?-1:1)*rnd(1,2),vy:-3.5,t:0,life:2.4,c:'#6A7AA8'});
+  if(fx==='crumb'&&Math.random()<dt*3)addP(rm,{k:'dot',x:hx+res.dir,y:hy+4,vx:rnd(-4,4),vy:rnd(-6,-2),g:1,t:0,life:.6,c:'#C8A060'});
+  if(fx==='heart'&&Math.random()<dt*.7)addP(rm,{k:'glyph',g:'♥',x:hx,y:hy-2,vx:rnd(-1,1),vy:-4,t:0,life:1.4,c:'#FF6A8A'});
+  if((fx==='note'||fx==='note?')&&Math.random()<dt*(fx==='note'?1.6:.18))addP(rm,{k:'glyph',g:'♪',x:hx,y:hy-3,vx:rnd(-2,2),vy:-4,t:0,life:1.5,c:fx==='note'?'#8A5A34':'#6A7AA8'});
+  if(fx==='steam'&&Math.random()<dt*2.5)addP(rm,{k:'puff',x:rm.ix+rnd(26,46),y:rm.iy+25,vx:rnd(-1,1),vy:rnd(-4,-2),t:0,life:rnd(1.2,2),c:'#FFFFFF'});
+  if(fx==='bubble'&&Math.random()<dt*2)addP(rm,{k:'ring',x:rm.ix+res.x+rnd(-5,5),y:rm.iy+26,vx:0,vy:-3,t:0,life:.8,c:'#E8F8FF'});
+  if(fx==='sparkle'&&Math.random()<dt*1.2)addP(rm,{k:'glyph',g:'✦',x:rm.ix+res.x+rnd(-5,5),y:rm.iy+res.y-9+rnd(-2,2),vx:0,vy:-1.5,t:0,life:.9,c:'#FFE890'});
+  if(fx==='spray'&&Math.random()<dt*9){const a=rnd(-2.3,-1.5);addP(rm,{k:'dot',x:rm.ix+res.x+res.dir*5,y:rm.iy+res.y-8,vx:Math.cos(a)*rnd(8,14)*res.dir*-1,vy:Math.sin(a)*rnd(10,16),g:1,t:0,life:.9,c:'#8FD0F0'});}}
+
+/* ---------- 表の通り:ときどき車・バス・トラック、歩道をおさんぽする動物 ----------
+   奥から 歩道(動物)→ 奥の車線(右へ)→ 手前の車線(左へ)。誰かが引っ越すと、引っ越しトラックが来て建物の前に少し停まる */
+const VEH={
+ car:{s:["....BBBBB.....","...BWWBWWWB...","..BWWWBWWWWB..","TBBBBBBBBBBBBH","BBBBBBBBBBBBBB","..OO......OO.."],p:{W:'#BFE6F7',T:'#E0403A',H:'#FFE890',O:'#2A2A33'}},
+ van:{s:["BBBBBBBBBB.....","BWWBWWBWWBB....","BWWBWWBWWBWB...","BBBBBBBBBBWWB..","TBBBBBBBBBBBBBH","BBBBBBBBBBBBBBB","..OO.......OO.."],p:{W:'#BFE6F7',T:'#E0403A',H:'#FFE890',O:'#2A2A33'}},
+ bus:{s:["BBBBBBBBBBBBBBBBBBBBB.","BWWWBWWWBWWWBWWWBDDWB.","BWWWBWWWBWWWBWWWBDDWWB","BBBBBBBBBBBBBBBBBDDBBB","SSSSSSSSSSSSSSSSSDDSSH","TBBBBBBBBBBBBBBBBBBBBB","...OO...........OO...."],p:{W:'#BFE6F7',D:'#5A6A7A',S:'#FFFFFF',T:'#E0403A',H:'#FFE890',O:'#2A2A33'}},
+ truck:{s:["CCCCCCCCCCCCCC.......","CCCCCCCCCCCCCC.BBBB..","CCCCCCCCCCCCCC.BWWWB.","CCCCCCCCCCCCCC.BWWWWB","CCCCCCCCCCCCCCBBBBBBH","CCCCCCCCCCCCCCBBBBBBB","TGGGGGGGGGGGGGGGGGGGG","..OO.OO........OO...."],p:{C:'#FFFFFF',W:'#BFE6F7',G:'#6E7488',T:'#E0403A',H:'#FFE890',O:'#2A2A33'},logo:1}};
+const CARC=['#E86A5A','#5C9AD8','#F2C94C','#7FC0A0','#F4F4F4','#8A7AC8'];
+function vehSprite(k,col,flip,nl){const V=VEH[k],w=V.s[0].length,h=V.s.length;
+  return sprite('v'+k+col+(flip?'f':'')+nl,w,h,()=>{const dk=c=>mix(c,'#262A46',nl/4*.62);
+    for(let r=0;r<h;r++)for(let c=0;c<w;c++){const ch=V.s[r][c];if(ch==='.')continue;const x=flip?w-1-c:c;
+      let cc=ch==='B'?col:V.p[ch];if(ch==='H'&&nl>1)cc='#FFF6C0';else if(ch==='T'&&nl>1)cc='#FF5040';else cc=dk(cc);
+      g.fillStyle=cc;g.fillRect(x,r,1,1);}
+    if(V.logo){const L=[".#.#.","#####","#####",".###."],x0=4,y0=1;g.fillStyle=dk('#F2A24E');for(let r=0;r<4;r++)for(let c=0;c<5;c++)if(L[r][c]==='#')g.fillRect(flip?w-1-(x0+c):x0+c,y0+r,1,1);}});}
+function spawnVeh(k,lane,stop){const V=VEH[k],w=V.s[0].length,dir=lane?-1:1;
+  let x=dir>0?-w-2:W+2;
+  for(const q of traffic)if(q.t==='v'&&q.lane===lane){if(dir>0)x=Math.min(x,q.x-w-6);else x=Math.max(x,q.x+q.w+6);}
+  traffic.push({t:'v',k,lane,dir,w,h:V.s.length,x,v:k==='bus'?15:k==='truck'?17:rnd(20,30),col:k==='truck'?'#3E86B4':k==='bus'?'#7FC0A0':CARC[Math.floor(Math.random()*CARC.length)],stop:stop?1:0,st:0,wt:0});}
+function spawnWalker(){const dir=Math.random()<.5?1:-1,n=Math.random()<.25?(2+Math.floor(Math.random()*2)):1,v=rnd(5,7),sp=Math.floor(Math.random()*NS);
+  for(let i=0;i<n;i++)traffic.push({t:'w',sp:i&&Math.random()<.6?sp:Math.floor(Math.random()*NS),dir,x:(dir>0?-8:W+8)-dir*i*11,v,ph:rnd(0,5),look:0,lk:rnd(2,6)});}
+function callTruck(){if(traffic.some(o=>o.t==='v'&&o.stop))return;spawnVeh('truck',0,1);}
+function stepTraffic(dt){
+  tNext-=dt;if(tNext<0){const r=Math.random();spawnVeh(r<.62?'car':r<.8?'van':r<.93?'bus':'truck',Math.random()<.5?1:0,0);tNext=rnd(3,9);}
+  wNext-=dt;if(wNext<0){spawnWalker();wNext=rnd(5,12);}
+  const stopX=bx+Math.floor((cols*CW+2)/2);
+  for(const o of traffic){
+    if(o.t==='v'){let v=o.v;
+      if(o.stop===1){const d=stopX-(o.x+o.w/2);if(d<30)v=Math.max(0,o.v*d/30);if(d<.6){o.stop=2;o.wt=3.2;}}
+      else if(o.stop===2){v=0;o.wt-=dt;if(o.wt<0)o.stop=3;}
+      else if(o.stop===3){o.st=Math.min(1,o.st+dt*.6);v=o.v*o.st;}
+      /* 前の車にはぶつからない */
+      for(const q of traffic)if(q!==o&&q.t==='v'&&q.lane===o.lane){const gap=o.dir>0?q.x-(o.x+o.w):o.x-(q.x+q.w);if(gap>0&&gap<5)v=Math.min(v,Math.max(0,(gap-2)*4));}
+      o.x+=o.dir*v*dt;o.moving=v>1;o.dead=o.dir>0?o.x>W+4:o.x+o.w<-4;}
+    else{o.ph+=dt;o.lk-=dt;
+      if(o.look>0){o.look-=dt;}else{o.x+=o.dir*o.v*dt;if(o.lk<0&&o.x>bx&&o.x<bx+cols*CW){o.look=rnd(1.2,2.2);o.lk=rnd(6,12);}}
+      o.dead=o.dir>0?o.x>W+10:o.x<-10;}}
+  traffic=traffic.filter(o=>!o.dead);}
+function drawTraffic(nk){const nl=Math.round(nk/.62*4),gy=by+rowsN*CH+3,night=nl>1;
+  const yl=[gy+9,gy+Math.min(gH-2,15)];
+  const ws=traffic.filter(o=>o.t==='w');
+  for(const o of ws){const A=SP[o.sp],walking=o.look<=0,fr=walking?Math.floor(o.ph*8)%2:0,gr=A.fw[fr],w=gr[0].length,h=gr.length,bl=(o.ph%3.1)<.12;
+    const spc=sprite('w'+o.sp+'_'+fr+(o.dir<0?'f':'')+(bl?'b':'')+nl,w+2,h+2,()=>{drawAnimal(1+w/2,h,o.sp,{flip:o.dir<0,frame:gr,blink:bl});
+      if(nl){const id=g.getImageData(0,0,w+2,h+2),d=id.data,k=nl/4*.62;for(let i=0;i<d.length;i+=4){d[i]=d[i]+(38-d[i])*k;d[i+1]=d[i+1]+(42-d[i+1])*k;d[i+2]=d[i+2]+(70-d[i+2])*k;}g.putImageData(id,0,0);}});
+    const hop=o.look>0?-Math.abs(Math.sin(o.look*7))*1.2:0;blit(spc,o.x-w/2-1,gy+4-h+hop);
+    if(o.look>0&&Math.random()<.02)parts.push({k:'glyph',g:'♪',x:o.x+o.dir*3,y:gy-6,vx:0,vy:-4,t:0,life:1.2,c:night?'#FFE890':'#6A7AA8',x0:0,y0:0,fy:H,free:1});}
+  for(const lane of [0,1])for(const o of traffic){if(o.t!=='v'||o.lane!==lane)continue;const y=yl[lane]-o.h+1;
+    blit(vehSprite(o.k,o.col,o.dir<0,nl),o.x,y);
+    if(night){const hx=o.dir>0?o.x+o.w:o.x-1,hy=yl[lane]-2;for(let i=0;i<9;i++)for(let j=-Math.floor(i/3);j<=Math.floor(i/3);j++)dotC(hx+o.dir*i,hy+j,'#FFE890',.22*(1-i/9));}
+    if(o.stop===2&&Math.floor(animT*3)%2){dotC(o.dir>0?o.x:o.x+o.w-1,yl[lane]-2,'#FFB030');dotC(o.dir>0?o.x+o.w-1:o.x,yl[lane]-3,'#FFB030');}}}
+
+/* ---------- タップ ---------- */
+function toBuf(e){return[e.clientX*cv.width/innerWidth/K,e.clientY*cv.height/innerHeight/K];}
+cv.addEventListener('pointerdown',e=>{
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  e.preventDefault();hintEl.classList.remove('on');
+  const[x,y]=toBuf(e);
+  for(const rm of rooms)if(x>=rm.ix&&x<rm.ix+IW&&y>=rm.iy&&y<rm.iy+IH){startMove(rm);break;}});
+
+/* ---------- step ---------- */
+function step(dt){T+=dt;animT+=dt;stepTraffic(dt);
+  for(const rm of rooms){stepRoom(rm,dt);emitFx(rm,dt);}
+  for(const p of parts){p.t+=dt;if(p.t<0)continue;p.x+=p.vx*dt;p.y+=p.vy*dt;if(p.g){p.vy+=40*dt;if(p.y>p.fy){p.y=p.fy;p.vy=0;p.vx*=.5;}}}
+  parts=parts.filter(p=>p.t<p.life);if(parts.length>400)parts.splice(0,parts.length-400);
+  for(const c of clouds){c.x+=c.v*dt;if(c.x>W+4){c.x=-c.w-rnd(4,30);c.y=rnd(4,Math.max(8,by*.6));}}}
+
+/* ---------- 描画 ---------- */
+const sprCache=new Map();
+function sprite(key,w,h,fn){let c=sprCache.get(key);if(!c){c=document.createElement('canvas');c.width=w;c.height=h;const og=g;g=c.getContext('2d');fn();g=og;sprCache.set(key,c);}return c;}
+function blit(c,x,y,a){if(a!=null&&a<1)ctx.globalAlpha=Math.max(0,a);ctx.drawImage(c,Math.round(x*K),Math.round(y*K),c.width*K,c.height*K);ctx.globalAlpha=1;}
+let clipB=null;
+function dotC(x,y,col,a){if(clipB&&(x<clipB[0]||x>=clipB[0]+IW||y<clipB[1]||y>=clipB[1]+IH))return;ctx.globalAlpha=a==null?1:Math.max(0,a);ctx.fillStyle=col;ctx.fillRect(Math.round(x*K),Math.round(y*K),K,K);ctx.globalAlpha=1;}
+
+function drawWindow(rm,th,u,dl){const w=th.win||{},x=w.x!=null?w.x:19,y=w.y!=null?w.y:7,ww=w.w||14,hh=w.h||11;
+  const fr=w.frame||'#FFFFFF',res=rm.res;
+  R(x-1,y-1,ww+2,hh+2,mix(fr,'#000000',.18));R(x,y,ww,hh,fr);
+  if(w.k==='shoji'){const on=rm.light>.5;const pc=on?'#FFE6A8':mix('#F8F4E8','#8A90A8',1-dl);R(x+1,y+1,ww-2,hh-2,pc);for(let i=x+4;i<x+ww-1;i+=4)R(i,y+1,1,hh-2,WDD);for(let j=y+4;j<y+hh-1;j+=4)R(x+1,j,ww-2,1,WDD);}
+  else{const[t0,t1]=skyCols(u);for(let j=0;j<hh-2;j++)R(x+1,y+1+j,ww-2,1,mix(t0,t1,j/(hh-3)));
+    if(dl<.5){for(let k=0;k<4;k++)P(x+2+(k*5+rm.c*3)%(ww-4),y+2+(k*3+rm.r)%(hh-5),'#FFF6C0');}
+    if(th.moon&&dl<.5){C(x+ww-4,y+3,1,'#FFF2B0');}
+    const mid=x+Math.floor(ww/2);R(mid,y+1,1,hh-2,fr);R(x+1,y+Math.floor(hh/2),ww-2,1,fr);
+    const closed=th.noct&&res&&res.asleep&&dl>.3;const cc=th.cur||'#FFFFFF';
+    if(closed){R(x,y,ww,hh,cc);for(let i=x+1;i<x+ww;i+=3)R(i,y,1,hh,mix(cc,'#000000',.12));}
+    else{R(x,y,2,hh,cc);R(x+ww-2,y,2,hh,cc);P(x+2,y+Math.floor(hh/2),cc);P(x+ww-3,y+Math.floor(hh/2),cc);}
+    R(x-2,y-1,ww+4,1,mix(cc,'#000000',.25));}
+  R(x-1,y+hh,ww+2,1,mix(fr,'#000000',.1));R(x-2,y+hh+1,ww+4,1,WD);}
+function drawDoor(rm,th){const x=1,y=FL-12,dc=th.door||WD,o=rm.door;
+  R(x-1,y-1,9,13,mix(dc,'#000000',.3));R(x,y,7,12,'#3A2A22');
+  const w=Math.round(7*(1-o*.72));R(x,y,w,12,dc);if(w>2){R(x+1,y+1,w-2,4,mix(dc,'#FFFFFF',.18));R(x+1,y+6,w-2,5,mix(dc,'#FFFFFF',.18));P(x+w-2,y+6,'#FFE066');}
+  if(th.noren){R(0,y-1,9,5,'#2E4A7A');R(4,y-1,1,5,'#1E3A6A');P(2,y+1,'#FFFFFF');P(6,y+1,'#FFFFFF');}}
+function drawLamp(rm,th){const L0=th.lamp||{k:'bulb',x:26},on=rm.light>.5,x=L0.x;
+  if(L0.k==='bulb'){R(x,0,1,3,'#6E6A78');R(x-1,3,3,2,on?'#FFF2A0':'#E8E0C8');P(x,5,on?'#FFE070':'#D8D0B8');}
+  else if(L0.k==='pend'){R(x,0,1,2,'#6E6A78');R(x-2,2,5,2,L0.c||'#8FB86A');R(x-3,4,7,1,L0.c||'#8FB86A');R(x-1,5,3,1,on?'#FFF2A0':'#E8E0C8');}
+  else if(L0.k==='chochin'){R(x,0,1,2,'#2A1E1A');R(x-2,2,5,1,'#2A1E1A');R(x-3,3,7,6,on?'#FF6A4A':'#D8483A');for(let j=4;j<9;j+=2)R(x-3,j,7,1,on?'#FF9A6A':'#B8382A');R(x-2,9,5,1,'#2A1E1A');}
+  else if(L0.k==='candle'){R(x-1,L0.y,3,4,'#FFF6E0');R(x-2,L0.y+3,5,1,'#C8A060');if(on){P(x,L0.y-1,'#FFD84A');P(x,L0.y-2,'#FF9A2A');}}}
+function roomGlow(rm,th){const L0=th.lamp||{};if(L0.k==='none')return[L0.x,L0.y||15];if(L0.k==='andon')return[12,25];if(L0.k==='candle')return[L0.x,L0.y];return[L0.x,6];}
+
+function render(){
+  const u=dayU(T),dl=dayLight(u),[s0,s1]=skyCols(u);ctx.imageSmoothingEnabled=false;
+  /* 空(奥の板) */
+  for(let y=0;y<H;y+=2){gs.fillStyle=mix(s0,s1,cl(y/(by+rowsN*CH*.6),0,1));gs.fillRect(0,y,W,2);}
+  if(dl<.6){for(const s of stars){const tw=.5+.5*Math.sin(animT*1.3+s.p);if(tw<.25)continue;gs.globalAlpha=(1-dl/.6)*tw;gs.fillStyle='#FFF6D8';gs.fillRect(s.x,s.y,1,1);}gs.globalAlpha=1;}
+  const arcX=v=>Math.round(W*.08+v*W*.84),arcY=v=>Math.round(by*.55-Math.sin(v*Math.PI)*by*.42);
+  if(u<.56){const v=u/.56;gs.fillStyle=mix('#FFE9A0','#FFB070',1-dl);const sx=arcX(v),sy=arcY(v)+4;for(let y=-4;y<=4;y++)for(let x=-4;x<=4;x++)if(x*x+y*y<=18)gs.fillRect(sx+x,sy+y,1,1);}
+  else{const v=(u-.56)/.44;const mx=arcX(v),my=arcY(v)+4;gs.fillStyle='#FFF2C0';for(let y=-3;y<=3;y++)for(let x=-3;x<=3;x++)if(x*x+y*y<=11&&!((x+1.6)*(x+1.6)+(y+1)*(y+1)<=8))gs.fillRect(mx+x,my+y,1,1);}
+  /* 遠くの街並み */
+  const cityC=mix(mix(s1,'#6E7C9A',.45),'#141A34',(1-dl)*.5);gs.fillStyle=cityC;
+  const gy=by+rowsN*CH+3;for(let x=0;x<W;x+=1){const hgt=Math.floor(8+5*Math.abs(Math.sin(Math.floor(x/7)*1.7))+4*Math.abs(Math.sin(Math.floor(x/11)*2.3)));gs.fillRect(x,gy-hgt,1,hgt);}
+  if(dl<.5){gs.fillStyle='#FFE08A';for(let x=3;x<W;x+=7){const hgt=Math.floor(8+5*Math.abs(Math.sin(Math.floor(x/7)*1.7)));if((x*13)%5<2)gs.fillRect(x,gy-hgt+3,1,1);}}
+  ctx.drawImage(bufS,0,0,W*K,H*K);
+  /* 雲(なめらか) */
+  const cc=mix(mix('#FFFFFF','#FFC8A8',1-dl),'#5A6488',(1-dl)*.7);
+  ctx.fillStyle=cc;ctx.globalAlpha=.9;
+  for(const c of clouds){const X=v=>Math.round((c.x+v)*K),Yy=v=>Math.round((c.y+v)*K),w=c.w;
+    ctx.fillRect(X(0),Yy(3),w*K,2*K);ctx.fillRect(X(2),Yy(2),(w-4)*K,K);ctx.fillRect(X(3),Yy(1),Math.floor(w*.4)*K,K);ctx.fillRect(X(Math.floor(w*.5)),Yy(1),Math.floor(w*.3)*K,K);ctx.fillRect(X(4),Yy(0),Math.floor(w*.25)*K,K);}
+  ctx.globalAlpha=1;
+  /* 建物と部屋(ドット格子の板) */
+  g.clearRect(0,0,W,H);
+  const nk=(1-dl)*.62,fac=mix(facade,'#262A46',nk),facD=mix(fac,'#000000',.2),facL=mix(fac,'#FFFFFF',.15);
+  const bw=cols*CW+2,bh=rowsN*CH+3;
+  /* 地面 */
+  g.fillStyle=mix('#9AA0A8','#3A3E54',nk);g.fillRect(0,gy,W,H-gy);g.fillStyle=mix('#B8BEC6','#4A4E66',nk);g.fillRect(0,gy,W,2);
+  g.fillStyle=mix('#7E848E','#2E3246',nk);for(let x=(3);x<W;x+=9)g.fillRect(x,gy+2,1,3);
+  g.fillStyle=mix('#5A5E68','#20243A',nk);g.fillRect(0,gy+6,W,H-gy-6);g.fillStyle=mix('#F4F0E0','#8A8878',nk);for(let x=2;x<W;x+=10)g.fillRect(x,gy+10,5,1);
+  /* 植え込みと街灯 */
+  const tc=mix('#6AA860','#1E3A34',nk);
+  for(const tx of [bx-7,bx+bw+6]){if(tx<3||tx>W-4)continue;g.fillStyle=mix('#7E5230','#2A2030',nk);g.fillRect(tx,gy-7,2,7);g.fillStyle=tc;for(let y=-6;y<=6;y++)for(let x=-5;x<=5;x++)if(x*x+y*y*1.3<=30)g.fillRect(tx+1+x,gy-13+y,1,1);}
+  /* 建物本体 */
+  g.fillStyle=facD;g.fillRect(bx-1,by-1,bw+2,bh+1);g.fillStyle=fac;g.fillRect(bx,by,bw,bh);
+  for(let r=0;r<=rowsN;r++){g.fillStyle=facD;g.fillRect(bx,by+r*CH+2,bw,1);g.fillStyle=facL;g.fillRect(bx,by+r*CH,bw,1);}
+  /* 屋上 */
+  const rc=mix(roofC,'#2A2A40',nk);g.fillStyle=rc;g.fillRect(bx-2,by-3,bw+4,3);g.fillStyle=mix(rc,'#FFFFFF',.2);g.fillRect(bx-2,by-3,bw+4,1);
+  g.fillStyle=mix('#B8BEC8','#40445C',nk);const tk=bx+bw-14;g.fillRect(tk,by-11,9,6);g.fillStyle=mix('#8A90A0','#30344A',nk);g.fillRect(tk,by-11,9,1);g.fillRect(tk+1,by-5,1,2);g.fillRect(tk+7,by-5,1,2);
+  g.fillStyle=mix('#6E7488','#2A2E40',nk);g.fillRect(bx+6,by-12,1,9);g.fillRect(bx+3,by-11,7,1);g.fillRect(bx+4,by-9,5,1);
+  if(dl<.5&&Math.floor(animT*1.2)%2){g.fillStyle='#FF4A4A';g.fillRect(bx+6,by-13,1,1);}
+  g.fillStyle=mix('#B07A4A','#3A2A30',nk);g.fillRect(bx+14,by-6,4,3);g.fillStyle=mix('#6AA860','#1E3A34',nk);g.fillRect(bx+15,by-9,2,3);g.fillRect(bx+14,by-8,1,1);g.fillRect(bx+17,by-8,1,1);
+  /* 部屋 */
+  for(const rm of rooms){const th=TH[rm.sp];RX=rm.ix;RY=rm.iy;tgt=0;
+    if(rm.ph==='paint'&&rm.oldSp!=null){const wy=Math.floor(rm.wipe*IH);g.drawImage(wallArt(rm.oldSp),0,wy,IW,IH-wy,RX,RY+wy,IW,IH-wy);g.drawImage(wallArt(rm.sp),0,0,IW,wy,RX,RY,IW,wy);
+      g.fillStyle='#FFFFFF';g.fillRect(RX+2,RY+Math.min(IH-2,wy),IW-4,1);g.fillStyle='#8A96B8';g.fillRect(RX+Math.floor(IW/2)-3,RY+Math.min(IH-2,wy)-1,7,2);}
+    else g.drawImage(wallArt(rm.sp),RX,RY);
+    const showRoom=rm.ph!=='paint';
+    drawWindow(rm,rm.ph==='paint'&&rm.wipe<.5&&rm.oldSp!=null?TH[rm.oldSp]:th,u,dl);
+    drawDoor(rm,th);drawLamp(rm,th);
+    if(showRoom){th.items.forEach((it,i)=>{const st=rm.items[i];if(st==='on')it.d(animT,rm);else if(st==='box')box(it.x,it.w,it.h);});}}
+  RX=0;RY=0;
+  ctx.drawImage(buf,0,0,W*K,H*K);
+  drawTraffic(nk);
+  /* 住人(なめらか)と手前の家具 */
+  for(const rm of rooms){const res=rm.res,th=TH[rm.sp];if(!res||res.mode==='gone'||res.alpha<=0)continue;
+    if(rm.ph==='paint')continue;
+    const A=SP[res.sp];let fr=0,oy=0,ox=0;
+    if(res.mode==='walk'||res.act==='run')fr=Math.floor(res.t*(res.act==='run'?14:8))%2;
+    if(res.mode==='act'){if(res.act==='eat')oy=-Math.abs(Math.sin(res.t*8))*.7;else if(res.act==='hop')oy=-Math.abs(Math.sin(res.t*4.2))*5;
+      else if(res.act==='drum')oy=-Math.abs(Math.sin(res.t*6))*.8;else if(res.act==='swim'||res.act==='bath'){const sp=th.spots[res.spot];const rr=sp&&sp.range||0;ox=Math.sin(res.t*.55)*rr;oy=Math.sin(res.t*1.8)*.4;
+        const want=Math.cos(res.t*.55)>0?1:-1;if(rr>2)res.dir=want;}
+      else if(res.act==='swing'||(res.act==='sleep'&&th.spots[res.spot]&&th.spots[res.spot].swing))ox=rm.swing;
+      else if(res.act==='read')oy=Math.round(Math.sin(rm.rock))*.5;}
+    const gr=A.fw[fr],w=gr[0].length,h=gr.length,bl=res.act==='sleep'&&res.mode==='act'||(res.t%3.6)<.12;
+    const spc=sprite('a'+res.sp+'_'+fr+(res.dir<0?'f':'')+(bl?'b':''),w+2,h+2,()=>drawAnimal(1+w/2,h,res.sp,{flip:res.dir<0,frame:gr,blink:bl}));
+    const x=rm.ix+res.x+ox,y=rm.iy+res.y+oy;
+    ctx.save();ctx.beginPath();ctx.rect(rm.ix*K,rm.iy*K,IW*K,IH*K);ctx.clip();
+    blit(spc,x-w/2-1,y-h,res.alpha);
+    if(res.carry&&res.mode!=='gone'){const bc=sprite('bundle',5,4,()=>{g.fillStyle='#4A88C0';g.fillRect(0,1,5,3);g.fillStyle='#FFFFFF';g.fillRect(1,2,1,1);g.fillRect(3,3,1,1);g.fillStyle='#4A88C0';g.fillRect(1,0,1,1);g.fillRect(3,0,1,1);});blit(bc,x-res.dir*2-2.5,y-h-2.5,res.alpha);}
+    ctx.restore();
+    if(rm.ph==='live'&&res.mode==='act'){const sp=th.spots[res.spot];if(sp&&sp.front){RX=rm.ix;RY=rm.iy;tgt=1;sp.front(animT,rm);tgt=0;RX=0;RY=0;}}}
+  /* 部屋の明るさ:灯りが消えている部屋は夜の暗さに、夜の子が昼に眠る部屋はカーテン越しにうす暗く */
+  for(const rm of rooms){const th=TH[rm.sp],res=rm.res;
+    let dark=(1-dl)*.64*(1-rm.light);
+    if(th.noct&&res&&res.asleep&&dl>.3)dark=Math.max(dark,.22*dl);
+    if(dark>.01){ctx.fillStyle='rgba(18,22,52,'+dark.toFixed(3)+')';ctx.fillRect(rm.ix*K,rm.iy*K,IW*K,IH*K);}
+    if(rm.light>.02&&dl<.95){ctx.fillStyle='rgba(255,206,130,'+(rm.light*(1-dl)*.08).toFixed(3)+')';ctx.fillRect(rm.ix*K,rm.iy*K,IW*K,IH*K);}}
+  /* 粒 */
+  for(const p of parts){if(p.t<0)continue;clipB=p.free?null:[p.x0,p.y0];const q=p.t/p.life,a=q<.15?q/.15:1-(q-.15)/.85;
+    if(p.k==='dot')dotC(p.x,p.y,p.c,a);
+    else if(p.k==='puff'){const r=.6+q*2;for(let i=0;i<3;i++)dotC(p.x+Math.cos(i*2.1+q*2)*r,p.y+Math.sin(i*2.1)*r*.6,p.c,a*.85);}
+    else if(p.k==='ring'){dotC(p.x,p.y,p.c,a);dotC(p.x+1,p.y,p.c,a*.6);}
+    else if(p.k==='glyph'){const G=GL[p.g];const xx=p.x+Math.sin(p.t*2.5)*.8;for(let r=0;r<G.length;r++)for(let c=0;c<G[r].length;c++)if(G[r][c]==='#')dotC(xx+c,p.y+r,p.c,a);}}clipB=null;}
+
+/* ---------- ボタン ---------- */
+function say(m){if(window.APKit&&APKit.toast)APKit.toast(m,2200);}
+function mutate(){const live=rooms.filter(r=>r.ph==='live');const n=Math.min(live.length,Math.max(2,Math.round(rooms.length/3)));
+  for(let i=live.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[live[i],live[j]]=[live[j],live[i]];}
+  live.slice(0,n).forEach((rm,i)=>setTimeout(()=>startMove(rm),i*450));say('引っ越しシーズン('+n+'部屋)');}
+function resetAll(){const fi=Math.floor(Math.random()*FAC.length);facade=FAC[fi][0];roofC=FAC[fi][1];
+  T=DAY*.1;bag=[];const old=rooms;rooms=[];for(const o of old){const rm=makeRoom(o.c,o.r);rm.ix=o.ix;rm.iy=o.iy;rooms.push(rm);}parts=[];say('新しい顔ぶれで、朝から');}
+
+/* ---------- 住人の紹介(？ボタン) ---------- */
+const DESC=['綿の寝床・ひまわりの種・回し車','牧草ラック・木の小屋・野菜のお皿','マッチ箱のベッド・糸巻きのテーブル・大きなチーズ','部屋を貫く木のうろで眠る・どんぐりの山',
+ 'にんじんのプランター・ふかふかクッション・時計','たまごの殻のベッド・エサ皿・ブランコ','ゴムのアヒルが浮かぶプール・かごのベッド','氷のベッド・魚のバケツ・氷のすべり台',
+ '落ち葉の寝床・キノコのランプ・りんご','柚子の露天風呂・畳のお布団・のれん','どろんこ風呂・ピンクのベッド・ブタの貯金箱','雲のベッド・糸車・編むほど伸びるマフラー',
+ 'はちみつ壺とミツバチ・ゆり椅子で読書','ユーカリの枝で眠る・葉っぱのお皿・柱時計','止まり木・天井までの本棚・望遠鏡・地球儀','和室・こたつ・掛け軸・行灯・腹太鼓',
+ 'お月見の窓・油あげのお膳・ちょうちん・すすき','ハンモック・笹の鉢・丸太','水草の池・日向ぼっこの岩とライト','猫足バスタブで鼻シャワー・ピーナッツ',
+ '小枝の巣・白樺の枝・つるした餌台','深い海の部屋・貝がらのベッド・クラゲのランプ','水草の水そうで泳ぐ・土管から顔を出して眠る','流氷のベッド・つめたい海のプール・ビーチボール',
+ '部屋の小川で泳ぐ・流木のベッド・石あそび'];
+const guideEl=document.getElementById('guide'),resList=document.getElementById('resList');
+function openGuide(){const here=new Set(rooms.map(r=>r.sp));resList.innerHTML='';
+  const order=[...Array(NS).keys()].sort((a,b)=>(here.has(b)?1:0)-(here.has(a)?1:0));
+  for(const i of order){const A=SP[i],gr=A.s,w=gr[0].length,h=gr.length,Z=4;
+    const src=sprite('a'+i+'_0',w+2,h+2,()=>drawAnimal(1+w/2,h,i,{frame:gr}));
+    const c=document.createElement('canvas');c.width=(w+2)*Z;c.height=(h+2)*Z;c.style.width=(w+2)*Z/1.4+'px';c.style.height=(h+2)*Z/1.4+'px';
+    const cx=c.getContext('2d');cx.imageSmoothingEnabled=false;cx.drawImage(src,0,0,c.width,c.height);
+    const d=document.createElement('div');d.className='r'+(here.has(i)?' now':'');
+    const ic=document.createElement('div');ic.className='ic';ic.appendChild(c);d.appendChild(ic);const t=document.createElement('div');t.className='t';
+    t.innerHTML='<span class="n">'+A.n+'</span>'+(TH[i].noct?'<span class="tag">夜の子</span>':'')+(here.has(i)?'<span class="tag in">入居中</span>':'')+'<br>'+DESC[i];
+    d.appendChild(t);resList.appendChild(d);}
+  guideEl.classList.add('on');hintEl.classList.remove('on');}
+function closeGuide(){guideEl.classList.remove('on');}
+guideEl.addEventListener('pointerdown',e=>{if(e.target===guideEl)closeGuide();});
+guideEl.querySelector('.close').addEventListener('click',closeGuide);
+
+/* ---------- boot ---------- */
+resize();addEventListener('resize',resize);
+setTimeout(()=>hintEl.classList.add('on'),700);
+setTimeout(()=>hintEl.classList.remove('on'),9000);
+let last=performance.now();
+function loop(now){
+  const dt=Math.max(0,Math.min(.05,(now-last)/1000));last=now;
+  if(!(window.APKit&&APKit.isExporting&&APKit.isExporting())){step(dt);render();}
+  requestAnimationFrame(loop);}
+requestAnimationFrame(loop);
+if(location.hash.indexOf('debug')>=0)window.__am={step,render,startMove,mutate,resetAll,setT:v=>{T=v;},rooms:()=>rooms,veh:(k,l)=>spawnVeh(k,l,0),walk:()=>spawnWalker(),truck:()=>callTruck(),traffic:()=>traffic,setSp:(i,s)=>{const rm=rooms[i];setSpecies(rm,s);rm.res=newRes(s);placeAtSpot(rm);},get:()=>({T,u:dayU(T),n:rooms.length,cols,rowsN,W,H,K})};
+
+/* GIF書き出しはなし(おっちゃんの希望で、◉の代わりに ？=住人とさわりかたの紹介) */
+if(window.APKit)APKit.init({
+  canvas:cv,
+  gifName:'animal-mansion',
+  clockFormat:'spec',
+  dock:true,
+  autoHide:true,
+  fullscreenButton:false,
+  buttons:[
+    {label:'✦',name:'mutate',onClick:mutate},
+    {label:'↻',name:'reset',onClick:resetAll},
+    {label:'？',name:'guide',onClick:openGuide}
+  ]
+});
+})();
+</script>
+</body>
+</html>
