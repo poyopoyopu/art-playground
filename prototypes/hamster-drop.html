@@ -12,12 +12,44 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
   font:600 12px/1.9 "Hiragino Maru Gothic ProN","Hiragino Sans","Yu Gothic",sans-serif;letter-spacing:.12em;color:rgba(255,244,228,.95);
   text-shadow:0 1px 0 rgba(40,30,40,.9),0 0 6px rgba(40,30,40,.8);pointer-events:none;transition:opacity 1.6s ease;opacity:0}
 #hint.on{opacity:1}
+#guide{position:fixed;inset:0;z-index:60;display:none;align-items:flex-end;justify-content:center;background:rgba(20,26,56,.45);
+  padding:env(safe-area-inset-top,0px) 0 0}
+#guide.on{display:flex}
+#guide .sheet{width:min(560px,100%);max-height:86%;overflow-y:auto;-webkit-overflow-scrolling:touch;background:#FFF8EC;color:#4A3428;
+  border-radius:18px 18px 0 0;padding:18px 18px calc(84px + env(safe-area-inset-bottom,0px));box-sizing:border-box;
+  font:500 13px/1.75 "Hiragino Maru Gothic ProN","Hiragino Sans","Yu Gothic",sans-serif;box-shadow:0 -6px 24px rgba(20,26,56,.25)}
+#guide h2{margin:0 0 2px;font-size:18px;letter-spacing:.08em}
+#guide .law{margin:0 0 14px;color:#8A6A48}
+#guide h3{margin:16px 0 6px;font-size:14px;color:#B8604A}
+#guide .ops div{display:flex;gap:10px;align-items:baseline;margin:3px 0}
+#guide .ops b{flex:0 0 7.2em;color:#4A3428}
+#guide .res{display:grid;grid-template-columns:1fr;gap:4px}
+@media (min-width:520px){#guide .res{grid-template-columns:1fr 1fr}}
+#guide .r{display:flex;gap:10px;align-items:center;padding:5px 8px;border-radius:10px;background:#F6ECDA}
+#guide .r.now{background:#FFE9B8}
+#guide .r .ic{flex:0 0 44px;display:flex;justify-content:center}
+#guide .r canvas{image-rendering:pixelated;image-rendering:crisp-edges}
+#guide .r .t{font-size:12px;line-height:1.5}
+#guide .r .n{font-weight:700;font-size:13px}
+#guide .r .tag{font-size:10px;margin-left:6px;padding:0 6px;border-radius:8px;background:#3A4478;color:#FFF6D8;vertical-align:1px}
+#guide .r .tag.in{background:#E8A23A;color:#FFF}
+#guide .close{position:sticky;top:0;float:right;border:0;background:#F0DFC4;color:#4A3428;width:34px;height:34px;border-radius:17px;font-size:18px;line-height:34px}
 </style>
 <script src="../ap-kit.js"></script>
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hint">動物たちが、部屋から部屋へころがり落ちていく<br>部屋に触れると、そこの住人が行列に加わる</div>
+<div id="hint">動物たちが、部屋から部屋へころがり落ちていく<br>部屋に触れると、そこの住人が行列に加わる ・ ？で説明</div>
+<div id="guide"><div class="sheet"><button class="close" aria-label="閉じる">×</button>
+<h2>HAMSTER DROP</h2><p class="law">落ちてきた子が、その部屋の仕掛けを動かして、下の階へ送り出す。どこまでも続く家の断面を、動物たちが一部屋ずつころがり落ちていく。</p>
+<h3>さわりかた</h3><div class="ops">
+<div><b>部屋に触る</b><span>その部屋の棚にいる住人が、行列の最後尾に加わる(最大8匹)。行列は少しずつ遅れて、同じ道をたどる。</span></div>
+<div><b>✦</b><span>部屋の並びを入れ替える。</span></div>
+<div><b>↻</b><span>一匹に戻して、最初から。</span></div>
+<div><b>横にする</b><span>となりに並ぶ家も見える(最大6軒)。家ごとに部屋の並びと行列が別々で、触った家の行列に加わる。</span></div>
+<div><b>窓の空</b><span>下の階へ行くほど、昼 → 夕方 → 夜 と移っていく。</span></div></div>
+<h3>部屋の仕掛け(12種)</h3><div class="ops" id="roomList"></div>
+<h3>住人たち</h3><div class="res" id="resList"></div></div></div>
 <script>
 (function(){
 'use strict';
@@ -52,7 +84,7 @@ function disc(cx,cy,r,c){for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++)if(dx
 function ring(cx,cy,r,c,n){for(let k=0;k<n;k++){const a=k*TAU/n;px(cx+Math.round(r*Math.cos(a)),cy+Math.round(r*Math.sin(a)),c);}}
 function qb(a,c,b,u){const m=1-u;return[m*m*a[0]+2*m*u*c[0]+u*u*b[0],m*m*a[1]+2*m*u*c[1]+u*u*b[1]];}
 
-/* ---------- animals (20種・基本は横向き=右向き。左へ進む時は反転) ---------- */
+/* ---------- animals (25種=HAMSTER DROPの20種+まるっこい新入り5種・基本は横向き=右向き。左へ進む時は反転) ---------- */
 const PK='#FFC2D1';
 const SP=[
 {n:'ハムスター',O:'#B8672A',p:{B:'#F2A24E',W:'#FFF6EA',E:'#F2A7A0',N:'#FF8FA3',C:PK,F:'#F7B5B5'},s:["...E....","..EBBB..",".BBBBBB.","BBBBBKBB","BBBBBBCN","BBBBWWWW",".WWWWWW.","..F..F.."]},
@@ -74,7 +106,13 @@ const SP=[
 {n:'キツネ',O:'#A0501C',p:{B:'#F08A3C',T:'#F08A3C',L:'#FFFFFF',W:'#FFFFFF',E:'#4A3428',N:'#2A1E1A',F:'#4A3428'},s:[".......E...","......BBB..","T.....BBKB.","TT.BBBBBWWN","LTTBBBBBW..","LLTBBBBB...","...F..F...."]},
 {n:'レッサーパンダ',O:'#7A3418',p:{B:'#C8602C',T:'#C8602C',S:'#7A3418',W:'#FFFFFF',N:'#2A1E1A',F:'#4A2A20'},s:["......W...",".....BBB..","S...BWBKB.","TS.BBBBWWN","ST.BBBBBW.",".TSBBBBB..","...F..F..."]},
 {n:'カメ',O:'#3C7A30',p:{S:'#6FB05A',L:'#A8D88A',R:'#E8C88A',B:'#9AD07A',F:'#9AD07A'},s:["..SSSS.....",".SSLLSS....","SSLSSLSSBB.","SSSSSSSSBKB","RRRRRRRRBBB",".F.F..F.F.."]},
-{n:'ちびゾウ',O:'#6E7890',p:{B:'#A9B4C8',E:'#FFC2D1',C:'#FFC2D1',F:'#A9B4C8'},s:["....BBBBB.","..BBEEBBBB",".BBBEEBKBB","BBBBEEBBBB","BBBBBBBB.B","BBBBBBBB.C",".BF..BF..."]}];
+{n:'ちびゾウ',O:'#6E7890',p:{B:'#A9B4C8',E:'#FFC2D1',C:'#FFC2D1',F:'#A9B4C8'},s:["....BBBBB.","..BBEEBBBB",".BBBEEBKBB","BBBBEEBBBB","BBBBBBBB.B","BBBBBBBB.C",".BF..BF..."]},
+/* ここから、まるっこい新しい住人5種(クロちゃんオリジナル) */
+{n:'シマエナガ',O:'#9AA0AC',p:{B:'#FFFFFF',G:'#E2E6EE',D:'#4A4A58',T:'#3A3A48',C:'#FFC2D1',N:'#2A1E1A',F:'#8A7060'},s:["...BBB...",".BBBBBKB.","BBBBBBBCN","TDGBBBBB.","TDDGBBBB.",".BBBBBB..","..F..F..."]},
+{n:'メンダコ',O:'#B8483A',p:{B:'#F08A6A',L:'#FFB49C',E:'#E8705A',C:'#FFD6C8',F:'#E8705A'},s:["..E.BBBB.E..","..EBBBBBBE..",".BBBBLLBBBB.","BBBBKBBBKBBB","BBBCBBBBBCBB","BBBBBBBBBBBB",".BLBBLBBLBB.","..F.F..F.F.."]},
+{n:'ウーパールーパー',O:'#C8708A',p:{B:'#FFD0DC',G:'#FF7A9A',T:'#FFB8CC',M:'#E0708E',F:'#FFB8CC'},s:[".......G.G...","......GGGG...","...BBBBBBBBB.","TBBBBBBGBBKBB","TTBBBBBBBBBMB",".TBBBBBBBBBB.","...F.F...F.F."]},
+{n:'アザラシ',O:'#9AA0B0',p:{B:'#EEF1F6',S:'#D4D9E4',N:'#4A4A58',C:'#FFC2D1',T:'#C4CAD8',F:'#C4CAD8'},s:[".....BBBBB...","...BBBBBBBBB.","..BBBBBBBBKBB","SBBBBBBBBBBNB","SBBBBBBBBBCBB","TSBBBBBBBBBB.","TT..FF...FF.."]},
+{n:'カワウソ',O:'#6E4A30',p:{B:'#A0704A',W:'#F2DCC0',N:'#2A1E1A',E:'#8A5A3A',F:'#8A5A3A'},s:["........E.E.","........BBBB","...BBBBBWKWN","..BBBBBBWWWW","TBBBBBBBBWW.","TTBBBBBBBB..","...F....F..."]}];
 const NS=SP.length;
 function rotGrid(gr,k){let a=gr.map(r=>r.split(''));for(let n=0;n<k;n++){const h=a.length,w=a[0].length,b=[];for(let x=0;x<w;x++){const row=[];for(let y=h-1;y>=0;y--)row.push(a[y][x]);b.push(row);}a=b;}return a;}
 SP.forEach(a=>{a.fr=[0,1,2,3].map(k=>rotGrid(a.s,k));const s2=a.s.slice(),lr=s2[s2.length-1];s2[s2.length-1]='.'+lr.slice(0,-1);a.fw=[rotGrid(a.s,0),rotGrid(s2,0)];});
@@ -329,6 +367,28 @@ cv.addEventListener('pointerdown',e=>{
 function mutate(){bgCache.clear();houses.forEach(h=>{const o=h.order;for(let i=o.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[o[i],o[j]]=[o[j],o[i]];}});say('部屋の並びが入れ替わった');}
 function resetAll(){bgCache.clear();const n=houses.length;houses=[];for(let i=0;i<n;i++)houses.push(makeHouse(i));tau=D*1.2;say('一匹に戻して、最初から');}
 
+/* ---------- 説明パネル(？ボタン) ---------- */
+const ROOMS=[['回し車','走って回すと、ベルトで発電機が回り、天井の電飾が光る'],['すべり台','すべり終えると、旗が上がってクラッカーが鳴る'],['シーソー','乗っているみんなとボールの重さで傾き、ボールがゴールへ'],
+ ['ふとんトランポリン','跳ねるたびに星のモビールが揺れて、目覚まし時計が鳴る'],['ベルトコンベア','運ばれるあいだ、回転ブラシが回って泡が出る'],['扇風機','風でカーテンがなびいて、紙ひこうきが飛ぶ'],
+ ['砂浴び','ころがると、砂のホッパーから砂がこぼれる'],['ひまわりの種の山','すべり降りてもぐもぐ。種のガチャが回る'],['パイプ','中を通る子の数だけふくらみが流れ、圧力計と湯気が動く'],
+ ['風船','行列の数だけ風船があって、一匹ずつ持って飛んでいく'],['回転ブランコ','一匹ずつ自分の席に乗って回り、乗った数だけ屋根の電球がつく'],['おもちゃの汽車','行列の数だけ車両がつながって、煙をはいて走る']];
+const guideEl=document.getElementById('guide'),resList=document.getElementById('resList'),roomList=document.getElementById('roomList');
+roomList.innerHTML=ROOMS.map(r=>'<div><b>'+r[0]+'</b><span>'+r[1]+'</span></div>').join('');
+function openGuide(){const inTrain=new Set();houses.forEach(h=>h.train.forEach(s=>inTrain.add(s)));resList.innerHTML='';
+  const order=[...Array(NS).keys()].sort((a,b)=>(inTrain.has(b)?1:0)-(inTrain.has(a)?1:0));
+  for(const i of order){const A=SP[i],gr=A.fr[0],w=gr[0].length,h=gr.length,Z=4;
+    const src=document.createElement('canvas');src.width=w+2;src.height=h+2;const og=g;g=src.getContext('2d');hamster(1+w/2,h,i,{frame:gr});g=og;
+    const c=document.createElement('canvas');c.width=(w+2)*Z;c.height=(h+2)*Z;c.style.width=(w+2)*Z/1.4+'px';c.style.height=(h+2)*Z/1.4+'px';
+    const cx=c.getContext('2d');cx.imageSmoothingEnabled=false;cx.drawImage(src,0,0,c.width,c.height);
+    const d=document.createElement('div');d.className='r'+(inTrain.has(i)?' now':'');
+    const ic=document.createElement('div');ic.className='ic';ic.appendChild(c);d.appendChild(ic);
+    const t=document.createElement('div');t.className='t';t.innerHTML='<span class="n">'+A.n+'</span>'+(inTrain.has(i)?'<span class="tag in">行列中</span>':'')+(i>=20?'<span class="tag">新入り</span>':'');
+    d.appendChild(t);resList.appendChild(d);}
+  guideEl.classList.add('on');hintEl.classList.remove('on');}
+function closeGuide(){guideEl.classList.remove('on');}
+guideEl.addEventListener('pointerdown',e=>{if(e.target===guideEl)closeGuide();});
+guideEl.querySelector('.close').addEventListener('click',closeGuide);
+
 /* ---------- boot ---------- */
 resize();addEventListener('resize',resize);
 setTimeout(()=>hintEl.classList.add('on'),700);
@@ -350,7 +410,8 @@ if(window.APKit)APKit.init({
   /* GIF書き出しはなし(2026/09/29 おっちゃんの方針で◉を外した) */
   buttons:[
     {label:'✦',name:'mutate',onClick:mutate},
-    {label:'↻',name:'reset',onClick:resetAll}
+    {label:'↻',name:'reset',onClick:resetAll},
+    {label:'？',name:'guide',onClick:openGuide}
   ]
 });
 })();
