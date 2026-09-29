@@ -98,8 +98,12 @@ export default {
 
     const asset = await env.ASSETS.fetch(request);
 
-    // Count only explicit full-screen work opens. Gallery preview iframes do not carry ap_view=1.
-    if (url.searchParams.get('ap_view') === '1' && env.DB) {
+    // Count explicit full-screen opens from the gallery, plus direct top-level opens of published art pages.
+    // Gallery preview iframes are excluded: they carry neither ap_view=1 nor Sec-Fetch-Dest=document.
+    const isGalleryOpen = url.searchParams.get('ap_view') === '1';
+    const isPublishedWork = /^\\/art-v\\d+-[^/]+\\.html$/i.test(url.pathname);
+    const isDirectDocument = request.headers.get('sec-fetch-dest') === 'document';
+    if (env.DB && (isGalleryOpen || (isPublishedWork && isDirectDocument))) {
       const workPath = url.pathname;
       const workTitle = (url.searchParams.get('ap_title') || workPath).slice(0, 120);
       ctx.waitUntil(recordView(env.DB, workPath, workTitle));
