@@ -1,0 +1,270 @@
+<!doctype html>
+<!-- OSHIKURA — クロード作(おっちゃん「動物達はかわいいから何か違うアートとして」→「おしくらまんじゅう」を選択。住人はHAMSTER DROPの動物たち)。ap-kit.js統合: クロード -->
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>OSHIKURA — さむい日は、みんなでくっつく</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#C8E6F7}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#hint{position:fixed;left:0;right:0;top:calc(12% + env(safe-area-inset-top,0px));text-align:center;
+  font:600 12px/1.9 "Hiragino Maru Gothic ProN","Hiragino Sans","Yu Gothic",sans-serif;letter-spacing:.12em;color:rgba(255,255,255,.97);
+  text-shadow:0 1px 0 rgba(30,40,70,.85),0 0 6px rgba(30,40,70,.7);pointer-events:none;transition:opacity 1.6s ease;opacity:0}
+#hint.on{opacity:1}
+</style>
+<script src="../ap-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">寒くなると、みんな寄り集まっておしくらまんじゅう<br>触ると、そこに焚き火が灯る</div>
+<script>
+(function(){
+'use strict';
+/* ─────────────────────────────────────────────────────────────
+   世界のルール:「寒くなるほど、みんなくっつく」
+   ・季節はゆっくりめぐる(あたたかい → 冷えこむ → 雪 → とける)。約80秒でひとめぐり。
+   ・あたたかい間、動物たちはばらばらに歩いたり跳ねたりして、原っぱに散らばっている。
+   ・冷えこむと雪が降りはじめ、みんな真ん中へ寄っていき、押しあって、積み重なって、ひとつのおだんごになる。
+     だんごの中であったまった子は目をつむって眠り、外側でひとりの子は震えて白い息を吐く。
+   ・雪は地面に積もり、あたたかくなるととけていく。だんごもほどけて、またみんな散らばる。
+   ・触ると、その場所に焚き火が灯る(しばらくで消える)。寒いあいだ、みんなは焚き火のまわりに集まり、焚き火のそばの雪はとける。
+     焚き火をいくつか灯すと、だんごも分かれる(寄り集まる場所を、こちらが決められる)。
+   ✦ = 仲間の顔ぶれを替える / ↻ = あたたかい日から、やり直す
+   ───────────────────────────────────────────────────────────── */
+const TAU=Math.PI*2,S=128,AR=3.8,GR=220,CYC=80;
+let W=S,H=390,K=4,groundY=290;
+const cv=document.getElementById('c'),ctx=cv.getContext('2d'),hintEl=document.getElementById('hint');
+const buf=document.createElement('canvas');let g=buf.getContext('2d');
+const cl=(u,a,b)=>u<a?a:u>b?b:u,lerp=(a,b,u)=>a+(b-a)*u,rnd=(a,b)=>a+Math.random()*(b-a);
+const ss=v=>v<=0?0:v>=1?1:v*v*(3-2*v);
+function px(x,y,c){g.fillStyle=c;g.fillRect(Math.floor(x),Math.floor(y),1,1);}
+function hx(c){const n=parseInt(c.slice(1),16);return[n>>16&255,n>>8&255,n&255];}
+function mix(a,b,u){const A=hx(a),B=hx(b);return'#'+A.map((v,i)=>Math.round(v+(B[i]-v)*u).toString(16).padStart(2,'0')).join('');}
+
+/* ---------- animals (HAMSTER DROPの20種・右向き) ---------- */
+const PK='#FFC2D1';
+const SP=[
+{n:'ハムスター',O:'#B8672A',p:{B:'#F2A24E',W:'#FFF6EA',E:'#F2A7A0',N:'#FF8FA3',C:PK,F:'#F7B5B5'},s:["...E....","..EBBB..",".BBBBBB.","BBBBBKBB","BBBBBBCN","BBBBWWWW",".WWWWWW.","..F..F.."]},
+{n:'モルモット',O:'#6B4A2E',p:{B:'#E8A060',D:'#8A6448',W:'#FFFFFF',E:'#F2A7A0',N:'#FF8FA3',F:'#F7B5B5'},s:["......EE..","..DDBWBBB.",".DDDBWBKBB","DDDBBWBBBN","DDBBBWWWWW",".WWWWWWWW.","..F....F.."]},
+{n:'ねずみ',O:'#7C7890',p:{B:'#B9B6C4',E:'#FFB3C6',N:'#FF8FA3',T:'#FFB3C6',W:'#FFFFFF',F:'#F7B5B5'},s:[".....BBB...","....BEEEB..","..BBBEEBBB.",".BBBBBBBKB.","TBBBBBBBBBN","T.BBBBBBBW.",".T.F...F..."]},
+{n:'りす',O:'#8A5028',p:{T:'#C07A40',L:'#E8B070',B:'#D98C48',W:'#FFF0DC',E:'#8A5028',N:'#4A3428',F:'#D98C48'},s:["..TT....E..",".TTTT..BBB.","TTTLT.BBBKB","TTTLTBBBBBN",".TTTBBWWBB.","..TTBBWWB..","....F..F..."]},
+{n:'うさぎ',O:'#B8A8B8',p:{B:'#FFFFFF',E:'#FFB3C6',T:'#F4F0F4',N:'#FF8FA3',C:PK,F:'#F7B5B5'},s:["......BB..","......BE..","......BE..",".....BBBB.",".BBBBBBKBB","TBBBBBBBCN",".BBBBBBBB.","..F...FF.."]},
+{n:'ひよこ',O:'#C9A227',p:{B:'#FFE066',W:'#F2C94C',N:'#FF9F43',C:'#FFB3A0',F:'#FF9F43'},s:[".....B...","...BBBB..","..BBBBKB.",".BBWWBBCN","BBBWWWBB.",".BBBBBBB.","..BBBBB..","...F.F..."]},
+{n:'アヒル',O:'#B8B0B8',p:{B:'#FFFFFF',W:'#E6E6EE',N:'#FFB547',T:'#FFFFFF',F:'#FF9F43'},s:["......BBB..",".....BBBKB.",".....BBBBNN","T....BBB...","TBBBBBBB...","BBBBWWBBB..",".BBBBBBBB..","...F..F...."]},
+{n:'ペンギン',O:'#232B3C',p:{B:'#3E4A63',W:'#FFFFFF',D:'#2E3850',N:'#FF9F43',F:'#FF9F43'},s:["..BBBB..",".BBBWKB.",".BBBBBNN",".BBWWWW.","BDBWWWW.",".BBWWWW.",".BBWWW..","..FF.F.."]},
+{n:'ハリネズミ',O:'#5E4630',p:{S:'#8A6A4A',W:'#F6E3C8',N:'#2A1E1A',F:'#F7B5B5'},s:["..S.S.S...",".SSSSSSS..","SSSSSSSWW.","SSSSSSWKWW","SSSSSSWWWN",".WWWWWWWW.","..F...F..."]},
+{n:'カピバラ',O:'#6B4A30',p:{B:'#A07A55',Y:'#FFB547',E:'#6B4A30',N:'#4A3428',F:'#8A6448'},s:["...YY.E....","....BBBBB..","..BBBBBKBB.",".BBBBBBBBBB","BBBBBBBBBBN","BBBBBBBBBB.",".BBBBBBBB..","..F....F..."]},
+{n:'こぶた',O:'#D9708E',p:{B:'#FFC2D1',E:'#FF8FAE',N:'#FF8FAE',T:'#FF8FAE',F:'#FF8FAE'},s:["......E...","...BBBEB..",".BBBBBBKB.","TBBBBBBBNN",".BBBBBBBNN",".BBBBBBBB.","..F...F..."]},
+{n:'ひつじ',O:'#C8C0B8',p:{W:'#FFFFFF',H:'#F2DCC0',C:PK,D:'#6B5A50'},s:["..W.W.W....",".WWWWWWWHH.","WWWWWWWHHKH","WWWWWWWWHHC","WWWWWWWWW..",".WWWWWWWW..","..D...D...."]},
+{n:'子ぐま',O:'#7A5436',p:{B:'#B98A60',E:'#E0B890',W:'#F2DCC0',N:'#2A1E1A',C:PK,F:'#E0B890'},s:[".....BB...","....BEBBB.",".BBBBBBBKB","BBBBBBBBWN","BBBBBBBCWW","BBBBBBBBB.",".BBBBBBB..","..F...F..."]},
+{n:'コアラ',O:'#6E6A78',p:{B:'#A7A6B0',W:'#FFFFFF',N:'#3A3440',C:PK,F:'#8A8894'},s:["...BBB....","..BWWBBB..","..BWWBBBB.",".BBBBBBKNN","BBBBBBBCNN","BBBWWWBBB.",".BBWWWBB..","..F...F..."]},
+{n:'フクロウ',O:'#6B4A2E',p:{B:'#B98A60',W:'#FFFFFF',D:'#8A6448',L:'#F2DCC0',N:'#FFB547',F:'#FFB547'},s:["B.....B","BBBBBBB","BWWBWWB","BWKBKWB","BBBNBBB","BDLLLDB",".DLLLD.",".F...F."]},
+{n:'タヌキ',O:'#4A3428',p:{B:'#A07A55',D:'#5A4232',W:'#F2E6D0',E:'#4A3428',T:'#A07A55',N:'#2A1E1A',F:'#5A4232'},s:["......E...",".....BBB..","TT..BBDKW.","TTBBBBDWWN","DTBBBBBWW.","..BBBBBB..","..F...F..."]},
+{n:'キツネ',O:'#A0501C',p:{B:'#F08A3C',T:'#F08A3C',L:'#FFFFFF',W:'#FFFFFF',E:'#4A3428',N:'#2A1E1A',F:'#4A3428'},s:[".......E...","......BBB..","T.....BBKB.","TT.BBBBBWWN","LTTBBBBBW..","LLTBBBBB...","...F..F...."]},
+{n:'レッサーパンダ',O:'#7A3418',p:{B:'#C8602C',T:'#C8602C',S:'#7A3418',W:'#FFFFFF',N:'#2A1E1A',F:'#4A2A20'},s:["......W...",".....BBB..","S...BWBKB.","TS.BBBBWWN","ST.BBBBBW.",".TSBBBBB..","...F..F..."]},
+{n:'カメ',O:'#3C7A30',p:{S:'#6FB05A',L:'#A8D88A',R:'#E8C88A',B:'#9AD07A',F:'#9AD07A'},s:["..SSSS.....",".SSLLSS....","SSLSSLSSBB.","SSSSSSSSBKB","RRRRRRRRBBB",".F.F..F.F.."]},
+{n:'ちびゾウ',O:'#6E7890',p:{B:'#A9B4C8',E:'#FFC2D1',C:'#FFC2D1',F:'#A9B4C8'},s:["....BBBBB.","..BBEEBBBB",".BBBEEBKBB","BBBBEEBBBB","BBBBBBBB.B","BBBBBBBB.C",".BF..BF..."]}];
+const NS=SP.length;
+function rotGrid(gr,k){let a=gr.map(r=>r.split(''));for(let n=0;n<k;n++){const h=a.length,w=a[0].length,b=[];for(let x=0;x<w;x++){const row=[];for(let y=h-1;y>=0;y--)row.push(a[y][x]);b.push(row);}a=b;}return a;}
+SP.forEach(a=>{a.fr=[0,1,2,3].map(k=>rotGrid(a.s,k));const s2=a.s.slice(),lr=s2[s2.length-1];s2[s2.length-1]='.'+lr.slice(0,-1);a.fw=[rotGrid(a.s,0),rotGrid(s2,0)];});
+function hamster(x,y,sp,o){o=o||{};const A=SP[sp],gr=o.frame||A.fr[0],h=gr.length,w=gr[0].length,fl=!!o.flip;
+  const x0=Math.round(x-w/2),y0=o.center?Math.round(y-h/2):Math.round(y)-h+1,X=c=>x0+(fl?w-1-c:c);
+  g.fillStyle=A.O;
+  for(let r=0;r<h;r++)for(let c=0;c<w;c++){if(gr[r][c]==='.')continue;const xx=X(c);g.fillRect(xx-1,y0+r,1,1);g.fillRect(xx+1,y0+r,1,1);g.fillRect(xx,y0+r-1,1,1);g.fillRect(xx,y0+r+1,1,1);}
+  for(let r=0;r<h;r++)for(let c=0;c<w;c++){let ch=gr[r][c];if(ch==='.')continue;
+    if(ch==='K'&&o.blink){const nb=gr[r][c-1]||gr[r][c+1];if(nb&&nb!=='.'&&nb!=='K')ch=nb;}
+    px(X(c),y0+r,ch==='K'?'#2A1E1A':(A.p[ch]||'#2A1E1A'));}}
+
+/* ---------- world ---------- */
+let T=CYC*.2,animals=[],flakes=[],fires=[],puffs=[],sparks=[],zs=[],snow=new Float32Array(S),hills=[],bag=[];
+function nextSpecies(){if(!bag.length){bag=[...Array(NS).keys()];for(let i=bag.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[bag[i],bag[j]]=[bag[j],bag[i]];}}return bag.pop();}
+/* 季節:0=あたたかい、1=いちばん寒い */
+function coldAt(t){const u=((t%CYC)+CYC)%CYC/CYC;
+  if(u<.3)return 0;if(u<.42)return ss((u-.3)/.12);if(u<.8)return 1;if(u<.92)return 1-ss((u-.8)/.12);return 0;}
+function surf(x){const i=cl(Math.floor(x),0,W-1);return groundY-Math.floor(snow[i]);}
+
+function resize(){
+  const d=Math.min(3,window.devicePixelRatio||1);cv.width=Math.round(innerWidth*d);cv.height=Math.round(innerHeight*d);
+  /* 1ドット=画面のKピクセル(整数)。動くものは画面のピクセル単位でなめらかに、ドットの大きさはそのまま */
+  K=Math.max(1,Math.round(Math.min(cv.width,cv.height)/S));
+  const oW=W;W=Math.ceil(cv.width/K);H=Math.ceil(cv.height/K);
+  buf.width=W;buf.height=H;g=buf.getContext('2d');
+  groundY=Math.round(H*(H>W?.72:.8));
+  const ns=new Float32Array(W);for(let x=0;x<W;x++)ns[x]=snow[Math.min(snow.length-1,Math.floor(x*snow.length/W))]||0;snow=ns;
+  hills=[];for(let x=0;x<W;x++)hills.push(Math.round(groundY-10-6*Math.sin(x*.029+1.1)-4*Math.sin(x*.071+.3)-2*Math.sin(x*.17)));
+  for(const a of animals){a.x=a.x*W/oW;}for(const f of fires)f.x=f.x*W/oW;
+  if(!animals.length)populate();}
+function populate(){
+  animals=[];const n=cl(Math.round(W/10.5),10,24);
+  for(let i=0;i<n;i++)animals.push(newAnimal(rnd(8,W-8),groundY-AR-rnd(0,30)));}
+function newAnimal(x,y){return{x,y,vx:0,vy:0,sp:nextSpecies(),dir:Math.random()<.5?-1:1,t:rnd(0,5),wx:rnd(8,W-8),wt:rnd(0,4),sup:false,warm:0,hopT:rnd(2,8)};}
+
+/* ---------- touch: 焚き火 ---------- */
+function toBuf(e){return[e.clientX*cv.width/innerWidth/K,e.clientY*cv.height/innerHeight/K];}
+cv.addEventListener('pointerdown',e=>{
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  e.preventDefault();hintEl.classList.remove('on');
+  const[bx]=toBuf(e),x=cl(bx,8,W-8);
+  if(fires.length>=3)fires.shift();
+  fires.push({x,t:0,life:26});
+  for(let i=0;i<10;i++)sparks.push({x:x+rnd(-2,2),y:surf(x)-3,vx:rnd(-10,10),vy:rnd(-40,-15),t:0,life:rnd(.4,.9)});});
+
+/* ---------- simulation ---------- */
+function step(dt){
+  T+=dt;const c=coldAt(T);
+  /* 雪:寒いほど降る。地面に積もり、あたたかいと、焚き火のそばでは、とける */
+  const want=c*W*1.1;let spawn=(want-flakes.length)*dt*1.5;
+  while(spawn>0&&(spawn>=1||Math.random()<spawn)){flakes.push({x:rnd(0,W),y:rnd(-20,-2),vy:rnd(12,22),ph:rnd(0,TAU),a:rnd(.6,1.4)});spawn--;}
+  for(const f of flakes){f.y+=f.vy*dt;f.x+=Math.sin(T*f.a+f.ph)*6*dt;
+    if(f.y>=surf(f.x)){const i=cl(Math.floor(f.x),0,W-1);snow[i]+=1.7;f.dead=1;continue;}
+    for(const a of animals){const dx=f.x-a.x,dy=f.y-a.y;if(dx*dx+dy*dy<AR*AR){f.dead=1;break;}}}
+  flakes=flakes.filter(f=>!f.dead);
+  /* 積もった雪はならされて、なだらかな雪原になる */
+  for(let i=1;i<W-1;i++){const d=(snow[i]-(snow[i-1]+snow[i+1])/2)*Math.min(.45,dt*4);snow[i]-=d;snow[i-1]+=d/2;snow[i+1]+=d/2;}
+  snow[0]+=(snow[1]-snow[0])*Math.min(.45,dt*4);snow[W-1]+=(snow[W-2]-snow[W-1])*Math.min(.45,dt*4);
+  const melt=c<.6?(.6-c)*2.4*dt:0;
+  for(let i=0;i<W;i++){let m=melt;for(const fi of fires){const dd=Math.abs(i-fi.x);if(dd<18)m+=(1-dd/18)*2.5*dt;}snow[i]=Math.max(0,Math.min(12,snow[i]-m));}
+  /* 焚き火 */
+  for(const f of fires){f.t+=dt;if(f.t<f.life-3&&Math.random()<dt*8)sparks.push({x:f.x+rnd(-1.5,1.5),y:surf(f.x)-6,vx:rnd(-5,5),vy:rnd(-30,-14),t:0,life:rnd(.4,1)});}
+  fires=fires.filter(f=>f.t<f.life);
+  /* 動物:寒いほど、焚き火(なければ仲間の真ん中)へ寄っていき、押しあって積み重なる */
+  let mx=0;for(const a of animals)mx+=a.x;mx=lerp(mx/Math.max(1,animals.length),W/2,.4);/* 仲間の真ん中(少し画面の真ん中寄り) */
+  for(const a of animals){
+    let nb=0;for(const b of animals)if(b!==a){const dx=b.x-a.x,dy=b.y-a.y;if(dx*dx+dy*dy<11*11)nb++;}
+    let fw=0;for(const f of fires){const dx=Math.abs(a.x-f.x);if(dx<20&&f.t<f.life-2)fw=Math.max(fw,1-dx/20);}
+    a.warm=lerp(a.warm,Math.max(Math.min(1,nb/3),fw),Math.min(1,dt*1.5));
+    let tx=mx,side=0;
+    if(fires.length){let bd=1e9;for(const f of fires){const d=Math.abs(a.x-f.x);if(d<bd){bd=d;side=a.x<f.x?-1:1;tx=f.x+side*9;}}}
+    a.tx=tx;
+    a.wt-=dt;if(a.wt<0){a.wx=rnd(8,W-8);a.wt=rnd(3,9);if(Math.random()<.3)a.wx=a.x;}
+    a.hopT-=dt;
+    let dc=Math.abs(tx-a.x)<2.5?0:cl((tx-a.x)*1.4,-17,17);
+    let dw=Math.abs(a.wx-a.x)<2?0:cl((a.wx-a.x)*.9,-10,10);
+    a.ds=lerp(dw,dc,ss(c*1.4));
+    if(c<.25&&a.sup&&a.hopT<0){a.vy=-rnd(38,58);a.sup=false;a.hopT=rnd(3,9);}
+    /* 寒いとき、行く手を仲間にふさがれたら、よじ登って上に乗る(=だんごが積み上がる) */
+    if(c>.3&&a.sup&&Math.abs(a.ds)>2){const dd=Math.sign(a.ds);
+      for(const b of animals){if(b===a)continue;const dx=(b.x-a.x)*dd,dy=b.y-a.y;
+        if(dx>0&&dx<AR*2+.6&&Math.abs(dy)<2.5&&Math.random()<dt*1.6){a.vy=-rnd(48,62);a.vx=dd*rnd(8,14);a.sup=false;break;}}}
+    a.t+=dt;}
+  const sub=Math.max(2,Math.ceil(dt/.006)),h=dt/sub;
+  for(let s=0;s<sub;s++){
+    for(const a of animals){if(a.sup)a.vx+=(a.ds-a.vx)*Math.min(1,7*h);else a.vx*=1-.4*h;
+      a.vy+=GR*h;a.x+=a.vx*h;a.y+=a.vy*h;a.sup=false;}
+    for(let it=0;it<3;it++){
+      for(let i=0;i<animals.length;i++)for(let j=i+1;j<animals.length;j++){
+        const a=animals[i],b=animals[j],dx=b.x-a.x,dy=b.y-a.y,d2=dx*dx+dy*dy,md=AR*2-.7;
+        if(d2>=md*md)continue;const d=Math.sqrt(d2)||.01,nx=dx/d,ny=dy/d,o=(md-d)/2;
+        a.x-=nx*o;a.y-=ny*o;b.x+=nx*o;b.y+=ny*o;
+        const rv=(b.vx-a.vx)*nx+(b.vy-a.vy)*ny;if(rv<0){a.vx+=rv*nx*.5;a.vy+=rv*ny*.5;b.vx-=rv*nx*.5;b.vy-=rv*ny*.5;}
+        if(ny>.45){a.sup=true;if(a.vy>0)a.vy*=.5;}if(ny<-.45){b.sup=true;if(b.vy>0)b.vy*=.5;}}
+      for(const a of animals){
+        const sy=surf(a.x)-AR;if(a.y>sy){a.y=sy;if(a.vy>0)a.vy=0;a.sup=true;}
+        for(const f of fires){const fy=surf(f.x)-3,dx=a.x-f.x,dy=a.y-fy,d=Math.hypot(dx,dy),md=AR+4;if(d<md){const k=(md-d)/(d||1);a.x+=dx*k;a.y+=Math.min(0,dy*k);}}
+        if(a.x<4){a.x=4;a.vx=Math.abs(a.vx)*.3;}if(a.x>W-4){a.x=W-4;a.vx=-Math.abs(a.vx)*.3;}}}}
+  /* 白い息、眠りのz、焚き火の火の粉 */
+  for(const a of animals){
+    if(c>.3&&a.warm<.55&&Math.random()<dt*.9)puffs.push({x:a.x+a.dir*4.5,y:a.y-1.5,vx:a.dir*4,t:0,life:rnd(.8,1.3)});
+    if(c>.5&&a.warm>.7&&Math.random()<dt*.18)zs.push({x:a.x+rnd(-1,1),y:a.y-6,t:0,life:2.2,ph:rnd(0,TAU)});}
+  for(const p of puffs){p.t+=dt;p.x+=p.vx*dt;p.y-=5*dt;}puffs=puffs.filter(p=>p.t<p.life);
+  for(const z of zs){z.t+=dt;z.y-=6*dt;}zs=zs.filter(z=>z.t<z.life);if(zs.length>30)zs.splice(0,zs.length-30);
+  for(const p of sparks){p.t+=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=12*dt;}sparks=sparks.filter(p=>p.t<p.life);}
+
+/* ---------- render ----------
+   空・丘・地面・雪は低解像度の板(ドットの格子)に描いて整数倍で拡大。
+   動物・焚き火・雪片・息・zは、ドット絵を小さな板に描いてから画面のピクセル単位の位置に貼る(ドットはそのまま、動きはなめらか) */
+const sprCache=new Map();
+function sprite(key,w,h,fn){let c=sprCache.get(key);if(!c){c=document.createElement('canvas');c.width=w;c.height=h;const og=g;g=c.getContext('2d');fn();g=og;sprCache.set(key,c);}return c;}
+function blit(c,x,y){ctx.drawImage(c,Math.round(x*K),Math.round(y*K),c.width*K,c.height*K);}
+function dot(x,y,col,a){ctx.globalAlpha=a==null?1:a;ctx.fillStyle=col;ctx.fillRect(Math.round(x*K),Math.round(y*K),K,K);ctx.globalAlpha=1;}
+const FIRE=[
+ ["...#...","..###..",".##o##.",".#ooo#.","#oyyyo#","#oyyyo#",".#oyo#."],
+ ["..#....","..##.#.",".##o##.","##ooo#.","#oyyyo#",".#yyyo#",".#oyo#."],
+ ["....#..",".#.##..",".##o##.",".#ooo##","#oyyyo#","#oyyy#.",".#oyo#."]];
+function fireSprite(fr,lv){return sprite('f'+fr+lv,7,10,()=>{
+  const F=FIRE[fr],off=7-Math.max(3,Math.round(7*lv));
+  for(let r=0;r<7;r++){if(r<off)continue;for(let c=0;c<7;c++){const ch=F[r][c];if(ch==='.')continue;px(c,r,ch==='#'?'#E8541E':ch==='o'?'#FF9A2A':'#FFE680');}}
+  g.fillStyle='#6B4226';g.fillRect(0,8,7,1);g.fillStyle='#8A5A34';g.fillRect(1,7,5,1);g.fillRect(0,9,2,1);g.fillRect(5,9,2,1);});}
+const ZG=["###","..#",".#.","#..","###"];
+function render(gp){
+  const tt=gp===null?T:T,c=gp===null?coldAt(T):coldAt(T);
+  ctx.imageSmoothingEnabled=false;
+  /* grid layer */
+  const skyT=mix('#9ED4F2','#7E8DAE',c),skyB=mix('#DDF1FA','#C3CCDC',c);
+  for(let y=0;y<groundY;y+=2){g.fillStyle=mix(skyT,skyB,y/groundY);g.fillRect(0,y,W,2);}
+  /* お日さま(寒いと隠れる) */
+  if(c<.95){const sx=Math.round(W*.78),sy=Math.round(groundY*.18),r=7;g.fillStyle=mix('#FFE9A0',skyT,c);
+    for(let y=-r;y<=r;y++)for(let x=-r;x<=r;x++)if(x*x+y*y<=r*r)g.fillRect(sx+x,sy+y,1,1);}
+  const hc=mix('#A9D6A0','#AEB9C6',c),cap=mix(hc,'#F4F8FC',ss(c*1.3));
+  for(let x=0;x<W;x++){const y=hills[x];g.fillStyle=hc;g.fillRect(x,y,1,groundY-y);g.fillStyle=cap;g.fillRect(x,y,1,Math.round(1+2*c));}
+  g.fillStyle=mix('#8CC77C','#9FAE8F',c);g.fillRect(0,groundY,W,2);
+  g.fillStyle='#9C7B5B';g.fillRect(0,groundY+2,W,H-groundY-2);
+  g.fillStyle='#8A6B4E';for(let y=groundY+5;y<H;y+=4)for(let x=(y*5)%9;x<W;x+=9)g.fillRect(x,y,4,1);
+  /* 焚き火の明かり(ドットの市松で) */
+  for(const f of fires){const k=Math.min(1,(f.life-f.t)/3)*Math.min(1,f.t*3),fy=surf(f.x)-3;if(k<=0)continue;
+    g.fillStyle='#FFB25A';for(let y=-16;y<=10;y++)for(let x=-18;x<=18;x++){if(((x+y)&1)||x*x+y*y*1.6>324*k)continue;g.globalAlpha=.22;g.fillRect(Math.round(f.x)+x,Math.round(fy)+y,1,1);}g.globalAlpha=1;}
+  for(let x=0;x<W;x++){const s=Math.floor(snow[x]);if(s<=0)continue;g.fillStyle='#F6FAFD';g.fillRect(x,groundY-s,1,s+1);g.fillStyle='#DDE7F2';g.fillRect(x,groundY,1,1);}
+  ctx.drawImage(buf,0,0,W*K,H*K);
+  /* smooth layer */
+  for(const f of fires){const lv=Math.min(1,(f.life-f.t)/4)*Math.min(1,.4+f.t*2),fr=Math.floor(tt*10+f.x)%3;blit(fireSprite(fr,Math.round(lv*4)/4),f.x-3.5,surf(f.x)-10);}
+  const list=animals.slice().sort((a,b)=>b.y-a.y);
+  for(const a of list){
+    const moving=Math.abs(a.vx)>3&&a.sup;
+    if(c>.35&&Math.abs(a.tx-a.x)>2.5)a.dir=a.tx>a.x?1:-1;else if(Math.abs(a.vx)>3)a.dir=a.vx>0?1:-1;
+    const A=SP[a.sp],fr=moving?Math.floor(a.t*8)%2:0,gr=A.fw[fr],w=gr[0].length,h=gr.length;
+    const sleep=c>.45&&a.warm>.7,bl=sleep||(a.t%3.4)<.12;
+    const shiv=c>.35&&a.warm<.5?Math.sin(a.t*55)*.5:0;
+    const spc=sprite('a'+a.sp+'_'+fr+(a.dir<0?'f':'')+(bl?'b':''),w+2,h+2,()=>hamster(1+w/2,1+h/2,a.sp,{center:true,flip:a.dir<0,frame:gr,blink:bl}));
+    blit(spc,a.x-w/2-1+shiv,a.y+AR-h-1.5);}
+  for(const f of flakes)dot(f.x-.5,f.y-.5,'#FFFFFF');
+  for(const p of puffs){const u=p.t/p.life,r=1+u*2;for(let i=0;i<3;i++)dot(p.x+Math.cos(i*2.1+u*3)*r,p.y+Math.sin(i*2.1)*r*.6,'#FFFFFF',.8*(1-u));}
+  for(const z of zs){const u=z.t/z.life,al=u<.2?u/.2:1-(u-.2)/.8,x0=z.x+Math.sin(z.ph+z.t*2)*1.5;
+    for(let r=0;r<5;r++)for(let q=0;q<3;q++)if(ZG[r][q]==='#')dot(x0+q,z.y+r,'#5A6A8A',al*.9);}
+  for(const p of sparks){const u=p.t/p.life;dot(p.x,p.y,u<.5?'#FFE680':'#FF8A2A',1-u);}}
+
+/* ---------- buttons ---------- */
+function say(m){if(window.APKit&&APKit.toast)APKit.toast(m,2200);}
+function mutate(){
+  const n=cl(Math.round(W/10.5)+Math.floor(rnd(-2,3)),8,26);
+  const old=animals;animals=[];
+  for(let i=0;i<n;i++){const o=old[i];const a=newAnimal(o?o.x:rnd(8,W-8),o?o.y-8:groundY-40-rnd(0,40));a.vy=-rnd(20,50);animals.push(a);
+    for(let k=0;k<5;k++)puffs.push({x:a.x+rnd(-3,3),y:a.y+rnd(-2,2),vx:rnd(-6,6),t:0,life:rnd(.4,.7)});}
+  say('仲間の顔ぶれを替えた('+n+'匹)');}
+function resetAll(){T=CYC*.2;snow.fill(0);fires=[];flakes=[];zs=[];puffs=[];sparks=[];
+  for(const a of animals){a.x=rnd(8,W-8);a.y=groundY-AR-rnd(0,20);a.vx=0;a.vy=0;a.warm=0;}
+  say('あたたかい日から、やり直す');}
+
+/* ---------- boot ---------- */
+resize();addEventListener('resize',resize);
+setTimeout(()=>hintEl.classList.add('on'),700);
+setTimeout(()=>hintEl.classList.remove('on'),9000);
+let last=performance.now();
+function loop(now){
+  const dt=Math.max(0,Math.min(.05,(now-last)/1000));last=now;
+  if(!(window.APKit&&APKit.isExporting&&APKit.isExporting())){step(dt);render(null);}
+  requestAnimationFrame(loop);}
+requestAnimationFrame(loop);
+if(location.hash==='#debug')window.__ok={step,render,mutate,resetAll,setT:v=>{T=v;},get:()=>({T,c:coldAt(T),n:animals.length,snow:Math.max(...snow),flakes:flakes.length,spread:Math.max(...animals.map(a=>a.x))-Math.min(...animals.map(a=>a.x)),top:Math.min(...animals.map(a=>a.y)),sleep:animals.filter(a=>a.warm>.7).length})};
+
+/* GIF:その瞬間の動物たちはそのまま、雪片・火・息だけが周期で動く */
+if(window.APKit)APKit.init({
+  canvas:cv,
+  gifName:'oshikura-loop',
+  clockFormat:'spec',
+  dock:true,
+  autoHide:true,
+  fullscreenButton:false,
+  loopFrame:function(phase){
+    const saveF=flakes,saveT=T;
+    flakes=saveF.map(f=>({x:f.x+Math.sin(phase+f.ph)*1.5,y:((f.y+phase/TAU*H*.35)%groundY+groundY)%groundY}));
+    T=saveT;render(phase);flakes=saveF;},
+  buttons:[
+    {label:'✦',name:'mutate',onClick:mutate},
+    {label:'↻',name:'reset',onClick:resetAll}
+  ]
+});
+})();
+</script>
+</body>
+</html>
