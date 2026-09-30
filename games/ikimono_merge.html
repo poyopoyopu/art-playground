@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>いきものマージ</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:radial-gradient(circle at 50% 0%,#fff8e9,#eaf7ff 55%,#dff1e8);
+font-family:system-ui,-apple-system,sans-serif;color:#27313a;overflow:hidden}
+#app{width:min(100vw,520px);height:100dvh;margin:auto;display:flex;flex-direction:column}
+header{height:72px;padding:10px 14px;display:flex;align-items:center;justify-content:space-between}
+.title{font-weight:900;font-size:22px;letter-spacing:.04em}
+.stats{font-size:13px;font-weight:800;background:#ffffffb8;border-radius:14px;padding:7px 10px}
+#shop{height:82px;padding:6px 10px;display:flex;gap:8px;overflow-x:auto}
+.card{min-width:72px;height:66px;border:0;border-radius:18px;background:#fff;box-shadow:0 4px 12px #00000012;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:11px;font-weight:800}
+.card span{font-size:25px;line-height:28px}
+#board{position:relative;flex:1;margin:8px 10px 10px;background:#fffaf0;border:4px solid #ffffff;border-radius:28px;box-shadow:inset 0 0 0 2px #dbe7dd,0 8px 25px #00000012;overflow:hidden}
+#board:after{content:"";position:absolute;inset:auto 0 0;height:65px;background:linear-gradient(transparent,#d8f0df);pointer-events:none}
+#hint{position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:4;background:#ffffffd9;padding:6px 11px;border-radius:14px;font-size:12px;font-weight:800}
+#tray{height:76px;padding:9px 12px 12px;display:flex;align-items:center;gap:8px}
+button{font:inherit}
+.action{flex:1;border:0;border-radius:18px;padding:13px;background:#fff;box-shadow:0 4px 12px #00000012;font-weight:900}
+.action.primary{background:#ffcf5c}
+.item{position:absolute;width:54px;height:54px;border-radius:50%;display:grid;place-items:center;touch-action:none;user-select:none;cursor:pointer;z-index:3;filter:drop-shadow(0 4px 3px #0002);transition:transform .12s}
+.item:active{transform:scale(1.14)}
+.pixel{image-rendering:pixelated;shape-rendering:crispEdges}
+@keyframes bob{0%,100%{translate:0 0}50%{translate:0 -3px}}
+.item .face{animation:bob 1.5s ease-in-out infinite}
+.pop{position:absolute;z-index:8;pointer-events:none;font-size:28px;font-weight:900;animation:pop .55s forwards}
+@keyframes pop{0%{opacity:0;transform:scale(.5)}30%{opacity:1;transform:scale(1.2)}100%{opacity:0;transform:translateY(-35px) scale(1)}}
+#collection{position:absolute;inset:0;background:#ffffffee;z-index:20;display:none;padding:18px;overflow:auto}
+#collection h2{margin:0 0 10px}
+.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+.cell{background:#f5f7f3;border-radius:14px;padding:8px;text-align:center;font-size:10px;font-weight:800}
+.cell .emoji{font-size:24px;display:block}
+.close{margin-top:14px;width:100%;border:0;border-radius:16px;padding:12px;background:#27313a;color:white;font-weight:900}
+</style>
+</head>
+<body>
+<div id="app">
+<header><div class="title">🌱 いきものマージ</div><div class="stats">❤️ <b id="score">0</b>　図鑑 <b id="found">0</b>/30</div></header>
+<div id="shop"></div>
+<div id="board"><div id="hint">同じ生き物を2匹タップして合成！</div></div>
+<div id="tray"><button class="action primary" id="spawn">🐣 生き物を出す</button><button class="action" id="book">📖 図鑑</button><button class="action" id="reset">↻</button></div>
+</div>
+<div id="collection"><h2>📖 いきもの図鑑</h2><div class="grid" id="grid"></div><button class="close" id="close">とじる</button></div>
+<script>
+const C=[["ねこ", "🐱"], ["いぬ", "🐶"], ["うさぎ", "🐰"], ["ペンギン", "🐧"], ["カエル", "🐸"], ["ひよこ", "🐤"], ["ハムスター", "🐹"], ["おばけ", "👻"], ["ひつじ", "🐑"], ["ことり", "🐦"], ["かめ", "🐢"], ["たこ", "🐙"], ["キツネ", "🦊"], ["ハリネズミ", "🦔"], ["にわとり", "🐔"], ["アライグマ", "🦝"], ["アザラシ", "🦭"], ["コアラ", "🐨"], ["クラゲ", "🪼"], ["りゅう", "🐲"], ["スライム", "💧"], ["ユニコーン", "🦄"], ["コウモリ", "🦇"], ["きのこ妖精", "🍄"], ["星うさぎ", "⭐"], ["もぐら", "🐾"], ["ぷにドラゴン", "🟦"], ["雲ねこ", "☁️"], ["月きつね", "🌙"], ["虹ペンギン", "🌈"]];
+const S=[{"w": 8, "h": 9, "p": [[0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 1, 1, 0, 1, 0], [0, 0, 1, 1, 1, 1, 1, 0], [0, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1], [0, 0, 1, 1, 1, 1, 1, 0]], "c": "#90be6d"}, {"w": 8, "h": 7, "p": [[0, 0, 0, 0, 0, 0, 0, 1], [0, 0, 0, 1, 1, 1, 1, 0], [0, 0, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1], [0, 0, 1, 1, 1, 1, 1, 0]], "c": "#b388eb"}, {"w": 10, "h": 7, "p": [[0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [0, 0, 0, 0, 1, 1, 1, 0, 0, 0], [1, 0, 1, 1, 1, 1, 1, 1, 1, 0], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 0, 1, 1, 1, 1, 1, 1, 1, 0]], "c": "#8ecae6"}, {"w": 12, "h": 9, "p": [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0], [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0], [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0]], "c": "#caffbf"}, {"w": 12, "h": 6, "p": [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0], [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0]], "c": "#caffbf"}, {"w": 13, "h": 6, "p": [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0]], "c": "#f9c74f"}, {"w": 13, "h": 9, "p": [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0], [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1], [1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0], [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0]], "c": "#90be6d"}, {"w": 12, "h": 8, "p": [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [1, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0], [1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0], [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0]], "c": "#b388eb"}, {"w": 12, "h": 8, "p": [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0], [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0]], "c": "#8ecae6"}, {"w": 11, "h": 9, "p": [[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0], [0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0], [0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0]], "c": "#caffbf"}, {"w": 13, "h": 7, "p": [[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0]], "c": "#a0c4ff"}, {"w": 11, "h": 6, "p": [[1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0], [0, 1, 0, 1, 1, 1, 1, 1, 0, 0, 0], [1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0]], "c": "#f9c74f"}, {"w": 8, "h": 7, "p": [[0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 1, 1, 1, 0, 0], [1, 1, 1, 1, 1, 1, 1, 0], [0, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1], [0, 0, 1, 1, 1, 1, 1, 0]], "c": "#ff8fa3"}, {"w": 9, "h": 9, "p": [[0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 1, 1, 1, 1, 0, 0], [0, 0, 1, 1, 1, 1, 1, 1, 0], [1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1], [0, 0, 1, 1, 1, 1, 1, 1, 0]], "c": "#f9c74f"}, {"w": 7, "h": 9, "p": [[0, 0, 0, 0, 0, 1, 0], [0, 0, 0, 1, 1, 0, 0], [0, 0, 1, 1, 1, 1, 0], [0, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1], [0, 0, 1, 1, 1, 1, 0]], "c": "#f9c74f"}, {"w": 8, "h": 6, "p": [[0, 0, 0, 0, 0, 0, 0, 0], [0, 1, 0, 1, 1, 1, 1, 0], [0, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1], [0, 0, 1, 1, 1, 1, 1, 0]], "c": "#ff8fa3"}, {"w": 7, "h": 8, "p": [[0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 1, 1, 1, 0], [0, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1], [0, 0, 1, 1, 1, 1, 0]], "c": "#f9844a"}, {"w": 12, "h": 8, "p": [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0]], "c": "#ffd6a5"}, {"w": 10, "h": 9, "p": [[0, 1, 0, 0, 0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 1, 1, 1, 0, 1, 0], [0, 0, 1, 1, 1, 1, 1, 1, 1, 0], [0, 1, 1, 1, 1, 1, 1, 1, 1, 0], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 0, 0, 1, 1, 1, 1, 1, 1, 0]], "c": "#a0c4ff"}, {"w": 9, "h": 7, "p": [[0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 1, 1, 1, 1, 1, 0], [0, 0, 1, 1, 1, 1, 1, 1, 0], [0, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1], [0, 0, 1, 1, 1, 1, 1, 1, 0]], "c": "#90be6d"}, {"w": 7, "h": 6, "p": [[0, 0, 0, 0, 0, 0, 0], [1, 0, 0, 1, 1, 1, 0], [0, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1]], "c": "#a0c4ff"}, {"w": 13, "h": 7, "p": [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0]], "c": "#6ec6a8"}, {"w": 7, "h": 6, "p": [[0, 0, 0, 0, 0, 0, 0], [1, 1, 0, 1, 1, 1, 0], [0, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1]], "c": "#f9844a"}, {"w": 10, "h": 9, "p": [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 1, 1, 1, 0, 0, 1], [0, 0, 1, 1, 1, 1, 1, 1, 1, 0], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 0, 1, 1, 1, 1, 1, 1, 1, 0], [0, 0, 1, 1, 1, 1, 1, 1, 1, 0]], "c": "#ffd6a5"}, {"w": 11, "h": 9, "p": [[1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0], [0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0], [0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0]], "c": "#f9844a"}, {"w": 13, "h": 6, "p": [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 1], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0]], "c": "#ffd6a5"}, {"w": 10, "h": 6, "p": [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 1, 1, 1, 1, 1, 0, 0], [1, 0, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 0, 1, 1, 1, 1, 1, 1, 1, 0]], "c": "#b388eb"}, {"w": 7, "h": 9, "p": [[0, 1, 0, 0, 0, 0, 0], [1, 0, 0, 1, 1, 0, 0], [0, 0, 1, 1, 1, 1, 0], [0, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1], [0, 0, 1, 1, 1, 1, 0]], "c": "#b388eb"}, {"w": 13, "h": 9, "p": [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0], [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0], [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0]], "c": "#ff8fa3"}, {"w": 9, "h": 8, "p": [[0, 0, 0, 0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 1, 1, 0, 1, 0], [0, 0, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1], [0, 0, 1, 1, 1, 1, 1, 1, 0]], "c": "#ff8fa3"}];
+const board=document.querySelector('#board'), shop=document.querySelector('#shop');
+let score=0, found=new Set(), items=[], nextId=1;
+
+function svg(i,frame=0){
+  const s=S[i], scale=4, pad=1, w=s.w*scale, h=s.h*scale;
+  let r=`<svg class="pixel" width="${w}" height="${h}" viewBox="0 0 ${s.w} ${s.h}" xmlns="http://www.w3.org/2000/svg">`;
+  r+=`<rect width="${s.w}" height="${s.h}" fill="transparent"/>`;
+  for(let y=0;y<s.h;y++)for(let x=0;x<s.w;x++)if(s.p[y][x]){
+    let xx=x, yy=y;
+    if(frame && y===s.h-1 && (x+frame)%3===0) yy=Math.max(0,y-1);
+    r+=`<rect x="${xx}" y="${yy}" width="1" height="1" fill="${s.c}"/>`;
+  }
+  // eyes / cheeks
+  const ex=Math.floor(s.w/2)-1, ey=Math.floor(s.h*.45);
+  r+=`<rect x="${ex}" y="${ey}" width="1" height="1" fill="#27313a"/><rect x="${ex+2}" y="${ey}" width="1" height="1" fill="#27313a"/>`;
+  r+=`<rect x="${ex-1}" y="${ey+1}" width="1" height="1" fill="#ff8fa3"/><rect x="${ex+3}" y="${ey+1}" width="1" height="1" fill="#ff8fa3"/>`;
+  return r+'</svg>';
+}
+function renderShop(){
+  shop.innerHTML='';
+  C.forEach((c,i)=>{if(i<10){let b=document.createElement('button');b.className='card';b.innerHTML=`<span>${c[1]}</span>${c[0]}`;b.onclick=()=>spawn(i);shop.appendChild(b)}})
+}
+function spawn(i=Math.floor(Math.random()*Math.min(10,C.length))){
+  if(items.length>=16)return;
+  const r=board.getBoundingClientRect(), size=54;
+  const x=12+Math.random()*(r.width-size-24), y=42+Math.random()*(r.height-size-95);
+  const el=document.createElement('div'); el.className='item'; el.dataset.type=i; el.dataset.id=nextId++;
+  el.style.left=x+'px';el.style.top=y+'px';
+  el.innerHTML=`<div class="face">${svg(i,0)}</div>`;
+  let dragging=false, sx=0,sy=0,ox=0,oy=0;
+  el.onpointerdown=e=>{dragging=true;el.setPointerCapture(e.pointerId);sx=e.clientX;sy=e.clientY;ox=el.offsetLeft;oy=el.offsetTop};
+  el.onpointermove=e=>{if(!dragging)return;el.style.left=(ox+e.clientX-sx)+'px';el.style.top=(oy+e.clientY-sy)+'px'};
+  el.onpointerup=()=>{dragging=false;checkMerge(el)};
+  board.appendChild(el);items.push(el);found.add(i);update();
+}
+function checkMerge(a){
+  const ar=a.getBoundingClientRect();
+  for(const b of [...items]){
+    if(b===a||b.dataset.type!==a.dataset.type)continue;
+    const br=b.getBoundingClientRect(), dx=ar.left-br.left,dy=ar.top-br.top;
+    if(Math.hypot(dx,dy)<48){
+      const t=+a.dataset.type, next=(t+1)%C.length;
+      const x=(a.offsetLeft+b.offsetLeft)/2,y=(a.offsetTop+b.offsetTop)/2;
+      a.remove();b.remove();items=items.filter(x=>x!==a&&x!==b);
+      score+=10+t*2; pop(x,y,`+${10+t*2} ✨`);
+      spawnAt(next,x,y);
+      return;
+    }
+  }
+}
+function spawnAt(i,x,y){
+  if(items.length>=16)return;
+  const el=document.createElement('div');el.className='item';el.dataset.type=i;el.dataset.id=nextId++;
+  el.style.left=x+'px';el.style.top=y+'px';el.innerHTML=`<div class="face">${svg(i,1)}</div>`;
+  board.appendChild(el);items.push(el);found.add(i);update();
+  el.animate([{transform:'scale(.3)'},{transform:'scale(1.25)'},{transform:'scale(1)'}],{duration:400});
+  el.onpointerdown=e=>{let dragging=true,sx=e.clientX,sy=e.clientY,ox=el.offsetLeft,oy=el.offsetTop;el.setPointerCapture(e.pointerId);
+    el.onpointermove=q=>{if(dragging){el.style.left=(ox+q.clientX-sx)+'px';el.style.top=(oy+q.clientY-sy)+'px'}};
+    el.onpointerup=()=>{dragging=false;checkMerge(el)};
+  };
+}
+function pop(x,y,t){let p=document.createElement('div');p.className='pop';p.textContent=t;p.style.left=x+'px';p.style.top=y+'px';board.appendChild(p);setTimeout(()=>p.remove(),600)}
+function update(){document.querySelector('#score').textContent=score;document.querySelector('#found').textContent=found.size;buildBook()}
+function buildBook(){
+  document.querySelector('#grid').innerHTML=C.map((c,i)=>`<div class="cell"><span class="emoji">${found.has(i)?c[1]:'?'}</span>${found.has(i)?c[0]:'???'}</div>`).join('');
+}
+document.querySelector('#spawn').onclick=()=>spawn();
+document.querySelector('#book').onclick=()=>document.querySelector('#collection').style.display='block';
+document.querySelector('#close').onclick=()=>document.querySelector('#collection').style.display='none';
+document.querySelector('#reset').onclick=()=>{items.forEach(x=>x.remove());items=[];score=0;found.clear();update()};
+renderShop();buildBook();
+for(let i=0;i<3;i++)spawn();
+</script>
+</body></html>
