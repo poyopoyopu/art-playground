@@ -57,26 +57,115 @@ function newCurrent(){
  current=make(next,W/2,76);next=pickType();
 }
 function gridFor(t){
- const g=Array.from({length:9},()=>Array(11).fill(0));
- const cx=5,cy=4,style=t%10;
- for(let y=0;y<9;y++)for(let x=0;x<11;x++){
-   const dx=(x-cx),dy=(y-cy),d=Math.sqrt(dx*dx*1.05+dy*dy);
-   if(d<3.9)g[y][x]=1;
- }
- // silhouette families
- if(style===0||style===2){g[1][2]=g[1][3]=g[1][7]=g[1][8]=1;g[2][2]=g[2][3]=g[2][7]=g[2][8]=1}
- if(style===1){g[0][2]=g[0][3]=g[0][7]=g[0][8]=1;g[1][2]=g[1][3]=g[1][7]=g[1][8]=1}
- if(style===3){for(let x=2;x<9;x++)g[6][x]=1;g[7][3]=g[7][7]=1}
- if(style===4){g[2][0]=g[2][1]=g[3][0]=g[3][1]=1;g[4][9]=g[4][10]=g[5][9]=g[5][10]=1}
- if(style===5){g[1][4]=g[1][5]=g[1][6]=1;g[0][5]=1;g[7][4]=g[7][6]=1;g[8][5]=1}
- if(style===6){g[2][0]=g[3][0]=g[4][0]=1;g[2][10]=g[3][10]=g[4][10]=1}
- if(style===7){g[0][4]=g[0][6]=1;g[1][4]=g[1][6]=1;g[8][4]=g[8][6]=1}
- if(style===8){for(let y=1;y<8;y+=2){g[y][1]=g[y][2]=g[y][8]=g[y][9]=1}}
- if(style===9){g[1][5]=1;g[0][5]=1;g[7][5]=1;g[8][5]=1;g[4][1]=g[4][9]=1}
- // higher stages gain a distinctive crown/halo pixel rhythm
- const tier=Math.floor(t/5);
- for(let i=0;i<tier&&i<4;i++){const x=2+i*2;g[Math.max(0,2-i)][x]=1;g[Math.max(0,2-i)][10-x]=1}
- return g;
+ const S=[
+ // 01 cat
+ ['...BB......','..BBBB.....','.B.BB.B....','BBBBBBBB...','BBEBBEBB...','.BBBBBB....','..B..B.....','..B..B.....','............'],
+ // 02 dog
+ ['............','..BBBB......','.BBBBBB.....','BBBBBBBB....','BBEBBEBB....','.BBBBBB.....','..BBBB......','...BB.......','............'],
+ // 03 rabbit
+ ['..B..B.....','..B..B.....','..B..B.....','.BBBBBB....','BBEBBEBB....','.BBBBBB.....','..BBBB......','...BB.......','............'],
+ // 04 penguin
+ ['...BBB.....','..BBBBB....','.BBBBBBB...','BBBBBBBB...','BBEWWEBB...','BBBBBBBB...','.BBBBBB....','..B..B.....','............'],
+ // 05 chick
+ ['....B......','...BBB.....','..BBBBB....','.BBBBBBB...','BBEKBEBB...','.BBBBBB....','..BB.BB....','............'],
+ // 06 frog
+ ['............','..BBBBB.....','.BBBBBBB....','BBEBBEBB....','BBBBBBBB....','BB.BBBB.....','B..BB..B....','............','............'],
+ // 07 blue bird
+ ['......B.....','...BBBB.....','..BBBBBB....','.BBBBBBBB...','BBEBBEBB....','.BBBBBB.....','..B..B......','B.B..B......','............'],
+ // 08 ghost
+ ['............','...BBBB.....','..BBBBBB....','.BBBBBBBB...','BBEWWEBB....','BBBBBBBB....','B.BB.B.B....','............','............'],
+ // 09 hamster
+ ['............','..BBBB......','.BBBBBBB....','BBBBBBBB....','BBEBBEBB....','.BBBBBB.....','..BBBB......','...B........','............'],
+ // 10 turtle
+ ['............','....BBB.....','..BBBBBBB...','.BBBBBBBB...','BBEBBEBBB...','.BBBBBBB....','..B..B......','B....B......','............'],
+ // 11 octopus
+ ['............','...BBBBB....','..BBBBBBB...','.BBEBBEBB...','BBBBBBBBB...','B.B.B.B.B...','BBBBBBBBB...','............','............'],
+ // 12 gray cat
+ ['...BB......','..BBBB.....','.BBBBB.B...','BBBBBBBB...','BBEBBEBB...','.BBBBBB....','..B..B.....','..B..B.....','............'],
+ // 13 sheep
+ ['............','...BBBB.....','..BBBBBBB...','.BBBBBBBB...','BBEWWEBB....','.BBBBBBB....','..BB..BB....','............','............'],
+ // 14 sparrow
+ ['............','...BBB......','..BBBBB.....','.BBBBBBB....','BBEKBEBB....','.BBBBBB.....','..B.B.......','B...B.......','............'],
+ // 15 axolotl
+ ['............','..BBBBB.....','.BBBBBBB....','BBEBBEBB....','BBBBBBBB....','B.BBBBB.B...','...BB.......','............','............'],
+ // 16 whale
+ ['............','...BBBB.....','..BBBBBBB...','.BBBBBBBBB..','BBEWWEBBBB..','..BBBBBBBB..','....BB......','..B.........','............'],
+ // 17 fox
+ ['...BB......','..BBBB.....','.BBBBB.B...','BBBBBBBB...','BBEBBEBB...','.BBBBBB....','..B..B.....','..B..B.....','............'],
+ // 18 hedgehog
+ ['............','..BBBBBB....','.BBBBBBBB...','BBEBBEBB....','BBBBBBBB....','.BBBBBB.....','..BB..BB....','............','............'],
+ // 19 chicken
+ ['....BB.....','...BBBB....','..BBBBBB...','.BBBBBBB...','BBEKBEBB...','.BBBBBB....','..BB..BB....','............','............'],
+ // 20 slime
+ ['............','....BBB.....','..BBBBBBB...','.BBBBBBBB...','BBEBBEBB....','BBBBBBBB....','B..BBBB..B..','............','............'],
+ // 21 raccoon
+ ['...BB.......','..BBBBB....','.BBBBBBB...','BBBBBBBB...','BBEBBEBB...','.BBBBBB....','..B..B.....','..B..B.....','............'],
+ // 22 seal
+ ['............','...BBBB.....','..BBBBBBB...','.BBBBBBBB...','BBEWWEBB....','.BBBBBBB....','..BBBB......','............','............'],
+ // 23 black cat
+ ['...BB.......','..BBBBB....','.BBBBBBB...','BBBBBBBB...','BBEWWEBB...','.BBBBBB....','..B..B.....','..B..B.....','............'],
+ // 24 jellyfish
+ ['....BB......','...BBBB.....','..BBBBBB....','.BBBBBBBB...','BBEWWEBB....','.BBBBBB.....','B.B.B.B.B...','............','............'],
+ // 25 mouse
+ ['............','..B..B.....','.BBBBBBB....','BBBBBBBB....','BBEBBEBB....','.BBBBBB.....','..B..B......','B..B........','............'],
+ // 26 deer
+ ['..B..B.....','..B..B.....','.BBBBBB....','BBBBBBBB...','BBEWWEBB...','.BBBBBB....','..B..B.....','B.B..B.....','............'],
+ // 27 red panda
+ ['...BB......','..BBBB.....','.BBBBBBB...','BBBBBBBB...','BBEWWEBB...','.BBBBBB....','..B..B.....','..B..B.....','............'],
+ // 28 otter
+ ['............','...BBBB....','..BBBBBBB...','.BBBBBBBB...','BBEWWEBB...','.BBBBBB....','..BBBB......','...BB.......','............'],
+ // 29 white penguin
+ ['...BBB.....','..BBBBB....','.BBBBBBB...','BBBBBBBB...','BBEWWEBB...','BBBBBBBB...','.BBBBBB....','..B..B.....','............'],
+ // 30 fox-rabbit
+ ['..B..B.....','..BBBBB....','.BBBBBBB...','BBBBBBBB...','BBEWWEBB...','.BBBBBB....','..B..B.....','..B..B.....','............'],
+ // 31 bee
+ ['............','...BBBB.....','..BBBBBBB...','BBKBBKBB....','BBBBBBBB....','.BBBBBB.....','..B..B.....','............','............'],
+ // 32 ladybug
+ ['............','...BBBB.....','..BBBBBBB...','.BBBBBBBB...','BBKBBKBB....','.BBBBBB.....','..B..B.....','............','............'],
+ // 33 tiny turtle
+ ['............','....BBB.....','..BBBBBBB...','.BBBBBBBB...','BBEBBEBB....','.BBBBBBB....','..B..B......','B....B......','............'],
+ // 34 bat
+ ['B........B..','BB......BB..','.BBBBBBBB...','BBEBBEBB....','BBBBBBBB....','B..BBBB..B..','B........B..','............','............'],
+ // 35 snowman
+ ['....BBB.....','...BBBBB....','...BBBBB....','..BBBBBBB...','BBEWWEBB....','.BBBBBBB....','..BBBBB.....','...BBB......','............'],
+ // 36 star
+ ['....B.......','..BBBBB....','BBBBBBBBB...','..BBBBB....','...BBBB.....','..B...B.....','............','............','............'],
+ // 37 dragon
+ ['...BB.......','..BBBB......','.BBBBBBBB...','BBBBBBBBB...','BBEKBEBB....','.BBBBBBBB...','..B..BB.....','B....B......','............'],
+ // 38 unicorn
+ ['...BB.......','...B........','..BBBBBB....','.BBBBBBBB...','BBEWWEBB....','.BBBBBB.....','..B..B......','..B..B......','............'],
+ // 39 blue dragon
+ ['...BB.......','..BBBB......','.BBBBBBBB...','BBBBBBBBB...','BBEWWEBB....','.BBBBBBBB...','..B..BB.....','B....B......','............'],
+ // 40 fluffy rabbit
+ ['..B..B.....','..BBBB.....','.BBBBBBB...','BBEWWEBB...','BBBBBBBB...','.BBBBBB....','..B..B.....','..B..B.....','............'],
+ // 41 wolf
+ ['...BB......','..BBBB.....','.BBBBBBB...','BBBBBBBB...','BBEWWEBB...','.BBBBBB....','..B..B.....','..B..B.....','............'],
+ // 42 dog
+ ['............','..BBBBB....','.BBBBBBB...','BBBBBBBB...','BBEWWEBB...','.BBBBBB....','..BB..BB....','............','............'],
+ // 43 crab
+ ['............','...BBBB.....','..BBBBBBB...','BBEWWEBB....','BBBBBBBB....','B.B.B.B.B...','..B...B....','............','............'],
+ // 44 hedgehog 2
+ ['............','..BBBBBB....','.BBBBBBBB...','BBEWWEBB....','BBBBBBBB....','.BBBBBB.....','..BB..BB....','............','............'],
+ // 45 sprout fairy
+ ['....B......','...BBB.....','..BBBBB....','.BBBBBBB...','BBEWWEBB...','.BBBBBB....','..B..B.....','B....B.....','............'],
+ // 46 whale 2
+ ['............','...BBBB.....','..BBBBBBB...','.BBBBBBBBB..','BBEWWEBBBB..','..BBBBBBBB..','....BB......','..B.........','............'],
+ // 47 squid
+ ['............','...BBBBB....','..BBBBBBB...','BBEWWEBB....','BBBBBBBB....','B.B.B.B.B...','B..B.B..B...','............','............'],
+ // 48 black slime
+ ['............','....BBB.....','..BBBBBBB...','.BBBBBBBB...','BBEWWEBB....','BBBBBBBB....','B..BBBB..B..','............','............'],
+ // 49 cloud
+ ['............','...BBBB.....','..BBBBBBB...','.BBBBBBBB...','BBEWWEBB....','.BBBBBBB....','..BBBB......','............','............'],
+ // 50 black orb
+ ['............','....BBB.....','..BBBBBBB...','.BBBBBBBB...','BBEBBEBB....','.BBBBBBB....','..BBBB......','............','............']
+ ];
+ const colors=pal[t];
+ const base=S[t];
+ const accent=t===49?'#f2f2f2':colors[1];
+ const out=base.map(row=>row.split(''));
+ // add species-specific accent pixels without destroying silhouettes
+ for(let y=0;y<9;y++)for(let x=0;x<11;x++)if(out[y][x]==='B' && ((x+y+t)%7===0))out[y][x]=(t%5===0?'K':'B');
+ return out;
 }
 const spriteCache=new Map();
 function sprite(t,blink){
