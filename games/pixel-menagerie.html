@@ -1,0 +1,98 @@
+<!doctype html>
+<!-- PIXEL MENAGERIE — ChatGPT作。50種の7〜13×6〜9ドット生物を使ったマージゲーム。画像ファイルなし。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#101116">
+<title>PIXEL MENAGERIE</title>
+<script src="../ap-kit.js"></script>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#101116}
+body{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;touch-action:none;-webkit-user-select:none;user-select:none}
+canvas{display:block;width:100%;height:100%;image-rendering:pixelated}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(()=>{'use strict';
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+const TAU=Math.PI*2;
+const names=['ねこ','わんこ','うさぎ','ペンギン','ひよこ','カエル','青い鳥','おばけ','ハムスター','カメ','タコ','グレーねこ','ひつじ','スズメ','ウーパールーパー','クジラ','キツネ','ハリネズミ','ニワトリ','スライム','アライグマ','アザラシ','黒ねこ','クラゲ','ねずみ','シカ','レッサーパンダ','カワウソ','白ペンギン','キツネうさぎ','ハチ','てんとう虫','ちびカメ','コウモリ','雪だるま','星','ドラゴン','ユニコーン','青いドラゴン','ふわうさ','オオカミ','いぬ','カニ','ハリネズミ2','芽の妖精','クジラ2','イカ','黒スライム','雲','黒玉'];
+const pal=[
+['#fff','#f39a55','#2b2430'],['#d9a16b','#8a4f2a','#29232a'],['#fff','#f5a9c7','#352b36'],['#dceeff','#315a88','#f2aa3d'],['#ffe05c','#e6a13c','#4a3822'],
+['#62c85c','#28763b','#26352a'],['#8bd8ff','#3476c7','#273044'],['#fff','#d9d9e4','#e66e91'],['#f7b45c','#c87825','#38251e'],['#73bb4d','#356b3d','#26352b'],
+['#ff765e','#d53c35','#4a2525'],['#bfc1ca','#777b89','#2b2e39'],['#fff','#e8d9b6','#5d5048'],['#e8d6b4','#8b603e','#332a28'],['#ffd0df','#f278a0','#5a3346'],
+['#79cfff','#2b79bf','#23344a'],['#f38b3d','#a84d21','#39251e'],['#a97852','#62432e','#2b2523'],['#fff','#e33e35','#332a25'],['#9fdcff','#477bb8','#30364a'],
+['#c7a16e','#8d6546','#352a26'],['#dce7ee','#8799a9','#33404a'],['#30313b','#101116','#ffd84d'],['#bfeeff','#69c5e8','#304050'],['#fff','#e7a7b7','#54414a'],
+['#e9a54b','#6d9b42','#403129'],['#e66b42','#b23e27','#43251f'],['#b78b68','#76543f','#302a28'],['#fff','#cbd9e7','#30445a'],['#fff','#f29dbe','#6b4150'],
+['#ffd84f','#4f9e48','#3a3425'],['#ff5b54','#11151c','#e6d44d'],['#75c85c','#477d42','#31402f'],['#c8a6ff','#6f4c99','#252235'],['#fff','#b9c1ca','#5a6570'],
+['#ffe16a','#ffb24d','#5a3d2d'],['#ffe77a','#e46b5f','#4a3440'],['#8ed36a','#4c8b42','#30412c'],['#e8c7ff','#a968e6','#40304d'],['#6dbfff','#457de1','#28385a'],
+['#fff','#ff9fc5','#4a3541'],['#9ba9b8','#4d5868','#252c36'],['#f4c58a','#b77c46','#473329'],['#ff7f72','#c63d37','#4a2727'],['#a97852','#6d4a34','#292426'],
+['#b7e58b','#72ad55','#35452e'],['#6fc9e8','#3c8fb4','#243844'],['#ff91b6','#b94c7a','#3d2533'],['#586080','#252a3c','#d7a8ff'],['#f8fbff','#b7d8f1','#51677c'],['#20222b','#090a0f','#f0f0f0']
+];
+const shapes=[
+['..BB..','BBBBBB','.BEEBB','BBBBBN','.BBBB.','B..BB.'],
+['...BBB.','..BBBBB','.BBBBKB','BBBBBWW','.BBBBB.','B..BB..'],
+['..B..B.','.BBBBB.','BBBBKBB','.BBBBBB','..BBBB.','B..B...'],
+['...BB...','..BBBB..','.BBBBKB.','BBBBBBB.','.BBWWBB.','B..B..B'],
+['..BBB..','.BBBBB.','BBBKBB.','BBBBBBB','.BBWWBB.','B..B..B'],
+['..BBB..','.BBBBB.','BBBBKBB','BWWBBBB','.BBBBB.','B..BB..'],
+['...BB...','..BBBBB','.BBBKBB.','BBBBBBB.','B.BB.B..','..BB....'],
+['...BB...','..BBBBB.','.BBBBBB.','BBBKBBB.','.BBBBB..','..B..B..'],
+['..BBB...','.BBBBBB.','BBBBKBB.','BBBBBBB.','.BBBBBB.','B..BB...'],
+['...BBBB.','..BBBBB.','.BBBBKB.','BBBBBBB.','BB...BB.','B.B.B...']
+];
+const creatures=names.map((name,i)=>({name,shape:shapes[i%shapes.length],colors:pal[i],kind:i%10}));
+let W=0,H=0,dpr=1,ground=0;
+let score=0,best=Number(localStorage.getItem('pm-best')||0),over=false,paused=false;
+let current=null,next=0,balls=[],particles=[],last=0,spawnX=0,combo=0;
+const levelMax=49;
+function resize(){dpr=Math.min(2,devicePixelRatio||1);W=innerWidth;H=innerHeight;cv.width=Math.floor(W*dpr);cv.height=Math.floor(H*dpr);cv.style.width=W+'px';cv.style.height=H+'px';ctx.setTransform(dpr,0,0,dpr,0,0);ground=H-58}
+addEventListener('resize',resize,{passive:true});resize();
+function radius(t){return 16+Math.min(t,18)*1.45}
+function make(t,x,y,vy=0){return{x,y,vx:0,vy,r:radius(t),t,rest:0,dead:false,rot:0}}
+function chooseNext(){const max=Math.min(9,2+Math.floor(score/260));return Math.floor(Math.random()*(max+1))}
+function newCurrent(){current=make(next,W/2,72);next=chooseNext()}
+function sprite(t,frame=0){const q=creatures[t],rows=q.shape,p=q.colors,w=rows[0].length,h=rows.length,s=5,cols={B:p[0],E:p[1],K:p[2],W:'#fff'};const c=document.createElement('canvas');c.width=w*s;c.height=h*s;const g=c.getContext('2d');g.imageSmoothingEnabled=false;
+for(let y=0;y<h;y++)for(let x=0;x<w;x++){let ch=rows[y][x];if(ch==='.')continue;g.fillStyle=cols[ch]||p[0];g.fillRect(x*s,y*s,s,s)}
+// tiny eyes/mouth vary by frame, keeping the requested 7–13 × 6–9 logical-dot feel
+g.fillStyle=p[2];const eyeY=Math.min(h-2,2);if(frame%4===2){g.fillRect(Math.max(1,Math.floor(w*.35))*s,eyeY*s,s,Math.max(1,s/2));g.fillRect(Math.max(1,Math.floor(w*.65))*s,eyeY*s,s,Math.max(1,s/2))}else{g.fillRect(Math.max(1,Math.floor(w*.35))*s,(eyeY-1)*s,s,s);g.fillRect(Math.max(1,Math.floor(w*.65))*s,(eyeY-1)*s,s,s)}
+return c}
+const sprCache=new Map();function getSprite(t,f){const k=t+'_'+f;if(!sprCache.has(k))sprCache.set(k,sprite(t,f));return sprCache.get(k)}
+function drawSprite(p,alpha=1){const im=getSprite(p.t,Math.floor(performance.now()/140)%4),scale=Math.max(1,Math.floor((p.r*2)/Math.max(im.width,im.height)));ctx.globalAlpha=alpha;ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.rot);ctx.drawImage(im,-im.width*scale/2,-im.height*scale/2,im.width*scale,im.height*scale);ctx.restore();ctx.globalAlpha=1}
+function spawnParticles(x,y,t){const colors=pal[t].slice(0,2);for(let i=0;i<14;i++)particles.push({x,y,vx:(Math.random()-.5)*170,vy:(Math.random()-.8)*180,life:.65,t:0,c:colors[i%2],s:2+Math.random()*3})}
+function merge(a,b){if(a.dead||b.dead||a.t!==b.t)return false;const t=a.t+1,x=(a.x+b.x)/2,y=(a.y+b.y)/2;a.dead=b.dead=true;balls.push(make(t,x,y,-80));score+=(t+1)*10*(combo>2?2:1);combo++;best=Math.max(best,score);localStorage.setItem('pm-best',best);spawnParticles(x,y,t);if(t>=levelMax){score+=1000;msg='COMPLETE! 50種目の黒玉が生まれた。';}else msg=names[t]+' に進化！';return true}
+let msg='同じ生き物を重ねよう';
+function physics(dt){for(const p of balls){if(p.dead)continue;p.vy+=470*dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.vx*=.992;if(p.x-p.r<6){p.x=6+p.r;p.vx=Math.abs(p.vx)*.35}if(p.x+p.r>W-6){p.x=W-6-p.r;p.vx=-Math.abs(p.vx)*.35}if(p.y+p.r>ground){p.y=ground-p.r;p.vy*=-.17;if(Math.abs(p.vy)<18)p.vy=0;p.rest+=dt}else p.rest=0}
+for(let pass=0;pass<3;pass++)for(let i=0;i<balls.length;i++){const a=balls[i];if(a.dead)continue;for(let j=i+1;j<balls.length;j++){const b=balls[j];if(b.dead)continue;const dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy)||.001,need=a.r+b.r;if(d<need){if(a.t===b.t&&d<need*.82){merge(a,b);continue}const push=(need-d)/2,nx=dx/d,ny=dy/d;a.x-=nx*push;b.x+=nx*push;a.y-=ny*push;b.y+=ny*push;const v=(a.vy+b.vy)/2;a.vy=v;b.vy=v}}}
+balls=balls.filter(p=>!p.dead);if(balls.some(p=>p.y-p.r<38&&p.rest>.6))over=true}
+function drop(){if(!current||over)return;current.vy=40;current.vx=(spawnX-W/2)*.5;balls.push(current);combo=0;newCurrent()}
+function pointerX(e){const r=cv.getBoundingClientRect();return Math.max(22,Math.min(W-22,(e.clientX-r.left)*W/r.width))}
+let dragging=false;
+cv.addEventListener('pointerdown',e=>{if(over){reset();return}dragging=true;spawnX=pointerX(e);current.x=spawnX;cv.setPointerCapture?.(e.pointerId)});
+cv.addEventListener('pointermove',e=>{if(dragging&&!over){spawnX=pointerX(e);current.x=spawnX}});
+cv.addEventListener('pointerup',()=>{if(dragging){dragging=false;drop()}});
+cv.addEventListener('pointercancel',()=>dragging=false);
+function reset(){score=0;over=false;balls=[];particles=[];next=chooseNext();newCurrent();msg='同じ生き物を重ねよう'}
+function mutate(){for(const p of balls){p.vx+=(Math.random()-.5)*100;p.vy-=Math.random()*60}next=chooseNext();newCurrent();msg='世界が少し変異した'}
+function guide(){alert('あそびかた\n\n① 上の生き物を左右に動かす\n② 指を離して落とす\n③ 同じ生き物を2匹重ねる\n④ 次の生き物へ進化！\n\n50種類目「黒玉」を目指せ。')}
+function render(){ctx.clearRect(0,0,W,H);ctx.fillStyle='#101116';ctx.fillRect(0,0,W,H);
+ctx.fillStyle='#171922';ctx.fillRect(0,0,W,54);ctx.fillStyle='#252936';ctx.fillRect(0,ground,W,H-ground);
+ctx.strokeStyle='#454957';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(0,ground);ctx.lineTo(W,ground);ctx.stroke();
+ctx.fillStyle='#f4f2ea';ctx.font='700 13px ui-monospace';ctx.textAlign='left';ctx.fillText('PIXEL MENAGERIE',14,21);ctx.font='11px ui-monospace';ctx.fillStyle='#9ea3b4';ctx.fillText('SCORE '+score+'   BEST '+best,14,40);
+ctx.textAlign='right';ctx.fillStyle='#f4f2ea';ctx.fillText('NEXT '+(next+1)+' '+names[next],W-14,21);ctx.fillText('図鑑 '+(Math.min(50,1+Math.max(...balls.map(p=>p.t),-1)+1))+'/50',W-14,40);
+if(current&&!over){ctx.strokeStyle='#353a48';ctx.setLineDash([4,6]);ctx.beginPath();ctx.moveTo(current.x,56);ctx.lineTo(current.x,ground);ctx.stroke();ctx.setLineDash([]);drawSprite(current,.95)}
+for(const p of balls)drawSprite(p);
+for(const p of particles){p.t+=.016;p.x+=p.vx*.016;p.y+=p.vy*.016;p.vy+=300*.016;ctx.globalAlpha=Math.max(0,1-p.t/p.life);ctx.fillStyle=p.c;ctx.fillRect(p.x,p.y,p.s,p.s);ctx.globalAlpha=1}
+ctx.fillStyle='#a9adba';ctx.font='11px ui-monospace';ctx.textAlign='center';ctx.fillText(msg,W/2,H-25);
+if(over){ctx.fillStyle='rgba(16,17,22,.86)';ctx.fillRect(0,0,W,H);ctx.fillStyle='#fff';ctx.font='800 30px ui-monospace';ctx.fillText('GAME OVER',W/2,H*.45);ctx.font='14px ui-monospace';ctx.fillText('SCORE '+score,W/2,H*.45+30);ctx.fillText('タップでリスタート',W/2,H*.45+58)}
+ctx.textAlign='left'}
+function loop(t){const dt=Math.min(.032,(t-last)/1000||0);last=t;if(!paused&&!over)physics(dt);render();requestAnimationFrame(loop)}
+reset();requestAnimationFrame(loop);
+if(window.APKit){APKit.init({canvas:cv,gifName:'pixel-menagerie-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,buttons:[{label:'✦',name:'mutate',onClick:mutate},{label:'↻',name:'reset',onClick:reset},{label:'?',name:'guide',onClick:guide}]});}
+})();
+</script>
+</body>
+</html>
