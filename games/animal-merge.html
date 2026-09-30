@@ -20,12 +20,29 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 #album .cell.got{background:#FFE3EE}
 #album .cell canvas{image-rendering:pixelated;image-rendering:crisp-edges;width:78%}
 #album .cell .h{position:absolute;right:3px;top:0;font-size:12px;color:#FF6A9A}
+#howto{position:fixed;inset:0;z-index:21;display:none;align-items:center;justify-content:center;background:rgba(60,70,110,.45)}
+#howto.on{display:flex}
+#howto .card{width:min(520px,92%);max-height:92%;overflow-y:auto;background:#FFF8EC;border-radius:26px;padding:16px 16px 20px;box-sizing:border-box;
+  box-shadow:0 10px 30px rgba(40,50,90,.3);text-align:center;font:700 20px/1.4 "Hiragino Maru Gothic ProN","Hiragino Sans","Yu Gothic",sans-serif;color:#7A4A6A}
+#howto .ttl{font-size:22px;color:#FF6A9A;margin-bottom:8px}
+#howto .st{display:flex;align-items:center;gap:10px;background:#FFEFF4;border-radius:18px;padding:8px 10px;margin:8px 0}
+#howto .num{flex:0 0 34px;height:34px;border-radius:17px;background:#FF8FB8;color:#fff;font-size:20px;line-height:34px}
+#howto .st canvas{flex:0 0 auto;image-rendering:pixelated;image-rendering:crisp-edges;width:min(170px,42vw)}
+#howto .cap{flex:1;font-size:16px;text-align:left;white-space:nowrap}
+#howto .note{font:500 12px/1.7 "Hiragino Sans","Yu Gothic",sans-serif;color:#9A7A8A;text-align:left;margin:10px 4px 0}
+#howto .go{margin-top:12px;border:0;background:#FF8FB8;color:#fff;font:inherit;font-size:22px;border-radius:30px;padding:8px 40px}
 #album .close{margin-top:14px;border:0;background:#FF8FB8;color:#fff;font:inherit;font-size:22px;border-radius:30px;padding:8px 34px}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <div id="album"><div class="card"><div>おともだち</div><div class="cnt" id="acnt"></div><div class="grid" id="agrid"></div><button class="close" id="aclose">もどる</button></div></div>
+<div id="howto"><div class="card"><div class="ttl">あそびかた</div>
+<div class="st"><div class="num">1</div><canvas id="hw1"></canvas><div class="cap">かごを<br>タップ</div></div>
+<div class="st"><div class="num">2</div><canvas id="hw2"></canvas><div class="cap">おなじものを<br>かさねる</div></div>
+<div class="st"><div class="num">3</div><canvas id="hw3"></canvas><div class="cap">どうぶつに<br>わたす</div></div>
+<div class="note">おうちの方へ:下のかご(おかし・おはな)をタップするとアイテムが出ます。同じものを2つ指で重ねると1段大きくなり、6段まで育ちます。上のお店に来た動物のふきだしと同じものを動物まで運ぶ(ふきだしに✓が出ていれば動物をタップするだけでもOK)と、ハートをくれて「おともだち帳」(右上)に入ります。25匹集めるとお店ににじがかかります。失敗や時間切れはありません。しばらく触らないと、指のマークが次にすることを教えてくれます。進みぐあいはこの端末に保存されます。</div>
+<button class="go" id="hgo">あそぶ!</button></div></div>
 <script>
 (function(){
 'use strict';
@@ -160,7 +177,7 @@ function layout(){
   for(let i=0;i<n;i++)L.slots.push({x:shop.w*(.2+i*.3),y:shop.h*.86});
   L.da=Math.max(3,Math.floor(Math.min(cell*1.05/12,shop.h*.34/11,shop.w*.26/13)));
   L.btnR=Math.max(20,Math.round(cell*.36));
-  L.albumBtn={x:shop.w-L.btnR-12,y:L.btnR+14};L.muteBtn={x:shop.w-L.btnR*3-20,y:L.btnR+14};}
+  L.albumBtn={x:shop.w-L.btnR-12,y:L.btnR+14};L.muteBtn={x:shop.w-L.btnR*3-20,y:L.btnR+14};L.helpBtn={x:shop.w-L.btnR*5-28,y:L.btnR+14};}
 addEventListener('resize',layout);
 
 /* ---------- 動き ---------- */
@@ -189,6 +206,7 @@ function P(e){return[e.clientX,e.clientY];}
 cv.addEventListener('pointerdown',e=>{e.preventDefault();const[px,py]=P(e);idle=0;
   if(AC&&AC.state==='suspended')AC.resume();
   if(Math.hypot(px-L.albumBtn.x,py-L.albumBtn.y)<L.btnR+6){openAlbum();return;}
+  if(Math.hypot(px-L.helpBtn.x,py-L.helpBtn.y)<L.btnR+6){openHowto();return;}
   if(Math.hypot(px-L.muteBtn.x,py-L.muteBtn.y)<L.btnR+6){mute=!mute;if(!mute)sPop();save();return;}
   const si=slotAt(px,py);if(si>=0){const o=orders[si],m=findMatch(o);if(m){give(si,m[0],m[1]);}else{o.wig=.5;sNo();}return;}
   const c=cellAt(px,py);if(!c)return;const[x,y]=c;
@@ -212,6 +230,18 @@ function openAlbum(){const g=document.getElementById('agrid');g.innerHTML='';doc
     d.appendChild(c);if(friends[i]){const h=document.createElement('div');h.className='h';h.textContent='♥'+(friends[i]>1?friends[i]:'');d.appendChild(h);}g.appendChild(d);}
   albumEl.classList.add('on');}
 document.getElementById('aclose').addEventListener('click',()=>albumEl.classList.remove('on'));
+
+/* ---------- あそびかた(絵で見せる。はじめて開いたときは自動で出る) ---------- */
+const howEl=document.getElementById('howto');
+function hwCanvas(id,parts){const c=document.getElementById(id),S=4,w=60,h=18;c.width=w*S;c.height=h*S;const g=c.getContext('2d');g.imageSmoothingEnabled=false;
+  for(const p of parts){if(p.img){g.drawImage(p.img,p.x*S,(h-p.img.height)*S/2+(p.dy||0)*S,p.img.width*S,p.img.height*S);}
+    else if(p.t){g.fillStyle=p.c||'#FF8FB8';g.font='800 '+(p.sz||40)+'px sans-serif';g.textBaseline='middle';g.fillText(p.t,p.x*S,h*S/2+(p.dy||0));}}}
+function openHowto(){const a1=itemSpr(0,1),a2=itemSpr(0,2),hand=pix('hand',HAND,{H:'#FFE0C8',S:'#8FC0F0'},'#7A4A3A'),hrt=pix('hrt',[".##.##.","#######","#######",".#####.","..###..","...#..."],{'#':'#FF6A9A'},'#C8467A');
+  hwCanvas('hw1',[{img:genSpr(0),x:1},{img:hand,x:9,dy:4},{t:'→',x:24},{img:a1,x:38}]);
+  hwCanvas('hw2',[{img:a1,x:0},{t:'+',x:15},{img:a1,x:20},{t:'→',x:35},{img:a2,x:45}]);
+  hwCanvas('hw3',[{img:a2,x:0},{t:'→',x:15},{img:aniSpr(4,0,false,false),x:23},{t:'→',x:37},{img:hrt,x:48}]);
+  howEl.classList.add('on');}
+document.getElementById('hgo').addEventListener('click',()=>{howEl.classList.remove('on');idle=0;try{localStorage.setItem(KEY+'.howto','1');}catch(e){}if(AC&&AC.state==='suspended')AC.resume();});
 
 /* ---------- 更新 ---------- */
 function step(dt){T+=dt;idle+=dt;celebrate=Math.max(0,celebrate-dt);
@@ -255,6 +285,8 @@ function drawShop(){const S=L.shop,f=friendCount(),d=L.d;ctx.save();ctx.beginPat
   const nb=friendCount();ctx.fillStyle='#FF6A9A';ctx.beginPath();ctx.arc(ab.x+L.btnR*.75,ab.y-L.btnR*.7,L.btnR*.42,0,TAU);ctx.fill();ctx.fillStyle='#fff';ctx.font='800 '+Math.round(L.btnR*.5)+'px sans-serif';ctx.textAlign='center';ctx.fillText(String(nb),ab.x+L.btnR*.75,ab.y-L.btnR*.68);
   ctx.fillStyle='#7A6A8A';const s=L.btnR/10;ctx.fillRect(mb.x-s*5,mb.y-s*2.5,s*3,s*5);ctx.beginPath();ctx.moveTo(mb.x-s*2,mb.y-s*2.5);ctx.lineTo(mb.x+s*2,mb.y-s*6);ctx.lineTo(mb.x+s*2,mb.y+s*6);ctx.lineTo(mb.x-s*2,mb.y+s*2.5);ctx.fill();
   if(mute){ctx.strokeStyle='#FF6A6A';ctx.lineWidth=s*1.6;ctx.beginPath();ctx.moveTo(mb.x-s*6,mb.y-s*6);ctx.lineTo(mb.x+s*6,mb.y+s*6);ctx.stroke();}else{ctx.strokeStyle='#7A6A8A';ctx.lineWidth=s*1.2;ctx.beginPath();ctx.arc(mb.x+s*3,mb.y,s*3,-.9,.9);ctx.stroke();}
+  const hb=L.helpBtn;ctx.fillStyle='rgba(255,255,255,.9)';ctx.beginPath();ctx.arc(hb.x,hb.y,L.btnR,0,TAU);ctx.fill();
+  ctx.fillStyle='#FF8FB8';ctx.font='800 '+Math.round(L.btnR*1.15)+'px "Hiragino Maru Gothic ProN","Hiragino Sans",sans-serif';ctx.textAlign='center';ctx.fillText('?',hb.x,hb.y+L.btnR*.06);
   ctx.textAlign='left';}
 function drawOrders(){const da=L.da;ctx.save();ctx.beginPath();ctx.rect(0,0,L.shop.w,L.shop.h+6);ctx.clip();
   for(let i=0;i<3;i++){const o=orders[i];if(!o||o.t<0)continue;const s=L.slots[i];
@@ -290,13 +322,22 @@ function drawBoard(){const{cell,bx,by,d}=L;
     for(let k=0;k<v.l;k++){ctx.fillStyle=v.c?'#6FC060':'#FF8FB8';ctx.fillRect(Math.round(px-v.l*d*1.1+k*d*2.2+d*.2),Math.round(cy+cell*.36),Math.ceil(d*1.4),Math.ceil(d*1.4));}}
   if(drag&&drag.moved){const v=board[drag.y][drag.x];if(v){const img=itemSpr(v.c,v.l),dd=Math.round(L.d*1.25);ctx.fillStyle='rgba(60,40,60,.18)';ctx.beginPath();ctx.ellipse(drag.px,drag.py+L.cell*.45,L.cell*.3,L.cell*.08,0,0,TAU);ctx.fill();blitC(img,drag.px,drag.py+img.height*dd/2-L.cell*.15,dd);
     const c=cellAt(drag.px,drag.py);if(c){const t=board[c[1]][c[0]];if(t&&t!==v&&t.c===v.c&&t.l===v.l&&t.l<MAXL){const[tx,ty]=cellC(c[0],c[1]);ctx.strokeStyle='#FFD84A';ctx.lineWidth=4;ctx.beginPath();ctx.arc(tx,ty,L.cell*.44,0,TAU);ctx.stroke();}}}}}
+/* 指のマーク:しばらく触らないと、次にすることを指で教える(重ねられる組があれば重ねる動き、なければかごをトントン) */
+const HAND=["...HH.....","...HH.....","...HH.....","...HHHH...","...HHHHHH.",".HHHHHHHH.",".HHHHHHHH.","..HHHHHHH.","..HHHHHH..","...HHHHH..","...SSSSS..","...SSSSS.."];
+function drawHand(){if(idle<4||drag||albumEl.classList.contains('on')||howEl.classList.contains('on'))return;
+  const img=pix('hand',HAND,{H:'#FFE0C8',S:'#8FC0F0'},'#7A4A3A'),d=Math.max(2,Math.floor(L.d*1.1));
+  const h=hint();let x,y,press=0;const ph=((idle-4)%2.4)/2.4;
+  if(h){const[a,b]=h.map(p=>cellC(p[0],p[1]));const u=ph<.2?0:ph>.8?1:ease((ph-.2)/.6);x=a[0]+(b[0]-a[0])*u;y=a[1]+(b[1]-a[1])*u;press=ph<.85?1:0;
+    if(ph>.12&&ph<.85){const v=board[h[0][1]][h[0][0]];if(v){const it=itemSpr(v.c,v.l);ctx.globalAlpha=.55;blitC(it,x,y+it.height*L.d/2-L.cell*.1,L.d);ctx.globalAlpha=1;}}}
+  else{const e=emptyCells();if(!e.length)return;const g=GENPOS[Math.floor(idle/4.8)%2];[x,y]=cellC(g[0],g[1]);press=Math.sin(ph*TAU*2)>0?1:0;}
+  ctx.globalAlpha=Math.min(1,(idle-4)*2);blitC(img,x+d*2,y+img.height*d+d*2-press*d*2+L.cell*.1,d);ctx.globalAlpha=1;}
 function drawParts(){for(const p of parts){if(p.t<0)continue;const a=1-p.t/p.life;ctx.globalAlpha=Math.max(0,a);
   if(p.k==='heart')heartShape(p.x,p.y,p.s,p.c);else{ctx.fillStyle=p.c;ctx.fillRect(Math.round(p.x),Math.round(p.y),Math.ceil(p.s),Math.ceil(p.s));}}ctx.globalAlpha=1;
   if(celebrate>0){const a=Math.min(1,celebrate);for(let i=0;i<40;i++){const x=(i*97.3+T*40*(1+i%3))%W,y=((i*53.1+T*(120+i*7))%(H+40))-20;ctx.globalAlpha=a;ctx.fillStyle=['#FF8FB8','#FFE066','#8FD0F0','#9FE08A','#C8A8F8'][i%5];ctx.fillRect(x,y,L.d*2,L.d*3);}ctx.globalAlpha=1;}}
 function render(){ctx.setTransform(DPR,0,0,DPR,0,0);ctx.imageSmoothingEnabled=false;
   ctx.fillStyle='#BFE8F7';ctx.fillRect(0,0,W,H);
   if(L.land){ctx.fillStyle='#F6E2C8';ctx.fillRect(0,0,W,H);}else{ctx.fillStyle='#F6E2C8';ctx.fillRect(0,L.shop.h,W,H-L.shop.h);ctx.fillStyle='#EBD2B2';for(let y=L.shop.h+16;y<H;y+=22)ctx.fillRect(0,y,W,2);}
-  drawShop();drawOrders();drawBoard();drawParts();}
+  drawShop();drawOrders();drawBoard();drawHand();drawParts();}
 
 /* ---------- はじまり ---------- */
 if(!load())freshBoard();
@@ -305,6 +346,8 @@ layout();
 let last=performance.now();
 function loop(now){const dt=Math.min(.05,(now-last)/1000);last=now;step(dt);render();requestAnimationFrame(loop);}
 requestAnimationFrame(loop);
+let seenHow=false;try{seenHow=localStorage.getItem(KEY+'.howto')==='1';}catch(e){}
+if(!seenHow)setTimeout(openHowto,300);
 if(location.hash.indexOf('debug')>=0)window.__mg={board:()=>board,orders:()=>orders,spawn:spawnFrom,give,friends:()=>friends,setF:n=>{for(let i=0;i<NS;i++)friends[i]=i<n?1:0;},merge,L:()=>L};
 })();
 </script>
