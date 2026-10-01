@@ -1,0 +1,256 @@
+<!-- THIN FILM — クロちゃん(Claude)作。シャボン玉の薄膜(厚みで色が変わり、薄くなりすぎると割れる)を
+     「触った所から薄くなる・割れた穴は二度と戻らない」という世界のルールで再構成。ap-kit.js統合: クロちゃん -->
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>THIN FILM — 薄膜の法則</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#05060f;overflow:hidden;
+    -webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+  canvas#c{display:block;position:fixed;inset:0;width:100vw;height:100vh;touch-action:none}
+</style>
+<script src="../ap-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(function(){
+"use strict";
+
+/* ---------- 世界のルール ----------
+   画面ぜんぶが、一枚のシャボン膜。膜の色は「厚み」だけで決まる(薄膜干渉)。
+   厚い所は淡く、薄くなるにつれて色が移ろい、いちばん薄くなると真っ黒になって、割れる。
+   膜はゆっくり渦を巻き、上から薄くなっていく。
+
+   触った所は、膜が削られて薄くなる(削られた厚みは、まわりに輪になって溜まる)。
+   色が一周、二周と巡って、黒くなり、ぱちんと割れる。
+   割れた穴は、二度と元には戻らない。穴のまわりの薄い所は、つられて割れていく。
+   膜のほとんどが割れたら、次のシャボン膜が張られる。
+   ✦=別の膜(渦・光・厚み・色の出方が変わる) / ↻=最初の膜
+------------------------------------ */
+
+var TAU=Math.PI*2;
+var cv=document.getElementById('c');
+var ctx=cv.getContext('2d',{alpha:false});
+var W=0,H=0,dpr=1,gw=0,gh=0,Sc=1;
+var buf=document.createElement('canvas'), bctx=buf.getContext('2d');
+var img=null,pix=null;
+var T=null,T2=null,HL=null,TN=null;     // 厚み(μm) / 作業用 / 穴の度合い0..1 / 次の膜の厚み
+var t=0, hintA=1, touchedOnce=false, renewing=false, frameNo=0;
+var P=null;
+var ptrs={};
+
+function rnd(a,b){return a+Math.random()*(b-a);}
+function clamp(v,a,b){return v<a?a:(v>b?b:v);}
+
+function defaultParams(){
+  return {f1:1.7,f2:3.1,f3:1.3,w1:0.21,w2:0.17,ph:[0.6,2.1,4.0,5.3,1.2,3.3],amp:0.016,
+          lx:0.32,ly:0.28,lamK:1.0,base:0.27,grad:0.78,tint:[1,1,1]};
+}
+function randomParams(){
+  var ph=[];for(var i=0;i<6;i++)ph.push(rnd(0,TAU));
+  var tints=[[1,1,1],[1,0.9,1.1],[0.92,1.08,1],[1.1,1,0.9]];
+  return {f1:rnd(1.2,2.4),f2:rnd(2.2,4.2),f3:rnd(0.8,2),w1:rnd(0.15,0.35),w2:rnd(0.12,0.3),ph:ph,
+          amp:rnd(0.012,0.022),lx:rnd(0.15,0.85),ly:rnd(0.1,0.55),lamK:rnd(0.82,1.2),
+          base:rnd(0.2,0.36),grad:rnd(0.6,0.95),tint:tints[(Math.random()*tints.length)|0]};
+}
+
+function profile(arr){
+  var ph=P.ph;
+  for(var y=0;y<gh;y++){
+    var yy=y/gh;
+    for(var x=0;x<gw;x++){
+      var xx=x/gw;
+      var n=0.06*Math.sin(TAU*(1.3*xx+0.7*yy)+ph[0])+0.045*Math.sin(TAU*(2.4*yy-1.1*xx)+ph[1])+0.03*Math.sin(TAU*(3.7*xx+2.9*yy)+ph[2]);
+      arr[y*gw+x]=P.base+P.grad*Math.pow(yy,1.1)*0.5+n;
+    }
+  }
+}
+
+function sizeSetup(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth; H=window.innerHeight;
+  cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
+  var asp=W/H, cells=60000;
+  var ngh=Math.round(Math.sqrt(cells/asp)), ngw=Math.round(ngh*asp);
+  if(T&&ngw===gw&&ngh===gh)return;
+  gw=ngw; gh=ngh; Sc=Math.max(gw,gh);
+  buf.width=gw; buf.height=gh;
+  img=bctx.createImageData(gw,gh); pix=img.data;
+  T=new Float32Array(gw*gh); T2=new Float32Array(gw*gh); HL=new Float32Array(gw*gh); TN=new Float32Array(gw*gh);
+  profile(T);
+}
+
+function newFilm(){
+  renewing=false;
+  profile(T);
+  for(var i=0;i<HL.length;i++)HL[i]=0;
+}
+
+/* 触った所を薄くして、削った厚みをまわりの輪に溜める */
+function dent(cx,cy,amount){
+  var rho=0.07*gh, R=rho*3.2;
+  var x0=Math.max(0,(cx-R)|0), x1=Math.min(gw-1,(cx+R)|0), y0=Math.max(0,(cy-R)|0), y1=Math.min(gh-1,(cy+R)|0);
+  for(var y=y0;y<=y1;y++){
+    for(var x=x0;x<=x1;x++){
+      var i=y*gw+x;
+      if(HL[i]>0.5)continue;
+      var dx=x-cx, dy=y-cy, r=Math.sqrt(dx*dx+dy*dy);
+      var g=Math.exp(-(r*r)/(rho*rho));
+      var ring=Math.exp(-((r-1.9*rho)*(r-1.9*rho))/(0.55*rho*0.55*rho));
+      T[i]+= -amount*g + amount*0.42*ring;
+    }
+  }
+}
+
+function step(dt){
+  var amp=P.amp*gh, tw1=P.w1*TAU*t, tw2=P.w2*TAU*t, ph=P.ph, i,x,y;
+  var f1=P.f1*TAU,f2=P.f2*TAU,f3=P.f3*TAU;
+  for(y=0;y<gh;y++){
+    var yy=y/gh;
+    var t1x=Math.sin(f1*yy+tw1+ph[0]);
+    for(x=0;x<gw;x++){
+      i=y*gw+x;
+      var xx=x/gw;
+      var vx=amp*(t1x+0.6*Math.sin(f2*xx+f3*yy+tw2+ph[1]));
+      var vy=amp*(Math.sin(f1*xx+tw2+ph[2])+0.6*Math.sin(f3*xx-f2*yy+tw1+ph[3]));
+      var sx=x-vx*dt, sy=y-vy*dt;
+      sx=sx<0?0:(sx>gw-1.001?gw-1.001:sx); sy=sy<0?0:(sy>gh-1.001?gh-1.001:sy);
+      var ix=sx|0, iy=sy|0, fx=sx-ix, fy=sy-iy, k=iy*gw+ix;
+      var v;
+      if(HL[i]>0.5||HL[k]>0.5||HL[k+1]>0.5||HL[k+gw]>0.5||HL[k+gw+1]>0.5){v=T[i];}   // 穴のふちでは流れない
+      else v=(T[k]*(1-fx)+T[k+1]*fx)*(1-fy)+(T[k+gw]*(1-fx)+T[k+gw+1]*fx)*fy;
+      // 上から薄くなり、下に溜まる
+      v+=dt*(-0.0042*(1.12-yy)+0.0022*yy);
+      T2[i]=v;
+    }
+  }
+  var tmp=T;T=T2;T2=tmp;
+  // 割れる・つられて割れる・ふちが溜まる
+  for(y=0;y<gh;y++){
+    for(x=0;x<gw;x++){
+      i=y*gw+x;
+      if(renewing){
+        HL[i]=HL[i]>0.02?HL[i]-dt*1.6:0;
+        T[i]+=(TN[i]-T[i])*Math.min(1,dt*4);
+        continue;
+      }
+      var h=HL[i];
+      if(h>=1)continue;
+      var tv=T[i], pop=false;
+      if(tv<0.035)pop=true;
+      else if(tv<0.17){
+        if((x>0&&HL[i-1]>0.9)||(x<gw-1&&HL[i+1]>0.9)||(y>0&&HL[i-gw]>0.9)||(y<gh-1&&HL[i+gw]>0.9))pop=true;
+      }
+      if(pop||h>0){h+=dt*9; if(h>1)h=1; HL[i]=h;}
+      else if(tv>=0.17){
+        if((x>0&&HL[i-1]>0.9)||(x<gw-1&&HL[i+1]>0.9)||(y>0&&HL[i-gw]>0.9)||(y<gh-1&&HL[i+gw]>0.9))T[i]+=dt*0.05;
+      }
+    }
+  }
+  // 割れた割合
+  frameNo++;
+  if(!renewing&&frameNo%20===0){
+    var c=0;for(i=0;i<HL.length;i+=3){if(HL[i]>0.5)c++;}
+    if(c>HL.length/3*0.8){renewing=true;profile(TN);}
+  }else if(renewing&&frameNo%20===0){
+    var m=0;for(i=0;i<HL.length;i+=3){if(HL[i]>0.02){m=1;break;}}
+    if(!m){renewing=false;}
+  }
+}
+
+function render(){
+  var lamR=0.62*P.lamK/P.tint[0], lamG=0.54*P.lamK/P.tint[1], lamB=0.46*P.lamK/P.tint[2];
+  var kR=TAU*1.33/lamR, kG=TAU*1.33/lamG, kB=TAU*1.33/lamB;
+  var lx=P.lx, ly=P.ly, idx=0, asp=gw/gh;
+  for(var y=0;y<gh;y++){
+    var yy=y/gh, dy=(yy-ly);
+    for(var x=0;x<gw;x++){
+      var i=y*gw+x, xx=x/gw, dx=(xx-lx)*asp;
+      var tv=T[i]; if(tv<0)tv=0;
+      var a=Math.exp(-tv*1.7);
+      var sR=Math.sin(kR*tv), sG=Math.sin(kG*tv), sB=Math.sin(kB*tv);
+      var env=0.5+0.5*Math.exp(-(dx*dx+dy*dy)*3.2);
+      var gain=a*env*1.35*255;
+      var R=sR*sR*gain+6, G=sG*sG*gain+7, B=sB*sB*gain+14;
+      var h=HL[i];
+      if(h>0){
+        var bgR=7,bgG=9,bgB=22+yy*14;
+        R+=(bgR-R)*h; G+=(bgG-G)*h; B+=(bgB-B)*h;
+      }
+      pix[idx++]=R>255?255:R; pix[idx++]=G>255?255:G; pix[idx++]=B>255?255:B; pix[idx++]=255;
+    }
+  }
+  bctx.putImageData(img,0,0);
+  ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+  ctx.drawImage(buf,0,0,cv.width,cv.height);
+  if(hintA>0.01){
+    ctx.save(); ctx.globalAlpha=hintA*0.6; ctx.fillStyle='#fff';
+    ctx.font=Math.round(12*dpr)+'px ui-monospace,Menlo,monospace'; ctx.textAlign='center';
+    ctx.fillText('TOUCH  THE  FILM',cv.width/2,cv.height-Math.round(118*dpr));
+    ctx.restore();
+  }
+}
+
+/* ---------- 操作 ---------- */
+function gx(cx){return cx/W*gw;}
+function gy(cy){return cy/H*gh;}
+cv.addEventListener('pointerdown',function(e){
+  if(window.APKit&&window.APKit.isUI(e.clientX,e.clientY))return;
+  e.preventDefault();
+  try{cv.setPointerCapture(e.pointerId);}catch(_){}
+  var p={x:gx(e.clientX),y:gy(e.clientY)};
+  ptrs[e.pointerId]=p; touchedOnce=true;
+  if(!renewing)dent(p.x,p.y,0.22);
+},{passive:false});
+cv.addEventListener('pointermove',function(e){
+  var p=ptrs[e.pointerId]; if(!p)return;
+  p.x=gx(e.clientX); p.y=gy(e.clientY);
+},{passive:false});
+function endPtr(e){delete ptrs[e.pointerId];}
+cv.addEventListener('pointerup',endPtr);
+cv.addEventListener('pointercancel',endPtr);
+
+function mutate(){ptrs={};P=randomParams();newFilm();}
+function resetAll(){ptrs={};P=defaultParams();t=0;hintA=1;touchedOnce=false;newFilm();}
+
+/* ---------- ループ ---------- */
+var last=0;
+function tick(now){
+  var dt=last?(now-last)/1000:0.016; last=now;
+  if(dt>0.05)dt=0.05;
+  t+=dt;
+  if(!renewing){for(var id in ptrs){dent(ptrs[id].x,ptrs[id].y,1.05*dt);}}
+  step(dt);
+  if(touchedOnce){hintA-=dt*0.8;}else if(t>9){hintA-=dt*0.5;}
+  if(hintA<0)hintA=0;
+  render();
+  requestAnimationFrame(tick);
+}
+window.addEventListener('resize',function(){sizeSetup();});
+window.addEventListener('orientationchange',function(){setTimeout(sizeSetup,120);});
+
+P=defaultParams();
+sizeSetup();
+requestAnimationFrame(tick);
+
+if(window.APKit){
+  window.APKit.init({
+    canvas:cv,
+    gifName:'thin-film',
+    clockFormat:'spec',
+    dock:true,
+    autoHide:true,
+    fullscreenButton:false,
+    buttons:[
+      {label:'✦',name:'mutate',onClick:mutate},
+      {label:'↻',name:'reset',onClick:resetAll}
+    ]
+  });
+}
+})();
+</script>
+</body>
+</html>
