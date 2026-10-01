@@ -28,7 +28,8 @@
    寄って、交わって、また寄る。だから深い所には、浅い所にはない細かい網が増えていく。
    触った所は、水が深くなる。触り続けるほど深くなって、そこだけ光の網が複雑に増殖する。
    指を離すと、水はゆっくり元の深さに戻っていく(約20秒)。
-   光は深さで少しずつ色がずれるので、網のふちが虹色ににじむ。
+   光は深さで少しずつ色がずれるので(分散)、網のふちが赤・黄・緑・水色・青に割れて虹色になる。
+   水の色は場所と時間でゆっくり移ろい、深くなった所は色相もずれていく。
 
    描き方: 画面の各点で水面の曲がり(ヘッセ行列)を足し合わせ、光の集まり具合 1/|det(I + 深さ×曲がり)| を
    赤・緑・青それぞれ少しずつ違う深さで計算する(分散)。
@@ -52,13 +53,31 @@ var t=0, hintA=1, touchedOnce=false;
 var ptrs={};
 var BASE_M=1.0;
 
+/* 水の色は cos パレット a+b*cos(2π(c*u+d)) をゆっくり移ろわせる(u=場所+時間+深さ)。
+   disp は光の分散(赤〜青で水の深さが何%ずれるか)。大きいほど網のふちが虹色に割れる */
 var PALS=[
-  {shallow:[8,78,112], deep:[3,16,52], light:[190,255,255]},   // 青緑の水
-  {shallow:[70,30,104], deep:[12,6,46], light:[255,196,226]},  // 暮れの水
-  {shallow:[8,84,70],  deep:[2,22,30],  light:[214,255,196]},  // 翠の水
-  {shallow:[22,44,100],deep:[5,9,42],   light:[204,222,255]}   // 月の水
+  {a:[0.50,0.50,0.55],b:[0.50,0.45,0.45],c:[1.0,1.0,1.0],d:[0.62,0.18,0.32],dark:0.30,disp:0.19,tint:[1.0,1.0,1.0]},   // 玉虫
+  {a:[0.30,0.55,0.55],b:[0.30,0.45,0.40],c:[0.8,1.0,0.9],d:[0.85,0.20,0.45],dark:0.30,disp:0.13,tint:[0.9,1.0,1.0]},     // オーロラ
+  {a:[0.55,0.35,0.45],b:[0.45,0.35,0.40],c:[0.9,0.9,1.0],d:[0.00,0.15,0.55],dark:0.30,disp:0.16,tint:[1.0,0.95,0.95]},   // 夕焼けの海
+  {a:[0.10,0.25,0.45],b:[0.10,0.25,0.40],c:[1.0,1.0,0.8],d:[0.30,0.45,0.20],dark:0.26,disp:0.22,tint:[1.0,1.0,1.0]},     // 深海と虹
+  {a:[0.08,0.08,0.12],b:[0.08,0.08,0.12],c:[1.0,1.0,1.0],d:[0.0,0.3,0.6],dark:0.20,disp:0.26,tint:[1.0,1.0,1.0]}          // 墨と虹
 ];
+var bgLUT=new Float32Array(256*3);
+// 光を5色に分けて計算する(赤・黄・緑・水色・青)。色の重みは、全部同じ強さなら白になるように規格化
+var SPEC=[[1,0.08,0.04],[1,0.78,0.08],[0.1,1,0.2],[0.05,0.8,1],[0.3,0.12,1]];
+var SSUM=[0,0,0]; for(var si=0;si<5;si++){for(var sc=0;sc<3;sc++)SSUM[sc]+=SPEC[si][sc];}
+for(var si2=0;si2<5;si2++){for(var sc2=0;sc2<3;sc2++)SPEC[si2][sc2]/=SSUM[sc2];}
+function buildBg(){
+  for(var i=0;i<256;i++){
+    var u=i/256;
+    for(var ch=0;ch<3;ch++){
+      var v=PL.a[ch]+PL.b[ch]*Math.cos(TAU*(PL.c[ch]*u+PL.d[ch]));
+      bgLUT[i*3+ch]=255*(v<0?0:(v>1?1:v));
+    }
+  }
+}
 var pal=0, PL=PALS[0];
+buildBg();
 
 /* さざ波(ripple)の波形表 F, F', F'' */
 var RN=1024, RS=1, LF=null, LF1=null, LF2=null, rlam=20, rc=40;
@@ -103,7 +122,7 @@ function sizeSetup(){
   dpr=Math.min(window.devicePixelRatio||1,2);
   W=window.innerWidth; H=window.innerHeight;
   cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
-  var asp=W/H, cells=85000;
+  var asp=W/H, cells=68000;
   var ngh=Math.round(Math.sqrt(cells/asp)), ngw=Math.round(ngh*asp);
   if(M&&ngw===gw&&ngh===gh)return;
   gw=ngw; gh=ngh; Sc=Math.max(gw,gh);
@@ -149,7 +168,7 @@ function render(dt){
     rax[nr]=rp.x; ray[nr]=rp.y; rR[nr]=rc*age; rA[nr]=0.55*Math.exp(-age/4.5)*(age<0.3?age/0.3:1); nr++;
   }
   var invRS=RN/RS;
-  var sh=PL.shallow, dp=PL.deep, lc=PL.light;
+  var disp=PL.disp, lt=[255*PL.tint[0],255*PL.tint[1],255*PL.tint[2]], tu=t*0.012;
   var idx=0;
   for(y=0;y<gh;y++){
     for(w=0;w<NW;w++){var R=wky[w]*y-wom[w]*t+wph[w]; wsr[w]=Math.sin(R); wcr[w]=Math.cos(R);}
@@ -171,18 +190,22 @@ function render(dt){
         hyy+=gpp*uy*uy+gpr*(1-uy*uy);
         hxy+=(gpp-gpr)*ux*uy;
       }
-      var m=BASE_M*M[idx>>2];
-      // 赤・緑・青で少しずつ違う深さ(分散): 網のふちが虹色ににじむ
-      var mr=m*0.93, mb=m*1.07;
-      var dR=(1+mr*hxx)*(1+mr*hyy)-mr*mr*hxy*hxy;
-      var dG=(1+m*hxx)*(1+m*hyy)-m*m*hxy*hxy;
-      var dB=(1+mb*hxx)*(1+mb*hyy)-mb*mb*hxy*hxy;
-      var iR=1/((dR<0?-dR:dR)+0.035), iG=1/((dG<0?-dG:dG)+0.035), iB=1/((dB<0?-dB:dB)+0.035);
-      iR=1-Math.exp(-iR*0.085); iG=1-Math.exp(-iG*0.085); iB=1-Math.exp(-iB*0.085);
-      // 深い所ほど水の色が濃い
-      var dd=(M[idx>>2]-1)/1.7; dd=dd>1?1:dd;
-      var br=sh[0]+(dp[0]-sh[0])*dd, bg=sh[1]+(dp[1]-sh[1])*dd, bb=sh[2]+(dp[2]-sh[2])*dd;
-      var R2=br*0.6+lc[0]*iR*1.05, G2=bg*0.6+lc[1]*iG*1.05, B2=bb*0.6+lc[2]*iB*1.05;
+      var pi4=idx>>2, mm=M[pi4], m=BASE_M*mm;
+      // 光を5色に分けて、それぞれ少しずつ違う深さで計算(分散): 網のふちが虹色に割れる
+      var aR=0,aG=0,aB=0;
+      for(var s=0;s<5;s++){
+        var ms=m*(1+disp*(s-2)*0.5);
+        var dt2=(1+ms*hxx)*(1+ms*hyy)-ms*ms*hxy*hxy;
+        var iv=1/((dt2<0?-dt2:dt2)+0.035);
+        iv=1-Math.exp(-iv*0.085);
+        var sp=SPEC[s];
+        aR+=iv*sp[0]; aG+=iv*sp[1]; aB+=iv*sp[2];
+      }
+      // 水の色: 場所・時間・深さでゆっくり色相が移ろう。深い所は暗く、色相もずれる
+      var dd=(mm-1)/1.7; dd=dd>1?1:dd;
+      var ci=(((y/gh)*0.55+(x/gw)*0.3+tu+dd*0.32)*256|0)&255;
+      var dk=PL.dark*(1-0.45*dd);
+      var R2=bgLUT[ci*3]*dk+lt[0]*aR*0.95, G2=bgLUT[ci*3+1]*dk+lt[1]*aG*0.95, B2=bgLUT[ci*3+2]*dk+lt[2]*aB*0.95;
       pix[idx++]=R2>255?255:R2; pix[idx++]=G2>255?255:G2; pix[idx++]=B2>255?255:B2; pix[idx++]=255;
     }
   }
@@ -222,13 +245,13 @@ cv.addEventListener('pointercancel',endPtr);
 
 function mutate(){
   var ni=pal; while(ni===pal)ni=(Math.random()*PALS.length)|0;
-  pal=ni; PL=PALS[ni];
+  pal=ni; PL=PALS[ni]; buildBg();
   ptrs={}; ripples=[];
   for(var i=0;i<M.length;i++)M[i]=1;
   genWaves(mulberry((Math.random()*1e9)|0));
 }
 function resetAll(){
-  pal=0; PL=PALS[0]; ptrs={}; ripples=[]; t=0; hintA=1; touchedOnce=false;
+  pal=0; PL=PALS[0]; buildBg(); ptrs={}; ripples=[]; t=0; hintA=1; touchedOnce=false;
   for(var i=0;i<M.length;i++)M[i]=1;
   genWaves(mulberry(20261002));
 }
