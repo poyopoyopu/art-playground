@@ -41,8 +41,8 @@
 <div><b>タップ</b><span>そこから新しい潮が円を描いて広がりはじめる。二本の潮が作っていた格子に、三本目・四本目の波がぶつかって、模様の形が変わっていく(同時に5つまで)。</span></div>
 <div><b>なぞる</b><span>押したままなぞると、潮の生まれ故郷が指についてくる。動かすほど、潮の壁が斜めにゆがむ。</span></div>
 <div><b>引き潮</b><span>触って生まれた潮は約40秒で引いていく。引ききると、また最初の二本の潮がつくる格子だけになる。</span></div>
-<div><b>✦</b><span>別の黄昏へ。色・光の向き・波の細かさ・二本の潮の来る向きが変わる。</span></div>
-<div><b>↻</b><span>最初の夕暮れ、最初の二本の潮に戻す。</span></div>
+<div><b>✦</b><span>別の世界の色へ。玉虫色・夕暮れ・宵・暁・月・夢の中から色が変わり、光の向き・波の細かさ・二本の潮の来る向きも変わる。</span></div>
+<div><b>↻</b><span>最初の玉虫色、最初の二本の潮に戻す。</span></div>
 </div>
 <h3>元になった景色</h3>
 <p>中国・銭塘江の潮津波(tidal bore)。夕暮れ、潮が二つに分かれて互いにぶつかる時にできる、格子状の波模様。</p>
@@ -74,12 +74,29 @@ var buf=document.createElement('canvas');
 var bctx=buf.getContext('2d');
 var img=null,pix=null;
 
+/* irid を持つパレットは、稜線の色が「波の高さ・位置・時間」で連続的に移ろう玉虫色(薄膜干渉ふう)。
+   irid=[a,b,c,d] は cos パレット a+b*cos(2π(c*u+d)) のRGBそれぞれの係数 */
 var PALS=[
-  {deep:[14,30,74], mid:[70,108,170], warm:[255,116,30], hot:[255,208,124], foam:[236,241,250]}, // 夕暮れ
-  {deep:[22,12,56], mid:[88,66,150],  warm:[255,76,158], hot:[255,196,224], foam:[242,236,255]}, // 宵
-  {deep:[6,36,46],  mid:[38,108,120], warm:[255,192,64], hot:[255,242,168], foam:[240,250,245]}, // 暁
-  {deep:[8,14,36],  mid:[46,68,110],  warm:[140,186,255],hot:[232,246,255], foam:[250,252,255]}  // 月
+  {deep:[4,6,30],   mid:[34,40,112], foam:[236,240,252], drift:0.018,
+   irid:[[0.50,0.50,0.55],[0.50,0.45,0.45],[1.0,1.0,1.0],[0.62,0.18,0.32]]},                       // 玉虫
+  {deep:[14,30,74], mid:[70,108,170], warm:[255,116,30], hot:[255,208,124], foam:[236,241,250]},   // 夕暮れ
+  {deep:[22,12,56], mid:[88,66,150],  warm:[255,76,158], hot:[255,196,224], foam:[242,236,255]},   // 宵
+  {deep:[6,36,46],  mid:[38,108,120], warm:[255,192,64], hot:[255,242,168], foam:[240,250,245]},   // 暁
+  {deep:[8,14,36],  mid:[46,68,110],  warm:[140,186,255],hot:[232,246,255], foam:[250,252,255]},   // 月
+  {deep:[10,4,26],  mid:[56,26,96],   foam:[240,236,250], drift:0.03,
+   irid:[[0.45,0.45,0.55],[0.55,0.5,0.4],[1.0,0.8,0.9],[0.05,0.55,0.75]]}                          // 夢
 ];
+var irLUT=new Float32Array(256*3);
+function buildIrid(){
+  if(!P.irid)return;
+  for(var i=0;i<256;i++){
+    var u=i/256;
+    for(var ch=0;ch<3;ch++){
+      var v=P.irid[0][ch]+P.irid[1][ch]*Math.cos(TAU*(P.irid[2][ch]*u+P.irid[3][ch]));
+      irLUT[i*3+ch]=255*(v<0?0:(v>1?1:v));
+    }
+  }
+}
 var palIdx=0, P=PALS[0];
 var lamFrac=0.04;               // 波長 / Sc
 var lightAng=235*Math.PI/180, Lx=0,Ly=0;
@@ -124,7 +141,7 @@ function deriveParams(){
 
 /* 潮の壁から d ピクセルうしろの波の高さ・傾き・泡 */
 function buildLUT(){
-  var f=lam*0.35, L=lam*7, phase=0.8*lam, k=kk, step=S/N, eps=0.25, fw=lam*0.33;
+  var f=lam*0.35, L=lam*7, phase=0.8*lam, k=kk, step=S/N, eps=0.25, fw=lam*0.15, ff=lam*0.12;
   function hAt(d){
     if(d<0)return 0;
     var e=Math.exp(-d/L)*(1-Math.exp(-d/f));
@@ -138,8 +155,8 @@ function buildLUT(){
     LUT_g[i]=(hAt(d+eps)-hAt(d-eps))/(2*eps);
     var u2=d/S, w2=1;
     if(u2>0.7){var q2=(u2-0.7)/0.3; w2=1-q2*q2*(3-2*q2);}
-    var z=(d-0.5*lam)/fw;
-    LUT_f[i]=Math.exp(-0.5*z*z)*w2 + 0.22*Math.exp(-d/(lam*3.5))*(1-Math.exp(-d/f))*w2*Math.max(0,Math.cos(k*(d-phase)));
+    var z=(d-0.38*lam)/fw;
+    LUT_f[i]=(1-Math.exp(-d/ff))*(Math.exp(-0.5*z*z)*w2 + 0.12*Math.exp(-d/(lam*3.5))*(1-Math.exp(-d/f))*w2*Math.max(0,Math.cos(k*(d-phase))));
   }
 }
 
@@ -195,7 +212,10 @@ function render(){
   var gainS=1.25/kk, idx=0;
   var dR=P.deep[0],dG=P.deep[1],dB=P.deep[2];
   var mR=P.mid[0]-dR,mG=P.mid[1]-dG,mB=P.mid[2]-dB;
-  var wr=P.warm[0],wg=P.warm[1],wb=P.warm[2], hr=P.hot[0],hg=P.hot[1],hb=P.hot[2], fr=P.foam[0],fg=P.foam[1],fb=P.foam[2];
+  var irid=!!P.irid, drift=(P.drift||0)*t;
+  var wr=0,wg=0,wb=0,hr=0,hg=0,hb=0;
+  if(!irid){wr=P.warm[0];wg=P.warm[1];wb=P.warm[2];hr=P.hot[0];hg=P.hot[1];hb=P.hot[2];}
+  var fr=P.foam[0],fg=P.foam[1],fb=P.foam[2];
   for(var y=0;y<lh;y++){
     var vy=1-y/lh;
     for(var x=0;x<lw;x++){
@@ -216,16 +236,23 @@ function render(){
       var sh=(gx*Lx+gy*Ly)*gainS;
       var tt=0.5+0.34*Hh; tt+=vy*0.16; tt=tt<0?0:(tt>1?1:tt);
       var R=dR+mR*tt, G=dG+mG*tt, B=dB+mB*tt;
+      var lr=fr,lg=fg,lb=fb;
       if(sh>0){
         var a=(sh+0.06)/0.62; a=a>1?1:a; a=a*a*(3-2*a);
+        if(irid){
+          var ci=((Hh*0.10+vy*0.78+(x/lw)*0.42+drift)*256|0)&255;
+          wr=irLUT[ci*3]; wg=irLUT[ci*3+1]; wb=irLUT[ci*3+2];
+          hr=wr+(255-wr)*0.5; hg=wg+(255-wg)*0.5; hb=wb+(255-wb)*0.5;
+          lr=fr*0.55+wr*0.45; lg=fg*0.55+wg*0.45; lb=fb*0.55+wb*0.45;
+        }
         R+=(wr-R)*a; G+=(wg-G)*a; B+=(wb-B)*a;
         if(a>0.62){var b=(a-0.62)/0.38; R+=(hr-R)*b*0.85; G+=(hg-G)*b*0.85; B+=(hb-B)*b*0.85;}
       }else{
         var m=1+sh*0.5; if(m<0.42)m=0.42;
         R*=m; G*=m; B*=m;
       }
-      var fa=fo*0.8; fa=fa>0.95?0.95:fa;
-      if(fa>0){R+=(fr-R)*fa; G+=(fg-G)*fa; B+=(fb-B)*fa;}
+      var fa=0.88*(1-Math.exp(-fo*1.25));
+      if(fa>0.004){R+=(lr-R)*fa; G+=(lg-G)*fa; B+=(lb-B)*fa;}
       pix[idx++]=R; pix[idx++]=G; pix[idx++]=B; pix[idx++]=255;
     }
   }
@@ -266,7 +293,7 @@ cv.addEventListener('pointercancel',endPtr);
 /* ---------- ✦ ↻ ？ ---------- */
 function mutate(){
   var ni=palIdx; while(ni===palIdx)ni=(Math.random()*PALS.length)|0;
-  palIdx=ni; P=PALS[ni];
+  palIdx=ni; P=PALS[ni]; buildIrid();
   lamFrac=0.034+Math.random()*0.02;
   lightAng=(200+Math.random()*140)*Math.PI/180;
   ptrs={};
@@ -274,7 +301,7 @@ function mutate(){
   setupBores(true);
 }
 function resetAll(){
-  palIdx=0; P=PALS[0]; lamFrac=0.04; lightAng=235*Math.PI/180;
+  palIdx=0; P=PALS[0]; buildIrid(); lamFrac=0.04; lightAng=235*Math.PI/180;
   ptrs={}; t=0; hintA=1; touchedOnce=false;
   deriveParams();
   setupBores(false);
@@ -301,6 +328,7 @@ function onResize(){sizeSetup();}
 window.addEventListener('resize',onResize);
 window.addEventListener('orientationchange',function(){setTimeout(onResize,120);});
 
+buildIrid();
 sizeSetup();
 setupBores(false);
 requestAnimationFrame(tick);
