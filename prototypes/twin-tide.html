@@ -1,0 +1,326 @@
+<!-- TWIN TIDE — クロちゃん(Claude)作。おっちゃん提供の動画(銭塘江の潮津波が二つに分かれてぶつかり、
+     格子状の波ができる)を参考に、「触った場所が第三の潮の生まれ故郷になる」という世界のルールで再構成。
+     ap-kit.js統合: クロちゃん -->
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>TWIN TIDE — 潮の法則</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#0b1530;overflow:hidden;
+    -webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+  canvas#c{display:block;position:fixed;inset:0;width:100vw;height:100vh;touch-action:none}
+  #guide{position:fixed;inset:0;z-index:80;display:none;align-items:center;justify-content:center;
+    background:rgba(4,8,20,.62);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;color:#eef2fb}
+  #guide.on{display:flex}
+  #guide .sheet{position:relative;width:min(88vw,460px);max-height:82vh;overflow:auto;
+    padding:22px 20px 20px;border-radius:18px;background:rgba(14,22,48,.92);
+    border:1px solid rgba(255,255,255,.14);box-shadow:0 10px 50px #000a;
+    -webkit-touch-callout:none;touch-action:pan-y}
+  #guide h2{margin:0 0 8px;font-size:17px;letter-spacing:.18em;font-weight:600}
+  #guide h3{margin:16px 0 6px;font-size:12px;letter-spacing:.14em;color:#ffb066;font-weight:600}
+  #guide p{margin:0;font-size:14px;line-height:1.7}
+  #guide .law{color:#ffd9a8}
+  #guide .ops div{display:flex;gap:10px;margin:7px 0;font-size:13px;line-height:1.6}
+  #guide .ops b{flex:0 0 74px;font-weight:600;color:#9cc4ff}
+  #guide .ops span{flex:1;opacity:.92}
+  #guide .close{position:absolute;right:10px;top:8px;width:34px;height:34px;border:none;border-radius:50%;
+    background:transparent;color:#fff;font-size:22px;line-height:1;padding:0}
+</style>
+<script src="../ap-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="guide"><div class="sheet"><button class="close" aria-label="閉じる">×</button>
+<h2>TWIN TIDE</h2>
+<p class="law">潮の壁は、ぶつかった所に格子を残す。触った場所は、新しい潮の生まれ故郷になる。</p>
+<h3>さわりかた</h3>
+<div class="ops">
+<div><b>タップ</b><span>そこから新しい潮が円を描いて広がりはじめる。二本の潮が作っていた格子に、三本目・四本目の波がぶつかって、模様の形が変わっていく(同時に5つまで)。</span></div>
+<div><b>なぞる</b><span>押したままなぞると、潮の生まれ故郷が指についてくる。動かすほど、潮の壁が斜めにゆがむ。</span></div>
+<div><b>引き潮</b><span>触って生まれた潮は約40秒で引いていく。引ききると、また最初の二本の潮がつくる格子だけになる。</span></div>
+<div><b>✦</b><span>別の黄昏へ。色・光の向き・波の細かさ・二本の潮の来る向きが変わる。</span></div>
+<div><b>↻</b><span>最初の夕暮れ、最初の二本の潮に戻す。</span></div>
+</div>
+<h3>元になった景色</h3>
+<p>中国・銭塘江の潮津波(tidal bore)。夕暮れ、潮が二つに分かれて互いにぶつかる時にできる、格子状の波模様。</p>
+</div></div>
+<script>
+(function(){
+"use strict";
+
+/* ---------- 世界のルール ----------
+   川を二本の潮の壁がさかのぼってくる。壁のうしろには、波の列がずっと引きずられている。
+   二本の壁がぶつかった所では、二つの波の列が重なって、市松模様のような格子ができる。
+   格子の形は「何本の潮が重なっているか」で決まる。
+
+   触った場所は、新しい潮の生まれ故郷になる。そこから同心円の壁が広がり、
+   二本だけだった世界に三本目・四本目の波が混ざって、格子の形が組み替わる。
+   触って生まれた潮は約40秒で引いていく。引ききると、また最初の二本だけの格子に戻る。
+
+   描き方: 各ピクセルで「それぞれの潮の壁から何ピクセルうしろか(d)」を求め、
+   あらかじめ作った表(LUT)から波の高さ・傾き・泡を引いて足し合わせる。
+   傾きと夕陽の向きの内積で、稜線が橙/青に光る。
+------------------------------------ */
+
+var TAU=Math.PI*2;
+var cv=document.getElementById('c');
+var ctx=cv.getContext('2d',{alpha:false});
+var W=0,H=0,dpr=1;
+var lw=0,lh=0,Sc=1;
+var buf=document.createElement('canvas');
+var bctx=buf.getContext('2d');
+var img=null,pix=null;
+
+var PALS=[
+  {deep:[14,30,74], mid:[70,108,170], warm:[255,116,30], hot:[255,208,124], foam:[236,241,250]}, // 夕暮れ
+  {deep:[22,12,56], mid:[88,66,150],  warm:[255,76,158], hot:[255,196,224], foam:[242,236,255]}, // 宵
+  {deep:[6,36,46],  mid:[38,108,120], warm:[255,192,64], hot:[255,242,168], foam:[240,250,245]}, // 暁
+  {deep:[8,14,36],  mid:[46,68,110],  warm:[140,186,255],hot:[232,246,255], foam:[250,252,255]}  // 月
+];
+var palIdx=0, P=PALS[0];
+var lamFrac=0.04;               // 波長 / Sc
+var lightAng=235*Math.PI/180, Lx=0,Ly=0;
+var lam=20,kk=0.3,S=400,c=50;
+var N=2048, invStep=1;
+var LUT_h=new Float32Array(N+1), LUT_g=new Float32Array(N+1), LUT_f=new Float32Array(N+1);
+
+var srcs=[];                    // {x,y,off,t0,perm,die,fade,early}
+var t=0;
+var TC=1.8;                     // 最初の二本が交わるまでの秒数
+var hintA=1, touchedOnce=false;
+var guideEl=document.getElementById('guide');
+var guideOpen=false;
+
+function clamp01(v){return v<0?0:(v>1?1:v);}
+
+function sizeSetup(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth; H=window.innerHeight;
+  cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
+  var asp=W/H, budget=110000;
+  var nlh=Math.min(560,Math.round(Math.sqrt(budget/asp)));
+  var nlw=Math.round(nlh*asp);
+  var oldW=lw, oldH=lh, oldSc=Sc;
+  lw=nlw; lh=nlh; Sc=Math.max(lw,lh);
+  buf.width=lw; buf.height=lh;
+  img=bctx.createImageData(lw,lh); pix=img.data;
+  deriveParams();
+  if(oldW>0){
+    var fx=lw/oldW, fy=lh/oldH, fs=Sc/oldSc;
+    for(var i=0;i<srcs.length;i++){srcs[i].x*=fx; srcs[i].y*=fy; if(srcs[i].perm)srcs[i].off*=fs;}
+  }
+}
+
+function deriveParams(){
+  lam=Sc*lamFrac; kk=TAU/lam;
+  S=Sc*0.8; c=Sc*0.11;
+  invStep=N/S;
+  Lx=Math.cos(lightAng); Ly=Math.sin(lightAng);
+  buildLUT();
+}
+
+/* 潮の壁から d ピクセルうしろの波の高さ・傾き・泡 */
+function buildLUT(){
+  var f=lam*0.35, L=lam*7, phase=0.8*lam, k=kk, step=S/N, eps=0.25, fw=lam*0.33;
+  function hAt(d){
+    if(d<0)return 0;
+    var e=Math.exp(-d/L)*(1-Math.exp(-d/f));
+    var u=d/S, w=1;
+    if(u>0.7){var q=(u-0.7)/0.3; w=1-q*q*(3-2*q);}
+    return e*w*Math.cos(k*(d-phase));
+  }
+  for(var i=0;i<=N;i++){
+    var d=i*step;
+    LUT_h[i]=hAt(d);
+    LUT_g[i]=(hAt(d+eps)-hAt(d-eps))/(2*eps);
+    var u2=d/S, w2=1;
+    if(u2>0.7){var q2=(u2-0.7)/0.3; w2=1-q2*q2*(3-2*q2);}
+    var z=(d-0.5*lam)/fw;
+    LUT_f[i]=Math.exp(-0.5*z*z)*w2 + 0.22*Math.exp(-d/(lam*3.5))*(1-Math.exp(-d/f))*w2*Math.max(0,Math.cos(k*(d-phase)));
+  }
+}
+
+/* 最初の二本の潮: 画面のどこかで t=TC のとき交わるように、遠くの二つの源から放つ */
+function setupBores(randomize){
+  srcs=[];
+  var cx,cy,pa,pb,Da,Db;
+  if(randomize){
+    cx=lw*(0.38+Math.random()*0.24); cy=lh*(0.40+Math.random()*0.2);
+    pa=(100+Math.random()*60)*Math.PI/180; pb=(20+Math.random()*60)*Math.PI/180;
+    Da=Sc*(0.82+Math.random()*0.26); Db=Sc*(0.82+Math.random()*0.26);
+  }else{
+    cx=lw*0.5; cy=lh*0.5;
+    pa=125*Math.PI/180; pb=55*Math.PI/180;
+    Da=Sc*0.9; Db=Sc*0.9;
+  }
+  srcs.push({x:cx+Da*Math.cos(pa), y:cy+Da*Math.sin(pa), off:Da-c*(t+TC), perm:true});
+  srcs.push({x:cx+Db*Math.cos(pb), y:cy+Db*Math.sin(pb), off:Db-c*(t+TC), perm:true});
+}
+
+function weight(s){
+  if(s.perm)return 1;
+  var a=(t-s.t0)/0.7, w=a<=0?0:(a<1?a*a*(3-2*a):1);
+  if(s.die!=null){
+    var b=(s.die-t)/s.fade;
+    if(b<1){var bb=b<0?0:b; w*=bb*bb*(3-2*bb);}
+  }
+  return w;
+}
+
+function addTide(x,y){
+  // 同時に5つまで。多すぎる時は一番古い潮が急いで引く
+  var live=[];
+  for(var i=0;i<srcs.length;i++){if(!srcs[i].perm&&!srcs[i].early)live.push(srcs[i]);}
+  if(live.length>=5){
+    var o=live[0]; o.early=true; o.die=Math.min(o.die,t+3); o.fade=Math.min(o.fade,3);
+  }
+  var s={x:x,y:y,t0:t,perm:false,die:t+40,fade:10,early:false};
+  srcs.push(s);
+  return s;
+}
+
+var ax=new Float32Array(10),ay=new Float32Array(10),aR=new Float32Array(10),aw=new Float32Array(10);
+
+function render(){
+  var n=0,i;
+  for(i=srcs.length-1;i>=0;i--){ if(!srcs[i].perm && srcs[i].die!=null && t>=srcs[i].die)srcs.splice(i,1); }
+  for(i=0;i<srcs.length&&n<10;i++){
+    var s=srcs[i], w=weight(s);
+    if(w<=0.002)continue;
+    ax[n]=s.x; ay[n]=s.y; aR[n]=s.perm?(s.off+c*t):(c*(t-s.t0)); aw[n]=w; n++;
+  }
+  var gainS=1.25/kk, idx=0;
+  var dR=P.deep[0],dG=P.deep[1],dB=P.deep[2];
+  var mR=P.mid[0]-dR,mG=P.mid[1]-dG,mB=P.mid[2]-dB;
+  var wr=P.warm[0],wg=P.warm[1],wb=P.warm[2], hr=P.hot[0],hg=P.hot[1],hb=P.hot[2], fr=P.foam[0],fg=P.foam[1],fb=P.foam[2];
+  for(var y=0;y<lh;y++){
+    var vy=1-y/lh;
+    for(var x=0;x<lw;x++){
+      var Hh=0,gx=0,gy=0,fo=0;
+      for(var j=0;j<n;j++){
+        var dx=x-ax[j], dy=y-ay[j];
+        var r=Math.sqrt(dx*dx+dy*dy)+0.0001;
+        var d=aR[j]-r;
+        if(d<0)continue;
+        d-=S*Math.floor(d/S);
+        var q=(d*invStep+0.5)|0;
+        var w=aw[j];
+        Hh+=w*LUT_h[q];
+        var ir=w*LUT_g[q]/r;
+        gx-=ir*dx; gy-=ir*dy;
+        fo+=w*LUT_f[q];
+      }
+      var sh=(gx*Lx+gy*Ly)*gainS;
+      var tt=0.5+0.34*Hh; tt+=vy*0.16; tt=tt<0?0:(tt>1?1:tt);
+      var R=dR+mR*tt, G=dG+mG*tt, B=dB+mB*tt;
+      if(sh>0){
+        var a=(sh+0.06)/0.62; a=a>1?1:a; a=a*a*(3-2*a);
+        R+=(wr-R)*a; G+=(wg-G)*a; B+=(wb-B)*a;
+        if(a>0.62){var b=(a-0.62)/0.38; R+=(hr-R)*b*0.85; G+=(hg-G)*b*0.85; B+=(hb-B)*b*0.85;}
+      }else{
+        var m=1+sh*0.5; if(m<0.42)m=0.42;
+        R*=m; G*=m; B*=m;
+      }
+      var fa=fo*0.8; fa=fa>0.95?0.95:fa;
+      if(fa>0){R+=(fr-R)*fa; G+=(fg-G)*fa; B+=(fb-B)*fa;}
+      pix[idx++]=R; pix[idx++]=G; pix[idx++]=B; pix[idx++]=255;
+    }
+  }
+  bctx.putImageData(img,0,0);
+  ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+  ctx.drawImage(buf,0,0,cv.width,cv.height);
+  if(hintA>0.01){
+    ctx.save();
+    ctx.globalAlpha=hintA*0.6;
+    ctx.fillStyle='#fff';
+    ctx.font=Math.round(12*dpr)+'px ui-monospace,Menlo,monospace';
+    ctx.textAlign='center';
+    ctx.fillText('TOUCH  THE  TIDE',cv.width/2,cv.height-Math.round(118*dpr));
+    ctx.restore();
+  }
+}
+
+/* ---------- 操作 ---------- */
+var ptrs={};
+function toLowX(cx){return cx/W*lw;}
+function toLowY(cy){return cy/H*lh;}
+cv.addEventListener('pointerdown',function(e){
+  if(window.APKit&&window.APKit.isUI(e.clientX,e.clientY))return;
+  if(guideOpen)return;
+  e.preventDefault();
+  try{cv.setPointerCapture(e.pointerId);}catch(_){}
+  ptrs[e.pointerId]=addTide(toLowX(e.clientX),toLowY(e.clientY));
+  touchedOnce=true;
+},{passive:false});
+cv.addEventListener('pointermove',function(e){
+  var s=ptrs[e.pointerId]; if(!s)return;
+  s.x=toLowX(e.clientX); s.y=toLowY(e.clientY);
+},{passive:false});
+function endPtr(e){delete ptrs[e.pointerId];}
+cv.addEventListener('pointerup',endPtr);
+cv.addEventListener('pointercancel',endPtr);
+
+/* ---------- ✦ ↻ ？ ---------- */
+function mutate(){
+  var ni=palIdx; while(ni===palIdx)ni=(Math.random()*PALS.length)|0;
+  palIdx=ni; P=PALS[ni];
+  lamFrac=0.034+Math.random()*0.02;
+  lightAng=(200+Math.random()*140)*Math.PI/180;
+  ptrs={};
+  deriveParams();
+  setupBores(true);
+}
+function resetAll(){
+  palIdx=0; P=PALS[0]; lamFrac=0.04; lightAng=235*Math.PI/180;
+  ptrs={}; t=0; hintA=1; touchedOnce=false;
+  deriveParams();
+  setupBores(false);
+}
+function openGuide(){guideOpen=true;guideEl.classList.add('on');}
+function closeGuide(){guideOpen=false;guideEl.classList.remove('on');}
+guideEl.addEventListener('click',function(e){
+  if(e.target===guideEl||(e.target.classList&&e.target.classList.contains('close')))closeGuide();
+});
+
+/* ---------- ループ ---------- */
+var last=0;
+function tick(now){
+  var dt=last?(now-last)/1000:0.016; last=now;
+  if(dt>0.05)dt=0.05;
+  t+=dt;
+  if(touchedOnce){hintA-=dt*0.8;}else if(t>9){hintA-=dt*0.5;}
+  if(hintA<0)hintA=0;
+  render();
+  requestAnimationFrame(tick);
+}
+
+function onResize(){sizeSetup();}
+window.addEventListener('resize',onResize);
+window.addEventListener('orientationchange',function(){setTimeout(onResize,120);});
+
+sizeSetup();
+setupBores(false);
+requestAnimationFrame(tick);
+
+if(window.APKit){
+  window.APKit.init({
+    canvas:cv,
+    gifName:'twin-tide',
+    clockFormat:'spec',
+    dock:true,
+    autoHide:true,
+    fullscreenButton:false,
+    buttons:[
+      {label:'✦',name:'mutate',onClick:mutate},
+      {label:'↻',name:'reset',onClick:resetAll},
+      {label:'？',name:'guide',onClick:openGuide}
+    ]
+  });
+}
+})();
+</script>
+</body>
+</html>
