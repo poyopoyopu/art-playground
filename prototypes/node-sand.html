@@ -1,0 +1,218 @@
+<!-- NODE SAND — クロちゃん(Claude)作。クラドニ図形(振動する板の上で、砂が揺れない線=節線に集まる)を
+     「触った場所が板の振動数を決める」という世界のルールで再構成。ap-kit.js統合: クロちゃん -->
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>NODE SAND — 節線の法則</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#05060f;overflow:hidden;
+    -webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+  canvas#c{display:block;position:fixed;inset:0;width:100vw;height:100vh;touch-action:none}
+</style>
+<script src="../ap-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(function(){
+"use strict";
+
+/* ---------- 世界のルール ----------
+   画面ぜんぶが、ふるえる一枚の板。板の上の砂は、ふるえの大きい所からはじき出されて、
+   ふるえない線(節線)に逃げ込んでいく。だから砂は、板の振動がつくる模様をなぞって積もる。
+
+   触った場所が、板の振動数を決める。横の位置が一つ目の音、縦の位置が二つ目の音。
+   指を動かすと振動数が連続的に変わって、節線がするすると組み替わり、
+   逃げ場を失った砂が一斉に走り出して、新しい線に積もり直す。
+   触ったあとはしばらく板が荒れて、砂が跳ねる。
+   ✦=別の板の色と、ふるえの組み合わせ / ↻=最初の板、最初の音
+------------------------------------ */
+
+var PI=Math.PI, TAU=PI*2;
+var cv=document.getElementById('c');
+var ctx=cv.getContext('2d',{alpha:false});
+var W=0,H=0,dpr=1,lw=0,lh=0,Sc=1,Wd=1,Hd=1;
+var sandCv=document.createElement('canvas'), sctx=sandCv.getContext('2d');
+var glowCv=document.createElement('canvas'), gctx=glowCv.getContext('2d');
+var sImg=null,sPix=null,gImg=null,gPix=null,acc=null;
+var gw=0,gh=0;
+var NP=42000, px=new Float32Array(NP), py=new Float32Array(NP);
+var t=0, hintA=1, touchedOnce=false;
+var A=6.2,B=9.4,tA=6.2,tB=9.4, shake=0;
+var ptrs={};
+
+var PALS=[
+  {p0:[6,10,28],  p1:[16,20,52], tint:[70,120,255],  sand:[255,226,170]},
+  {p0:[2,14,16],  p1:[6,32,36],  tint:[40,210,180],  sand:[210,255,235]},
+  {p0:[20,6,30],  p1:[46,10,58], tint:[235,90,205],  sand:[255,204,236]},
+  {p0:[4,6,14],   p1:[12,16,34], tint:[130,160,255], sand:[255,255,255]}
+];
+var pal=0, PL=PALS[0];
+
+function scatter(){
+  for(var i=0;i<NP;i++){px[i]=Math.random()*Wd; py[i]=Math.random()*Hd;}
+}
+
+function sizeSetup(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth; H=window.innerHeight;
+  cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
+  var asp=W/H, budget=130000;
+  var nlh=Math.min(600,Math.round(Math.sqrt(budget/asp))), nlw=Math.round(nlh*asp);
+  var oldWd=Wd, oldHd=Hd;
+  lw=nlw; lh=nlh; Sc=Math.max(lw,lh); Wd=lw/Sc; Hd=lh/Sc;
+  sandCv.width=lw; sandCv.height=lh;
+  sImg=sctx.createImageData(lw,lh); sPix=sImg.data; acc=new Float32Array(lw*lh);
+  gh=Math.round(Math.sqrt(9000/asp)); gw=Math.round(gh*asp);
+  glowCv.width=gw; glowCv.height=gh;
+  gImg=gctx.createImageData(gw,gh); gPix=gImg.data;
+  if(oldWd!==1||oldHd!==1){
+    for(var i=0;i<NP;i++){px[i]=Math.min(px[i],Wd); py[i]=Math.min(py[i],Hd);}
+  }
+}
+
+function step(dt){
+  var da=0.1*Math.sin(t*0.37), db=0.1*Math.sin(t*0.29+1.3);
+  var k=1-Math.exp(-dt*2.6);
+  A+=(tA-A)*k; B+=(tB-B)*k;
+  var Ae=A+da, Be=B+db, Ap=Ae*PI, Bp=Be*PI;
+  var eta=0.0075/(PI*(Ae+Be)*0.5);
+  var sk=1+shake*5, jit=0.0042*sk, jit0=0.0004;
+  var i,x,y;
+  // 砂の移動
+  for(i=0;i<NP;i++){
+    x=px[i]; y=py[i];
+    var ax=Ap*x, bx=Bp*x, ay=Ap*y, by=Bp*y;
+    var sax=Math.sin(ax), cax=Math.cos(ax), sbx=Math.sin(bx), cbx=Math.cos(bx);
+    var say=Math.sin(ay), cay=Math.cos(ay), sby=Math.sin(by), cby=Math.cos(by);
+    var u=cax*cby-cbx*cay;
+    var dx=-Ap*sax*cby+Bp*sbx*cay;
+    var dy=-Bp*cax*sby+Ap*cbx*say;
+    var au=u<0?-u:u;
+    var j=jit*au+jit0;
+    x+=-eta*u*dx+(Math.random()-0.5)*j;
+    y+=-eta*u*dy+(Math.random()-0.5)*j;
+    if(x<0)x=-x; else if(x>Wd)x=2*Wd-x;
+    if(y<0)y=-y; else if(y>Hd)y=2*Hd-y;
+    px[i]=x; py[i]=y;
+  }
+  // 砂の描画(少し残像を引く)
+  var n=acc.length;
+  for(i=0;i<n;i++)acc[i]*=0.5;
+  for(i=0;i<NP;i++){
+    var bxp=(px[i]*Sc)|0, byp=(py[i]*Sc)|0;
+    if(bxp>=lw)bxp=lw-1; if(byp>=lh)byp=lh-1;
+    acc[byp*lw+bxp]+=85;
+  }
+  // 板のふるえ(ぼんやり光る腹の部分)
+  var osc=Math.cos(t*3.6), gi=0;
+  for(y=0;y<gh;y++){
+    var yy=(y+0.5)/gh*Hd, ay2=Ap*yy, by2=Bp*yy, cay2=Math.cos(ay2), cby2=Math.cos(by2);
+    for(x=0;x<gw;x++){
+      var xx=(x+0.5)/gw*Wd;
+      var uu=Math.cos(Ap*xx)*cby2-Math.cos(Bp*xx)*cay2;
+      var g=0.13*uu*uu+0.07*uu*osc*(uu<0?-1:1)*0.5;
+      if(g<0)g=0;
+      var vy=y/gh;
+      gPix[gi++]=PL.p0[0]+(PL.p1[0]-PL.p0[0])*vy+PL.tint[0]*g;
+      gPix[gi++]=PL.p0[1]+(PL.p1[1]-PL.p0[1])*vy+PL.tint[1]*g;
+      gPix[gi++]=PL.p0[2]+(PL.p1[2]-PL.p0[2])*vy+PL.tint[2]*g;
+      gPix[gi++]=255;
+    }
+  }
+}
+
+function render(){
+  var sr=PL.sand[0],sg=PL.sand[1],sb=PL.sand[2], n=acc.length, o=0;
+  for(var i=0;i<n;i++){
+    var v=1-Math.exp(-acc[i]*0.011);
+    sPix[o++]=sr*v; sPix[o++]=sg*v; sPix[o++]=sb*v; sPix[o++]=255;
+  }
+  gctx.putImageData(gImg,0,0);
+  sctx.putImageData(sImg,0,0);
+  ctx.globalCompositeOperation='source-over';
+  ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+  ctx.drawImage(glowCv,0,0,cv.width,cv.height);
+  ctx.globalCompositeOperation='lighter';
+  ctx.drawImage(sandCv,0,0,cv.width,cv.height);
+  ctx.globalCompositeOperation='source-over';
+  if(hintA>0.01){
+    ctx.save(); ctx.globalAlpha=hintA*0.6; ctx.fillStyle='#fff';
+    ctx.font=Math.round(12*dpr)+'px ui-monospace,Menlo,monospace'; ctx.textAlign='center';
+    ctx.fillText('TOUCH  THE  PLATE',cv.width/2,cv.height-Math.round(118*dpr));
+    ctx.restore();
+  }
+}
+
+/* ---------- 操作 ---------- */
+function setTarget(cx,cy){
+  var a=2.2+8.2*(cx/W);
+  var b=a+1.3+8.6*(cy/H);
+  tA=a; tB=b;
+}
+cv.addEventListener('pointerdown',function(e){
+  if(window.APKit&&window.APKit.isUI(e.clientX,e.clientY))return;
+  e.preventDefault();
+  try{cv.setPointerCapture(e.pointerId);}catch(_){}
+  ptrs[e.pointerId]=1; touchedOnce=true; shake=1;
+  setTarget(e.clientX,e.clientY);
+},{passive:false});
+cv.addEventListener('pointermove',function(e){
+  if(!ptrs[e.pointerId])return;
+  setTarget(e.clientX,e.clientY); shake=Math.max(shake,0.6);
+},{passive:false});
+function endPtr(e){delete ptrs[e.pointerId];}
+cv.addEventListener('pointerup',endPtr);
+cv.addEventListener('pointercancel',endPtr);
+
+function mutate(){
+  var ni=pal; while(ni===pal)ni=(Math.random()*PALS.length)|0;
+  pal=ni; PL=PALS[ni];
+  var a=2.4+Math.random()*7.5; tA=a; tB=a+1.3+Math.random()*8;
+  shake=1;
+}
+function resetAll(){
+  pal=0; PL=PALS[0]; tA=A=6.2; tB=B=9.4; shake=1; t=0; hintA=1; touchedOnce=false; ptrs={};
+  scatter();
+}
+
+/* ---------- ループ ---------- */
+var last=0;
+function tick(now){
+  var dt=last?(now-last)/1000:0.016; last=now;
+  if(dt>0.05)dt=0.05;
+  t+=dt;
+  shake*=Math.exp(-dt*(ptrs&&Object.keys(ptrs).length?0.5:1.1));
+  step(dt);
+  if(touchedOnce){hintA-=dt*0.8;}else if(t>9){hintA-=dt*0.5;}
+  if(hintA<0)hintA=0;
+  render();
+  requestAnimationFrame(tick);
+}
+window.addEventListener('resize',sizeSetup);
+window.addEventListener('orientationchange',function(){setTimeout(sizeSetup,120);});
+
+sizeSetup();
+scatter();
+requestAnimationFrame(tick);
+
+if(window.APKit){
+  window.APKit.init({
+    canvas:cv,
+    gifName:'node-sand',
+    clockFormat:'spec',
+    dock:true,
+    autoHide:true,
+    fullscreenButton:false,
+    buttons:[
+      {label:'✦',name:'mutate',onClick:mutate},
+      {label:'↻',name:'reset',onClick:resetAll}
+    ]
+  });
+}
+})();
+</script>
+</body>
+</html>
