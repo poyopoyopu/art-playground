@@ -27,6 +27,9 @@
    指を動かすと振動数が連続的に変わって、節線がするすると組み替わり、
    逃げ場を失った砂が一斉に走り出して、新しい線に積もり直す。
    触ったあとはしばらく板が荒れて、砂が跳ねる。
+   触らなくても、板の振動数は自分でゆっくりさまよい続ける。節線は少しずつ形を変え、
+   消えたり、つながったり、新しく生まれたりして、砂はそのたびに静かに引っ越しを続ける。
+   指を離したあとは、少し間をおいて、そこからまたさまよい始める。
    ✦=別の板の色と、ふるえの組み合わせ / ↻=最初の板、最初の音
 ------------------------------------ */
 
@@ -42,6 +45,7 @@ var NP=42000, px=new Float32Array(NP), py=new Float32Array(NP);
 var t=0, hintA=1, touchedOnce=false;
 var A=6.2,B=9.4,tA=6.2,tB=9.4, shake=0;
 var ptrs={};
+var wPhi=0.7, holdT=0;   // さまよいの向き / 触ったあとの待ち時間
 
 var PALS=[
   {p0:[6,10,28],  p1:[16,20,52], tint:[70,120,255],  sand:[255,226,170]},
@@ -73,8 +77,21 @@ function sizeSetup(){
   }
 }
 
+/* 触っていない間、目標の振動数(a, c=b-a)をゆっくり漂わせる */
+function wander(dt){
+  if(Object.keys(ptrs).length){holdT=2.5;return;}
+  if(holdT>0){holdT-=dt;return;}
+  wPhi+=(0.35*Math.sin(t*0.11)+0.25*Math.sin(t*0.07+2))*dt+(Math.random()-0.5)*0.4*dt;
+  var sp=0.17, a=tA, c=tB-tA;
+  a+=Math.cos(wPhi)*sp*dt; c+=Math.sin(wPhi)*sp*1.1*dt;
+  if(a<2.2){a=2.2;wPhi=PI-wPhi;} else if(a>10.4){a=10.4;wPhi=PI-wPhi;}
+  if(c<1.3){c=1.3;wPhi=-wPhi;} else if(c>9.9){c=9.9;wPhi=-wPhi;}
+  tA=a; tB=a+c;
+}
+
 function step(dt){
-  var da=0.1*Math.sin(t*0.37), db=0.1*Math.sin(t*0.29+1.3);
+  wander(dt);
+  var da=0.05*Math.sin(t*0.37), db=0.05*Math.sin(t*0.29+1.3);
   var k=1-Math.exp(-dt*2.6);
   A+=(tA-A)*k; B+=(tB-B)*k;
   var Ae=A+da, Be=B+db, Ap=Ae*PI, Bp=Be*PI;
@@ -174,7 +191,7 @@ function mutate(){
   shake=1;
 }
 function resetAll(){
-  pal=0; PL=PALS[0]; tA=A=6.2; tB=B=9.4; shake=1; t=0; hintA=1; touchedOnce=false; ptrs={};
+  pal=0; PL=PALS[0]; tA=A=6.2; tB=B=9.4; shake=1; t=0; wPhi=0.7; holdT=0; hintA=1; touchedOnce=false; ptrs={};
   scatter();
 }
 
