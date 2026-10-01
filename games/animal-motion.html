@@ -1,36 +1,91 @@
 <!doctype html>
-<!-- どうぶつの動き — おっちゃんの動物シート(50種)の各コマをそのまま切り出して、パラパラ漫画のように動かして見るだけのページ(20番・50番は有名キャラに似ているため除外)。クロード作 -->
+<!-- どうぶつの動き — おっちゃんの動物シート(50種)の各コマを切り出し、それぞれの動き方(歩く・跳ねる・飛ぶ・泳ぐ)で小さな舞台の上を動かして見るページ。クロード作
+     コマは体の重心と足元をそろえてあるので、パラパラしてもその場でぶれない。体から離れた小さな飾り(キラキラ・音符)は外した。20番・50番は有名キャラに似ているため除外 -->
 <html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>どうぶつの動き</title>
 <style>
 html,body{margin:0;background:#F4F1F6;font-family:"Hiragino Maru Gothic ProN","Hiragino Sans","Yu Gothic",sans-serif;color:#6A5A7A}
 h1{font-size:18px;text-align:center;margin:18px 0 4px;letter-spacing:.1em}
 p.s{text-align:center;font-size:12px;margin:0 0 12px;color:#9A8AA8}
-.bar{display:flex;justify-content:center;gap:8px;margin:0 0 12px}
+.bar{display:flex;justify-content:center;gap:8px;margin:0 0 12px;flex-wrap:wrap}
 .bar button{border:0;border-radius:18px;padding:6px 14px;background:#fff;color:#6A5A7A;font:inherit;font-size:13px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
 .bar button.on{background:#FF8FB8;color:#fff}
-.g{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px;padding:0 10px calc(20px + env(safe-area-inset-bottom,0px))}
-.c{background:#fff;border-radius:14px;padding:8px 4px 6px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.06)}
-.c canvas{display:block;margin:0 auto;image-rendering:pixelated;image-rendering:crisp-edges}
+.g{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;padding:0 10px calc(20px + env(safe-area-inset-bottom,0px))}
+.c{background:#fff;border-radius:14px;padding:6px 6px 6px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.06);cursor:pointer}
+.c canvas{display:block;width:100%;height:96px;border-radius:10px}
 .n{font-size:11px;margin-top:4px}
 .n b{color:#C8A8C8;font-weight:600;margin-right:4px}
+.n i{font-style:normal;color:#B8A8C8;margin-left:4px}
+#big{position:fixed;inset:0;z-index:10;display:none;background:rgba(60,50,80,.5);align-items:center;justify-content:center}
+#big.on{display:flex}
+#big canvas{width:min(94vw,640px);height:min(60vh,380px);border-radius:20px;background:#fff}
+#big .t{position:absolute;bottom:calc(10vh);left:0;right:0;text-align:center;color:#fff;font-size:18px;text-shadow:0 1px 3px rgba(0,0,0,.4)}
 </style></head><body>
-<h1>どうぶつの動き</h1><p class="s">シートのコマをそのまま、順番に切り替えて動かしています</p>
-<div class="bar"><button data-sp="0.28">ゆっくり</button><button data-sp="0.16" class="on">ふつう</button><button data-sp="0.09">はやい</button></div>
+<h1>どうぶつの動き</h1><p class="s">シートのコマで、それぞれの動き方で動きます。タップで大きく</p>
+<div class="bar"><button data-sp="1.6">ゆっくり</button><button data-sp="1" class="on">ふつう</button><button data-sp="0.6">はやい</button></div>
 <div class="g" id="g"></div>
+<div id="big"><canvas id="bc"></canvas><div class="t" id="bt"></div></div>
 <script>
 (function(){
-const R={"1": [[0, 0, 60, 53], [61, 0, 57, 52], [119, 0, 56, 52], [176, 0, 81, 53]], "2": [[258, 0, 66, 50], [325, 0, 61, 50], [387, 0, 59, 50], [447, 0, 55, 48]], "3": [[503, 0, 48, 59], [552, 0, 46, 59], [599, 0, 46, 61], [646, 0, 61, 66]], "4": [[708, 0, 54, 52], [763, 0, 55, 51], [819, 0, 54, 52], [874, 0, 54, 53]], "5": [[929, 0, 52, 52], [0, 67, 66, 53], [67, 67, 61, 53], [129, 67, 53, 58]], "6": [[183, 67, 47, 43], [231, 67, 53, 49], [285, 67, 54, 59], [340, 67, 69, 54]], "7": [[410, 67, 59, 51], [470, 67, 63, 63], [534, 67, 63, 64], [598, 67, 60, 47]], "8": [[659, 67, 56, 47], [716, 67, 56, 54], [773, 67, 54, 51], [828, 67, 55, 48]], "9": [[884, 67, 58, 47], [943, 67, 62, 52], [0, 132, 65, 48], [66, 132, 59, 50]], "10": [[126, 132, 60, 50], [187, 132, 58, 51], [246, 132, 58, 55], [305, 132, 60, 50]], "11": [[366, 132, 68, 75], [435, 132, 61, 61], [497, 132, 58, 71], [556, 132, 66, 70]], "12": [[623, 132, 61, 53], [685, 132, 61, 60], [747, 132, 62, 61], [810, 132, 62, 64]], "13": [[873, 132, 61, 60], [935, 132, 64, 62], [0, 208, 59, 59], [60, 208, 61, 62]], "14": [[122, 208, 68, 49], [191, 208, 61, 56], [253, 208, 71, 56], [325, 208, 64, 60]], "15": [[390, 208, 86, 74], [477, 208, 90, 70], [568, 208, 88, 71]], "16": [[657, 208, 82, 69], [740, 208, 87, 70], [828, 208, 95, 72]], "17": [[924, 208, 72, 67], [0, 283, 71, 67], [72, 283, 64, 67], [137, 283, 62, 56]], "18": [[200, 283, 64, 53], [265, 283, 61, 50], [327, 283, 61, 50], [389, 283, 60, 49]], "19": [[450, 283, 61, 62], [512, 283, 62, 62], [575, 283, 64, 66], [640, 283, 61, 64]], "21": [[702, 283, 71, 61], [774, 283, 60, 60], [835, 283, 59, 60], [895, 283, 58, 59]], "22": [[0, 351, 72, 48], [73, 351, 83, 49], [157, 351, 92, 47]], "23": [[250, 351, 67, 62], [318, 351, 60, 59], [379, 351, 58, 59], [438, 351, 59, 59]], "24": [[498, 351, 48, 59], [547, 351, 48, 61], [596, 351, 48, 62], [645, 351, 47, 58]], "25": [[693, 351, 66, 53], [760, 351, 63, 51], [824, 351, 62, 51], [887, 351, 59, 50]], "26": [[947, 351, 67, 66], [0, 418, 63, 78], [64, 418, 58, 62], [123, 418, 60, 78]], "27": [[184, 418, 85, 59], [270, 418, 81, 55], [352, 418, 84, 60]], "28": [[437, 418, 79, 51], [517, 418, 73, 49], [591, 418, 81, 53]], "29": [[673, 418, 60, 53], [734, 418, 56, 54], [791, 418, 56, 55], [848, 418, 63, 55]], "30": [[912, 418, 90, 67], [0, 497, 80, 67], [81, 497, 75, 66]], "31": [[157, 497, 85, 57], [243, 497, 50, 53], [294, 497, 65, 53]], "32": [[360, 497, 81, 47], [442, 497, 90, 46], [533, 497, 53, 48]], "33": [[587, 497, 47, 42], [635, 497, 47, 52], [683, 497, 50, 53], [734, 497, 50, 48]], "34": [[785, 497, 90, 49], [876, 497, 85, 49], [0, 565, 77, 46]], "35": [[78, 565, 47, 56], [126, 565, 106, 56], [233, 565, 51, 57]], "36": [[285, 565, 63, 55], [349, 565, 79, 57], [429, 565, 61, 62]], "37": [[491, 565, 96, 68], [588, 565, 70, 56], [659, 565, 57, 52]], "38": [[717, 565, 74, 63], [792, 565, 82, 65], [875, 565, 86, 64]], "39": [[0, 634, 115, 63], [116, 634, 101, 64]], "40": [[218, 634, 94, 60], [313, 634, 115, 57]], "41": [[429, 634, 99, 69], [529, 634, 73, 66], [603, 634, 68, 68]], "42": [[672, 634, 81, 56], [754, 634, 86, 55], [841, 634, 83, 59]], "43": [[925, 634, 88, 52], [0, 704, 67, 51], [68, 704, 83, 48]], "44": [[152, 704, 81, 58], [234, 704, 68, 57], [303, 704, 67, 50]], "45": [[371, 704, 54, 59], [426, 704, 57, 59], [484, 704, 54, 60]], "46": [[539, 704, 113, 64], [653, 704, 105, 65]], "47": [[759, 704, 77, 61], [837, 704, 76, 61], [914, 704, 66, 65]], "48": [[0, 770, 75, 54], [76, 770, 86, 54], [163, 770, 71, 53]], "49": [[235, 770, 81, 61], [317, 770, 80, 58], [398, 770, 77, 58]]},NM={"1": "ねこ", "2": "いぬ", "3": "うさぎ", "4": "ペンギン", "5": "ひよこ", "6": "かえる", "7": "あおいことり", "8": "おばけ", "9": "ハムスター", "10": "かめ", "11": "たこ", "12": "はいいろねこ", "13": "ひつじ", "14": "すずめ", "15": "ウーパールーパー", "16": "くじら", "17": "きつね", "18": "はりねずみ", "19": "にわとり", "21": "たぬき", "22": "あざらし", "23": "くろねこ", "24": "くらげ", "25": "ねずみ", "26": "こじか", "27": "レッサーパンダ", "28": "カワウソ", "29": "ことり", "30": "しろぎつね", "31": "はち", "32": "てんとうむし", "33": "あおむし", "34": "こうもり", "35": "かぶ", "36": "おほしさま", "37": "ドラゴン", "38": "ユニコーン", "39": "ほのおねこ", "40": "もちうさぎ", "41": "おおかみ", "42": "たれみみいぬ", "43": "かに", "44": "ふぐ", "45": "ふたば", "46": "じんべえざめ", "47": "いか", "48": "むらさきねこ", "49": "くもちゃん"};
+const R={"1": [[0, 0, 60, 53, 31.2, 52], [61, 0, 57, 52, 30.2, 51], [119, 0, 56, 52, 29.0, 51], [176, 0, 53, 53, 25.3, 52]], "2": [[230, 0, 66, 50, 34.8, 49], [297, 0, 61, 50, 31.3, 49], [359, 0, 59, 50, 31.2, 49], [419, 0, 55, 48, 28.3, 47]], "3": [[475, 0, 48, 59, 28.0, 58], [524, 0, 44, 59, 24.5, 58], [569, 0, 46, 61, 25.7, 60], [616, 0, 53, 51, 28.5, 50]], "4": [[670, 0, 54, 52, 25.9, 51], [725, 0, 55, 51, 26.0, 50], [781, 0, 54, 52, 25.6, 51], [836, 0, 54, 51, 26.1, 50]], "5": [[891, 0, 52, 52, 26.4, 51], [944, 0, 53, 53, 26.9, 52], [0, 62, 52, 53, 26.0, 52], [53, 62, 53, 54, 27.4, 53]], "6": [[107, 62, 47, 43, 23.7, 42], [155, 62, 53, 48, 26.7, 47], [209, 62, 51, 50, 23.6, 49], [261, 62, 55, 49, 29.8, 48]], "7": [[317, 62, 59, 51, 30.9, 50], [377, 62, 63, 53, 32.8, 52], [441, 62, 60, 43, 29.2, 42], [502, 62, 60, 47, 30.4, 46]], "8": [[563, 62, 56, 47, 30.7, 46], [620, 62, 56, 54, 29.3, 53], [677, 62, 54, 51, 28.5, 50], [732, 62, 55, 48, 29.7, 47]], "9": [[788, 62, 51, 47, 25.6, 46], [840, 62, 53, 48, 25.9, 47], [894, 62, 57, 48, 27.6, 47], [952, 62, 59, 47, 28.0, 46]], "10": [[0, 117, 60, 50, 29.0, 49], [61, 117, 58, 51, 28.3, 50], [120, 117, 58, 52, 27.5, 51], [179, 117, 60, 50, 29.3, 49]], "11": [[240, 117, 66, 61, 32.3, 60], [307, 117, 58, 61, 28.6, 60], [366, 117, 57, 58, 29.3, 57], [424, 117, 63, 60, 31.1, 59]], "12": [[488, 117, 61, 53, 31.7, 52], [550, 117, 61, 60, 31.9, 59], [612, 117, 62, 61, 32.0, 60], [675, 117, 62, 64, 32.0, 63]], "13": [[738, 117, 61, 60, 29.9, 59], [800, 117, 64, 62, 32.8, 61], [865, 117, 59, 59, 29.7, 58], [925, 117, 61, 62, 30.2, 61]], "14": [[0, 182, 68, 48, 35.3, 47], [69, 182, 61, 56, 31.9, 55], [131, 182, 71, 56, 33.0, 55], [203, 182, 64, 60, 32.3, 59]], "15": [[268, 182, 86, 63, 44.4, 62], [355, 182, 85, 70, 43.2, 69], [441, 182, 85, 66, 42.7, 65]], "16": [[527, 182, 79, 62, 43.8, 61], [607, 182, 81, 70, 44.2, 69], [689, 182, 82, 64, 44.3, 63]], "17": [[772, 182, 72, 67, 37.8, 66], [845, 182, 71, 67, 36.4, 66], [917, 182, 64, 65, 31.9, 64], [0, 253, 62, 56, 32.6, 55]], "18": [[63, 253, 64, 53, 31.7, 52], [128, 253, 61, 50, 29.7, 49], [190, 253, 61, 50, 29.0, 49], [252, 253, 60, 49, 28.4, 48]], "19": [[313, 253, 61, 62, 33.0, 61], [375, 253, 62, 62, 35.1, 61], [438, 253, 64, 66, 35.2, 65], [503, 253, 61, 64, 32.2, 63]], "21": [[565, 253, 71, 61, 37.8, 60], [637, 253, 60, 60, 30.7, 59], [698, 253, 59, 60, 29.5, 59], [758, 253, 58, 59, 29.4, 58]], "22": [[817, 253, 71, 48, 38.6, 47], [889, 253, 83, 49, 47.3, 48], [0, 320, 73, 47, 38.9, 46]], "23": [[74, 320, 67, 62, 35.7, 61], [142, 320, 60, 59, 32.7, 58], [203, 320, 58, 59, 30.4, 58], [262, 320, 59, 59, 30.9, 58]], "24": [[322, 320, 48, 59, 23.7, 58], [371, 320, 48, 61, 24.2, 60], [420, 320, 48, 59, 23.8, 58], [469, 320, 47, 58, 23.4, 57]], "25": [[517, 320, 66, 53, 35.6, 52], [584, 320, 63, 51, 35.1, 50], [648, 320, 62, 51, 34.8, 50], [711, 320, 59, 50, 32.3, 49]], "26": [[771, 320, 66, 65, 33.2, 64], [838, 320, 63, 76, 31.1, 75], [902, 320, 58, 62, 28.2, 61], [961, 320, 60, 78, 30.0, 77]], "27": [[0, 399, 85, 58, 46.4, 57], [86, 399, 81, 55, 39.9, 54], [168, 399, 84, 60, 44.0, 59]], "28": [[253, 399, 79, 51, 43.6, 50], [333, 399, 73, 49, 39.7, 48], [407, 399, 81, 53, 43.0, 52]], "29": [[489, 399, 60, 53, 30.0, 52], [550, 399, 56, 53, 28.0, 52], [607, 399, 56, 55, 26.5, 54], [664, 399, 63, 55, 31.9, 54]], "30": [[728, 399, 83, 64, 42.0, 63], [812, 399, 72, 65, 36.4, 64], [885, 399, 70, 63, 36.1, 62]], "31": [[956, 399, 52, 52, 27.0, 51], [0, 465, 50, 51, 25.5, 50], [51, 465, 50, 52, 25.5, 51]], "32": [[102, 465, 60, 47, 32.0, 46], [163, 465, 59, 46, 27.7, 45], [223, 465, 53, 48, 26.6, 47]], "33": [[277, 465, 47, 42, 23.1, 41], [325, 465, 47, 52, 24.8, 51], [373, 465, 50, 53, 27.0, 52], [424, 465, 47, 48, 24.3, 47]], "34": [[472, 465, 90, 49, 46.4, 48], [563, 465, 85, 49, 42.9, 48], [649, 465, 77, 46, 38.7, 45]], "35": [[727, 465, 47, 56, 24.2, 55], [775, 465, 52, 56, 28.8, 55], [828, 465, 51, 57, 28.2, 56]], "36": [[880, 465, 54, 54, 26.5, 53], [935, 465, 50, 52, 24.6, 51], [0, 523, 52, 51, 24.9, 50]], "37": [[53, 523, 96, 66, 50.0, 65], [150, 523, 70, 56, 35.9, 55], [221, 523, 57, 52, 29.5, 51]], "38": [[279, 523, 74, 63, 39.8, 62], [354, 523, 72, 65, 38.1, 64], [427, 523, 72, 64, 38.8, 63]], "39": [[500, 523, 115, 63, 64.1, 62], [616, 523, 101, 64, 57.1, 63]], "40": [[718, 523, 74, 58, 40.2, 57], [793, 523, 65, 57, 34.9, 56]], "41": [[859, 523, 99, 67, 51.2, 66], [0, 591, 73, 66, 38.1, 65], [74, 591, 68, 66, 34.0, 65]], "42": [[143, 591, 81, 56, 42.5, 55], [225, 591, 86, 55, 43.4, 54], [312, 591, 83, 58, 44.5, 57]], "43": [[396, 591, 67, 51, 32.3, 50], [464, 591, 67, 51, 32.5, 50], [532, 591, 71, 48, 35.2, 47]], "44": [[604, 591, 81, 58, 39.9, 57], [686, 591, 68, 57, 32.8, 56], [755, 591, 60, 49, 28.6, 48]], "45": [[816, 591, 54, 59, 27.9, 58], [871, 591, 57, 59, 31.7, 58], [929, 591, 53, 60, 27.0, 59]], "46": [[0, 658, 113, 64, 63.5, 63], [114, 658, 105, 65, 59.5, 64]], "47": [[220, 658, 68, 61, 37.8, 60], [289, 658, 67, 61, 37.1, 60], [357, 658, 66, 65, 35.6, 64]], "48": [[424, 658, 75, 54, 39.9, 53], [500, 658, 70, 54, 35.0, 53], [571, 658, 71, 53, 36.1, 52]], "49": [[643, 658, 81, 61, 40.9, 60], [725, 658, 80, 58, 41.7, 57], [806, 658, 77, 58, 39.3, 57]]},NM={"1": "ねこ", "2": "いぬ", "3": "うさぎ", "4": "ペンギン", "5": "ひよこ", "6": "かえる", "7": "あおいことり", "8": "おばけ", "9": "ハムスター", "10": "かめ", "11": "たこ", "12": "はいいろねこ", "13": "ひつじ", "14": "すずめ", "15": "ウーパールーパー", "16": "くじら", "17": "きつね", "18": "はりねずみ", "19": "にわとり", "21": "たぬき", "22": "あざらし", "23": "くろねこ", "24": "くらげ", "25": "ねずみ", "26": "こじか", "27": "レッサーパンダ", "28": "カワウソ", "29": "ことり", "30": "しろぎつね", "31": "はち", "32": "てんとうむし", "33": "あおむし", "34": "こうもり", "35": "かぶ", "36": "おほしさま", "37": "ドラゴン", "38": "ユニコーン", "39": "ほのおねこ", "40": "もちうさぎ", "41": "おおかみ", "42": "たれみみいぬ", "43": "かに", "44": "ふぐ", "45": "ふたば", "46": "じんべえざめ", "47": "いか", "48": "むらさきねこ", "49": "くもちゃん"};
+/* 動き方:walk=歩く hop=ぴょんぴょん fly=空を飛ぶ swim=ふわふわ泳ぐ slide=ずりずり進む */
+const MOVE={3:'hop',6:'hop',40:'hop',36:'hop',5:'walk',
+ 7:'fly',14:'fly',29:'fly',31:'fly',32:'fly',34:'fly',49:'fly',8:'fly',37:'walk',
+ 11:'swim',15:'swim',16:'swim',24:'swim',44:'swim',46:'swim',47:'swim',
+ 22:'slide',28:'slide',33:'slide',10:'slide',45:'hop',35:'hop',43:'walk'};
+const FACE_LEFT={46:1};
 const img=new Image();img.src='animal-motion-sprites.webp';
-let hold=0.16;const cells=[];
-document.querySelectorAll('.bar button').forEach(b=>b.addEventListener('click',()=>{hold=+b.dataset.sp;document.querySelectorAll('.bar button').forEach(x=>x.classList.toggle('on',x===b));}));
-const g=document.getElementById('g');
-Object.keys(R).map(Number).sort((a,b)=>a-b).forEach(n=>{const fr=R[n],mw=Math.max(...fr.map(f=>f[2])),mh=Math.max(...fr.map(f=>f[3]));
-  const d=document.createElement('div');d.className='c';const c=document.createElement('canvas');const S=Math.min(1,100/mw);c.width=mw;c.height=mh;c.style.width=Math.round(mw*S)+'px';c.style.height=Math.round(mh*S)+'px';
-  d.appendChild(c);const t=document.createElement('div');t.className='n';t.innerHTML='<b>'+n+'</b>'+NM[n]+' <span style="color:#C8B8D0">'+fr.length+'コマ</span>';d.appendChild(t);g.appendChild(d);
-  cells.push({c,x:c.getContext('2d'),fr,mw,mh,off:Math.random()*2});});
-function loop(t){if(img.complete&&img.naturalWidth){for(const o of cells){const k=Math.floor((t/1000+o.off)/hold)%o.fr.length,f=o.fr[k];o.x.clearRect(0,0,o.mw,o.mh);
-  o.x.drawImage(img,f[0],f[1],f[2],f[3],Math.round((o.mw-f[2])/2),o.mh-f[3],f[2],f[3]);}}requestAnimationFrame(loop);}
+let slow=1;const cells=[];
+document.querySelectorAll('.bar button').forEach(b=>b.addEventListener('click',()=>{slow=+b.dataset.sp;document.querySelectorAll('.bar button').forEach(x=>x.classList.toggle('on',x===b));}));
+const g=document.getElementById('g'),DPR=Math.min(3,window.devicePixelRatio||1);
+function mk(n,canvas){const fr=R[n],mw=Math.max(...fr.map(f=>f[2])),mh=Math.max(...fr.map(f=>f[3]));
+  return{n,fr,mw,mh,c:canvas,x:canvas.getContext('2d'),mv:MOVE[n]||'walk',px:Math.random(),dir:Math.random()<.5?1:-1,t:Math.random()*5,pause:0,hop:Math.random(),fk:0};}
+Object.keys(R).map(Number).sort((a,b)=>a-b).forEach(n=>{
+  const d=document.createElement('div');d.className='c';const c=document.createElement('canvas');d.appendChild(c);
+  const mvj={walk:'あるく',hop:'はねる',fly:'とぶ',swim:'およぐ',slide:'すすむ'}[MOVE[n]||'walk'];
+  const t=document.createElement('div');t.className='n';t.innerHTML='<b>'+n+'</b>'+NM[n]+'<i>'+mvj+'</i>';d.appendChild(t);g.appendChild(d);
+  const o=mk(n,c);cells.push(o);d.addEventListener('click',()=>openBig(n));});
+let big=null;const bigEl=document.getElementById('big'),bc=document.getElementById('bc');
+function openBig(n){big=mk(n,bc);big.px=.5;document.getElementById('bt').textContent=n+'  '+NM[n];bigEl.classList.add('on');}
+bigEl.addEventListener('click',()=>{bigEl.classList.remove('on');big=null;});
+function fit(o){const r=o.c.getBoundingClientRect(),w=Math.round(r.width*DPR),h=Math.round(r.height*DPR);if(o.c.width!==w||o.c.height!==h){o.c.width=w;o.c.height=h;}return[w,h];}
+function step(o,dt){o.t+=dt;const sp=1/slow;
+  if(o.pause>0){o.pause-=dt;return;}
+  o.fk+=dt/(.15*slow);
+  const v={walk:.12,hop:.16,fly:.1,swim:.06,slide:.06}[o.mv]*sp;
+  if(o.mv==='hop'){o.hop+=dt*sp/.75;if(o.hop>=1){o.hop-=1;if(Math.random()<.18)o.pause=rnd(.4,1.2);}o.px+=o.dir*v*dt*(Math.sin(o.hop*Math.PI)>0?1.6:0);}
+  else o.px+=o.dir*v*dt;
+  const mg=Math.min(.45,o.mg||.15);if(o.px<mg){o.px=mg;o.dir=1;}if(o.px>1-mg){o.px=1-mg;o.dir=-1;}
+  if(o.mv==='walk'&&Math.random()<dt*.12)o.pause=rnd(.6,1.6);
+  if(Math.random()<dt*.05)o.dir*=-1;}
+function rnd(a,b){return a+Math.random()*(b-a);}
+function draw(o,isBig){const[w,h]=fit(o),x=o.x;x.clearRect(0,0,w,h);
+  /* 舞台:空と地面(泳ぐ子は水の中) */
+  const water=o.mv==='swim';const gy=h*(isBig?.84:.86);
+  const gr=x.createLinearGradient(0,0,0,h);if(water){gr.addColorStop(0,'#CFEFFC');gr.addColorStop(1,'#9FD8F2');}else{gr.addColorStop(0,'#EAF6FD');gr.addColorStop(1,'#F8FBF2');}
+  x.fillStyle=gr;x.fillRect(0,0,w,h);
+  if(!water){x.fillStyle='#CDEBB4';x.fillRect(0,gy,w,h-gy);x.fillStyle='#B6DE98';x.fillRect(0,gy,w,Math.max(2,h*.02));}
+  else{x.fillStyle='#E8D8A8';x.fillRect(0,h*.92,w,h*.08);}
+  if(!img.complete||!img.naturalWidth)return;
+  const S=(h*(isBig?.62:.6))/Math.max(o.mh,o.mw*.62);
+  const moving=o.pause<=0;o.mg=(o.mw*S*.55+4)/w;
+  const f=o.fr[Math.floor(o.fk)%o.fr.length];
+  let cx=o.px*w,by=gy;
+  if(o.mv==='hop'&&moving)by-=Math.sin(Math.min(1,o.hop)*Math.PI)*h*.22;
+  if(o.mv==='fly'){by=h*.62+Math.sin(o.t*2.2)*h*.08;}
+  if(o.mv==='swim'){by=h*.7+Math.sin(o.t*1.3)*h*.06;}
+  if(o.mv==='walk'&&moving)by-=Math.abs(Math.sin(o.t*10/slow))*h*.012;
+  /* 影 */
+  if(!water){const sh=o.mv==='fly'?.35:o.mv==='hop'?.7+.3*(by/gy):1;x.fillStyle='rgba(80,110,60,'+(.18*sh)+')';x.beginPath();x.ellipse(cx,gy+h*.015,o.mw*S*.32*sh,h*.025,0,0,Math.PI*2);x.fill();}
+  const faceR=!FACE_LEFT[o.n],flip=(o.dir<0)===faceR;
+  x.imageSmoothingEnabled=false;x.save();x.translate(cx,by);if(flip)x.scale(-1,1);
+  x.drawImage(img,f[0],f[1],f[2],f[3],-f[4]*S,-f[5]*S,f[2]*S,f[3]*S);x.restore();}
+let last=performance.now();
+function loop(t){const dt=Math.min(.05,(t-last)/1000);last=t;
+  const vis=window.innerHeight;
+  for(const o of cells){step(o,dt);const r=o.c.getBoundingClientRect();if(r.bottom<-50||r.top>vis+50)continue;draw(o,false);}
+  if(big){step(big,dt);draw(big,true);}
+  requestAnimationFrame(loop);}
 requestAnimationFrame(loop);
 })();
 </script></body></html>
