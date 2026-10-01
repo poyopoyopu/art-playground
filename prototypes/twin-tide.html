@@ -11,42 +11,11 @@
   html,body{margin:0;padding:0;height:100%;background:#0b1530;overflow:hidden;
     -webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
   canvas#c{display:block;position:fixed;inset:0;width:100vw;height:100vh;touch-action:none}
-  #guide{position:fixed;inset:0;z-index:80;display:none;align-items:center;justify-content:center;
-    background:rgba(4,8,20,.62);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
-    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;color:#eef2fb}
-  #guide.on{display:flex}
-  #guide .sheet{position:relative;width:min(88vw,460px);max-height:82vh;overflow:auto;
-    padding:22px 20px 20px;border-radius:18px;background:rgba(14,22,48,.92);
-    border:1px solid rgba(255,255,255,.14);box-shadow:0 10px 50px #000a;
-    -webkit-touch-callout:none;touch-action:pan-y}
-  #guide h2{margin:0 0 8px;font-size:17px;letter-spacing:.18em;font-weight:600}
-  #guide h3{margin:16px 0 6px;font-size:12px;letter-spacing:.14em;color:#ffb066;font-weight:600}
-  #guide p{margin:0;font-size:14px;line-height:1.7}
-  #guide .law{color:#ffd9a8}
-  #guide .ops div{display:flex;gap:10px;margin:7px 0;font-size:13px;line-height:1.6}
-  #guide .ops b{flex:0 0 74px;font-weight:600;color:#9cc4ff}
-  #guide .ops span{flex:1;opacity:.92}
-  #guide .close{position:absolute;right:10px;top:8px;width:34px;height:34px;border:none;border-radius:50%;
-    background:transparent;color:#fff;font-size:22px;line-height:1;padding:0}
 </style>
 <script src="../ap-kit.js"></script>
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="guide"><div class="sheet"><button class="close" aria-label="閉じる">×</button>
-<h2>TWIN TIDE</h2>
-<p class="law">潮の壁は、ぶつかった所に格子を残す。触った場所は、新しい潮の生まれ故郷になる。</p>
-<h3>さわりかた</h3>
-<div class="ops">
-<div><b>タップ</b><span>そこから新しい潮が円を描いて広がりはじめる。二本の潮が作っていた格子に、三本目・四本目の波がぶつかって、模様の形が変わっていく(同時に5つまで)。</span></div>
-<div><b>なぞる</b><span>押したままなぞると、潮の生まれ故郷が指についてくる。動かすほど、潮の壁が斜めにゆがむ。</span></div>
-<div><b>引き潮</b><span>触って生まれた潮は約40秒で引いていく。引ききると、また最初の二本の潮がつくる格子だけになる。</span></div>
-<div><b>✦</b><span>別の世界の色へ。玉虫色・夕暮れ・宵・暁・月・夢の中から色が変わり、光の向き・波の細かさ・二本の潮の来る向きも変わる。</span></div>
-<div><b>↻</b><span>最初の玉虫色、最初の二本の潮に戻す。</span></div>
-</div>
-<h3>元になった景色</h3>
-<p>中国・銭塘江の潮津波(tidal bore)。夕暮れ、潮が二つに分かれて互いにぶつかる時にできる、格子状の波模様。</p>
-</div></div>
 <script>
 (function(){
 "use strict";
@@ -108,8 +77,6 @@ var srcs=[];                    // {x,y,off,t0,perm,die,fade,early}
 var t=0;
 var TC=1.8;                     // 最初の二本が交わるまでの秒数
 var hintA=1, touchedOnce=false;
-var guideEl=document.getElementById('guide');
-var guideOpen=false;
 
 function clamp01(v){return v<0?0:(v>1?1:v);}
 
@@ -276,7 +243,6 @@ function toLowX(cx){return cx/W*lw;}
 function toLowY(cy){return cy/H*lh;}
 cv.addEventListener('pointerdown',function(e){
   if(window.APKit&&window.APKit.isUI(e.clientX,e.clientY))return;
-  if(guideOpen)return;
   e.preventDefault();
   try{cv.setPointerCapture(e.pointerId);}catch(_){}
   ptrs[e.pointerId]=addTide(toLowX(e.clientX),toLowY(e.clientY));
@@ -290,7 +256,7 @@ function endPtr(e){delete ptrs[e.pointerId];}
 cv.addEventListener('pointerup',endPtr);
 cv.addEventListener('pointercancel',endPtr);
 
-/* ---------- ✦ ↻ ？ ---------- */
+/* ---------- ✦ ↻ ---------- */
 function mutate(){
   var ni=palIdx; while(ni===palIdx)ni=(Math.random()*PALS.length)|0;
   palIdx=ni; P=PALS[ni]; buildIrid();
@@ -306,12 +272,6 @@ function resetAll(){
   deriveParams();
   setupBores(false);
 }
-function openGuide(){guideOpen=true;guideEl.classList.add('on');}
-function closeGuide(){guideOpen=false;guideEl.classList.remove('on');}
-guideEl.addEventListener('click',function(e){
-  if(e.target===guideEl||(e.target.classList&&e.target.classList.contains('close')))closeGuide();
-});
-
 /* ---------- ループ ---------- */
 var last=0;
 function tick(now){
@@ -343,8 +303,7 @@ if(window.APKit){
     fullscreenButton:false,
     buttons:[
       {label:'✦',name:'mutate',onClick:mutate},
-      {label:'↻',name:'reset',onClick:resetAll},
-      {label:'？',name:'guide',onClick:openGuide}
+      {label:'↻',name:'reset',onClick:resetAll}
     ]
   });
 }
