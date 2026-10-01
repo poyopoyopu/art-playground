@@ -1,0 +1,100 @@
+<!doctype html>
+<!-- どうぶつパレード — チャッピーが描いた動物32体(右向き・4コマ歩き)を、クロードが本物のドット絵に後加工したものを動かして見るページ。クロード作
+     1コマ=32×32ドット(体は約26×24ドット+1ドットのふち)、5〜9色、全コマ足元と中心をそろえてある。画像は animal-parade-sprites.png(128×1024、行=動物・列=コマ)
+     ドット絵は整数倍で拡大してにじまない。動きの少ない子は、歩きのコマに1ドットの上下ゆれを足している -->
+<html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>どうぶつパレード</title>
+<style>
+html,body{margin:0;background:#F4F1F6;font-family:"Hiragino Maru Gothic ProN","Hiragino Sans","Yu Gothic",sans-serif;color:#6A5A7A}
+h1{font-size:18px;text-align:center;margin:18px 0 4px;letter-spacing:.1em}
+p.s{text-align:center;font-size:12px;margin:0 0 12px;color:#9A8AA8}
+.bar{display:flex;justify-content:center;gap:8px;margin:0 0 12px;flex-wrap:wrap}
+.bar button{border:0;border-radius:18px;padding:6px 14px;background:#fff;color:#6A5A7A;font:inherit;font-size:13px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.bar button.on{background:#FF8FB8;color:#fff}
+.g{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;padding:0 10px calc(20px + env(safe-area-inset-bottom,0px))}
+.c{background:#fff;border-radius:14px;padding:6px 6px 6px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.06);cursor:pointer}
+.c canvas{display:block;width:100%;height:96px;border-radius:10px}
+.n{font-size:11px;margin-top:4px}
+.n b{color:#C8A8C8;font-weight:600;margin-right:4px}
+.n i{font-style:normal;color:#B8A8C8;margin-left:4px}
+#big{position:fixed;inset:0;z-index:10;display:none;background:rgba(60,50,80,.5);align-items:center;justify-content:center}
+#big.on{display:flex}
+#big canvas{width:min(94vw,640px);height:min(60vh,380px);border-radius:20px;background:#fff}
+#big .t{position:absolute;bottom:calc(10vh);left:0;right:0;text-align:center;color:#fff;font-size:18px;text-shadow:0 1px 3px rgba(0,0,0,.4)}
+</style></head><body>
+<h1>どうぶつパレード</h1><p class="s">32ひきが、それぞれの動き方で歩きます。タップで大きく</p>
+<div class="bar"><button data-sp="1.6">ゆっくり</button><button data-sp="1" class="on">ふつう</button><button data-sp="0.6">はやい</button></div>
+<div class="g" id="g"></div>
+<div id="big"><canvas id="bc"></canvas><div class="t" id="bt"></div></div>
+<script>
+(function(){
+/* 画像の行の順 = この並び。[id, なまえ, 動き方(walk=あるく hop=はねる fly=とぶ swim=およぐ slide=すすむ), 速さ(画面の幅に対する1秒あたり)] */
+const A=[
+ ['tiger','とら','walk',.15],['cow','うし','walk',.1],['pig','ぶた','walk',.11],['goat','やぎ','walk',.13],
+ ['wolf','おおかみ','walk',.16],['horse','うま','walk',.17],['chicken','にわとり','walk',.12],['shark','さめ','swim',.1],
+ ['bear','くま','walk',.11],['deer','しか','walk',.14],['fox','きつね','walk',.16],['tanuki','たぬき','walk',.12],
+ ['owl','ふくろう','fly',.12],['bat','こうもり','fly',.14],['seal','あざらし','slide',.05],['whale','くじら','swim',.07],
+ ['redpanda','レッサーパンダ','walk',.12],['elephant','ぞう','walk',.08],['frog','かえる','hop',.14],['bluebird','あおいことり','fly',.13],
+ ['squirrel','りす','walk',.15],['otter','かわうそ','walk',.14],['duck','かも','walk',.1],['dolphin','いるか','swim',.12],
+ ['cat','ねこ(みけ)','walk',.14],['dog','いぬ(しば)','walk',.15],['rabbit','うさぎ','hop',.16],['penguin','ペンギン','walk',.09],
+ ['turtle','かめ','walk',.05],['hedgehog','はりねずみ','walk',.07],['chick','ひよこ','walk',.12],['fish','さかな','swim',.1]
+];
+const MVJ={walk:'あるく',hop:'はねる',fly:'とぶ',swim:'およぐ',slide:'すすむ'};
+const FW=32,NF=4;
+const img=new Image();img.src='animal-parade-sprites.png';
+let slow=1;const cells=[];
+document.querySelectorAll('.bar button').forEach(b=>b.addEventListener('click',()=>{slow=+b.dataset.sp;document.querySelectorAll('.bar button').forEach(x=>x.classList.toggle('on',x===b));}));
+const g=document.getElementById('g'),DPR=Math.min(3,window.devicePixelRatio||1);
+function rnd(a,b){return a+Math.random()*(b-a);}
+function mk(n,canvas){const a=A[n];
+  return{n,c:canvas,x:canvas.getContext('2d'),mv:a[2],sp:a[3],px:Math.random()*.6+.2,dir:Math.random()<.5?1:-1,t:Math.random()*5,pause:0,hop:Math.random(),fk:Math.random()*4};}
+A.forEach((a,n)=>{
+  const d=document.createElement('div');d.className='c';const c=document.createElement('canvas');d.appendChild(c);
+  const t=document.createElement('div');t.className='n';t.innerHTML='<b>'+(n+1)+'</b>'+a[1]+'<i>'+MVJ[a[2]]+'</i>';d.appendChild(t);g.appendChild(d);
+  cells.push(mk(n,c));d.addEventListener('click',()=>openBig(n));});
+let big=null;const bigEl=document.getElementById('big'),bc=document.getElementById('bc');
+function openBig(n){big=mk(n,bc);big.px=.5;document.getElementById('bt').textContent=(n+1)+'  '+A[n][1];bigEl.classList.add('on');}
+bigEl.addEventListener('click',()=>{bigEl.classList.remove('on');big=null;});
+function fit(o){const r=o.c.getBoundingClientRect(),w=Math.round(r.width*DPR),h=Math.round(r.height*DPR);if(o.c.width!==w||o.c.height!==h){o.c.width=w;o.c.height=h;}return[w,h];}
+function step(o,dt){o.t+=dt;const sp=1/slow;
+  if(o.pause>0){o.pause-=dt;return;}
+  o.fk+=dt/((o.mv==='swim'||o.mv==='slide'?.28:.16)*slow);
+  const v=o.sp*sp;
+  if(o.mv==='hop'){o.hop+=dt*sp/.75;if(o.hop>=1){o.hop-=1;if(Math.random()<.2)o.pause=rnd(.4,1.1);}o.px+=o.dir*v*dt*(Math.sin(o.hop*Math.PI)>0?1.6:0);}
+  else o.px+=o.dir*v*dt;
+  const mg=o.mg||.15;if(o.px<mg){o.px=mg;o.dir=1;}if(o.px>1-mg){o.px=1-mg;o.dir=-1;}
+  if((o.mv==='walk'||o.mv==='slide')&&Math.random()<dt*.12)o.pause=rnd(.6,1.6);
+  if(Math.random()<dt*.05)o.dir*=-1;}
+function draw(o,isBig){const[w,h]=fit(o),x=o.x;x.clearRect(0,0,w,h);
+  const water=o.mv==='swim';const gy=Math.round(h*(isBig?.84:.86));
+  const gr=x.createLinearGradient(0,0,0,h);
+  if(water){gr.addColorStop(0,'#CFEFFC');gr.addColorStop(1,'#9FD8F2');}else{gr.addColorStop(0,'#EAF6FD');gr.addColorStop(1,'#F8FBF2');}
+  x.fillStyle=gr;x.fillRect(0,0,w,h);
+  if(!water){x.fillStyle='#CDEBB4';x.fillRect(0,gy,w,h-gy);x.fillStyle='#B6DE98';x.fillRect(0,gy,w,Math.max(2,Math.round(h*.02)));}
+  else{x.fillStyle='#E8D8A8';x.fillRect(0,Math.round(h*.92),w,h-Math.round(h*.92));}
+  if(!img.complete||!img.naturalWidth)return;
+  /* ドットは必ず整数倍(にじまない) */
+  const sc=Math.max(1,Math.floor(h*(isBig?.7:.8)/FW));
+  const dw=FW*sc;o.mg=(dw*.5+4)/w;
+  const moving=o.pause<=0;
+  let fi;
+  if(!moving)fi=0;else if(o.mv==='hop')fi=Math.min(NF-1,Math.floor(o.hop*NF));else fi=Math.floor(o.fk)%NF;
+  let by=gy;
+  if(o.mv==='hop'&&moving)by-=Math.round(Math.sin(Math.min(1,o.hop)*Math.PI)*sc*2);
+  if(o.mv==='fly'){by=Math.round(h*.7+Math.sin(o.t*2.2)*sc*1.5);}
+  if(o.mv==='swim'){by=Math.round(h*.74+Math.sin(o.t*1.3)*sc*1.5);}
+  if(o.mv==='walk'&&moving&&(fi&1))by-=sc;   /* 歩きの上下ゆれ:1ドット */
+  const cx=Math.round(o.px*w);
+  if(!water){const hh=gy-by;const sh=o.mv==='fly'?.4:1/(1+hh/(sc*10));x.fillStyle='rgba(80,110,60,'+(.2*sh)+')';x.beginPath();x.ellipse(cx,gy+Math.round(h*.015),dw*.3*sh,Math.max(2,h*.025),0,0,Math.PI*2);x.fill();}
+  x.imageSmoothingEnabled=false;x.save();x.translate(cx,by);if(o.dir<0)x.scale(-1,1);
+  x.drawImage(img,fi*FW,o.n*FW,FW,FW,-dw/2,-dw+sc,dw,dw);   /* 足元の行(31行目)が地面に乗る */
+  x.restore();}
+let last=performance.now();
+function loop(t){const dt=Math.min(.05,(t-last)/1000);last=t;
+  const vis=window.innerHeight;
+  for(const o of cells){step(o,dt);const r=o.c.getBoundingClientRect();if(r.bottom<-50||r.top>vis+50)continue;draw(o,false);}
+  if(big){step(big,dt);draw(big,true);}
+  requestAnimationFrame(loop);}
+requestAnimationFrame(loop);
+})();
+</script></body></html>
