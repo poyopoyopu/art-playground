@@ -1,0 +1,271 @@
+<!-- LIGHT WEB — クロちゃん(Claude)作。水底にゆらめく光の網(コースティクス)を、
+     「触った所の水が深くなり、深さが光の集まり方を変える」という世界のルールで再構成。ap-kit.js統合: クロちゃん -->
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>LIGHT WEB — 光の網の法則</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#031018;overflow:hidden;
+    -webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+  canvas#c{display:block;position:fixed;inset:0;width:100vw;height:100vh;touch-action:none}
+</style>
+<script src="../ap-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(function(){
+"use strict";
+
+/* ---------- 世界のルール ----------
+   水底に見えている光の網は、水面のカーブが光を集めてできている。
+   水面がふくらんでいれば光は寄り、くぼんでいれば散る。寄りきった所が、いちばん明るい線になる。
+   波は触らなくても勝手にゆっくり漂っていて、光の網もずっと形を変え続けている。
+
+   光がどれくらい強く寄るかは「水の深さ」で決まる。深い水ほど、同じ水面でも光が遠くまで進んで、
+   寄って、交わって、また寄る。だから深い所には、浅い所にはない細かい網が増えていく。
+   触った所は、水が深くなる。触り続けるほど深くなって、そこだけ光の網が複雑に増殖する。
+   指を離すと、水はゆっくり元の深さに戻っていく(約20秒)。
+   光は深さで少しずつ色がずれるので、網のふちが虹色ににじむ。
+
+   描き方: 画面の各点で水面の曲がり(ヘッセ行列)を足し合わせ、光の集まり具合 1/|det(I + 深さ×曲がり)| を
+   赤・緑・青それぞれ少しずつ違う深さで計算する(分散)。
+   ✦=別の水(波の向き・大きさ・光の色が変わる) / ↻=最初の水
+------------------------------------ */
+
+var TAU=Math.PI*2;
+var cv=document.getElementById('c');
+var ctx=cv.getContext('2d',{alpha:false});
+var W=0,H=0,dpr=1,gw=0,gh=0,Sc=1;
+var buf=document.createElement('canvas'), bctx=buf.getContext('2d');
+var img=null,pix=null;
+var M=null;                      // 水の深さの倍率(1が基準)
+var NW=8;
+var wcx=null,wsx=null;           // 波ごとの 列方向の cos/sin 表
+var wky=new Float32Array(NW), wom=new Float32Array(NW), wph=new Float32Array(NW);
+var c1=new Float32Array(NW), c2=new Float32Array(NW), c3=new Float32Array(NW);   // 曲がりの係数(xx, yy, xy)
+var wsr=new Float32Array(NW), wcr=new Float32Array(NW);
+var ripples=[];
+var t=0, hintA=1, touchedOnce=false;
+var ptrs={};
+var BASE_M=1.0;
+
+var PALS=[
+  {shallow:[8,78,112], deep:[3,16,52], light:[190,255,255]},   // 青緑の水
+  {shallow:[70,30,104], deep:[12,6,46], light:[255,196,226]},  // 暮れの水
+  {shallow:[8,84,70],  deep:[2,22,30],  light:[214,255,196]},  // 翠の水
+  {shallow:[22,44,100],deep:[5,9,42],   light:[204,222,255]}   // 月の水
+];
+var pal=0, PL=PALS[0];
+
+/* さざ波(ripple)の波形表 F, F', F'' */
+var RN=1024, RS=1, LF=null, LF1=null, LF2=null, rlam=20, rc=40;
+
+function mulberry(a){return function(){a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+
+function genWaves(rand){
+  for(var i=0;i<NW;i++){
+    var ang=rand()*TAU, lam=Sc*(0.045+rand()*0.11), k=TAU/lam;
+    var kx=k*Math.cos(ang), ky=k*Math.sin(ang);
+    var v=Sc*(0.012+rand()*0.022), om=k*v*(rand()<0.5?1:-1);
+    var kap=0.34+rand()*0.3;
+    var ph=rand()*TAU;
+    wky[i]=ky; wom[i]=om; wph[i]=ph;
+    c1[i]=kap*(kx*kx)/(k*k); c2[i]=kap*(ky*ky)/(k*k); c3[i]=kap*(kx*ky)/(k*k);
+    for(var x=0;x<gw;x++){
+      var a=kx*x;
+      wsx[i*gw+x]=Math.sin(a); wcx[i*gw+x]=Math.cos(a);
+    }
+  }
+}
+
+function buildRipple(){
+  rlam=Sc*0.07; rc=Sc*0.10; RS=Sc*0.9;
+  LF=new Float32Array(RN+1); LF1=new Float32Array(RN+1); LF2=new Float32Array(RN+1);
+  var k=TAU/rlam, f=rlam*0.4, L=rlam*3.2, phase=0.8*rlam, step=RS/RN, e=step;
+  function F(d){
+    if(d<0)return 0;
+    var q0=1-Math.exp(-d/f); var env=Math.exp(-d/L)*q0*q0*q0;
+    var u=d/RS,w=1; if(u>0.7){var q=(u-0.7)/0.3; w=1-q*q*(3-2*q);}
+    return env*w*Math.cos(k*(d-phase))/(k*k);   // 曲がりが1桁になるように 1/k² で規格化
+  }
+  for(var i=0;i<=RN;i++){
+    var d=i*step;
+    LF[i]=F(d);
+    LF1[i]=(F(d+e)-F(d-e))/(2*e);
+    LF2[i]=(F(d+e)-2*F(d)+F(d-e))/(e*e);
+  }
+}
+
+function sizeSetup(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth; H=window.innerHeight;
+  cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
+  var asp=W/H, cells=85000;
+  var ngh=Math.round(Math.sqrt(cells/asp)), ngw=Math.round(ngh*asp);
+  if(M&&ngw===gw&&ngh===gh)return;
+  gw=ngw; gh=ngh; Sc=Math.max(gw,gh);
+  buf.width=gw; buf.height=gh;
+  img=bctx.createImageData(gw,gh); pix=img.data;
+  M=new Float32Array(gw*gh); for(var i=0;i<M.length;i++)M[i]=1;
+  wcx=new Float32Array(NW*gw); wsx=new Float32Array(NW*gw);
+  buildRipple();
+  genWaves(waveRand);
+}
+var waveRand=mulberry(20261002);
+
+function addRipple(x,y){
+  if(ripples.length>=6)ripples.shift();
+  ripples.push({x:x,y:y,t0:t});
+}
+
+/* 触った所の水を深くする */
+function deepen(cx,cy,amount){
+  var rho=0.075*gh, R=rho*2.6;
+  var x0=Math.max(0,(cx-R)|0), x1=Math.min(gw-1,(cx+R)|0), y0=Math.max(0,(cy-R)|0), y1=Math.min(gh-1,(cy+R)|0);
+  for(var y=y0;y<=y1;y++){
+    for(var x=x0;x<=x1;x++){
+      var dx=x-cx, dy=y-cy, g=Math.exp(-(dx*dx+dy*dy)/(rho*rho));
+      var i=y*gw+x, v=M[i]+amount*g;
+      M[i]=v>2.7?2.7:v;
+    }
+  }
+}
+
+var rax=new Float32Array(8),ray=new Float32Array(8),rR=new Float32Array(8),rA=new Float32Array(8);
+
+function render(dt){
+  var i,x,y,w;
+  // 深さはゆっくり元に戻る
+  var relax=Math.exp(-dt/20);
+  for(i=0;i<M.length;i++){var m0=M[i]; if(m0!==1)M[i]=1+(m0-1)*relax;}
+  // さざ波
+  var nr=0;
+  for(i=ripples.length-1;i>=0;i--){if(t-ripples[i].t0>9)ripples.splice(i,1);}
+  for(i=0;i<ripples.length&&nr<8;i++){
+    var rp=ripples[i], age=t-rp.t0;
+    rax[nr]=rp.x; ray[nr]=rp.y; rR[nr]=rc*age; rA[nr]=0.55*Math.exp(-age/4.5)*(age<0.3?age/0.3:1); nr++;
+  }
+  var invRS=RN/RS;
+  var sh=PL.shallow, dp=PL.deep, lc=PL.light;
+  var idx=0;
+  for(y=0;y<gh;y++){
+    for(w=0;w<NW;w++){var R=wky[w]*y-wom[w]*t+wph[w]; wsr[w]=Math.sin(R); wcr[w]=Math.cos(R);}
+    for(x=0;x<gw;x++){
+      var hxx=0,hyy=0,hxy=0;
+      for(w=0;w<NW;w++){
+        var s=wsx[w*gw+x]*wcr[w]+wcx[w*gw+x]*wsr[w];
+        hxx-=c1[w]*s; hyy-=c2[w]*s; hxy-=c3[w]*s;
+      }
+      for(var j=0;j<nr;j++){
+        var dx=x-rax[j], dy=y-ray[j];
+        var r=Math.sqrt(dx*dx+dy*dy)+0.001;
+        var d=rR[j]-r;
+        if(d<0||d>=RS)continue;
+        var q=(d*invRS+0.5)|0;
+        var a=rA[j], gp=-a*LF1[q], gpp=a*LF2[q];
+        var ri=1/r, ux=dx*ri, uy=dy*ri, gpr=gp*ri;
+        hxx+=gpp*ux*ux+gpr*(1-ux*ux);
+        hyy+=gpp*uy*uy+gpr*(1-uy*uy);
+        hxy+=(gpp-gpr)*ux*uy;
+      }
+      var m=BASE_M*M[idx>>2];
+      // 赤・緑・青で少しずつ違う深さ(分散): 網のふちが虹色ににじむ
+      var mr=m*0.93, mb=m*1.07;
+      var dR=(1+mr*hxx)*(1+mr*hyy)-mr*mr*hxy*hxy;
+      var dG=(1+m*hxx)*(1+m*hyy)-m*m*hxy*hxy;
+      var dB=(1+mb*hxx)*(1+mb*hyy)-mb*mb*hxy*hxy;
+      var iR=1/((dR<0?-dR:dR)+0.035), iG=1/((dG<0?-dG:dG)+0.035), iB=1/((dB<0?-dB:dB)+0.035);
+      iR=1-Math.exp(-iR*0.085); iG=1-Math.exp(-iG*0.085); iB=1-Math.exp(-iB*0.085);
+      // 深い所ほど水の色が濃い
+      var dd=(M[idx>>2]-1)/1.7; dd=dd>1?1:dd;
+      var br=sh[0]+(dp[0]-sh[0])*dd, bg=sh[1]+(dp[1]-sh[1])*dd, bb=sh[2]+(dp[2]-sh[2])*dd;
+      var R2=br*0.6+lc[0]*iR*1.05, G2=bg*0.6+lc[1]*iG*1.05, B2=bb*0.6+lc[2]*iB*1.05;
+      pix[idx++]=R2>255?255:R2; pix[idx++]=G2>255?255:G2; pix[idx++]=B2>255?255:B2; pix[idx++]=255;
+    }
+  }
+  bctx.putImageData(img,0,0);
+  ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+  ctx.drawImage(buf,0,0,cv.width,cv.height);
+  if(hintA>0.01){
+    ctx.save(); ctx.globalAlpha=hintA*0.6; ctx.fillStyle='#fff';
+    ctx.font=Math.round(12*dpr)+'px ui-monospace,Menlo,monospace'; ctx.textAlign='center';
+    ctx.fillText('TOUCH  THE  WATER',cv.width/2,cv.height-Math.round(118*dpr));
+    ctx.restore();
+  }
+}
+
+/* ---------- 操作 ---------- */
+function gx(cx){return cx/W*gw;}
+function gy(cy){return cy/H*gh;}
+cv.addEventListener('pointerdown',function(e){
+  if(window.APKit&&window.APKit.isUI(e.clientX,e.clientY))return;
+  e.preventDefault();
+  try{cv.setPointerCapture(e.pointerId);}catch(_){}
+  var p={x:gx(e.clientX),y:gy(e.clientY),sx:0,sy:0};
+  p.sx=p.x; p.sy=p.y;
+  ptrs[e.pointerId]=p; touchedOnce=true;
+  addRipple(p.x,p.y);
+  deepen(p.x,p.y,0.2);
+},{passive:false});
+cv.addEventListener('pointermove',function(e){
+  var p=ptrs[e.pointerId]; if(!p)return;
+  p.x=gx(e.clientX); p.y=gy(e.clientY);
+  var dx=p.x-p.sx, dy=p.y-p.sy;
+  if(dx*dx+dy*dy>(0.14*Sc)*(0.14*Sc)){addRipple(p.x,p.y);p.sx=p.x;p.sy=p.y;}
+},{passive:false});
+function endPtr(e){delete ptrs[e.pointerId];}
+cv.addEventListener('pointerup',endPtr);
+cv.addEventListener('pointercancel',endPtr);
+
+function mutate(){
+  var ni=pal; while(ni===pal)ni=(Math.random()*PALS.length)|0;
+  pal=ni; PL=PALS[ni];
+  ptrs={}; ripples=[];
+  for(var i=0;i<M.length;i++)M[i]=1;
+  genWaves(mulberry((Math.random()*1e9)|0));
+}
+function resetAll(){
+  pal=0; PL=PALS[0]; ptrs={}; ripples=[]; t=0; hintA=1; touchedOnce=false;
+  for(var i=0;i<M.length;i++)M[i]=1;
+  genWaves(mulberry(20261002));
+}
+
+/* ---------- ループ ---------- */
+var last=0;
+function tick(now){
+  var dt=last?(now-last)/1000:0.016; last=now;
+  if(dt>0.05)dt=0.05;
+  t+=dt;
+  for(var id in ptrs){deepen(ptrs[id].x,ptrs[id].y,1.1*dt);}
+  if(touchedOnce){hintA-=dt*0.8;}else if(t>9){hintA-=dt*0.5;}
+  if(hintA<0)hintA=0;
+  render(dt);
+  requestAnimationFrame(tick);
+}
+window.addEventListener('resize',function(){sizeSetup();});
+window.addEventListener('orientationchange',function(){setTimeout(sizeSetup,120);});
+
+sizeSetup();
+requestAnimationFrame(tick);
+
+if(window.APKit){
+  window.APKit.init({
+    canvas:cv,
+    gifName:'light-web',
+    clockFormat:'spec',
+    dock:true,
+    autoHide:true,
+    fullscreenButton:false,
+    buttons:[
+      {label:'✦',name:'mutate',onClick:mutate},
+      {label:'↻',name:'reset',onClick:resetAll}
+    ]
+  });
+}
+})();
+</script>
+</body>
+</html>
