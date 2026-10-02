@@ -71,7 +71,7 @@ var lamFrac=0.04;               // 波長 / Sc
 var lightAng=235*Math.PI/180, Lx=0,Ly=0;
 var lam=20,kk=0.3,S=400,c=50;
 var N=2048, invStep=1;
-var LUT_h=new Float32Array(N+1), LUT_g=new Float32Array(N+1), LUT_f=new Float32Array(N+1);
+var LUT_h=new Float32Array(N+1), LUT_g=new Float32Array(N+1);
 
 var srcs=[];                    // {x,y,off,t0,perm,die,fade,early}
 var t=0;
@@ -108,7 +108,7 @@ function deriveParams(){
 
 /* 潮の壁から d ピクセルうしろの波の高さ・傾き・泡 */
 function buildLUT(){
-  var f=lam*0.35, L=lam*7, phase=0.8*lam, k=kk, step=S/N, eps=0.25, fw=lam*0.15, ff=lam*0.12;
+  var f=lam*0.35, L=lam*7, phase=0.8*lam, k=kk, step=S/N, eps=0.25;
   function hAt(d){
     if(d<0)return 0;
     var e=Math.exp(-d/L)*(1-Math.exp(-d/f));
@@ -120,10 +120,6 @@ function buildLUT(){
     var d=i*step;
     LUT_h[i]=hAt(d);
     LUT_g[i]=(hAt(d+eps)-hAt(d-eps))/(2*eps);
-    var u2=d/S, w2=1;
-    if(u2>0.7){var q2=(u2-0.7)/0.3; w2=1-q2*q2*(3-2*q2);}
-    var z=(d-0.38*lam)/fw;
-    LUT_f[i]=(1-Math.exp(-d/ff))*(Math.exp(-0.5*z*z)*w2 + 0.12*Math.exp(-d/(lam*3.5))*(1-Math.exp(-d/f))*w2*Math.max(0,Math.cos(k*(d-phase))));
   }
 }
 
@@ -186,7 +182,7 @@ function render(){
   for(var y=0;y<lh;y++){
     var vy=1-y/lh;
     for(var x=0;x<lw;x++){
-      var Hh=0,gx=0,gy=0,fo=0;
+      var Hh=0,gx=0,gy=0;
       for(var j=0;j<n;j++){
         var dx=x-ax[j], dy=y-ay[j];
         var r=Math.sqrt(dx*dx+dy*dy)+0.0001;
@@ -198,19 +194,16 @@ function render(){
         Hh+=w*LUT_h[q];
         var ir=w*LUT_g[q]/r;
         gx-=ir*dx; gy-=ir*dy;
-        fo+=w*LUT_f[q];
       }
       var sh=(gx*Lx+gy*Ly)*gainS;
       var tt=0.5+0.34*Hh; tt+=vy*0.16; tt=tt<0?0:(tt>1?1:tt);
       var R=dR+mR*tt, G=dG+mG*tt, B=dB+mB*tt;
-      var lr=fr,lg=fg,lb=fb;
       if(sh>0){
         var a=(sh+0.06)/0.62; a=a>1?1:a; a=a*a*(3-2*a);
         if(irid){
           var ci=((Hh*0.10+vy*0.78+(x/lw)*0.42+drift)*256|0)&255;
           wr=irLUT[ci*3]; wg=irLUT[ci*3+1]; wb=irLUT[ci*3+2];
           hr=wr+(255-wr)*0.5; hg=wg+(255-wg)*0.5; hb=wb+(255-wb)*0.5;
-          lr=fr*0.55+wr*0.45; lg=fg*0.55+wg*0.45; lb=fb*0.55+wb*0.45;
         }
         R+=(wr-R)*a; G+=(wg-G)*a; B+=(wb-B)*a;
         if(a>0.62){var b=(a-0.62)/0.38; R+=(hr-R)*b*0.85; G+=(hg-G)*b*0.85; B+=(hb-B)*b*0.85;}
@@ -218,8 +211,6 @@ function render(){
         var m=1+sh*0.5; if(m<0.42)m=0.42;
         R*=m; G*=m; B*=m;
       }
-      var fa=0.88*(1-Math.exp(-fo*1.25));
-      if(fa>0.004){R+=(lr-R)*fa; G+=(lg-G)*fa; B+=(lb-B)*fa;}
       pix[idx++]=R; pix[idx++]=G; pix[idx++]=B; pix[idx++]=255;
     }
   }
