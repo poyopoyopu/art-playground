@@ -1,4 +1,4 @@
-<!-- BORROWED BLOOM — クロちゃん(Claude)作。おっちゃん提供の動画(絵の具が爆ぜた画面の真ん中から、
+<!-- BORROWED BLOOM — クロちゃん(Claude)作。おっちゃん提供の動画(画面いっぱいに絵の具が爆ぜた中心から、
      渦を巻くポーリングアートの花がひらいていく)を参考に、
      「花は新しい色を持たない。足元の絵の具を吸い上げて咲く」という世界のルールで再構成。
      ap-kit.js統合: クロちゃん -->
@@ -9,12 +9,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <title>BORROWED BLOOM — 借りものの色</title>
 <style>
-  html,body{margin:0;padding:0;height:100%;background:#aab3b8;overflow:hidden;
+  html,body{margin:0;padding:0;height:100%;background:#8fb3bd;overflow:hidden;
     -webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
   canvas#c{display:block;position:fixed;inset:0;width:100vw;height:100vh;touch-action:none}
   #hint{position:fixed;left:0;right:0;bottom:118px;text-align:center;pointer-events:none;
     font:12px ui-monospace,Menlo,monospace;letter-spacing:.35em;color:#fff;
-    text-shadow:0 0 6px rgba(0,0,0,.6);opacity:.7;transition:opacity 1.2s}
+    text-shadow:0 0 6px rgba(0,0,0,.7);opacity:.75;transition:opacity 1.2s}
   #nogl{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
     font:14px ui-monospace,Menlo,monospace;color:#222;text-align:center;padding:24px}
 </style>
@@ -31,7 +31,7 @@
 /* ---------- 世界のルール ----------
    画面は、一度ぶちまけられた絵の具の層。
    触った場所から花がひらく。花の真ん中は絵の具を押し出し続け、古い層は外へ押しやられて
-   縁に寄り集まり、中心からは渦を巻いた腕と、網目(セル)が伸びていく。
+   縁に寄り集まり、中心からは放射状の流れと、レースのような網目が伸びていく。
 
    ただし花は新しい色を持たない。咲く瞬間に、足元とまわりの絵の具を吸い上げて、
    その色だけで咲く。だから、咲けば咲くほど世界は自分の色を混ぜ直していく。
@@ -39,7 +39,7 @@
 
    タップ = 小さな花 / 長押し = 押している間、花が広がり続ける(注ぎ続ける)
    ✦ = 新しい絵の具を投げつける(この世界に新しい色が入る唯一の方法)
-   ↻ = まっさらな層に戻す
+   ↻ = 最初の爆発からやり直す
 ------------------------------------ */
 
 var cv=document.getElementById('c');
@@ -52,39 +52,114 @@ var W=2,H=2,S=2;
 var t=0,lastTouch=0,touchedOnce=false;
 var blooms=[];
 var ptrs={};
-
-/* ---------- 乱数 ---------- */
-function mulberry(a){return function(){a|=0;a=a+0x6D2B79F5|0;var x=Math.imul(a^a>>>15,1|a);x=x+Math.imul(x^x>>>7,61|x)^x;return((x^x>>>14)>>>0)/4294967296;};}
 var rnd=Math.random;
+var boomC=[0.5,0.5];
 
-/* ---------- 絵の具のパレット(✦で投げつける色) ---------- */
+/* ---------- 投げつける絵の具の色 ---------- */
 var SPLASH_PALS=[
-  ['#19d3f2','#19d3f2','#1e64ff','#ff2b9c','#ff2b9c','#8a2cff','#ffe41c','#ff6a1a','#e0141e','#15c96a'],
-  ['#ff3d2e','#ff9b1a','#ffd60a','#ffd60a','#ff2e88','#7b1fa2','#2ec4b6'],
-  ['#00e0c6','#00a3ff','#00a3ff','#3dff7a','#f4ff3d','#0b3cff','#ff5ac8'],
+  ['#16e0ff','#1f6dff','#2fd2ff','#ff2fa0','#7a2cff','#ffe51f'],
+  ['#ff3d2e','#ff9b1a','#ffd60a','#ff2e88','#7b1fa2','#2ec4b6'],
+  ['#00e0c6','#00a3ff','#3dff7a','#f4ff3d','#0b3cff','#ff5ac8'],
   ['#ff6fb5','#ffe066','#7bdff2','#b388ff','#ff8c42','#2cd67a'],
   ['#ff4500','#ffb000','#c1121f','#ffd6a5','#3a86ff','#8338ec'],
   ['#c6ff00','#00e5ff','#ff1744','#ffea00','#651fff','#00c853']
 ];
 var lastPal=0;
+function hexRgb(h){var n=parseInt(h.slice(1),16);return [((n>>16)&255)/255,((n>>8)&255)/255,(n&255)/255];}
 
 /* ---------- WebGL ---------- */
 var VS='attribute vec2 p;varying vec2 vUv;void main(){vUv=p*.5+.5;gl_Position=vec4(p,0.,1.);}';
 
 var NOISE=[
 'float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}',
+'vec2 hash2(vec2 p){return fract(sin(vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3))))*43758.5453);}',
 'float vnoise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);',
 ' return mix(mix(hash(i),hash(i+vec2(1.,0.)),f.x),mix(hash(i+vec2(0.,1.)),hash(i+vec2(1.,1.)),f.x),f.y);}',
-'float fbm(vec2 p){float a=.5,s=0.;for(int i=0;i<3;i++){s+=a*vnoise(p);p=p*2.03+17.1;a*=.5;}return s;}',
-'vec2 hash2(vec2 p){return fract(sin(vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3))))*43758.5453);}',
-'vec2 worley(vec2 p,float t){vec2 i=floor(p),f=fract(p);float d1=8.,d2=8.;',
-' for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){vec2 g=vec2(float(x),float(y));vec2 o=hash2(i+g);o=.5+.4*sin(t+6.2831*o);',
-'  vec2 rr=g+o-f;float d=dot(rr,rr);if(d<d1){d2=d1;d1=d;}else if(d<d2)d2=d;}',
-' return vec2(sqrt(d1),sqrt(d2));}'
+'float fbm(vec2 p){float a=.5,s=0.;for(int i=0;i<4;i++){s+=a*vnoise(p);p=p*2.03+17.1;a*=.5;}return s/.9375;}',
+'float h3(vec3 p){p=fract(p*.3183099+.1);p*=17.;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}',
+'float vnoise3(vec3 x){vec3 i=floor(x),f=fract(x);f=f*f*(3.-2.*f);',
+' return mix(mix(mix(h3(i),h3(i+vec3(1.,0.,0.)),f.x),mix(h3(i+vec3(0.,1.,0.)),h3(i+vec3(1.,1.,0.)),f.x),f.y),',
+'  mix(mix(h3(i+vec3(0.,0.,1.)),h3(i+vec3(1.,0.,1.)),f.x),mix(h3(i+vec3(0.,1.,1.)),h3(i+vec3(1.,1.,1.)),f.x),f.y),f.z);}'
 ].join('\n');
 
-/* 流れ:花の中心から外へ押し出す(面積が保たれる湧き出し)+渦の回転+わずかなゆらぎ。
-   真ん中では吸い上げた色を注ぎ込み、ところどころ穴(セル)を残す */
+/* 爆発:画面いっぱいの粉っぽい絵の具の雲+黒い煙+放射状の飛沫+黒と赤のすじ。
+   uFull=1なら下地から描き直し、0なら今の絵の上に重ねる。uR0〜uR1の輪の範囲だけ塗る(飛び散る演出) */
+var BOOM_FS=[
+'precision highp float;',
+'uniform sampler2D uState;uniform vec2 uRes,uC;uniform float uS,uSeed,uSp,uFull,uR0,uR1;uniform vec3 uPal[6];',
+NOISE,
+'vec3 palAt(float k){vec3 c=uPal[0];for(int j=0;j<6;j++){if(float(j)==k)c=uPal[j];}return c;}',
+'void main(){',
+' vec2 px=gl_FragCoord.xy;vec2 q=px/uS;vec2 uv=px/uRes;',
+' vec2 d=q-uC;float r=length(d);vec2 dv=d/max(r,1e-4);float A=atan(d.y,d.x);',
+' float ring=step(uR0,r)*step(r,uR1);',
+' vec3 old=texture2D(uState,uv).rgb;',
+' if(ring<.5){gl_FragColor=vec4(old,1.);return;}',
+' float sd=uSeed;',
+' vec3 base=mix(vec3(.50,.62,.67),vec3(.80,.86,.88),uv.y)*(.92+.12*fbm(q*3.+sd));',
+' vec3 col=uFull>.5?base:old;',
+/* 粉っぽい色の雲 */
+' vec2 p=q*2.2+sd;',
+' vec2 w=vec2(fbm(p),fbm(p+vec2(5.2,1.3)));',
+' vec2 w2=vec2(fbm(p*2.+w*3.),fbm(p*2.+w*3.+3.7));',
+' float reach=uSp*(.42+.38*fbm(dv*2.2+sd)+.25*pow(vnoise(dv*7.+sd+3.),2.));',
+' float cover=1.-smoothstep(reach*.55,reach,r+.12*(fbm(q*9.+w*2.)-.5));',
+' float g=clamp((fbm(p*.8+w2*2.4+dv*.6)-.22)/.56,0.,.999)*6.;',
+' float k0=mod(floor(g),6.),k1=mod(k0+1.,6.);',
+' vec3 cc=mix(palAt(k0),palAt(k1),smoothstep(.55,1.,fract(g)));',
+' float smoke=smoothstep(.52,.72,fbm(p*1.3+w2*2.+11.+dv*.8));',
+' cc=mix(cc,vec3(.02,.04,.06),smoke*.92);',
+' float glow=smoothstep(.3,.75,fbm(p*.7+w*1.5+20.));',
+' cc=mix(cc,cc*1.35+vec3(.12),glow*.6*(1.-smoke));',
+' float grain=vnoise(q*380.+sd)*.6+vnoise(q*170.+sd*2.)*.4;',
+' cc*=.82+.36*grain;',
+' float powder=cover*(.62+.38*smoothstep(.25,.6,fbm(q*6.+w2*3.)));',
+' col=mix(col,clamp(cc,0.,1.),powder);',
+/* 放射状の飛沫(外へ行くほどまばらで小さく、放射方向に伸びる) */
+' for(int L=0;L<2;L++){',
+'  float KA=L==0?150.:380.;float KR=L==0?9.:16.;',
+'  float lr=log(r+.02);',
+'  vec2 cid=vec2(floor((A+3.14159)/6.28318*KA),floor(lr*KR));',
+'  vec2 hh=hash2(cid+sd*13.+float(L)*71.);',
+'  float dens=(L==0?.3:.36)*smoothstep(.03,.15,r)*(1.-smoothstep(reach*.9,reach*2.2,r));',
+'  if(hh.x<dens){',
+'   float ca=(cid.x+.32+.36*hh.y)/KA*6.28318-3.14159;',
+'   float cr=exp((cid.y+.42+.16*fract(hh.x*17.))/KR)-.02;',
+'   float da=A-ca;float tang=da*r;float rad=r-cr;',
+'   float sz=(r+.02)*6.28318/KA*(.06+.2*pow(fract(hh.y*29.),1.5));',
+'   float e=length(vec2(tang,rad/(1.3+.9*fract(hh.x*7.))))-sz;',
+'   float dropA=1.-smoothstep(-.6/uS,.6/uS,e);',
+'   float pc=floor(fract(hh.y*53.)*7.);',
+'   vec3 dc=pc>5.5?vec3(.03,.03,.05):palAt(pc);',
+'   col=mix(col,dc*(.95+.15*fract(hh.x*91.)),dropA*.95);',
+'  }',
+' }',
+/* 細かい霧 */
+' float hp=hash(floor(px/1.5)+sd*7.);',
+' float mist=step(1.-(.022*cover+.006),hp);',
+' col=mix(col,palAt(floor(fract(hp*97.)*6.))*1.1,mist*.8);',
+/* 黒と赤のすじ */
+' for(int L=0;L<2;L++){',
+'  float N=L==0?90.:200.;',
+'  float Af=(A+3.14159)/6.28318*N;float li=floor(Af);vec2 hh=hash2(vec2(li,sd+N));',
+'  if(hh.x>(L==0?.6:.8)){',
+'   float ca=li+.5+(hh.y-.5)*.7;float perp=abs((Af-ca)/N*6.28318)*r;',
+'   float rs=uSp*(.08+.45*fract(hh.x*13.7));float re=rs+.2+1.3*fract(hh.y*7.3);',
+'   float wd=(L==0?.0028:.0012)*(.5+1.5*pow(fract(hh.x*31.1),2.))*(.4+r);',
+'   wd*=smoothstep(re,rs+(re-rs)*.3,r)*smoothstep(rs,rs+.04,r);',
+'   wd=max(wd,.0);',
+'   float ln=1.-smoothstep(wd-.7/uS,wd+.7/uS,perp);',
+'   ln*=step(rs,r)*step(r,re);',
+'   vec3 lc=fract(hh.y*91.)<.33?vec3(.86,.06,.08):vec3(.04,.04,.06);',
+'   col=mix(col,lc,ln*.92);',
+'  }',
+' }',
+' gl_FragColor=vec4(col,1.);',
+'}'
+].join('\n');
+
+/* 流れ:花の中心から外へ押し出す(面積が保たれる湧き出し)+ゆるい渦+わずかなゆらぎ。
+   花の内側には、吸い上げた色で放射状の流れとレースの網目を描き込む */
 var FLOW_FS=[
 'precision highp float;',
 'uniform sampler2D uState;uniform vec2 uRes;uniform float uS,uTime,uDt;uniform int uN;',
@@ -102,61 +177,53 @@ NOISE,
 ' return clamp(c,0.,1.);}',
 'void main(){',
 ' vec2 px=gl_FragCoord.xy;vec2 q=px/uS;vec2 src=q;float moved=0.;',
-' vec3 P=vec3(0.);float A=0.;',
+' vec3 P=vec3(0.);float AA=0.;',
 ' for(int i=0;i<6;i++){',
 '  if(i>=uN)break;',
 '  vec4 a=uA[i];vec4 b=uB[i];vec2 c=a.xy;float r=a.z;float s=a.w;',
 '  vec2 d=src-c;float dist=length(d);',
-'  float rr=r*(1.+.26*(vnoise(d/max(dist,1e-4)*2.2+b.w)-.5));',
-'  float m=s*(1.-smoothstep(rr*.86,rr*1.04,dist));',
+'  float rr=r*(1.+.3*(vnoise(d/max(dist,1e-4)*2.4+b.w)-.5)+.08*(vnoise(d/max(dist,1e-4)*9.+b.w)-.5));',
+'  float m=s*(1.-smoothstep(rr*.84,rr*1.04,dist));',
 '  if(m>.0001){',
 '   float dd=max(dist,b.z*.5);',
 '   float v=b.x/(6.2831853*dd);',
 '   float nd=max(dist-v*uDt*m,0.);',
-'   float th=uDt*m*b.y*(.9*exp(-dist/(.3*r+.02))+.06*max(0.,1.-dist/r));',
+'   float th=uDt*m*b.y*(.45*exp(-dist/(.3*r+.02))+.04*max(0.,1.-dist/r));',
 '   float cs=cos(th),sn=sin(th);',
 '   vec2 dr=vec2(cs*d.x+sn*d.y,-sn*d.x+cs*d.y);',
 '   if(dist>1e-5)dr*=nd/dist;',
 '   vec2 w=vec2(vnoise(src*7.+vec2(uTime*.4,b.w)),vnoise(src*7.+vec2(b.w,uTime*.4)+31.7))-.5;',
 '   src=c+dr+w*uDt*m*.035;moved=1.;',
 '  }',
-'  vec2 e=q-c;float ed=length(e);float rc=max(b.z,r*.8);',
+'  vec2 e=q-c;float ed=length(e);',
+'  vec2 ev=e/max(ed,1e-4);',
+'  float rc=max(b.z,r*(.80+.22*(vnoise(ev*2.4+b.w)-.5)));',
 '  if(ed<rc&&s>.001){',
-'   float ang=atan(e.y,e.x);',
-'   float lr=log(ed+.02);',
-'   float ps=ang+b.y*1.1*lr+uTime*.18*b.y;',
-'   float arm=ps/6.2831853*5.+1.3*fbm(vec2(cos(ps),sin(ps))*1.6+vec2(b.w,ed*7.-uTime*.25));',
-'   float fi=fract(arm);float idx=mod(floor(arm),4.);',
-'   float stv=vnoise(vec2(cos(ps),sin(ps))*9.+vec2(b.w,lr*2.5-uTime*.5));',
-'   if(stv>.6)idx=mod(idx+1.,4.);',
-'   float idx2=mod(idx+2.,4.);',
-'   vec3 dark=vec3(0.),col=vec3(0.),alt=vec3(0.);',
-'   for(int k=0;k<5;k++){vec3 pk=uPal[i*5+k];if(k==4)dark=pk;else{if(float(k)==idx)col=pk;if(float(k)==idx2)alt=pk;}}',
-'   col=mix(dark,col,smoothstep(0.,.05,fi)*smoothstep(1.,.95,fi));',
-'   float rs=uTime*.12*b.y;vec2 wp=vec2(cos(rs)*e.x-sin(rs)*e.y,sin(rs)*e.x+cos(rs)*e.y);',
-'   wp+=(vec2(fbm(wp*5.+b.w),fbm(wp*5.+b.w+9.3))-.5)*.09;',
-'   vec2 wv=worley(wp*24.+b.w,uTime*.35+b.w);',
-'   float gap=wv.y-wv.x;',
-'   float hole=smoothstep(.10,.30,gap)*(.55+.45*vnoise(wp*9.+b.w));',
-'   vec3 cellc=mix(alt*.5,dark,.55);',
-'   vec3 pc=mix(col*(1.08-.25*smoothstep(.0,.12,gap)),cellc,hole);',
-'   pc=mix(pc,dark,1.-smoothstep(.006,.016,ed));',
+'   float lr=log(ed+.015);',
+'   float ang=atan(e.y,e.x)+b.y*.3*lr;',
+'   vec2 dv=vec2(cos(ang),sin(ang));',
+'   float u=lr-uTime*.32;',
+/* 色の流れ:吸い上げた色が中心から帯になって流れ出す */
+'   float g=(fbm(dv*1.8+vec2(b.w,u*.35))*.7+vnoise3(vec3(dv*5.,u*.8+b.w))*.3)*5.;',
+'   float k0=mod(floor(g),4.);float k1=mod(k0+1.,4.);float fg=fract(g);',
+'   vec3 dark=vec3(0.),c0=vec3(0.),c1=vec3(0.);',
+'   for(int k=0;k<5;k++){vec3 pk=uPal[i*5+k];if(k==4)dark=pk;else{if(float(k)==k0)c0=pk;if(float(k)==k1)c1=pk;}}',
+'   vec3 col=mix(c0,c1,smoothstep(.62,.9,fg));',
+'   col=mix(col,dark,(1.-smoothstep(.0,.05,fg))*.7);',
+/* レース:放射方向に伸びた穴。穴のふちの糸は明るく */
+'   float L=vnoise3(vec3(dv*13.,u*8.+b.w))*.62+vnoise3(vec3(dv*29.,u*17.+b.w+7.))*.38;',
+'   float hole=smoothstep(.54,.62,L);',
+'   float thread=smoothstep(.44,.54,L)*(1.-hole);',
+'   vec3 holec=mix(dark,c1*.45,.35);',
+'   vec3 pc=mix(col*(1.+.18*thread),holec,hole*.88);',
+'   pc=mix(pc,dark,1.-smoothstep(.006,.02,ed));',
 '   float al=(1.-pow(.6,uDt*60.))*s*(1.-smoothstep(rc*.8,rc,ed));',
-'   P=P*(1.-al)+pc*al;A=A*(1.-al)+al;',
+'   P=P*(1.-al)+pc*al;AA=AA*(1.-al)+al;',
 '  }',
 ' }',
 ' vec3 base=moved>.5?sampleCR(src*uS):texture2D(uState,px/uRes).rgb;',
-' gl_FragColor=vec4(base*(1.-A)+P,1.);',
+' gl_FragColor=vec4(base*(1.-AA)+P,1.);',
 '}'
-].join('\n');
-
-/* 投げつけた絵の具を、広がる輪の範囲だけ上塗りする */
-var STAMP_FS=[
-'precision highp float;',
-'uniform sampler2D uState,uSplash;uniform vec2 uRes,uC;uniform float uR0,uR1;',
-'void main(){vec2 uv=gl_FragCoord.xy/uRes;vec3 b=texture2D(uState,uv).rgb;vec4 s=texture2D(uSplash,uv);',
-' float d=length(gl_FragCoord.xy-uC);float m=step(uR0,d)*step(d,uR1);',
-' gl_FragColor=vec4(mix(b,s.rgb,s.a*m),1.);}'
 ].join('\n');
 
 var COPY_FS='precision highp float;uniform sampler2D uOld;varying vec2 vUv;void main(){gl_FragColor=vec4(texture2D(uOld,vUv).rgb,1.);}';
@@ -167,11 +234,11 @@ var SHOW_FS=[
 'uniform sampler2D uState;uniform vec2 uRes;',
 'float lum(vec2 p){return dot(texture2D(uState,p/uRes).rgb,vec3(.299,.587,.114));}',
 'void main(){vec2 px=gl_FragCoord.xy;vec3 c=texture2D(uState,px/uRes).rgb;',
-' vec2 g=vec2(lum(px+vec2(1.,0.))-lum(px-vec2(1.,0.)),lum(px+vec2(0.,1.))-lum(px-vec2(0.,1.)));',
-' vec3 n=normalize(vec3(-g*2.6,1.));vec3 L=normalize(vec3(-.45,.6,.75));vec3 Hh=normalize(L+vec3(0.,0.,1.));',
-' float diff=dot(n,L);float spec=pow(max(dot(n,Hh),0.),70.);',
-' c=c*(.86+.2*diff)+spec*.22;',
-' vec2 v=px/uRes-.5;c*=1.-.22*dot(v,v);',
+' vec2 g=vec2(lum(px+vec2(1.5,0.))-lum(px-vec2(1.5,0.)),lum(px+vec2(0.,1.5))-lum(px-vec2(0.,1.5)));',
+' vec3 n=normalize(vec3(-g*1.8,1.));vec3 L=normalize(vec3(-.45,.6,.75));vec3 Hh=normalize(L+vec3(0.,0.,1.));',
+' float diff=dot(n,L);float spec=pow(max(dot(n,Hh),0.),60.);',
+' c=c*(.9+.14*diff)+spec*.16;',
+' vec2 v=px/uRes-.5;c*=1.-.2*dot(v,v);',
 ' gl_FragColor=vec4(c,1.);}'
 ].join('\n');
 
@@ -183,7 +250,7 @@ function prog(fs){var p=gl.createProgram();gl.attachShader(p,sh(gl.VERTEX_SHADER
   var u={},n=gl.getProgramParameter(p,gl.ACTIVE_UNIFORMS);
   for(var i=0;i<n;i++){var info=gl.getActiveUniform(p,i);var nm=info.name.replace(/\[0\]$/,'');u[nm]=gl.getUniformLocation(p,info.name);}
   return {p:p,u:u};}
-var pFlow=prog(FLOW_FS),pStamp=prog(STAMP_FS),pCopy=prog(COPY_FS),pShow=prog(SHOW_FS);
+var pFlow=prog(FLOW_FS),pBoom=prog(BOOM_FS),pCopy=prog(COPY_FS),pShow=prog(SHOW_FS);
 
 var vb=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,vb);
 gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
@@ -197,10 +264,6 @@ function makeTex(w,h){var tx=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,tx)
   gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,tx,0);
   return {t:tx,f:fb};}
 var st=[null,null],cur=0;
-var splashTex=gl.createTexture();
-gl.bindTexture(gl.TEXTURE_2D,splashTex);
-gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
-gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
 
 function pass(pr,target){gl.useProgram(pr.p);gl.bindFramebuffer(gl.FRAMEBUFFER,target?target.f:null);gl.viewport(0,0,W,H);}
 function draw(){gl.drawArrays(gl.TRIANGLE_STRIP,0,4);}
@@ -209,7 +272,7 @@ function draw(){gl.drawArrays(gl.TRIANGLE_STRIP,0,4);}
 function simSize(){
   var dpr=Math.min(window.devicePixelRatio||1,2);
   var w=Math.round(window.innerWidth*dpr),h=Math.round(window.innerHeight*dpr);
-  var k=Math.min(1,Math.sqrt(2400000/(w*h)));
+  var k=Math.min(1,Math.sqrt(2200000/(w*h)));
   return [Math.max(2,Math.round(w*k)),Math.max(2,Math.round(h*k))];
 }
 function sizeSetup(keep){
@@ -225,102 +288,29 @@ function sizeSetup(keep){
   return true;
 }
 
-/* ---------- 絵の具をぶちまける(2Dキャンバスで描いてから貼る) ---------- */
-var sc=document.createElement('canvas');var sx=sc.getContext('2d');
-function hexRgb(h){var n=parseInt(h.slice(1),16);return [(n>>16)&255,(n>>8)&255,n&255];}
-function rgba(h,a){var c=hexRgb(h);return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')';}
-function blob(ctx,x,y,rad,col,al,R){
-  ctx.fillStyle=rgba(col,al);
-  var n=10+((R()*10)|0);
-  for(var j=0;j<n;j++){var a=R()*6.283,d=rad*0.55*Math.sqrt(R());
-    ctx.beginPath();ctx.arc(x+Math.cos(a)*d,y+Math.sin(a)*d,rad*(0.25+R()*0.45),0,6.283);ctx.fill();}
-}
-function drawBase(ctx){
-  var g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#d3d9dc');g.addColorStop(1,'#9da7ad');
-  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
-  var R=mulberry((rnd()*1e9)|0);
-  for(var i=0;i<70;i++){var x=R()*W,y=R()*H,r=S*(0.05+R()*0.25);
-    var gg=ctx.createRadialGradient(x,y,0,x,y,r);var w=R()<0.5;
-    gg.addColorStop(0,w?'rgba(255,255,255,0.10)':'rgba(40,50,60,0.08)');gg.addColorStop(1,'rgba(0,0,0,0)');
-    ctx.fillStyle=gg;ctx.fillRect(x-r,y-r,r*2,r*2);}
-}
-function drawSplash(ctx,cx,cy,pal,seed,big){
-  var R=mulberry(seed);var u=S/800;var sp=big?1:0.75;
-  function pick(){return pal[(R()*pal.length)|0];}
-  function gs(){return (R()+R()+R()-1.5)/1.5;}
-  // 色の雲
-  for(var i=0;i<(big?90:55);i++){blob(ctx,cx+gs()*S*0.34*sp,cy+gs()*S*0.34*sp,S*(0.03+R()*0.13)*sp,pick(),0.16+R()*0.2,R);}
-  // 黒いしぶきの核
-  for(var i2=0;i2<9;i2++){blob(ctx,cx+gs()*S*0.22*sp,cy+gs()*S*0.22*sp,S*(0.015+R()*0.05)*sp,'#0b0b12',0.18+R()*0.2,R);}
-  // 放射状のすじ(黒と赤)
-  var D=Math.hypot(W,H);
-  for(var k=0;k<(big?170:110);k++){
-    var a=R()*6.283,r0=S*(0.03+R()*0.33)*sp,len=D*(0.25+R()*0.9)*(big?1:0.6);
-    var w=u*(0.5+Math.pow(R(),3)*3.6);
-    var rr=R();var col=rr<0.68?'#101014':(rr<0.9?'#d8141c':pick());
-    var ca=Math.cos(a),sa=Math.sin(a),nx=-sa,ny=ca;
-    var x0=cx+ca*r0,y0=cy+sa*r0,x1=cx+ca*(r0+len),y1=cy+sa*(r0+len);
-    var xm=x0+(x1-x0)*0.2,ym=y0+(y1-y0)*0.2;
-    ctx.fillStyle=rgba(col,0.55+R()*0.4);
-    ctx.beginPath();ctx.moveTo(x0,y0);ctx.lineTo(xm+nx*w,ym+ny*w);ctx.lineTo(x1+nx*w*0.15,y1+ny*w*0.15);
-    ctx.lineTo(x1-nx*w*0.15,y1-ny*w*0.15);ctx.lineTo(xm-nx*w,ym-ny*w);ctx.closePath();ctx.fill();
-  }
-  // 飛び散る粒(外へ行くほど小さく)
-  for(var j=0;j<(big?420:260);j++){
-    var a2=R()*6.283,d=S*(0.04+R()*0.32)*sp,n=3+((R()*9)|0);var col2=R()<0.3?'#0b0b12':pick();
-    var ca2=Math.cos(a2),sa2=Math.sin(a2);
-    for(var m=0;m<n;m++){d+=S*(0.012+R()*0.07);var sz=u*(1+R()*8)*Math.max(0.15,1-d/(1.1*S));
-      ctx.fillStyle=rgba(col2,0.7+R()*0.3);ctx.beginPath();
-      ctx.ellipse(cx+ca2*d,cy+sa2*d,sz*(1+R()*0.8),sz,a2,0,6.283);ctx.fill();}
-  }
-  // インクのしみ
-  for(var b=0;b<(big?4:2);b++){
-    var bx=R()*W,by=R()*H*0.6,br=S*(0.015+R()*0.035);
-    blob(ctx,bx,by,br,'#08080c',0.85,R);
-    for(var s=0;s<40;s++){var aa=R()*6.283,dd=br*(1.2+R()*3);ctx.fillStyle='rgba(8,8,12,0.9)';
-      ctx.beginPath();ctx.arc(bx+Math.cos(aa)*dd,by+Math.sin(aa)*dd,u*(0.6+R()*3),0,6.283);ctx.fill();}
-  }
-  // こまかい飛沫
-  for(var f=0;f<(big?2600:1200);f++){
-    var fa=R()*6.283,fd=S*Math.pow(R(),0.7)*0.9*sp;
-    ctx.fillStyle=rgba(R()<0.4?'#0b0b12':pick(),0.6+R()*0.4);
-    ctx.beginPath();ctx.arc(cx+Math.cos(fa)*fd,cy+Math.sin(fa)*fd,u*(0.4+R()*1.5),0,6.283);ctx.fill();
-  }
-}
-var stamp=null; // {cx,cy,r,max}
-function uploadSplash(){
-  gl.bindTexture(gl.TEXTURE_2D,splashTex);
-  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
-  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false);
-  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,sc);
-  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);
-}
-function doStamp(r0,r1,cxp,cyp){
+/* ---------- 絵の具をぶちまける ---------- */
+var boom=null; // {cx,cy,seed,sp,full,pal,r,age}
+var BP=new Float32Array(18);
+function doBoom(r0,r1){
+  var bm=boom;
+  for(var i=0;i<6;i++){var c=hexRgb(bm.pal[i]);BP[i*3]=c[0];BP[i*3+1]=c[1];BP[i*3+2]=c[2];}
   var src=st[cur],dst=st[1-cur];
-  pass(pStamp,dst);
-  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,src.t);gl.uniform1i(pStamp.u.uState,0);
-  gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,splashTex);gl.uniform1i(pStamp.u.uSplash,1);
-  gl.uniform2f(pStamp.u.uRes,W,H);gl.uniform2f(pStamp.u.uC,cxp,cyp);
-  gl.uniform1f(pStamp.u.uR0,r0);gl.uniform1f(pStamp.u.uR1,r1);
-  draw();gl.activeTexture(gl.TEXTURE0);
+  pass(pBoom,dst);
+  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,src.t);gl.uniform1i(pBoom.u.uState,0);
+  gl.uniform2f(pBoom.u.uRes,W,H);gl.uniform2f(pBoom.u.uC,bm.cx,bm.cy);gl.uniform1f(pBoom.u.uS,S);
+  gl.uniform1f(pBoom.u.uSeed,bm.seed);gl.uniform1f(pBoom.u.uSp,bm.sp);gl.uniform1f(pBoom.u.uFull,bm.full?1:0);
+  gl.uniform1f(pBoom.u.uR0,r0);gl.uniform1f(pBoom.u.uR1,r1);gl.uniform3fv(pBoom.u.uPal,BP);
+  draw();
   cur=1-cur;
 }
-function freshCanvas(){
-  sc.width=W;sc.height=H;
-  drawBase(sx);
-  var cx=W*(0.45+rnd()*0.1),cy=H*(0.42+rnd()*0.1);
-  drawSplash(sx,cx,cy,SPLASH_PALS[0],(rnd()*1e9)|0,true);
-  uploadSplash();
-  doStamp(-1,1e9,0,0);
-  stamp=null;
-}
-function throwPaint(){
-  var pi=lastPal;while(pi===lastPal)pi=(rnd()*SPLASH_PALS.length)|0;lastPal=pi;
-  sc.width=W;sc.height=H;sx.clearRect(0,0,W,H);
-  var cx=W*(0.2+rnd()*0.6),cy=H*(0.2+rnd()*0.6);
-  drawSplash(sx,cx,cy,SPLASH_PALS[pi],(rnd()*1e9)|0,false);
-  uploadSplash();
-  stamp={cx:cx,cy:H-cy,r:0,max:Math.hypot(W,H),age:0};
+function startBoom(full){
+  var pal,cx,cy;
+  if(full){pal=SPLASH_PALS[0];lastPal=0;cx=W/S*(0.46+rnd()*0.08);cy=H/S*(0.45+rnd()*0.1);}
+  else{var pi=lastPal;while(pi===lastPal)pi=(rnd()*SPLASH_PALS.length)|0;lastPal=pi;pal=SPLASH_PALS[pi];
+    cx=W/S*(0.2+rnd()*0.6);cy=H/S*(0.2+rnd()*0.6);}
+  boom={cx:cx,cy:cy,seed:rnd()*90+5,sp:full?1.0:0.55,full:full,pal:pal,r:-1,age:0};
+  boomC=[cx,cy];
+  if(full){doBoom(-1,99);boom=null;}
 }
 
 /* ---------- 色を吸い上げる ---------- */
@@ -339,32 +329,33 @@ function hsl2rgb(h,s,l){function f(n){var k=(n+h*12)%12;var a=s*Math.min(l,1-l);
   return [f(0),f(8),f(4)];}
 function borrowPalette(qx,qy,R0){
   var smp=[],i,a,rr;
-  for(i=0;i<12;i++){a=rnd()*6.283;rr=R0*1.2*Math.sqrt(rnd());smp.push(readQ(qx+Math.cos(a)*rr,qy+Math.sin(a)*rr));}
-  for(i=0;i<6;i++){smp.push(readQ(rnd()*W/S,rnd()*H/S));}
+  for(i=0;i<16;i++){a=rnd()*6.283;rr=R0*1.3*Math.sqrt(rnd());smp.push(readQ(qx+Math.cos(a)*rr,qy+Math.sin(a)*rr));}
+  for(i=0;i<8;i++){smp.push(readQ(rnd()*W/S,rnd()*H/S));}
   var hs=smp.map(rgb2hsl);
   var chrom=hs.filter(function(x){return x[1]>0.22&&x[2]>0.12&&x[2]<0.93;});
   chrom.sort(function(p,q){return q[1]*(1-Math.abs(q[2]-0.5))-p[1]*(1-Math.abs(p[2]-0.5));});
   var picks=[];
   for(i=0;i<chrom.length&&picks.length<4;i++){
-    var ok=true;for(var j=0;j<picks.length;j++){var dh=Math.abs(chrom[i][0]-picks[j][0]);dh=Math.min(dh,1-dh);if(dh<0.08){ok=false;break;}}
+    var ok=true;for(var j=0;j<picks.length;j++){var dh=Math.abs(chrom[i][0]-picks[j][0]);dh=Math.min(dh,1-dh);if(dh<0.07){ok=false;break;}}
     if(ok)picks.push(chrom[i]);
   }
   if(!picks.length){var g=hs[(rnd()*hs.length)|0];picks.push([g[0],g[1],Math.min(0.85,Math.max(0.3,g[2]))]);}
   var base=picks.length;
   for(i=0;picks.length<4;i++){var p=picks[i%base];picks.push([p[0],p[1],p[2]+(i%2?-0.16:0.16)]);}
+  /* 一番明るい色を必ず混ぜる(黄色系がいれば糸が光る) */
   var out=picks.map(function(p){
-    var s=picks.length&&p[1]>0.15?Math.min(1,0.78+p[1]*0.3):p[1];
-    var l=Math.max(0.36,Math.min(0.68,0.47+(p[2]-0.5)*0.55));
+    var s=p[1]>0.15?Math.min(1,0.8+p[1]*0.3):p[1];
+    var l=Math.max(0.38,Math.min(0.7,0.5+(p[2]-0.5)*0.55));
     return hsl2rgb(p[0],s,l);});
-  var dh=picks[(rnd()*picks.length)|0];
-  out.push(hsl2rgb(dh[0],Math.min(0.7,dh[1]),0.11));
+  var dh2=picks[(rnd()*picks.length)|0];
+  out.push(hsl2rgb(dh2[0],Math.min(0.7,dh2[1]),0.12));
   return out;
 }
 
 /* ---------- 花 ---------- */
 function addBloom(qx,qy,held,Rt){
   var b={x:qx,y:qy,r:0.012,Rt:Rt,held:held,age:0,rel:0,s:1,Q:0,
-    spin:(rnd()<0.5?-1:1)*(0.7+rnd()*0.7),seed:rnd()*100,pal:borrowPalette(qx,qy,Rt+0.12),core:0.03+rnd()*0.012};
+    spin:(rnd()<0.5?-1:1)*(0.7+rnd()*0.6),seed:rnd()*100,pal:borrowPalette(qx,qy,Rt+0.1),core:0.03};
   blooms.push(b);
   if(blooms.length>MAXB)blooms.shift();
   return b;
@@ -373,10 +364,10 @@ function updateBlooms(dt){
   var maxR=Math.max(W,H)/S*0.62;
   for(var i=blooms.length-1;i>=0;i--){var b=blooms[i];
     b.age+=dt;
-    if(b.held){b.Rt=Math.min(maxR,b.Rt+dt*0.11);}else b.rel+=dt;
-    var dr=(b.Rt-b.r)/1.3;b.r+=dr*dt;
+    if(b.held){b.Rt=Math.min(maxR,b.Rt+dt*0.1);}else b.rel+=dt;
+    var dr=(b.Rt-b.r)/1.8;b.r+=dr*dt;
     b.Q=6.2832*b.r*Math.max(dr,0)+0.003;
-    if(!b.held&&b.rel>3.5+b.Rt*6)b.s-=dt/1.6;
+    if(!b.held&&b.rel>4+b.Rt*7)b.s-=dt/1.8;
     if(b.s<=0)blooms.splice(i,1);
   }
 }
@@ -405,16 +396,16 @@ function show(){
 }
 
 /* ---------- 最初の一輪と、放っておいた時の一輪 ---------- */
-var script=[]; // {at, fn}
+var script=[];
 function demo(){
   script=[];
-  script.push({at:t+1.0,fn:function(){var b=addBloom(W/S*0.5,H/S*0.5,true,0.17);script.push({at:t+3.4,fn:function(){b.held=false;}});}});
+  script.push({at:t+1.2,fn:function(){var b=addBloom(boomC[0],boomC[1],true,0.16);script.push({at:t+3.2,fn:function(){b.held=false;}});}});
 }
 function idle(){
-  if(blooms.length||script.length)return;
+  if(blooms.length||script.length||boom)return;
   if(t-lastTouch<14)return;
   lastTouch=t;
-  var b=addBloom(W/S*(0.2+rnd()*0.6),H/S*(0.2+rnd()*0.6),true,0.15);
+  var b=addBloom(W/S*(0.2+rnd()*0.6),H/S*(0.2+rnd()*0.6),true,0.14);
   var hold=0.4+rnd()*2.2;
   script.push({at:t+hold,fn:function(){b.held=false;}});
 }
@@ -426,7 +417,7 @@ cv.addEventListener('pointerdown',function(e){
   e.preventDefault();
   try{cv.setPointerCapture(e.pointerId);}catch(_){}
   var q=toQ(e);
-  ptrs[e.pointerId]=addBloom(q[0],q[1],true,0.16+rnd()*0.05);
+  ptrs[e.pointerId]=addBloom(q[0],q[1],true,0.15+rnd()*0.05);
   lastTouch=t;
   if(!touchedOnce){touchedOnce=true;hint.style.opacity=0;}
 },{passive:false});
@@ -435,11 +426,11 @@ cv.addEventListener('pointerup',endPtr);
 cv.addEventListener('pointercancel',endPtr);
 
 /* ---------- ✦ ↻ ---------- */
-function mutate(){throwPaint();lastTouch=t;}
+function mutate(){startBoom(false);lastTouch=t;}
 function resetAll(){
   for(var k in ptrs){delete ptrs[k];}
-  blooms=[];stamp=null;lastPal=0;
-  freshCanvas();demo();lastTouch=t;
+  blooms=[];boom=null;
+  startBoom(true);demo();lastTouch=t;
 }
 
 /* ---------- ループ ---------- */
@@ -451,10 +442,10 @@ function tick(now){
   for(var i=script.length-1;i>=0;i--){if(t>=script[i].at){var f=script[i].fn;script.splice(i,1);f();}}
   idle();
   if(!touchedOnce&&t>9)hint.style.opacity=0;
-  if(stamp){
-    stamp.age+=dt;var k=Math.min(1,stamp.age/0.45);var e=1-Math.pow(1-k,3);
-    var r1=stamp.max*e;doStamp(stamp.r,r1,stamp.cx,stamp.cy);stamp.r=r1;
-    if(k>=1)stamp=null;
+  if(boom){
+    boom.age+=dt;var k=Math.min(1,boom.age/0.5);var e=1-Math.pow(1-k,3);
+    var r1=e*(Math.max(W,H)/S*1.5);doBoom(boom.r,r1);boom.r=r1;
+    if(k>=1)boom=null;
   }
   updateBlooms(dt);
   if(blooms.length)doFlow(Math.min(dt,1/30));
@@ -467,7 +458,7 @@ window.addEventListener('resize',onResize);
 window.addEventListener('orientationchange',function(){setTimeout(onResize,120);});
 
 sizeSetup(false);
-freshCanvas();
+startBoom(true);
 demo();
 requestAnimationFrame(tick);
 
