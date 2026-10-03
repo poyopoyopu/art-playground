@@ -1,0 +1,491 @@
+<!-- BORROWED BLOOM — クロちゃん(Claude)作。おっちゃん提供の動画(絵の具が爆ぜた画面の真ん中から、
+     渦を巻くポーリングアートの花がひらいていく)を参考に、
+     「花は新しい色を持たない。足元の絵の具を吸い上げて咲く」という世界のルールで再構成。
+     ap-kit.js統合: クロちゃん -->
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>BORROWED BLOOM — 借りものの色</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#aab3b8;overflow:hidden;
+    -webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+  canvas#c{display:block;position:fixed;inset:0;width:100vw;height:100vh;touch-action:none}
+  #hint{position:fixed;left:0;right:0;bottom:118px;text-align:center;pointer-events:none;
+    font:12px ui-monospace,Menlo,monospace;letter-spacing:.35em;color:#fff;
+    text-shadow:0 0 6px rgba(0,0,0,.6);opacity:.7;transition:opacity 1.2s}
+  #nogl{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+    font:14px ui-monospace,Menlo,monospace;color:#222;text-align:center;padding:24px}
+</style>
+<script src="../ap-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">TAP · HOLD</div>
+<div id="nogl">この端末ではWebGLが使えないため表示できません</div>
+<script>
+(function(){
+"use strict";
+
+/* ---------- 世界のルール ----------
+   画面は、一度ぶちまけられた絵の具の層。
+   触った場所から花がひらく。花の真ん中は絵の具を押し出し続け、古い層は外へ押しやられて
+   縁に寄り集まり、中心からは渦を巻いた腕と、網目(セル)が伸びていく。
+
+   ただし花は新しい色を持たない。咲く瞬間に、足元とまわりの絵の具を吸い上げて、
+   その色だけで咲く。だから、咲けば咲くほど世界は自分の色を混ぜ直していく。
+   一度混ぜた色は二度と分かれない。
+
+   タップ = 小さな花 / 長押し = 押している間、花が広がり続ける(注ぎ続ける)
+   ✦ = 新しい絵の具を投げつける(この世界に新しい色が入る唯一の方法)
+   ↻ = まっさらな層に戻す
+------------------------------------ */
+
+var cv=document.getElementById('c');
+var hint=document.getElementById('hint');
+var gl=cv.getContext('webgl',{alpha:false,antialias:false,depth:false,stencil:false,premultipliedAlpha:false,preserveDrawingBuffer:false});
+if(!gl){document.getElementById('nogl').style.display='flex';return;}
+
+var MAXB=6;
+var W=2,H=2,S=2;
+var t=0,lastTouch=0,touchedOnce=false;
+var blooms=[];
+var ptrs={};
+
+/* ---------- 乱数 ---------- */
+function mulberry(a){return function(){a|=0;a=a+0x6D2B79F5|0;var x=Math.imul(a^a>>>15,1|a);x=x+Math.imul(x^x>>>7,61|x)^x;return((x^x>>>14)>>>0)/4294967296;};}
+var rnd=Math.random;
+
+/* ---------- 絵の具のパレット(✦で投げつける色) ---------- */
+var SPLASH_PALS=[
+  ['#19d3f2','#19d3f2','#1e64ff','#ff2b9c','#ff2b9c','#8a2cff','#ffe41c','#ff6a1a','#e0141e','#15c96a'],
+  ['#ff3d2e','#ff9b1a','#ffd60a','#ffd60a','#ff2e88','#7b1fa2','#2ec4b6'],
+  ['#00e0c6','#00a3ff','#00a3ff','#3dff7a','#f4ff3d','#0b3cff','#ff5ac8'],
+  ['#ff6fb5','#ffe066','#7bdff2','#b388ff','#ff8c42','#2cd67a'],
+  ['#ff4500','#ffb000','#c1121f','#ffd6a5','#3a86ff','#8338ec'],
+  ['#c6ff00','#00e5ff','#ff1744','#ffea00','#651fff','#00c853']
+];
+var lastPal=0;
+
+/* ---------- WebGL ---------- */
+var VS='attribute vec2 p;varying vec2 vUv;void main(){vUv=p*.5+.5;gl_Position=vec4(p,0.,1.);}';
+
+var NOISE=[
+'float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}',
+'float vnoise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);',
+' return mix(mix(hash(i),hash(i+vec2(1.,0.)),f.x),mix(hash(i+vec2(0.,1.)),hash(i+vec2(1.,1.)),f.x),f.y);}',
+'float fbm(vec2 p){float a=.5,s=0.;for(int i=0;i<3;i++){s+=a*vnoise(p);p=p*2.03+17.1;a*=.5;}return s;}',
+'vec2 hash2(vec2 p){return fract(sin(vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3))))*43758.5453);}',
+'vec2 worley(vec2 p,float t){vec2 i=floor(p),f=fract(p);float d1=8.,d2=8.;',
+' for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){vec2 g=vec2(float(x),float(y));vec2 o=hash2(i+g);o=.5+.4*sin(t+6.2831*o);',
+'  vec2 rr=g+o-f;float d=dot(rr,rr);if(d<d1){d2=d1;d1=d;}else if(d<d2)d2=d;}',
+' return vec2(sqrt(d1),sqrt(d2));}'
+].join('\n');
+
+/* 流れ:花の中心から外へ押し出す(面積が保たれる湧き出し)+渦の回転+わずかなゆらぎ。
+   真ん中では吸い上げた色を注ぎ込み、ところどころ穴(セル)を残す */
+var FLOW_FS=[
+'precision highp float;',
+'uniform sampler2D uState;uniform vec2 uRes;uniform float uS,uTime,uDt;uniform int uN;',
+'uniform vec4 uA[6];uniform vec4 uB[6];uniform vec3 uPal[30];',
+NOISE,
+'vec3 tx(vec2 p){return texture2D(uState,p/uRes).rgb;}',
+'vec3 sampleCR(vec2 sp){',
+' vec2 tp1=floor(sp-.5)+.5;vec2 f=sp-tp1;',
+' vec2 w0=f*(-.5+f*(1.-.5*f));vec2 w1=1.+f*f*(-2.5+1.5*f);vec2 w2=f*(.5+f*(2.-1.5*f));vec2 w3=f*f*(-.5+.5*f);',
+' vec2 w12=w1+w2;vec2 o12=w2/w12;',
+' vec2 t0=tp1-1.;vec2 t3=tp1+2.;vec2 t12=tp1+o12;',
+' vec3 c=tx(vec2(t0.x,t0.y))*w0.x*w0.y+tx(vec2(t12.x,t0.y))*w12.x*w0.y+tx(vec2(t3.x,t0.y))*w3.x*w0.y',
+'  +tx(vec2(t0.x,t12.y))*w0.x*w12.y+tx(vec2(t12.x,t12.y))*w12.x*w12.y+tx(vec2(t3.x,t12.y))*w3.x*w12.y',
+'  +tx(vec2(t0.x,t3.y))*w0.x*w3.y+tx(vec2(t12.x,t3.y))*w12.x*w3.y+tx(vec2(t3.x,t3.y))*w3.x*w3.y;',
+' return clamp(c,0.,1.);}',
+'void main(){',
+' vec2 px=gl_FragCoord.xy;vec2 q=px/uS;vec2 src=q;float moved=0.;',
+' vec3 P=vec3(0.);float A=0.;',
+' for(int i=0;i<6;i++){',
+'  if(i>=uN)break;',
+'  vec4 a=uA[i];vec4 b=uB[i];vec2 c=a.xy;float r=a.z;float s=a.w;',
+'  vec2 d=src-c;float dist=length(d);',
+'  float rr=r*(1.+.26*(vnoise(d/max(dist,1e-4)*2.2+b.w)-.5));',
+'  float m=s*(1.-smoothstep(rr*.86,rr*1.04,dist));',
+'  if(m>.0001){',
+'   float dd=max(dist,b.z*.5);',
+'   float v=b.x/(6.2831853*dd);',
+'   float nd=max(dist-v*uDt*m,0.);',
+'   float th=uDt*m*b.y*(.9*exp(-dist/(.3*r+.02))+.06*max(0.,1.-dist/r));',
+'   float cs=cos(th),sn=sin(th);',
+'   vec2 dr=vec2(cs*d.x+sn*d.y,-sn*d.x+cs*d.y);',
+'   if(dist>1e-5)dr*=nd/dist;',
+'   vec2 w=vec2(vnoise(src*7.+vec2(uTime*.4,b.w)),vnoise(src*7.+vec2(b.w,uTime*.4)+31.7))-.5;',
+'   src=c+dr+w*uDt*m*.035;moved=1.;',
+'  }',
+'  vec2 e=q-c;float ed=length(e);float rc=max(b.z,r*.8);',
+'  if(ed<rc&&s>.001){',
+'   float ang=atan(e.y,e.x);',
+'   float lr=log(ed+.02);',
+'   float ps=ang+b.y*1.1*lr+uTime*.18*b.y;',
+'   float arm=ps/6.2831853*5.+1.3*fbm(vec2(cos(ps),sin(ps))*1.6+vec2(b.w,ed*7.-uTime*.25));',
+'   float fi=fract(arm);float idx=mod(floor(arm),4.);',
+'   float stv=vnoise(vec2(cos(ps),sin(ps))*9.+vec2(b.w,lr*2.5-uTime*.5));',
+'   if(stv>.6)idx=mod(idx+1.,4.);',
+'   float idx2=mod(idx+2.,4.);',
+'   vec3 dark=vec3(0.),col=vec3(0.),alt=vec3(0.);',
+'   for(int k=0;k<5;k++){vec3 pk=uPal[i*5+k];if(k==4)dark=pk;else{if(float(k)==idx)col=pk;if(float(k)==idx2)alt=pk;}}',
+'   col=mix(dark,col,smoothstep(0.,.05,fi)*smoothstep(1.,.95,fi));',
+'   float rs=uTime*.12*b.y;vec2 wp=vec2(cos(rs)*e.x-sin(rs)*e.y,sin(rs)*e.x+cos(rs)*e.y);',
+'   wp+=(vec2(fbm(wp*5.+b.w),fbm(wp*5.+b.w+9.3))-.5)*.09;',
+'   vec2 wv=worley(wp*24.+b.w,uTime*.35+b.w);',
+'   float gap=wv.y-wv.x;',
+'   float hole=smoothstep(.10,.30,gap)*(.55+.45*vnoise(wp*9.+b.w));',
+'   vec3 cellc=mix(alt*.5,dark,.55);',
+'   vec3 pc=mix(col*(1.08-.25*smoothstep(.0,.12,gap)),cellc,hole);',
+'   pc=mix(pc,dark,1.-smoothstep(.006,.016,ed));',
+'   float al=(1.-pow(.6,uDt*60.))*s*(1.-smoothstep(rc*.8,rc,ed));',
+'   P=P*(1.-al)+pc*al;A=A*(1.-al)+al;',
+'  }',
+' }',
+' vec3 base=moved>.5?sampleCR(src*uS):texture2D(uState,px/uRes).rgb;',
+' gl_FragColor=vec4(base*(1.-A)+P,1.);',
+'}'
+].join('\n');
+
+/* 投げつけた絵の具を、広がる輪の範囲だけ上塗りする */
+var STAMP_FS=[
+'precision highp float;',
+'uniform sampler2D uState,uSplash;uniform vec2 uRes,uC;uniform float uR0,uR1;',
+'void main(){vec2 uv=gl_FragCoord.xy/uRes;vec3 b=texture2D(uState,uv).rgb;vec4 s=texture2D(uSplash,uv);',
+' float d=length(gl_FragCoord.xy-uC);float m=step(uR0,d)*step(d,uR1);',
+' gl_FragColor=vec4(mix(b,s.rgb,s.a*m),1.);}'
+].join('\n');
+
+var COPY_FS='precision highp float;uniform sampler2D uOld;varying vec2 vUv;void main(){gl_FragColor=vec4(texture2D(uOld,vUv).rgb,1.);}';
+
+/* 表示:明るさの勾配を絵の具の厚みとみなして、濡れたツヤを乗せる */
+var SHOW_FS=[
+'precision highp float;',
+'uniform sampler2D uState;uniform vec2 uRes;',
+'float lum(vec2 p){return dot(texture2D(uState,p/uRes).rgb,vec3(.299,.587,.114));}',
+'void main(){vec2 px=gl_FragCoord.xy;vec3 c=texture2D(uState,px/uRes).rgb;',
+' vec2 g=vec2(lum(px+vec2(1.,0.))-lum(px-vec2(1.,0.)),lum(px+vec2(0.,1.))-lum(px-vec2(0.,1.)));',
+' vec3 n=normalize(vec3(-g*2.6,1.));vec3 L=normalize(vec3(-.45,.6,.75));vec3 Hh=normalize(L+vec3(0.,0.,1.));',
+' float diff=dot(n,L);float spec=pow(max(dot(n,Hh),0.),70.);',
+' c=c*(.86+.2*diff)+spec*.22;',
+' vec2 v=px/uRes-.5;c*=1.-.22*dot(v,v);',
+' gl_FragColor=vec4(c,1.);}'
+].join('\n');
+
+function sh(type,src){var s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){console.error(gl.getShaderInfoLog(s));}return s;}
+function prog(fs){var p=gl.createProgram();gl.attachShader(p,sh(gl.VERTEX_SHADER,VS));gl.attachShader(p,sh(gl.FRAGMENT_SHADER,fs));
+  gl.bindAttribLocation(p,0,'p');gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS)){console.error(gl.getProgramInfoLog(p));}
+  var u={},n=gl.getProgramParameter(p,gl.ACTIVE_UNIFORMS);
+  for(var i=0;i<n;i++){var info=gl.getActiveUniform(p,i);var nm=info.name.replace(/\[0\]$/,'');u[nm]=gl.getUniformLocation(p,info.name);}
+  return {p:p,u:u};}
+var pFlow=prog(FLOW_FS),pStamp=prog(STAMP_FS),pCopy=prog(COPY_FS),pShow=prog(SHOW_FS);
+
+var vb=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,vb);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+
+function makeTex(w,h){var tx=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,tx);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+  var fb=gl.createFramebuffer();gl.bindFramebuffer(gl.FRAMEBUFFER,fb);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,tx,0);
+  return {t:tx,f:fb};}
+var st=[null,null],cur=0;
+var splashTex=gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D,splashTex);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+
+function pass(pr,target){gl.useProgram(pr.p);gl.bindFramebuffer(gl.FRAMEBUFFER,target?target.f:null);gl.viewport(0,0,W,H);}
+function draw(){gl.drawArrays(gl.TRIANGLE_STRIP,0,4);}
+
+/* ---------- サイズ ---------- */
+function simSize(){
+  var dpr=Math.min(window.devicePixelRatio||1,2);
+  var w=Math.round(window.innerWidth*dpr),h=Math.round(window.innerHeight*dpr);
+  var k=Math.min(1,Math.sqrt(2400000/(w*h)));
+  return [Math.max(2,Math.round(w*k)),Math.max(2,Math.round(h*k))];
+}
+function sizeSetup(keep){
+  var sz=simSize();
+  if(sz[0]===W&&sz[1]===H&&st[0])return false;
+  var old=st[cur];
+  var nw=sz[0],nh=sz[1];
+  var a=makeTex(nw,nh),b=makeTex(nw,nh);
+  W=nw;H=nh;S=Math.min(W,H);cv.width=W;cv.height=H;
+  if(old&&keep){pass(pCopy,a);gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,old.t);gl.uniform1i(pCopy.u.uOld,0);draw();}
+  if(st[0]){gl.deleteTexture(st[0].t);gl.deleteFramebuffer(st[0].f);gl.deleteTexture(st[1].t);gl.deleteFramebuffer(st[1].f);}
+  st=[a,b];cur=0;
+  return true;
+}
+
+/* ---------- 絵の具をぶちまける(2Dキャンバスで描いてから貼る) ---------- */
+var sc=document.createElement('canvas');var sx=sc.getContext('2d');
+function hexRgb(h){var n=parseInt(h.slice(1),16);return [(n>>16)&255,(n>>8)&255,n&255];}
+function rgba(h,a){var c=hexRgb(h);return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')';}
+function blob(ctx,x,y,rad,col,al,R){
+  ctx.fillStyle=rgba(col,al);
+  var n=10+((R()*10)|0);
+  for(var j=0;j<n;j++){var a=R()*6.283,d=rad*0.55*Math.sqrt(R());
+    ctx.beginPath();ctx.arc(x+Math.cos(a)*d,y+Math.sin(a)*d,rad*(0.25+R()*0.45),0,6.283);ctx.fill();}
+}
+function drawBase(ctx){
+  var g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#d3d9dc');g.addColorStop(1,'#9da7ad');
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  var R=mulberry((rnd()*1e9)|0);
+  for(var i=0;i<70;i++){var x=R()*W,y=R()*H,r=S*(0.05+R()*0.25);
+    var gg=ctx.createRadialGradient(x,y,0,x,y,r);var w=R()<0.5;
+    gg.addColorStop(0,w?'rgba(255,255,255,0.10)':'rgba(40,50,60,0.08)');gg.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=gg;ctx.fillRect(x-r,y-r,r*2,r*2);}
+}
+function drawSplash(ctx,cx,cy,pal,seed,big){
+  var R=mulberry(seed);var u=S/800;var sp=big?1:0.75;
+  function pick(){return pal[(R()*pal.length)|0];}
+  function gs(){return (R()+R()+R()-1.5)/1.5;}
+  // 色の雲
+  for(var i=0;i<(big?90:55);i++){blob(ctx,cx+gs()*S*0.34*sp,cy+gs()*S*0.34*sp,S*(0.03+R()*0.13)*sp,pick(),0.16+R()*0.2,R);}
+  // 黒いしぶきの核
+  for(var i2=0;i2<9;i2++){blob(ctx,cx+gs()*S*0.22*sp,cy+gs()*S*0.22*sp,S*(0.015+R()*0.05)*sp,'#0b0b12',0.18+R()*0.2,R);}
+  // 放射状のすじ(黒と赤)
+  var D=Math.hypot(W,H);
+  for(var k=0;k<(big?170:110);k++){
+    var a=R()*6.283,r0=S*(0.03+R()*0.33)*sp,len=D*(0.25+R()*0.9)*(big?1:0.6);
+    var w=u*(0.5+Math.pow(R(),3)*3.6);
+    var rr=R();var col=rr<0.68?'#101014':(rr<0.9?'#d8141c':pick());
+    var ca=Math.cos(a),sa=Math.sin(a),nx=-sa,ny=ca;
+    var x0=cx+ca*r0,y0=cy+sa*r0,x1=cx+ca*(r0+len),y1=cy+sa*(r0+len);
+    var xm=x0+(x1-x0)*0.2,ym=y0+(y1-y0)*0.2;
+    ctx.fillStyle=rgba(col,0.55+R()*0.4);
+    ctx.beginPath();ctx.moveTo(x0,y0);ctx.lineTo(xm+nx*w,ym+ny*w);ctx.lineTo(x1+nx*w*0.15,y1+ny*w*0.15);
+    ctx.lineTo(x1-nx*w*0.15,y1-ny*w*0.15);ctx.lineTo(xm-nx*w,ym-ny*w);ctx.closePath();ctx.fill();
+  }
+  // 飛び散る粒(外へ行くほど小さく)
+  for(var j=0;j<(big?420:260);j++){
+    var a2=R()*6.283,d=S*(0.04+R()*0.32)*sp,n=3+((R()*9)|0);var col2=R()<0.3?'#0b0b12':pick();
+    var ca2=Math.cos(a2),sa2=Math.sin(a2);
+    for(var m=0;m<n;m++){d+=S*(0.012+R()*0.07);var sz=u*(1+R()*8)*Math.max(0.15,1-d/(1.1*S));
+      ctx.fillStyle=rgba(col2,0.7+R()*0.3);ctx.beginPath();
+      ctx.ellipse(cx+ca2*d,cy+sa2*d,sz*(1+R()*0.8),sz,a2,0,6.283);ctx.fill();}
+  }
+  // インクのしみ
+  for(var b=0;b<(big?4:2);b++){
+    var bx=R()*W,by=R()*H*0.6,br=S*(0.015+R()*0.035);
+    blob(ctx,bx,by,br,'#08080c',0.85,R);
+    for(var s=0;s<40;s++){var aa=R()*6.283,dd=br*(1.2+R()*3);ctx.fillStyle='rgba(8,8,12,0.9)';
+      ctx.beginPath();ctx.arc(bx+Math.cos(aa)*dd,by+Math.sin(aa)*dd,u*(0.6+R()*3),0,6.283);ctx.fill();}
+  }
+  // こまかい飛沫
+  for(var f=0;f<(big?2600:1200);f++){
+    var fa=R()*6.283,fd=S*Math.pow(R(),0.7)*0.9*sp;
+    ctx.fillStyle=rgba(R()<0.4?'#0b0b12':pick(),0.6+R()*0.4);
+    ctx.beginPath();ctx.arc(cx+Math.cos(fa)*fd,cy+Math.sin(fa)*fd,u*(0.4+R()*1.5),0,6.283);ctx.fill();
+  }
+}
+var stamp=null; // {cx,cy,r,max}
+function uploadSplash(){
+  gl.bindTexture(gl.TEXTURE_2D,splashTex);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
+  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,sc);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);
+}
+function doStamp(r0,r1,cxp,cyp){
+  var src=st[cur],dst=st[1-cur];
+  pass(pStamp,dst);
+  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,src.t);gl.uniform1i(pStamp.u.uState,0);
+  gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,splashTex);gl.uniform1i(pStamp.u.uSplash,1);
+  gl.uniform2f(pStamp.u.uRes,W,H);gl.uniform2f(pStamp.u.uC,cxp,cyp);
+  gl.uniform1f(pStamp.u.uR0,r0);gl.uniform1f(pStamp.u.uR1,r1);
+  draw();gl.activeTexture(gl.TEXTURE0);
+  cur=1-cur;
+}
+function freshCanvas(){
+  sc.width=W;sc.height=H;
+  drawBase(sx);
+  var cx=W*(0.45+rnd()*0.1),cy=H*(0.42+rnd()*0.1);
+  drawSplash(sx,cx,cy,SPLASH_PALS[0],(rnd()*1e9)|0,true);
+  uploadSplash();
+  doStamp(-1,1e9,0,0);
+  stamp=null;
+}
+function throwPaint(){
+  var pi=lastPal;while(pi===lastPal)pi=(rnd()*SPLASH_PALS.length)|0;lastPal=pi;
+  sc.width=W;sc.height=H;sx.clearRect(0,0,W,H);
+  var cx=W*(0.2+rnd()*0.6),cy=H*(0.2+rnd()*0.6);
+  drawSplash(sx,cx,cy,SPLASH_PALS[pi],(rnd()*1e9)|0,false);
+  uploadSplash();
+  stamp={cx:cx,cy:H-cy,r:0,max:Math.hypot(W,H),age:0};
+}
+
+/* ---------- 色を吸い上げる ---------- */
+var pixBuf=new Uint8Array(4);
+function readQ(qx,qy){
+  var x=Math.max(0,Math.min(W-1,Math.round(qx*S))),y=Math.max(0,Math.min(H-1,Math.round(qy*S)));
+  gl.bindFramebuffer(gl.FRAMEBUFFER,st[cur].f);
+  gl.readPixels(x,y,1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixBuf);
+  return [pixBuf[0]/255,pixBuf[1]/255,pixBuf[2]/255];
+}
+function rgb2hsl(c){var r=c[0],g=c[1],b=c[2],mx=Math.max(r,g,b),mn=Math.min(r,g,b),l=(mx+mn)/2,h=0,s=0;
+  if(mx!==mn){var d=mx-mn;s=l>0.5?d/(2-mx-mn):d/(mx+mn);
+    if(mx===r)h=(g-b)/d+(g<b?6:0);else if(mx===g)h=(b-r)/d+2;else h=(r-g)/d+4;h/=6;}
+  return [h,s,l];}
+function hsl2rgb(h,s,l){function f(n){var k=(n+h*12)%12;var a=s*Math.min(l,1-l);return l-a*Math.max(-1,Math.min(k-3,Math.min(9-k,1)));}
+  return [f(0),f(8),f(4)];}
+function borrowPalette(qx,qy,R0){
+  var smp=[],i,a,rr;
+  for(i=0;i<12;i++){a=rnd()*6.283;rr=R0*1.2*Math.sqrt(rnd());smp.push(readQ(qx+Math.cos(a)*rr,qy+Math.sin(a)*rr));}
+  for(i=0;i<6;i++){smp.push(readQ(rnd()*W/S,rnd()*H/S));}
+  var hs=smp.map(rgb2hsl);
+  var chrom=hs.filter(function(x){return x[1]>0.22&&x[2]>0.12&&x[2]<0.93;});
+  chrom.sort(function(p,q){return q[1]*(1-Math.abs(q[2]-0.5))-p[1]*(1-Math.abs(p[2]-0.5));});
+  var picks=[];
+  for(i=0;i<chrom.length&&picks.length<4;i++){
+    var ok=true;for(var j=0;j<picks.length;j++){var dh=Math.abs(chrom[i][0]-picks[j][0]);dh=Math.min(dh,1-dh);if(dh<0.08){ok=false;break;}}
+    if(ok)picks.push(chrom[i]);
+  }
+  if(!picks.length){var g=hs[(rnd()*hs.length)|0];picks.push([g[0],g[1],Math.min(0.85,Math.max(0.3,g[2]))]);}
+  var base=picks.length;
+  for(i=0;picks.length<4;i++){var p=picks[i%base];picks.push([p[0],p[1],p[2]+(i%2?-0.16:0.16)]);}
+  var out=picks.map(function(p){
+    var s=picks.length&&p[1]>0.15?Math.min(1,0.78+p[1]*0.3):p[1];
+    var l=Math.max(0.36,Math.min(0.68,0.47+(p[2]-0.5)*0.55));
+    return hsl2rgb(p[0],s,l);});
+  var dh=picks[(rnd()*picks.length)|0];
+  out.push(hsl2rgb(dh[0],Math.min(0.7,dh[1]),0.11));
+  return out;
+}
+
+/* ---------- 花 ---------- */
+function addBloom(qx,qy,held,Rt){
+  var b={x:qx,y:qy,r:0.012,Rt:Rt,held:held,age:0,rel:0,s:1,Q:0,
+    spin:(rnd()<0.5?-1:1)*(0.7+rnd()*0.7),seed:rnd()*100,pal:borrowPalette(qx,qy,Rt+0.12),core:0.03+rnd()*0.012};
+  blooms.push(b);
+  if(blooms.length>MAXB)blooms.shift();
+  return b;
+}
+function updateBlooms(dt){
+  var maxR=Math.max(W,H)/S*0.62;
+  for(var i=blooms.length-1;i>=0;i--){var b=blooms[i];
+    b.age+=dt;
+    if(b.held){b.Rt=Math.min(maxR,b.Rt+dt*0.11);}else b.rel+=dt;
+    var dr=(b.Rt-b.r)/1.3;b.r+=dr*dt;
+    b.Q=6.2832*b.r*Math.max(dr,0)+0.003;
+    if(!b.held&&b.rel>3.5+b.Rt*6)b.s-=dt/1.6;
+    if(b.s<=0)blooms.splice(i,1);
+  }
+}
+var UA=new Float32Array(24),UB=new Float32Array(24),UP=new Float32Array(90);
+function doFlow(dt){
+  var n=blooms.length;
+  for(var i=0;i<n;i++){var b=blooms[i];
+    UA[i*4]=b.x;UA[i*4+1]=b.y;UA[i*4+2]=b.r;UA[i*4+3]=Math.max(0,Math.min(1,b.s));
+    UB[i*4]=b.Q;UB[i*4+1]=b.spin;UB[i*4+2]=b.core;UB[i*4+3]=b.seed;
+    for(var k=0;k<5;k++){UP[i*15+k*3]=b.pal[k][0];UP[i*15+k*3+1]=b.pal[k][1];UP[i*15+k*3+2]=b.pal[k][2];}
+  }
+  var src=st[cur],dst=st[1-cur];
+  pass(pFlow,dst);
+  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,src.t);gl.uniform1i(pFlow.u.uState,0);
+  gl.uniform2f(pFlow.u.uRes,W,H);gl.uniform1f(pFlow.u.uS,S);gl.uniform1f(pFlow.u.uTime,t);gl.uniform1f(pFlow.u.uDt,dt);
+  gl.uniform1i(pFlow.u.uN,n);
+  gl.uniform4fv(pFlow.u.uA,UA);gl.uniform4fv(pFlow.u.uB,UB);gl.uniform3fv(pFlow.u.uPal,UP);
+  draw();
+  cur=1-cur;
+}
+function show(){
+  pass(pShow,null);
+  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,st[cur].t);gl.uniform1i(pShow.u.uState,0);
+  gl.uniform2f(pShow.u.uRes,W,H);
+  draw();
+}
+
+/* ---------- 最初の一輪と、放っておいた時の一輪 ---------- */
+var script=[]; // {at, fn}
+function demo(){
+  script=[];
+  script.push({at:t+1.0,fn:function(){var b=addBloom(W/S*0.5,H/S*0.5,true,0.17);script.push({at:t+3.4,fn:function(){b.held=false;}});}});
+}
+function idle(){
+  if(blooms.length||script.length)return;
+  if(t-lastTouch<14)return;
+  lastTouch=t;
+  var b=addBloom(W/S*(0.2+rnd()*0.6),H/S*(0.2+rnd()*0.6),true,0.15);
+  var hold=0.4+rnd()*2.2;
+  script.push({at:t+hold,fn:function(){b.held=false;}});
+}
+
+/* ---------- 操作 ---------- */
+function toQ(e){return [e.clientX/window.innerWidth*W/S,(1-e.clientY/window.innerHeight)*H/S];}
+cv.addEventListener('pointerdown',function(e){
+  if(window.APKit&&window.APKit.isUI(e.clientX,e.clientY))return;
+  e.preventDefault();
+  try{cv.setPointerCapture(e.pointerId);}catch(_){}
+  var q=toQ(e);
+  ptrs[e.pointerId]=addBloom(q[0],q[1],true,0.16+rnd()*0.05);
+  lastTouch=t;
+  if(!touchedOnce){touchedOnce=true;hint.style.opacity=0;}
+},{passive:false});
+function endPtr(e){var b=ptrs[e.pointerId];if(b)b.held=false;delete ptrs[e.pointerId];lastTouch=t;}
+cv.addEventListener('pointerup',endPtr);
+cv.addEventListener('pointercancel',endPtr);
+
+/* ---------- ✦ ↻ ---------- */
+function mutate(){throwPaint();lastTouch=t;}
+function resetAll(){
+  for(var k in ptrs){delete ptrs[k];}
+  blooms=[];stamp=null;lastPal=0;
+  freshCanvas();demo();lastTouch=t;
+}
+
+/* ---------- ループ ---------- */
+var last=0;
+function tick(now){
+  var dt=last?(now-last)/1000:0.016;last=now;
+  if(dt>0.05)dt=0.05;
+  t+=dt;
+  for(var i=script.length-1;i>=0;i--){if(t>=script[i].at){var f=script[i].fn;script.splice(i,1);f();}}
+  idle();
+  if(!touchedOnce&&t>9)hint.style.opacity=0;
+  if(stamp){
+    stamp.age+=dt;var k=Math.min(1,stamp.age/0.45);var e=1-Math.pow(1-k,3);
+    var r1=stamp.max*e;doStamp(stamp.r,r1,stamp.cx,stamp.cy);stamp.r=r1;
+    if(k>=1)stamp=null;
+  }
+  updateBlooms(dt);
+  if(blooms.length)doFlow(Math.min(dt,1/30));
+  show();
+  requestAnimationFrame(tick);
+}
+
+function onResize(){if(sizeSetup(true)){blooms=[];for(var k in ptrs){delete ptrs[k];}}}
+window.addEventListener('resize',onResize);
+window.addEventListener('orientationchange',function(){setTimeout(onResize,120);});
+
+sizeSetup(false);
+freshCanvas();
+demo();
+requestAnimationFrame(tick);
+
+if(window.APKit){
+  window.APKit.init({
+    canvas:cv,
+    gifName:'borrowed-bloom',
+    clockFormat:'spec',
+    dock:true,
+    autoHide:true,
+    fullscreenButton:false,
+    buttons:[
+      {label:'✦',name:'mutate',onClick:mutate},
+      {label:'↻',name:'reset',onClick:resetAll}
+    ]
+  });
+}
+})();
+</script>
+</body>
+</html>
