@@ -1,0 +1,279 @@
+<!-- BIRTHMARK — クロちゃん(Claude)作。おっちゃんが見せてくれた動画(@Starkapoo氏「ネオンの星型トンネルが奥へ無限に続く」)を参考に、
+     「輪は、生まれた瞬間を覚えている」という世界のルールで再構成。ap-kit.js統合: クロちゃん -->
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>BIRTHMARK — 輪は生まれた瞬間を覚えている</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#000;overflow:hidden;
+    -webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+  canvas#c{display:block;position:fixed;inset:0;width:100vw;height:100vh;touch-action:none}
+</style>
+<script src="ap-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(function(){
+"use strict";
+
+/* ---------- 世界のルール ----------
+   トンネルの輪は、いちばん奥の穴でひとつずつ生まれ、こちらへ流れてきて、通り過ぎていく。
+   輪は、生まれた瞬間のことを覚えている。生まれた後は、もう何も変わらない。
+   だから触ったことは、いま奥で生まれる輪にだけ刻まれて、少し遅れてこちらへ届き、やがて通り過ぎて消える。
+
+   ・ドラッグ … 輪が生まれる場所(消失点)が指についてくる。過去の輪は過去の場所を覚えているので、
+               トンネルは指の通った道どおりにうねる。
+   ・止めて押さえる … 押さえている間に生まれた輪は、ギザギザの一辺一辺がさらに小さなギザギザを産む。
+               長く押さえるほど深く(1段→2段→3段)、同じ折り返しが入れ子になった輪になる。
+   ・タップ … 次に生まれる輪から色の組が替わる。色の境目が帯になってこちらへ流れてくる(替わった瞬間に光の衝撃波)。
+   ・輪は4つに1つ「熱い輪」として生まれ、ネオン管のようにちらつきながら強く光る。押さえている間に生まれた輪は全部熱い。
+     拍(約0.9秒)ごとに光の波が奥から手前へ走り、穴から光の筋が飛び出してくる。縮小した画を重ねて光をにじませる(ブルーム)。
+   ・✦ … 別のトンネル(とげの数・とげの深さ・ねじれ・速さ・色)。すでに生まれた輪はそのまま流れ切る。
+   ・↻ … 最初のトンネル。
+
+   描き方: 輪の半径は生まれてからの時間で指数的に大きくなる(どの瞬間を見ても同じ間隔に並ぶ自己相似の奥行き)。
+   輪の形は単位の大きさで一度だけPath2Dに作って使い回し、加算合成で太い線・中くらいの線・細い芯を重ねてネオンに光らせる。
+------------------------------------ */
+
+var TAU=Math.PI*2;
+var cv=document.getElementById('c');
+var ctx=cv.getContext('2d',{alpha:false});
+var W=0,H=0,dpr=1,MN=1;
+
+var PALS=[
+  [[255,40,170],[255,120,30],[40,130,255],[175,50,255],[255,50,80]],
+  [[0,220,255],[60,95,255],[150,200,255],[0,255,190],[130,80,255]],
+  [[255,190,40],[255,95,20],[255,40,140],[255,40,40],[255,150,90]],
+  [[150,255,40],[0,255,120],[240,255,60],[0,230,230],[255,0,200]],
+  [[225,225,255],[175,155,255],[255,165,220],[160,255,225],[120,170,255]]
+];
+
+var world, rings=[], t=0, lastBirth=0, counter=0, palNow=0;
+var vx=0,vy=0;
+var ptr=null, stillT=0, hintA=1, touchedOnce=false;
+var pathCache={}, cacheN=0;
+var bloomA=document.createElement('canvas'), bxA=bloomA.getContext('2d');
+var bloomB=document.createElement('canvas'), bxB=bloomB.getContext('2d');
+var streaks=[], flashA=0, shocks=[];
+
+var BEAT=0.88;
+function initStreaks(){
+  streaks=[]; var P=PALS[palNow];
+  for(var i=0;i<70;i++)streaks.push({t0:t-Math.random()*6,a:Math.random()*TAU,c:P[(Math.random()*P.length)|0],vx:0,vy:0});
+}
+function defWorld(){return {N:18,D0:0.74,TW:0.025,K:0.8,AY:1.08,R0:6,BI:0.22,pal:0};}
+function randWorld(){
+  return {N:12+((Math.random()*15)|0),D0:0.62+Math.random()*0.2,TW:(Math.random()<0.5?-1:1)*(0.005+Math.random()*0.05),
+    K:0.62+Math.random()*0.32,AY:1+Math.random()*0.14,R0:6,BI:0.22,pal:(Math.random()*PALS.length)|0};
+}
+
+function makePath(N,depth,lvl,h){
+  var key=N+'|'+depth.toFixed(2)+'|'+lvl+'|'+h.toFixed(2);
+  var p=pathCache[key]; if(p)return p;
+  var pts=[],k,a,rr;
+  for(k=0;k<N*2;k++){a=k*Math.PI/N-Math.PI/2; rr=(k%2)?depth:1; pts.push(Math.cos(a)*rr,Math.sin(a)*rr);}
+  for(var L=1;L<=lvl;L++){
+    var s=(L%2)?1:-1, np=[], n=pts.length;
+    for(k=0;k<n;k+=2){
+      var ax=pts[k],ay=pts[k+1],bx=pts[(k+2)%n],by=pts[(k+3)%n];
+      var dx=bx-ax,dy=by-ay;
+      np.push(ax,ay, ax+dx/3,ay+dy/3, ax+dx/2+dy*h*s,ay+dy/2-dx*h*s, ax+dx*2/3,ay+dy*2/3);
+    }
+    pts=np;
+  }
+  p=new Path2D(); p.moveTo(pts[0],pts[1]);
+  for(k=2;k<pts.length;k+=2)p.lineTo(pts[k],pts[k+1]);
+  p.closePath();
+  if(cacheN>240){pathCache={};cacheN=0;}
+  pathCache[key]=p; cacheN++;
+  return p;
+}
+
+function curLvl(){
+  if(!ptr)return 0;
+  return stillT>2.6?3:stillT>1.3?2:stillT>0.45?1:0;
+}
+function birth(t0){
+  var lvl=curLvl();
+  var h=Math.round((0.2+0.1*Math.min(1,stillT/4))*50)/50;
+  var depth=Math.round((world.D0+0.04*Math.sin(t0*0.35))*100)/100;
+  var P=PALS[palNow];
+  rings.push({t0:t0,vx:vx,vy:vy,N:world.N,depth:depth,lvl:lvl,h:h,K:world.K,AY:world.AY,R0:world.R0,
+    rot:counter*world.TW+0.08*Math.sin(t0*0.21),col:P[counter%P.length],
+    hot:(ptr||counter%4===0)?1:0,ph:Math.random()*TAU});
+  counter++;
+}
+function prefill(){
+  rings=[]; counter=0;
+  var life=Math.log(Math.hypot(W,H)/world.R0)/world.K+1;
+  for(var s=t-life;s<=t;s+=world.BI)birth(s);
+  lastBirth=t;
+}
+
+function sizeSetup(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth; H=window.innerHeight; MN=Math.min(W,H);
+  cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
+  bloomA.width=Math.max(1,Math.round(W/4)); bloomA.height=Math.max(1,Math.round(H/4));
+  bloomB.width=Math.max(1,Math.round(W/12)); bloomB.height=Math.max(1,Math.round(H/12));
+}
+
+function render(){
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.globalCompositeOperation='source-over';
+  ctx.fillStyle='#000';
+  ctx.fillRect(0,0,cv.width,cv.height);
+  ctx.globalCompositeOperation='lighter';
+  ctx.lineJoin='miter'; ctx.miterLimit=4;
+  var cx0=W/2, cy0=H/2, R1=0.2*MN, far=Math.hypot(W/2,H/2);
+  var keep=[];
+  for(var i=0;i<rings.length;i++){
+    var g=rings[i], age=t-g.t0;
+    var r=g.R0*Math.exp(g.K*age);
+    var gg=1/(1+r/R1);
+    var ox=g.vx*gg, oy=g.vy*gg;
+    if(r*g.depth>far+Math.hypot(ox,oy)+40)continue;
+    keep.push(g);
+    if(r<4)continue;
+    var fade=Math.min(1,(r-4)/42); fade=fade*fade;
+    var lod=r<26?0:r<75?1:r<170?2:3;
+    var path=makePath(g.N,g.depth,Math.min(g.lvl,lod),g.h);
+    var sx=r*dpr, sy=r*g.AY*dpr, co=Math.cos(g.rot), si=Math.sin(g.rot);
+    ctx.setTransform(sx*co,sy*si,-sx*si,sy*co,(cx0+ox)*dpr,(cy0+oy)*dpr);
+    var lw=Math.max(0.8,r*0.013)*(g.lvl>1?0.8:1)/r;
+    var c=g.col;
+    var beat=Math.exp(-(t%BEAT)*5);
+    var hot=g.hot?(1.5+0.35*Math.sin(t*31+g.ph)*Math.sin(t*7.3+g.ph*2)):1;
+    var wave=1+0.9*Math.exp(-Math.pow(((t-g.t0)-((t%BEAT)*2.2))*1.6,2));
+    fade*=Math.min(2.6,hot*wave*(1+0.35*beat));
+    if(lod<3||g.lvl<2){ctx.strokeStyle='rgba('+c[0]+','+c[1]+','+c[2]+','+(0.085*fade)+')'; ctx.lineWidth=lw*7; ctx.stroke(path);}
+    ctx.strokeStyle='rgba('+c[0]+','+c[1]+','+c[2]+','+Math.min(1,0.36*fade)+')'; ctx.lineWidth=lw*2.6; ctx.stroke(path);
+    var wm=g.hot?2:0.8;
+    ctx.strokeStyle='rgba('+((c[0]+255*wm)/(1+wm)|0)+','+((c[1]+255*wm)/(1+wm)|0)+','+((c[2]+255*wm)/(1+wm)|0)+','+Math.min(1,0.8*fade)+')';
+    ctx.lineWidth=lw*(g.hot?1.1:0.75); ctx.stroke(path);
+  }
+  rings=keep;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  var P=PALS[palNow], vk=world.K*1.25;
+  ctx.lineCap='round';
+  for(i=0;i<streaks.length;i++){
+    var q=streaks[i], qr=8*Math.exp(vk*(t-q.t0));
+    if(qr>far*1.3){q.t0=t;q.a=Math.random()*TAU;q.c=P[(Math.random()*P.length)|0];q.vx=vx;q.vy=vy;qr=8;}
+    var qg=1/(1+qr/R1), qx=cx0+q.vx*qg, qy=cy0+q.vy*qg, ca=Math.cos(q.a), sa=Math.sin(q.a)*world.AY;
+    var qa=Math.min(1,(qr-8)/60);
+    ctx.strokeStyle='rgba('+q.c[0]+','+q.c[1]+','+q.c[2]+','+(0.75*qa)+')';
+    ctx.lineWidth=1+qr*0.006;
+    ctx.beginPath(); ctx.moveTo(qx+ca*qr,qy+sa*qr); ctx.lineTo(qx+ca*qr*1.35,qy+sa*qr*1.35); ctx.stroke();
+  }
+  for(i=shocks.length-1;i>=0;i--){
+    var sh=shocks[i], sa2=t-sh.t0, srr=20*Math.exp(3.2*sa2);
+    if(sa2>1.6){shocks.splice(i,1);continue;}
+    var sp=makePath(world.N,world.D0,1,0.24), so=Math.cos(sh.rot), ss=Math.sin(sh.rot);
+    ctx.setTransform(srr*dpr*so,srr*world.AY*dpr*ss,-srr*dpr*ss,srr*world.AY*dpr*so,(cx0+sh.x)*dpr,(cy0+sh.y)*dpr);
+    ctx.strokeStyle='rgba(255,255,255,'+(0.9*(1-sa2/1.6))+')'; ctx.lineWidth=3/srr; ctx.stroke(sp);
+    ctx.strokeStyle='rgba('+sh.c[0]+','+sh.c[1]+','+sh.c[2]+','+(0.5*(1-sa2/1.6))+')'; ctx.lineWidth=12/srr; ctx.stroke(sp);
+  }
+  ctx.setTransform(1,0,0,1,0,0);
+  bxA.globalCompositeOperation='copy'; bxA.drawImage(cv,0,0,bloomA.width,bloomA.height);
+  bxB.globalCompositeOperation='copy'; bxB.drawImage(bloomA,0,0,bloomB.width,bloomB.height);
+  ctx.imageSmoothingEnabled=true;
+  ctx.globalAlpha=0.45; ctx.drawImage(bloomA,0,0,cv.width,cv.height);
+  ctx.globalAlpha=0.6; ctx.drawImage(bloomB,0,0,cv.width,cv.height);
+  ctx.globalAlpha=1;
+  if(flashA>0.01){ctx.fillStyle='rgba(255,255,255,'+(flashA*0.32)+')';ctx.fillRect(0,0,cv.width,cv.height);}
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.globalCompositeOperation='source-over';
+  if(hintA>0.01){
+    ctx.font='13px -apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif';
+    ctx.textAlign='center'; ctx.fillStyle='rgba(255,255,255,'+(0.55*hintA)+')';
+    ctx.fillText('なぞる=道がうねる · 押さえる=模様が深くなる · タップ=色',W/2,H-Math.max(110,H*0.15));
+  }
+}
+
+/* ---------- 操作 ---------- */
+cv.addEventListener('pointerdown',function(e){
+  if(window.APKit&&window.APKit.isUI(e.clientX,e.clientY))return;
+  if(ptr)return;
+  e.preventDefault();
+  try{cv.setPointerCapture(e.pointerId);}catch(_){}
+  ptr={id:e.pointerId,x:e.clientX,y:e.clientY,ax:e.clientX,ay:e.clientY,t0:t,moved:false};
+  stillT=0; touchedOnce=true;
+},{passive:false});
+cv.addEventListener('pointermove',function(e){
+  if(!ptr||ptr.id!==e.pointerId)return;
+  ptr.x=e.clientX; ptr.y=e.clientY;
+  var dx=ptr.x-ptr.ax, dy=ptr.y-ptr.ay;
+  if(dx*dx+dy*dy>144){ptr.ax=ptr.x;ptr.ay=ptr.y;ptr.moved=true;stillT=0;}
+},{passive:false});
+function endPtr(e){
+  if(!ptr||ptr.id!==e.pointerId)return;
+  if(!ptr.moved&&t-ptr.t0<0.3){
+    palNow=(palNow+1)%PALS.length; flashA=1;
+    var NP=PALS[palNow]; shocks.push({t0:t,x:vx,y:vy,rot:Math.random()*TAU,c:NP[(Math.random()*NP.length)|0]});
+  }
+  ptr=null; stillT=0;
+}
+cv.addEventListener('pointerup',endPtr);
+cv.addEventListener('pointercancel',endPtr);
+
+function mutate(){
+  var nw=randWorld(); while(nw.pal===palNow)nw.pal=(Math.random()*PALS.length)|0;
+  world=nw; palNow=nw.pal; flashA=0.8;
+}
+function resetAll(){
+  world=defWorld(); palNow=0; vx=0; vy=0; ptr=null; stillT=0; shocks=[]; prefill(); initStreaks();
+}
+
+/* ---------- ループ ---------- */
+var last=0;
+function tick(now){
+  var dt=last?(now-last)/1000:0.016; last=now;
+  if(dt>0.05)dt=0.05;
+  t+=dt;
+  var tx,ty,rate,lim=0.42*MN;
+  if(ptr){
+    tx=ptr.x-W/2; ty=ptr.y-H/2;
+    var d=Math.hypot(tx,ty); if(d>lim){tx*=lim/d;ty*=lim/d;}
+    rate=2.6; stillT+=dt;
+  }else{
+    tx=0.06*MN*Math.sin(t*0.13); ty=0.06*MN*Math.sin(t*0.17+1);
+    rate=0.6;
+  }
+  var e=1-Math.exp(-rate*dt); vx+=(tx-vx)*e; vy+=(ty-vy)*e;
+  while(t-lastBirth>=world.BI){lastBirth+=world.BI; birth(lastBirth);}
+  flashA*=Math.exp(-dt*9);
+  if(touchedOnce){hintA-=dt*0.8;}else if(t>9){hintA-=dt*0.4;}
+  if(hintA<0)hintA=0;
+  render();
+  requestAnimationFrame(tick);
+}
+window.addEventListener('resize',sizeSetup);
+window.addEventListener('orientationchange',function(){setTimeout(sizeSetup,120);});
+
+sizeSetup();
+world=defWorld();
+prefill();
+initStreaks();
+requestAnimationFrame(tick);
+
+if(window.APKit){
+  window.APKit.init({
+    canvas:cv,
+    gifName:'birthmark',
+    clockFormat:'spec',
+    dock:true,
+    autoHide:true,
+    fullscreenButton:false,
+    buttons:[
+      {label:'✦',name:'mutate',onClick:mutate},
+      {label:'↻',name:'reset',onClick:resetAll}
+    ]
+  });
+}
+})();
+</script>
+</body>
+</html>
