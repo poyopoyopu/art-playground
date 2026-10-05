@@ -1,3 +1,4 @@
+- 2026-10-05 クロード: ギャラリーのlayout改善(しゅん承認)。①LOGの並び順を「ギャラリーに載った順(新しい→古い)」に整理(git履歴の初登場時刻で判定、同時刻はart-vNN大きい順)。TWIN TIDE(v86)が先頭でBIRTHMARK(v88)・LIGHT WEB(v87)より上だった/NIGHT SHIFT(v79)がv84とv83の間にいた/MIRROR系がv75→v73→v74の順だった/COLOR BREATH・RGB MEMBRANE・VOID FIELD IIなど番号の無い試作の位置が載った時期とずれていた/末尾のv36・v35・v31がv30・v28・v27より下だった、を解消(作品の追加・削除なし、39枠のまま)。②Aboutの本文末に混入していた「 · CHROMA DRIFT」を削除。原因は2026-09-23のコミット5a5e6b6(Add CHROMA DRIFT to gallery)で、Published works行に足すべき作品名がAbout本文の末尾に入っていたこと。Published works行にCHROMA DRIFTを追加(ギャラリー40作品に対し39作品しか載っていなかった)し、並びをLOGと同じに揃えた。③LOGタイルの文字を左揃えにしてヒーローと揃え、「開く」目印の▷を動いていない枠だけの中央表示から、全タイル共通の右上表示に変更。モーダルの✕はタップ範囲だけ拡大(見た目は変更なし)。④AGENTS.md 13章にLOGの並び順のルールを追記し、CURRENT入れ替え時の「LOG先頭に移す」を「並び順に従う位置」に変更(index.html, AGENTS.md, CHANGELOG.md)
 - 2026-10-05 クロード: LOGに3回出ていたMIRROR FRACTUREを1枠にまとめ(CHROMA DRIFTの直後を残し、重複2枠を削除)、そこに紛れていたスタイル無しの「CURRENT」タグも削除(しゅん承認)。LOGの並び順とAboutの「· CHROMA DRIFT」は未対応のまま、次のlayout改善で対応(index.html, CHANGELOG.md)
 - 2026-10-05 クロード: ギャラリーのclarify改善(しゅん承認)。ヘッダーを「触ると、世界のルールが変わる。」に変更、ヒーロー/タイルに一言説明(各作品の<title>『NAME — 日本語の一言』から自動取得。TWIN TIDE/LIGHT WEB/LUMINAだけindex.htmlのMETAで上書き)とヒーローの操作ヒントを追加、PREVIEWをLOG見出しの右へ移して「プレビュー ON/OFF」に変更、Aboutにジェネラティブアートの説明を1文追加。worker.jsと作品ファイルは変更なし。LOGのMIRROR FRACTURE重複・Aboutの「· CHROMA DRIFT」混入・LOGの並び順は次のlayout改善で対応(index.html, AGENTS.md, CHANGELOG.md)
 - 2026-10-05 クロード: BEAD STAIRSを全面強化(おっちゃん「しょぼすぎる」)。①粒を小さく大量に(約160〜270個、大きさ・形に個体差)、斜面を10→約16段に増やして、オイルタイマーのぎっしり流れる感じに。②液だまりを色の層が混ざり合う艶のある液体にして、粒が溶けこむと液面が波打ち、しぶきが飛ぶ。垂れる粒の首も細く伸びる。③奥行きの演出(ピントの外れた光のボケ、細かい泡、ガラスの映り込み、液だまりの光のにじみ)。④つつくと、その色の光が広がって全部の粒が一斉に光る。⑤溜まりきった色は約2秒で自分から反転し、全部の色が同じ向きに揃ったままの時は自動で1色が逆向きになるので、流れが止まらず常にすれ違う。⑥壁ぎわで粒が団子にならないよう抜ける位置をばらけた。法則・操作は変更なし(prototypes/oil-timer.html)
@@ -355,7 +356,7 @@
 ## 現在の状態(変わったら書き換える)
 
 - CURRENT: LAMP FOLD(`art-v89-lamp-fold.html`)
-- LOG先頭: TWIN TIDE(`art-v86-twin-tide.html`)
+- LOG先頭: BIRTHMARK(`art-v88-birthmark.html`)
 - 作業ルール: `AGENTS.md`(ギャラリー追加の手順と命名ルールは13章)
 - 表示モード: iPhoneホーム画面から起動するとCURRENT作品を自動表示するstandalone Web App対応済み
 - 一言説明: ヒーロー/タイルの一言は各作品の`<title>`(`NAME — 日本語の一言`)から自動取得。上書き・ヒントは`index.html`の`META`(ルールはAGENTS.md 13章)

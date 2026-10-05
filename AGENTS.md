@@ -221,8 +221,8 @@ if (window.APKit && APKit.isUI(x, y)) return true;
      <button class="entry" onclick="openArt('パス','TITLE')"><iframe data-src="パス" loading="lazy"></iframe><div class="cap"><div class="name">TITLE</div></div></button>
      ```
      `openArt` の第1引数と `data-src` は同じパス。`prototypes/` 内の作品なら `prototypes/xxx.html` と書く。
-   - **CURRENT枠の差し替え**(しゅんが「CURRENTにして」と言った場合のみ): `.current` の `openArt(...)`・`data-src`・`.name` の3か所を新作に変え、**それまでのCURRENT作品はLOG先頭に1行として移す**(消さない)。
-   - **Published works 行**: `.about-works` の一覧に作品名を ` · ` 区切りで追加する(CURRENTにした場合は先頭、それ以外はCURRENT作品の直後)。
+   - **CURRENT枠の差し替え**(しゅんが「CURRENTにして」と言った場合のみ): `.current` の `openArt(...)`・`data-src`・`.name` の3か所を新作に変え、**それまでのCURRENT作品はLOGに1行として移す**(消さない。位置は下の「LOGの並び順」に従う。先頭とは限らない)。
+   - **Published works 行**: `.about-works` の一覧に作品名を ` · ` 区切りで追加する。並びはLOGと同じ(CURRENTは先頭、あとはLOGの上から順)。LOGに足したら必ずここにも足す(2026/09/23のCHROMA DRIFTは、ここに書くべき ` · CHROMA DRIFT` がAbout本文の末尾に入ってしまい、一覧から漏れていた)。
 3. 既存エントリは削除しない(0章)。削除・並べ替えを頼まれたときだけ行う。
 4. 出力前のセルフチェック:
    - 追加したパスのファイルがリポジトリに実在するか(大文字小文字・ `prototypes/` の有無まで一致)
@@ -231,6 +231,12 @@ if (window.APKit && APKit.isUI(x, y)) return true;
 5. `CHANGELOG.md` の履歴と「現在の状態」を更新する。
 6. GitHub APIで `main` に直接push。コミットメッセージ例: `Add COLOR BREATH to gallery`
 7. push前に、**GitHub上の最新コミットが手順1で取得した時点から変わっていないか**を再確認する。変わっていたら、もう一度最新を取り直してからpushする。
+
+### LOGの並び順
+
+- 上から**新しい順**。基準は「ギャラリーに載った順」で、`art-vNN` の大きい順と一致する(番号の無い試作は、載った時期の位置に入れる)。
+- 新作は先頭でよい。ただしCURRENTから移す作品は、この順を保つ位置に入れる(例: v86がCURRENTだった間にv88が追加されていたら、v88の下に入れる)。
+- 追加後は、上から見て番号が逆転していないかを確認する。
 
 ### ギャラリーでの表示名の決め方
 
