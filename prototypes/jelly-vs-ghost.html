@@ -3,45 +3,148 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>JELLY VS GHOST</title>
+<title>JELLY VS GHOST — DOT</title>
 <style>
-*{box-sizing:border-box}html,body{margin:0;background:#101018;color:#fff;font-family:"Hiragino Maru Gothic ProN","Yu Gothic",system-ui,sans-serif}
-body{padding:10px 9px 22px;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
-h1{font-size:19px;text-align:center;margin:3px 0 8px;font-weight:800}.controls{position:sticky;top:0;z-index:5;background:rgba(16,16,24,.94);backdrop-filter:blur(10px);padding:7px 0 9px}
-.buttons{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}button{border:0;border-radius:999px;padding:10px 3px;background:#2b2b3a;color:#fff;font:700 13px inherit}
-.note{text-align:center;color:#aaa;font-size:10px;margin-top:6px}.stage{max-width:620px;margin:auto}
-.card{border-radius:20px;overflow:hidden;margin:9px 0;box-shadow:0 9px 30px #0007}.label{height:32px;display:flex;align-items:center;justify-content:space-between;padding:0 13px;font-size:13px;font-weight:800;background:#ffffff10}
-canvas{display:block;width:100%;height:auto;touch-action:none}.jelly .label{background:#101e39}.ghost .label{background:#2a193d}.count{opacity:.7}
+*{box-sizing:border-box}
+html,body{margin:0;background:#0d0c16;color:#fff;font-family:"Hiragino Maru Gothic ProN","Yu Gothic",system-ui,sans-serif}
+body{padding:10px 9px 24px;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+h1{text-align:center;font-size:18px;margin:3px 0 8px;font-weight:900}
+.stage{max-width:620px;margin:auto}
+.controls{position:sticky;top:0;z-index:5;background:#0d0c16ee;padding:7px 0 9px}
+.buttons{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+button{border:0;border-radius:999px;padding:10px 3px;background:#292736;color:#fff;font:800 13px inherit}
+.note{text-align:center;color:#aaa;font-size:10px;margin:6px 0 8px}
+.card{border-radius:18px;overflow:hidden;margin:9px 0;background:#111;box-shadow:0 8px 28px #0008}
+.label{height:31px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:13px;font-weight:900}
+.jelly .label{background:#102449}.ghost .label{background:#2d1941}
+.count{opacity:.7}
+canvas{display:block;width:100%;height:auto;touch-action:none}
 </style>
 </head>
 <body>
 <h1>どっちが「1秒で可愛い」？</h1>
 <div class="controls"><div class="buttons">
 <button id="add">10匹ふやす</button><button id="color">色をかえる</button><button id="reset">1匹にもどす</button>
-</div><div class="note">キャンバスをタップすると、その場所に1匹増えます（最大150匹）</div></div>
+</div><div class="note">タップで1匹追加・最大150匹。今回は「ドットの顔」を主役にする。</div></div>
 <div class="stage">
-<section class="card jelly"><div class="label"><span>🪼 クラゲ</span><span class="count" id="jc">1匹</span></div><canvas id="jelly"></canvas></section>
-<section class="card ghost"><div class="label"><span>👻 おばけ</span><span class="count" id="gc">1匹</span></div><canvas id="ghost"></canvas></section>
+<section class="card jelly"><div class="label"><span>クラゲ</span><span class="count" id="jc">1匹</span></div><canvas id="jelly"></canvas></section>
+<section class="card ghost"><div class="label"><span>おばけ</span><span class="count" id="gc">1匹</span></div><canvas id="ghost"></canvas></section>
 </div>
 <script>
-const TAU=Math.PI*2,MAX=150,J=document.querySelector("#jelly"),G=document.querySelector("#ghost"),jc=document.querySelector("#jc"),gc=document.querySelector("#gc"),jctx=J.getContext("2d"),gctx=G.getContext("2d");
-const JP=[["#9fe8ff","#63b9ff","#d9f7ff"],["#ffb7e9","#e980d0","#ffe5f7"],["#bff7d0","#69dca4","#eafff0"],["#d4c1ff","#9d7cf5","#f0e9ff"]];
-const GP=[["#fff5ff","#dcb8ff","#ff7f9f"],["#fff6cf","#ffcf71","#ff789c"],["#d9fff9","#72d8d0","#ff789d"],["#f4e4ff","#bd91f1","#ff7d9e"]];
-let jp=0,jd=[],gd=[],time=0;
-function fit(c){const w=c.parentElement.clientWidth,h=Math.max(250,Math.min(430,w*.78)),d=Math.min(devicePixelRatio||1,2);c.width=w*d;c.height=h*d;c._w=w;c._h=h;c._d=d}
-function resize(){fit(J);fit(G)}addEventListener("resize",resize);resize();
-const r=(a,b)=>a+Math.random()*(b-a),mj=(x,y)=>({x,y,p:r(0,TAU),s:r(.86,1.08)}),mg=(x,y)=>({x,y,p:r(0,TAU),s:r(.86,1.08),m:Math.random()});
-function reset(){jd=[mj(J._w/2,J._h/2)];gd=[mg(G._w/2,G._h/2)]}
-function addAt(c,a,m,e){if(a.length>=MAX)return;const q=c.getBoundingClientRect();a.push(m(e.clientX-q.left,e.clientY-q.top))}
-function add10(){for(const [c,a,m] of [[J,jd,mj],[G,gd,mg]])for(let i=0;i<10&&a.length<MAX;i++)a.push(m(r(28,c._w-28),r(45,c._h-35)))}
-function sz(n,b){return b*Math.max(.18,Math.min(1,Math.sqrt(2.2/n)))}
-J.addEventListener("pointerdown",e=>addAt(J,jd,mj,e));G.addEventListener("pointerdown",e=>addAt(G,gd,mg,e));
-document.querySelector("#add").onclick=add10;document.querySelector("#reset").onclick=reset;document.querySelector("#color").onclick=()=>jp=(jp+1)%JP.length;reset();
-function bgJ(c){const w=J._w,h=J._h,g=c.createLinearGradient(0,0,0,h);g.addColorStop(0,"#071126");g.addColorStop(1,"#142b52");c.fillStyle=g;c.fillRect(0,0,w,h);c.fillStyle="#b9ddff22";for(let i=0;i<34;i++){c.beginPath();c.arc((i*83+17)%w,(i*47+23)%h,.7+i%3*.35,0,TAU);c.fill()}}
-function bgG(c){const w=G._w,h=G._h,g=c.createLinearGradient(0,0,0,h);g.addColorStop(0,"#190e2d");g.addColorStop(1,"#3a2052");c.fillStyle=g;c.fillRect(0,0,w,h);c.fillStyle="#fff1bd";c.beginPath();c.arc(w-52,51,24,0,TAU);c.fill();c.fillStyle="#3a2052";c.beginPath();c.arc(w-42,44,23,0,TAU);c.fill();c.fillStyle="#fff3";for(let i=0;i<20;i++){c.beginPath();c.arc((i*61+19)%w,(i*43+9)%h,.7+i%2*.4,0,TAU);c.fill()}}
-function jelly(c,o,n){const b=sz(n,48)*o.s,x=o.x+Math.sin(time*.7+o.p)*2,y=o.y+Math.sin(time*.5+o.p)*1.5,p=JP[jp],q=1+Math.sin(time*3.4+o.p)*.055,rw=b*1.08*q,rh=b*.67/q;c.save();c.translate(x,y);c.shadowBlur=b*.3;c.shadowColor=p[1];const gr=c.createLinearGradient(0,-rh,0,rh);gr.addColorStop(0,p[2]);gr.addColorStop(1,p[0]);c.fillStyle=gr;c.beginPath();c.ellipse(0,-b*.18,rw,rh,0,Math.PI,TAU);c.quadraticCurveTo(rw*.8,b*.08,0,b*.18);c.quadraticCurveTo(-rw*.8,b*.08,-rw,-b*.18);c.fill();c.shadowBlur=0;c.strokeStyle=p[1];c.lineWidth=Math.max(1,b*.08);c.lineCap="round";for(let i=-2;i<=2;i++){const xx=i*b*.28;c.beginPath();c.moveTo(xx,b*.02);for(let k=1;k<=4;k++)c.lineTo(xx+Math.sin(time*2+o.p+i+k)*b*.16,b*.02+k*b*.3);c.stroke()}c.fillStyle="#18233d";c.beginPath();c.arc(-b*.29,-b*.18,b*.075,0,TAU);c.arc(b*.29,-b*.18,b*.075,0,TAU);c.fill();c.strokeStyle="#18233d";c.lineWidth=Math.max(1,b*.045);c.beginPath();c.arc(0,-b*.1,b*.13,.12,Math.PI-.12);c.stroke();c.restore()}
-function ghost(c,o,n){const b=sz(n,50)*o.s,x=o.x+Math.sin(time*.55+o.p)*1.6,y=o.y+Math.sin(time*.65+o.p)*1.1,w=b*.83,h=b*1.08,p=GP[jp],sleep=o.m<.15,angry=!sleep&&o.m<.30;c.save();c.translate(x,y);c.shadowBlur=b*.23;c.shadowColor=p[1];const gr=c.createLinearGradient(0,-h,0,h);gr.addColorStop(0,p[0]);gr.addColorStop(1,"#eadcf6");c.fillStyle=gr;c.beginPath();c.moveTo(-w,-h*.02);c.quadraticCurveTo(-w,-h*.72,0,-h*.82);c.quadraticCurveTo(w,-h*.72,w,-h*.02);c.lineTo(w,h*.58);for(let i=0;i<4;i++){const xx=w-i*w*2/3,yy=h*.58+Math.sin(time*2.2+o.p+i)*b*.1;c.quadraticCurveTo(xx,yy,xx-w/3,h*.78)}c.quadraticCurveTo(0,h*.93,-w,h*.62);c.closePath();c.fill();c.shadowBlur=0;c.fillStyle=p[2]+"99";c.beginPath();c.ellipse(-w*.52,b*.04,b*.15,b*.09,0,0,TAU);c.ellipse(w*.52,b*.04,b*.15,b*.09,0,0,TAU);c.fill();c.fillStyle="#30203d";c.strokeStyle="#30203d";c.lineWidth=Math.max(1,b*.05);if(sleep){c.beginPath();c.arc(-w*.28,-b*.18,b*.1,.2,Math.PI-.2);c.arc(w*.28,-b*.18,b*.1,.2,Math.PI-.2);c.stroke();c.font="700 "+Math.max(10,b*.32)+"px system-ui";c.fillText("z",w*.55,-b*.42);c.fillText("z",w*.72,-b*.63)}else{const dx=angry?Math.sin(time*20+o.p)*b*.05:0;c.translate(dx,0);c.beginPath();c.arc(-w*.28,-b*.18,b*.075,0,TAU);c.arc(w*.28,-b*.18,b*.075,0,TAU);c.fill();if(angry){c.beginPath();c.moveTo(-w*.43,-b*.32);c.lineTo(-w*.14,-b*.25);c.moveTo(w*.43,-b*.32);c.lineTo(w*.14,-b*.25);c.stroke()}c.beginPath();c.arc(0,-b*.08,b*.11,.1,Math.PI-.1);c.stroke()}c.restore()}
-function loop(){time+=.016;jctx.setTransform(J._d,0,0,J._d,0,0);gctx.setTransform(G._d,0,0,G._d,0,0);bgJ(jctx);bgG(gctx);jd.forEach(o=>jelly(jctx,o,jd.length));gd.forEach(o=>ghost(gctx,o,gd.length));jc.textContent=jd.length+"匹";gc.textContent=gd.length+"匹";requestAnimationFrame(loop)}loop();
+const TAU=Math.PI*2,MAX=150,J=document.querySelector("#jelly"),G=document.querySelector("#ghost");
+const jctx=J.getContext("2d"),gctx=G.getContext("2d"),jc=document.querySelector("#jc"),gc=document.querySelector("#gc");
+const JP=[["#bff3ff","#62c7ee","#19355d","#13223e"],["#ffd0ed","#e98bc9","#55325d","#321d43"],["#d6ffd9","#78dfaa","#24594d","#193b39"],["#ddd0ff","#a58cf4","#47386e","#29234d"]];
+const GP=[["#fff9e8","#e7d8ff","#ff769d","#33223e"],["#fff3bd","#ffd06e","#ff7096","#3c2435"],["#d9fff8","#72d8cc","#ff769b","#26383e"],["#f4ddff","#be91ed","#ff7d9f","#382641"]];
+let palette=0,time=0,jellys=[],ghosts=[];
+
+function fit(c){
+  const w=c.parentElement.clientWidth,h=Math.max(240,Math.min(390,w*.78)),d=Math.min(devicePixelRatio||1,2);
+  c.width=Math.round(w*d);c.height=Math.round(h*d);c._w=w;c._h=h;c._d=d;
+}
+function resize(){fit(J);fit(G)} addEventListener("resize",resize);resize();
+const rnd=(a,b)=>a+Math.random()*(b-a);
+const makeJ=(x,y)=>({x,y,a:rnd(0,TAU),v:rnd(.86,1.12),seed:rnd(0,100)});
+const makeG=(x,y)=>({x,y,a:rnd(0,TAU),v:rnd(.86,1.12),seed:rnd(0,100),state:Math.random()});
+
+function reset(){
+  jellys=[makeJ(J._w/2,J._h/2)];
+  ghosts=[makeG(G._w/2,G._h/2)];
+}
+function addAt(c,list,make,e){
+  if(list.length>=MAX)return;
+  const q=c.getBoundingClientRect();
+  list.push(make(e.clientX-q.left,e.clientY-q.top));
+}
+function addTen(){
+  [[J,jellys,makeJ],[G,ghosts,makeG]].forEach(([c,list,make])=>{
+    for(let i=0;i<10&&list.length<MAX;i++)list.push(make(rnd(22,c._w-22),rnd(35,c._h-24)));
+  });
+}
+J.addEventListener("pointerdown",e=>addAt(J,jellys,makeJ,e));
+G.addEventListener("pointerdown",e=>addAt(G,ghosts,makeG,e));
+document.querySelector("#add").onclick=addTen;
+document.querySelector("#reset").onclick=reset;
+document.querySelector("#color").onclick=()=>palette=(palette+1)%JP.length;
+reset();
+
+function pixel(ctx,x,y,s,color){
+  ctx.fillStyle=color;ctx.fillRect(Math.round(x),Math.round(y),s,s);
+}
+function dotSprite(ctx,x,y,scale,map,colors,face){
+  for(let yy=0;yy<map.length;yy++)for(let xx=0;xx<map[yy].length;xx++){
+    const ch=map[yy][xx],col=colors[ch];
+    if(col)pixel(ctx,x+xx*scale,y+yy*scale,scale,col);
+  }
+  face?.(ctx,x,y,scale,colors);
+}
+function sizeFor(n,base){
+  return Math.max(1,Math.round(base*Math.max(.18,Math.min(1,Math.sqrt(2.15/n)))));
+}
+
+const JBODY=[
+"....111111....","..1111111111..",".111111111111.","11111111111111",
+"11111111111111","11111111111111",".111111111111.","..1111111111..",
+"................","....2....2.....","................","....2....2.....",
+"...2......2.....","..22......22....","..2........2...."
+];
+const GHOST=[
+".....111111.....","...1111111111...","..111111111111..",".11111111111111.",
+"1111111111111111","1111111111111111","1111111111111111","1111111111111111",
+"1111111111111111","1111111111111111","1111111111111111",
+"1111111111111111","1111111111111111","..11......11....",".111......111...",
+"..11......11...."
+];
+
+function drawJelly(ctx,o,n){
+  const s=sizeFor(n,Math.min(J._w,J._h)/25),w=14*s,h=15*s;
+  const x=Math.round(o.x-w/2+Math.sin(time*1.5+o.a)*s),y=Math.round(o.y-h/2+Math.sin(time*.9+o.a)*s*.5);
+  const c=JP[palette],colors={1:c[0],2:c[2]};
+  dotSprite(ctx,x,y,s,JBODY,colors,(ctx,x,y,s)=>{
+    pixel(ctx,x+4*s,y+9*s,s,c[3]);pixel(ctx,x+9*s,y+9*s,s,c[3]);
+    pixel(ctx,x+5*s,y+11*s,s,c[3]);pixel(ctx,x+8*s,y+11*s,s,c[3]);
+    if(Math.sin(time*3+o.seed)>.35)pixel(ctx,x+6*s,y+10*s,s,c[3]);
+    if(s>=3){pixel(ctx,x+2*s,y+2*s,s,c[1]);pixel(ctx,x+10*s,y+3*s,s,c[1]);}
+  });
+}
+function drawGhost(ctx,o,n){
+  const s=sizeFor(n,Math.min(G._w,G._h)/24),w=16*s,h=16*s;
+  let x=Math.round(o.x-w/2+Math.sin(time*.9+o.a)*s*.5),y=Math.round(o.y-h/2+Math.sin(time*1.1+o.a)*s*.5);
+  const c=GP[palette],colors={1:c[0],2:c[1]};
+  const sleep=o.state<.15,angry=!sleep&&o.state<.30;
+  if(angry)x+=Math.round(Math.sin(time*18+o.seed)*s*.65);
+  dotSprite(ctx,x,y,s,GHOST,colors,(ctx,x,y,s)=>{
+    if(sleep){
+      pixel(ctx,x+4*s,y+7*s,s,c[3]);pixel(ctx,x+11*s,y+7*s,s,c[3]);
+      pixel(ctx,x+5*s,y+6*s,s,c[3]);pixel(ctx,x+10*s,y+6*s,s,c[3]);
+      if(s>=2){pixel(ctx,x+13*s,y+3*s,s,c[2]);pixel(ctx,x+14*s,y+2*s,s,c[2]);}
+    }else{
+      pixel(ctx,x+4*s,y+7*s,s,c[3]);pixel(ctx,x+11*s,y+7*s,s,c[3]);
+      if(angry){pixel(ctx,x+3*s,y+5*s,s,c[3]);pixel(ctx,x+11*s,y+5*s,s,c[3]);}
+      pixel(ctx,x+7*s,y+9*s,s,c[3]);pixel(ctx,x+8*s,y+9*s,s,c[3]);
+      pixel(ctx,x+3*s,y+9*s,s,c[2]);pixel(ctx,x+12*s,y+9*s,s,c[2]);
+    }
+  });
+}
+function bgJ(ctx){
+  const w=J._w,h=J._h;ctx.fillStyle="#071426";ctx.fillRect(0,0,w,h);
+  ctx.fillStyle="#9edbff55";for(let i=0;i<28;i++)pixel(ctx,(i*71+13)%w,(i*43+17)%h,2+(i%2),"#9edbff55");
+}
+function bgG(ctx){
+  const w=G._w,h=G._h;ctx.fillStyle="#1b102d";ctx.fillRect(0,0,w,h);
+  pixel(ctx,w-58,27,8,"#fff0b8");pixel(ctx,w-50,27,8,"#fff0b8");pixel(ctx,w-42,35,8,"#fff0b8");
+  ctx.fillStyle="#1b102d";pixel(ctx,w-42,27,8,"#1b102d");pixel(ctx,w-34,35,8,"#1b102d");
+  for(let i=0;i<22;i++)pixel(ctx,(i*61+17)%w,(i*37+11)%h,2,"#fff6d455");
+}
+function loop(){
+  time+=.016;
+  jctx.setTransform(J._d,0,0,J._d,0,0);gctx.setTransform(G._d,0,0,G._d,0,0);
+  bgJ(jctx);bgG(gctx);
+  jellys.forEach(o=>drawJelly(jctx,o,jellys.length));
+  ghosts.forEach(o=>drawGhost(gctx,o,ghosts.length));
+  jc.textContent=jellys.length+"匹";gc.textContent=ghosts.length+"匹";
+  requestAnimationFrame(loop);
+}
+loop();
 </script>
 </body>
 </html>
