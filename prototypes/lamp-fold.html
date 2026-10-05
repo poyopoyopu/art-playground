@@ -1,0 +1,265 @@
+<!-- LAMP FOLD — クロちゃん(Claude)作。おっちゃんが見せてくれた動画(uon.visuals氏のリール「光の粒の星型トンネルが鏡合わせに二つ並ぶ」)を参考に、
+     「鏡を一枚立てるたび、光の穴がひとつ増える」という世界のルールで再構成。ap-kit.js統合: クロちゃん -->
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>LAMP FOLD — 鏡を立てるたび、光の穴が増える</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#000;overflow:hidden;
+    -webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+  canvas#c{display:block;position:fixed;inset:0;width:100vw;height:100vh;touch-action:none}
+  #nogl{position:fixed;inset:0;display:none;align-items:center;justify-content:center;color:#888;font:14px sans-serif}
+</style>
+<script src="../ap-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="nogl">WebGLが使えない環境です</div>
+<script>
+(function(){
+"use strict";
+
+/* ---------- 世界のルール ----------
+   この世界には、光の粒(ランプ)でできた星型の穴がひとつだけある。
+   二つに見えるのは、真ん中に鏡が一枚立っているから。
+   鏡を立てるたび、鏡の向こうに穴がもうひとつ映り、映った穴はまた次の鏡に映る(折り返しの入れ子)。
+   鏡に一度映るごとに、光の色は少しずつずれる。だから映った穴ほど、元の穴と違う色で光る。
+
+   ・なぞる … なぞった線がそのまま鏡になる。なぞった向きの右側が「鏡の向こう」になり、左側の世界が映り込む。
+   ・タップ … 触れた点に、画面の中心を向いた鏡が立つ。
+   ・押さえる(約0.65秒じっと) … 指のそばの鏡が割れて消える(真ん中の最初の鏡も割れる。割れば穴はひとつに戻る)。
+   ・世界が抱えられる鏡は8枚まで。9枚目を立てると、いちばん古い鏡が割れる。
+   ・✦ … 別の穴(とげの数・とげの深さ・ねじれ・粒の数・流れの速さ・色)。立てた鏡はそのまま残る。
+   ・↻ … 最初の世界(真ん中の鏡一枚だけ)。
+
+   描き方: WebGLのシェーダで、画面の各点を鏡で新しい順に折り返してから、穴の中心まわりの対数極座標に変換する。
+   粒は対数極座標の格子に並べるので、奥へ行くほど同じ形のまま小さくなる(どこを切っても同じ並びの自己相似の奥行き)。
+   粒は縁が明るいボケ玉として描き、拍ごとに光の波が奥から手前へ走る。
+------------------------------------ */
+
+var cv=document.getElementById('c');
+var gl=cv.getContext('webgl',{antialias:false,alpha:false,depth:false,stencil:false,premultipliedAlpha:false,powerPreference:'high-performance'});
+if(!gl){document.getElementById('nogl').style.display='flex';return;}
+
+var VS='attribute vec2 p;void main(){gl_Position=vec4(p,0.0,1.0);}';
+var FS=[
+'precision highp float;',
+'uniform vec2 R;uniform float T,F,GF,NK,N0,N1,TW;uniform vec2 C;uniform vec4 P;',
+'uniform vec4 MI[8];uniform float FL[8];uniform int MC;',
+'float h11(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}',
+'vec3 pal(float h){vec3 c=0.5+0.5*cos(6.28318*(h+vec3(0.0,0.33,0.67)));return c*c*1.25+0.02;}',
+'void main(){',
+'  vec2 uv=(gl_FragCoord.xy-0.5*R)/R.y;',
+'  float refl=0.0,seam=10.0,fl=0.0;',
+'  for(int i=0;i<8;i++){',
+'    if(i>=MC)break;',
+'    vec4 m=MI[i];',
+'    float d=dot(uv-m.xy,m.zw);',
+'    float ad=abs(d);',
+'    fl+=FL[i]*exp(-ad*80.0);',
+'    seam=min(seam,ad);',
+'    if(d<0.0){uv-=2.0*d*m.zw;refl+=1.0+float(i)*0.37;}',
+'  }',
+'  vec2 q=uv-C;',
+'  float r=max(length(q),1e-4);',
+'  float a=atan(q.y,q.x);',
+'  float L=log(r);',
+'  float ph0=N0*a+TW*L+T*0.25,ph1=N1*a+TW*L+T*0.25,pw=L*2.5-T*1.1+a*2.0;',
+'  float s0=cos(ph0),s1=cos(ph1);',
+'  float star=1.0+P.x*mix(s0,s1,NK)+P.w*sin(pw);',
+'  float ds=-P.x*mix(N0*sin(ph0),N1*sin(ph1),NK)+2.0*P.w*cos(pw);',
+'  float sg=ds/max(star,0.25);',
+'  float Ls=L-log(max(star,0.25));',
+'  float M=P.y;',
+'  float u=a/6.28318*M;',
+'  float v=Ls*M/6.28318-F;',
+'  float row=floor(v);',
+'  u+=0.5*mod(row,2.0);',
+'  vec2 id=vec2(floor(u),row);',
+'  vec2 g=fract(vec2(u,v))-0.5;',
+'  float d=length(vec2(g.x,g.y+sg*g.x));',
+'  float px=M/(6.28318*R.y*r);',
+'  float hs=h11(id+vec2(floor(refl*7.0),0.0));',
+'  float blur=clamp(r*0.22,0.0,0.10);',
+'  float aa=max(px*1.3,0.015)+blur;',
+'  float rad=0.34/(1.0+0.25*abs(sg));',
+'  float disc=smoothstep(rad+aa,rad-aa,d);',
+'  float rimw=0.07+aa;',
+'  float rim=exp(-((d-rad*0.8)*(d-rad*0.8))/(rimw*rimw));',
+'  float core=exp(-d*d*30.0);',
+'  float halo=exp(-d*d*10.0);',
+'  float tw=0.7+0.3*sin(T*2.3+hs*40.0);',
+'  float hue=P.z+row*0.04+refl*0.13+0.06*cos(2.0*a);',
+'  vec3 cb=pal(hue),cr=pal(hue+0.07);',
+'  float hot=step(0.93,hs);',
+'  vec3 col=cb*(disc*(0.16+0.35*core)*tw+halo*0.16)+cr*(disc*rim*1.35*tw);',
+'  col=mix(col,vec3(1.0,0.97,0.92)*disc*1.4,hot*core*0.8);',
+'  float sub=smoothstep(0.3,0.9,px);',
+'  col=mix(col,cb*0.32,sub);',
+'  float pulse=1.0+0.7*pow(0.5+0.5*sin(row*0.55-T*3.2),8.0);',
+'  float depth=smoothstep(-5.8,-2.0,L);',
+'  col*=pulse*(0.22+0.78*depth);',
+'  col+=pal(P.z+refl*0.13)*0.18*exp(-r*22.0);',
+'  col+=vec3(1.0,0.96,0.9)*(fl*0.9+GF*0.4);',
+'  col+=vec3(0.7,0.8,1.0)*0.05*exp(-seam*R.y*0.4);',
+'  col=1.0-exp(-col*1.7);',
+'  gl_FragColor=vec4(col,1.0);',
+'}'
+].join('\n');
+
+function sh(type,src){var s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){console.error(gl.getShaderInfoLog(s));}return s;}
+var prog=gl.createProgram();
+gl.attachShader(prog,sh(gl.VERTEX_SHADER,VS));gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,FS));
+gl.linkProgram(prog);
+if(!gl.getProgramParameter(prog,gl.LINK_STATUS)){console.error(gl.getProgramInfoLog(prog));document.getElementById('nogl').style.display='flex';return;}
+gl.useProgram(prog);
+var buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+var ap=gl.getAttribLocation(prog,'p');gl.enableVertexAttribArray(ap);gl.vertexAttribPointer(ap,2,gl.FLOAT,false,0,0);
+var U={};['R','T','F','GF','NK','N0','N1','TW','C','P','MI','FL','MC'].forEach(function(n){U[n]=gl.getUniformLocation(prog,n);});
+
+/* ---------- 画面サイズ(重い端末では自動で解像度を下げる) ---------- */
+var W=0,H=0,scale=Math.min(window.devicePixelRatio||1,2)*0.75,minScale=0.5;
+function resize(){
+  W=window.innerWidth;H=window.innerHeight;
+  cv.width=Math.max(1,Math.round(W*scale));cv.height=Math.max(1,Math.round(H*scale));
+  gl.viewport(0,0,cv.width,cv.height);
+}
+window.addEventListener('resize',resize);resize();
+
+/* ---------- 世界の状態 ---------- */
+function rnd(a,b){return a+Math.random()*(b-a);}
+var DEF={n:5,depth:0.32,M:44,speed:0.42,hue:0.58,wave:0.05,twist:0.12};
+var tgt={},cur={};
+function setParams(p){for(var k in p){tgt[k]=p[k];}}
+setParams(DEF);for(var k0 in DEF){cur[k0]=DEF[k0];}
+var nPrev=DEF.n,nNow=DEF.n,nk=1;   // とげの数は整数なので、切り替えは2つの形を溶かし合わせる
+
+function baseMirror(){return {x:0,y:0,nx:1,ny:0,flash:0};}
+var mirrors=[baseMirror()];  // 古い順
+var MAXM=8;
+var gflash=0;
+
+function addMirror(m){
+  if(mirrors.length>=MAXM){mirrors.shift();gflash=Math.max(gflash,0.5);}
+  m.flash=1;mirrors.push(m);return m;
+}
+
+function mutate(){
+  nPrev=nNow;nNow=Math.floor(rnd(3,9));if(nNow===nPrev)nNow=nPrev%8+3;nk=0;
+  setParams({depth:rnd(0.18,0.42),speed:rnd(0.25,0.75),hue:Math.random(),wave:rnd(0,0.09),twist:rnd(-0.6,0.6)});
+  cur.M=tgt.M=2*Math.floor(rnd(16,31));   // 粒の数は整数なので一瞬で替える(光で隠す)
+  gflash=0.7;
+}
+function resetAll(){
+  mirrors=[baseMirror()];
+  nPrev=nNow;nNow=DEF.n;nk=0;
+  setParams(DEF);cur.M=tgt.M=DEF.M;
+  gflash=0.6;
+}
+
+/* ---------- 触る ---------- */
+function toW(cx,cy){return {x:(cx-W/2)/H,y:-(cy-H/2)/H};}
+var touch=null;
+function lineDist(m,p){return Math.abs((p.x-m.x)*m.nx+(p.y-m.y)*m.ny);}
+
+cv.addEventListener('pointerdown',function(e){
+  if(window.APKit&&window.APKit.isUI(e.clientX,e.clientY))return;
+  e.preventDefault();
+  if(touch)return;
+  touch={id:e.pointerId,sx:e.clientX,sy:e.clientY,t0:performance.now(),moved:false,held:false,live:null};
+  try{cv.setPointerCapture(e.pointerId);}catch(_){}
+});
+cv.addEventListener('pointermove',function(e){
+  if(!touch||e.pointerId!==touch.id||touch.held)return;
+  var dx=e.clientX-touch.sx,dy=e.clientY-touch.sy;
+  if(!touch.moved&&dx*dx+dy*dy>14*14)touch.moved=true;
+  if(!touch.moved)return;
+  var a=toW(touch.sx,touch.sy),b=toW(e.clientX,e.clientY);
+  var vx=b.x-a.x,vy=b.y-a.y,l=Math.hypot(vx,vy);if(l<1e-6)return;
+  vx/=l;vy/=l;
+  // なぞった向きの右側が鏡の向こう(=左側の世界が映り込む)
+  var nx=-vy,ny=vx;
+  if(!touch.live)touch.live=addMirror({x:a.x,y:a.y,nx:nx,ny:ny});
+  else{touch.live.nx=nx;touch.live.ny=ny;touch.live.flash=Math.max(touch.live.flash,0.5);}
+});
+function endTouch(e){
+  if(!touch||e.pointerId!==touch.id)return;
+  if(!touch.moved&&!touch.held){
+    var p=toW(touch.sx,touch.sy),l=Math.hypot(p.x,p.y),nx,ny;
+    if(l<0.02){var an=Math.random()*Math.PI*2;nx=Math.cos(an);ny=Math.sin(an);}
+    else{nx=-p.x/l;ny=-p.y/l;}   // 中心を向いた鏡:外側に内側の世界が映る
+    addMirror({x:p.x,y:p.y,nx:nx,ny:ny});
+  }
+  touch=null;
+}
+cv.addEventListener('pointerup',endTouch);
+cv.addEventListener('pointercancel',function(e){if(touch&&e.pointerId===touch.id)touch=null;});
+
+function checkHold(now){
+  if(!touch||touch.moved||touch.held)return;
+  if(now-touch.t0<650)return;
+  touch.held=true;
+  var p=toW(touch.sx,touch.sy),best=-1,bd=0.06;
+  for(var i=0;i<mirrors.length;i++){var d=lineDist(mirrors[i],p);if(d<bd){bd=d;best=i;}}
+  if(best>=0){mirrors.splice(best,1);gflash=Math.max(gflash,0.55);}
+  else gflash=Math.max(gflash,0.15);
+}
+
+/* ---------- 描く ---------- */
+var MI=new Float32Array(32),FLA=new Float32Array(8);
+var last=performance.now(),T=0,F=0,slow=0,fast=0;
+function frame(now){
+  var dt=Math.min(0.05,(now-last)/1000);last=now;
+  // 重ければ解像度を下げる
+  if(dt>0.026){slow++;fast=0;}else{fast++;slow=Math.max(0,slow-1);}
+  if(slow>40&&scale>minScale){scale=Math.max(minScale,scale*0.85);resize();slow=0;}
+  T+=dt;
+  checkHold(now);
+  for(var k in tgt){if(k!=='M')cur[k]+=(tgt[k]-cur[k])*Math.min(1,dt*1.6);}
+  nk=Math.min(1,nk+dt*0.8);
+  F+=dt*cur.speed;
+  gflash*=Math.exp(-dt*4.0);
+  var n=mirrors.length;
+  for(var i=0;i<8;i++){
+    if(i<n){
+      var m=mirrors[n-1-i];   // 新しい鏡から順に折り返す
+      MI[i*4]=m.x;MI[i*4+1]=m.y;MI[i*4+2]=m.nx;MI[i*4+3]=m.ny;
+      m.flash*=Math.exp(-dt*3.0);FLA[i]=m.flash;
+    }else{MI[i*4]=MI[i*4+1]=MI[i*4+2]=MI[i*4+3]=0;FLA[i]=0;}
+  }
+  // 穴の中心:画面の横幅の1/4あたり(真ん中の鏡で左右に二つ並ぶ)。ゆっくりさまよう
+  var asp=W/H,cx=Math.min(0.42,asp*0.25)+0.025*Math.sin(T*0.23),cy=0.05*Math.sin(T*0.17)+0.02*Math.sin(T*0.41);
+  gl.uniform2f(U.R,cv.width,cv.height);
+  gl.uniform1f(U.T,T);gl.uniform1f(U.F,F);gl.uniform1f(U.GF,gflash);
+  gl.uniform1f(U.NK,nk*nk*(3-2*nk));gl.uniform1f(U.N0,nPrev);gl.uniform1f(U.N1,nNow);
+  gl.uniform1f(U.TW,cur.twist);
+  gl.uniform2f(U.C,cx,cy);
+  gl.uniform4f(U.P,cur.depth,cur.M,cur.hue+T*0.012,cur.wave);
+  gl.uniform4fv(U.MI,MI);gl.uniform1fv(U.FL,FLA);gl.uniform1i(U.MC,n);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+if(window.APKit){
+  window.APKit.init({
+    canvas:cv,
+    gifName:'lamp-fold',
+    clockFormat:'spec',
+    dock:true,
+    autoHide:true,
+    fullscreenButton:false,
+    buttons:[
+      {label:'✦',name:'mutate',onClick:mutate},
+      {label:'↻',name:'reset',onClick:resetAll}
+    ]
+  });
+}
+})();
+</script>
+</body>
+</html>
