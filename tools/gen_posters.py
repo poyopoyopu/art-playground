@@ -24,8 +24,16 @@ iframeを外すので、ポスターが無いと「黒いタイル」になる�
   python3 tools/gen_posters.py --all           # 全部作り直す
 
 【作品ごとの調整】tools/poster-config.json(任意)
-  { "art-v66-holo-compass.html": { "delay": 4000, "taps": [[230, 300]] } }
-  delay = 読み込み後に待つms(既定 2500) / taps = 撮影前にクリックする座標(触るまで何も出ない作品用)
+  { "art-v47-infection.html": { "taps": [[230, 300]], "holds": [[120, 500, 600]], "delay": 3000, "timeout": 90000 } }
+  delay   = 読み込み後に待つms(既定 2500)
+  taps    = 撮影前にクリックする座標(触るまで何も出ない作品用)
+  holds   = 撮影前に [x, y, 押し続けるms] で長押しする(押して引く作品用)
+  timeout = この作品だけ撮影の上限ms(既定 45000。重い作品用)
+  ※ taps → holds → delay の順に実行。ポスターは「少し触った後」の姿になる。
+
+外部CDN(p5.js等)に出られない環境で撮るとき: 環境変数 POSTER_LIB_DIR にライブラリのファイル置き場を指定すると、
+  同じファイル名(例 p5.min.js)のCDN読み込みをそのフォルダのものに差し替える。通常(CI等、CDNに出られる環境)は不要。
+  ※ 現在ギャラリーで外部ライブラリを使うのは VOID FIELD II / INFECTION の p5@1.11.10 のみ。
 
 必要: python3, playwright(pip install playwright pillow && playwright install chromium), pillow
 作品ファイル・ap-kit.js・worker.js は読むだけで一切変更しない。
@@ -36,6 +44,7 @@ import hashlib
 import http.server
 import io
 import json
+import os
 import re
 import socketserver
 import sys
@@ -144,12 +153,26 @@ def shoot(browser, port, src, cfg, hero=False):
     c = cfg.get(src, {})
     ctx = browser.new_context(viewport={"width": VIEW_W, "height": VIEW_H}, device_scale_factor=(HERO_W / VIEW_W) if hero else 1)
     page = ctx.new_page()
-    page.set_default_timeout(PAGE_TIMEOUT_MS)
+    lib_dir = os.environ.get("POSTER_LIB_DIR")
+    if lib_dir:
+        def _lib(route):
+            f = Path(lib_dir) / route.request.url.split("?")[0].rsplit("/", 1)[-1]
+            if f.exists():
+                route.fulfill(status=200, content_type="application/javascript", body=f.read_bytes())
+            else:
+                route.continue_()
+        page.route(re.compile(r"^https?://(?!127\.0\.0\.1).*\.js(\?.*)?$"), _lib)
+    page.set_default_timeout(int(c.get("timeout", PAGE_TIMEOUT_MS)))
     try:
         page.goto(f"http://127.0.0.1:{port}/{src}", wait_until="load")
         for x, y in c.get("taps", []):
             page.mouse.click(x, y)
             page.wait_for_timeout(250)
+        for x, y, ms in c.get("holds", []):
+            page.mouse.move(x, y)
+            page.mouse.down()
+            page.wait_for_timeout(int(ms))
+            page.mouse.up()
         page.wait_for_timeout(int(c.get("delay", DEFAULT_DELAY_MS)))
         png = page.screenshot(clip={"x": 0, "y": 0, "width": VIEW_W, "height": CROP_H})
     finally:
