@@ -1,3 +1,5 @@
+- 2026-10-05 クロード: LAMP FOLDをart-v89として昇格(ap-kit.jsの相対パスをルート用に修正)しCURRENTに設定。それまでのCURRENTだったTWIN TIDEはLOG先頭へ移動、Published works先頭にLAMP FOLDを追加。「現在の状態」も更新(art-v89-lamp-fold.html, index.html)
+- 2026-10-05 しゅん: LAMP FOLDを採用・CURRENTに決定
 - 2026-10-05 クロード: 新作LAMP FOLD(鏡を立てるたび、光の穴が増える)を試作(おっちゃんが見せてくれた動画=uon.visuals氏のリール「光の粒でできた星型トンネルが鏡合わせに二つ並ぶ」を参考に「こんな作品作れるかい？」)。法則は「光の粒の星型の穴はひとつだけ。二つに見えるのは真ん中に鏡が一枚立っているから」。なぞる=なぞった線がそのまま鏡になり(なぞった向きの右側が鏡の向こう)、タップ=触れた点に中心を向いた鏡が立つ。鏡は新しい順に画面を折り返すので、立てるほど穴が映り込んで入れ子に増える。鏡に一度映るごとに光の色が少しずれる。押さえる(約0.65秒)=指のそばの鏡が割れて消える(最初の鏡も割れる)。鏡は8枚まで、9枚目でいちばん古い鏡が割れる。描画はWebGLシェーダで、対数極座標の格子に粒を並べた自己相似の奥行き、星型の歪みで粒が潰れないよう計量を補正して真円のボケ玉に、拍ごとに光の波が奥から手前へ走る。重い端末では解像度を自動で下げる。✦=別の穴(とげの数・深さ・ねじれ・粒の数・速さ・色。鏡は残る)、↻=最初の世界。GIF書き出し・？ボタンなし(prototypes/lamp-fold.html)
 - 2026-10-04 クロード: BIRTHMARKをart-v88として昇格(ap-kit.jsの相対パスをルート用に修正)。ギャラリーLOG先頭とPublished works(CURRENTのTWIN TIDEの直後)に追加。CURRENTはTWIN TIDEのまま。「現在の状態」も更新(art-v88-birthmark.html, index.html)
 - 2026-10-04 しゅん: BIRTHMARKを採用
@@ -346,8 +348,8 @@
 
 ## 現在の状態(変わったら書き換える)
 
-- CURRENT: TWIN TIDE(`art-v86-twin-tide.html`)
-- LOG先頭: BIRTHMARK(`art-v88-birthmark.html`)
+- CURRENT: LAMP FOLD(`art-v89-lamp-fold.html`)
+- LOG先頭: TWIN TIDE(`art-v86-twin-tide.html`)
 - 作業ルール: `AGENTS.md`(ギャラリー追加の手順と命名ルールは13章)
 - 表示モード: iPhoneホーム画面から起動するとCURRENT作品を自動表示するstandalone Web App対応済み
 - 運用メモ: `NOTES.md`(GitHub操作は可能性を確認してから実行)
