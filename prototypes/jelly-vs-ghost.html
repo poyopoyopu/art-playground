@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>JELLY VS GHOST</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#090a0f}
+body{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+canvas{display:block;width:100%;height:100%}
+</style>
+<script src="../ap-kit.js"></script>
+</head>
+<body>
+<!-- JELLY VS GHOST — ChatGPT作。比較用プロトタイプ。 -->
+<canvas id="c"></canvas>
+<script>
+const canvas=document.getElementById("c"),ctx=canvas.getContext("2d");
+let dpr=1,w=0,h=0,t=0,mode="jelly",bg=0;
+const palettes=[
+  ["#101a2a","#5ee7ff","#b68cff"],
+  ["#211426","#ff8fb3","#ffd36a"],
+  ["#10241f","#75f0b0","#8bc8ff"]
+];
+let jelly,ghost;
+
+function resize(){
+  dpr=Math.min(devicePixelRatio||1,2);
+  w=innerWidth;h=innerHeight;
+  canvas.width=w*dpr;canvas.height=h*dpr;
+}
+addEventListener("resize",resize);resize();
+
+function rnd(a,b){return a+Math.random()*(b-a)}
+function reset(){
+  jelly={size:rnd(.82,1.12),hue:rnd(175,315),speed:rnd(.55,1.1),wiggle:rnd(.7,1.5),phase:rnd(0,6.28),tentacles:Math.floor(rnd(5,9))};
+  ghost={size:rnd(.84,1.12),hue:rnd(210,330),speed:rnd(.55,1.1),wobble:rnd(.7,1.5),phase:rnd(0,6.28),face:["happy","sleepy","surprised"][Math.floor(rnd(0,3))]};
+}
+reset();
+
+function bgDraw(){
+  const p=palettes[bg],g=ctx.createRadialGradient(w*.5,h*.43,0,w*.5,h*.5,Math.max(w,h)*.72);
+  g.addColorStop(0,p[0]);g.addColorStop(1,"#050609");
+  ctx.fillStyle=g;ctx.fillRect(0,0,w,h);
+  ctx.fillStyle="#fff";
+  for(let i=0;i<55;i++){
+    const x=(i*97+31)%w,y=(i*173+47)%h,s=.5+(i%3)*.45;
+    ctx.globalAlpha=.12+(i%4)*.04;ctx.beginPath();ctx.arc(x,y,s,0,6.283);ctx.fill();
+  }
+  ctx.globalAlpha=1;
+}
+
+function jellyDraw(){
+  const x=w*.5+Math.sin(t*.00055*jelly.speed+jelly.phase)*w*.13;
+  const y=h*.5+Math.sin(t*.0011*jelly.speed+jelly.phase)*h*.035;
+  const s=Math.min(w,h)*.13*jelly.size;
+  ctx.globalAlpha=.16;ctx.fillStyle=`hsl(${jelly.hue},90%,65%)`;
+  ctx.beginPath();ctx.arc(x,y,s*1.65,0,6.283);ctx.fill();ctx.globalAlpha=1;
+
+  const g=ctx.createRadialGradient(x-s*.25,y-s*.4,s*.08,x,y,s*1.2);
+  g.addColorStop(0,`hsl(${jelly.hue},95%,92%)`);
+  g.addColorStop(.5,`hsl(${jelly.hue},85%,68%)`);
+  g.addColorStop(1,`hsl(${jelly.hue},75%,42%)`);
+  ctx.fillStyle=g;ctx.beginPath();
+  ctx.moveTo(x-s,y);ctx.quadraticCurveTo(x-s*.82,y-s*1.15,x,y-s*1.15);
+  ctx.quadraticCurveTo(x+s*.82,y-s*1.15,x+s,y);
+  ctx.quadraticCurveTo(x+s*.7,y+s*.52,x,y+s*.42);
+  ctx.quadraticCurveTo(x-s*.7,y+s*.52,x-s,y);ctx.fill();
+
+  ctx.fillStyle="#20243a";
+  ctx.beginPath();ctx.arc(x-s*.32,y-s*.06,s*.065,0,6.283);ctx.arc(x+s*.32,y-s*.06,s*.065,0,6.283);ctx.fill();
+  ctx.strokeStyle="#20243a";ctx.lineWidth=s*.045;ctx.beginPath();ctx.arc(x,y+s*.08,s*.15,.15,2.99);ctx.stroke();
+
+  ctx.strokeStyle=`hsla(${jelly.hue},85%,72%,.9)`;ctx.lineWidth=Math.max(2,s*.055);ctx.lineCap="round";
+  for(let i=0;i<jelly.tentacles;i++){
+    const bx=x-s*.78+i*(s*1.56/(jelly.tentacles-1));
+    ctx.beginPath();ctx.moveTo(bx,y+s*.27);
+    for(let k=1;k<=4;k++)ctx.lineTo(bx+(k/4)*Math.sin(t*.002*jelly.wiggle+i)*s*.45,y+s*.27+k*s*.37);
+    ctx.stroke();
+  }
+}
+
+function ghostDraw(){
+  const x=w*.5+Math.sin(t*.00062*ghost.speed+ghost.phase)*w*.14;
+  const y=h*.5+Math.sin(t*.00125*ghost.speed+ghost.phase)*h*.045;
+  const s=Math.min(w,h)*.135*ghost.size;
+  ctx.globalAlpha=.17;ctx.fillStyle=`hsl(${ghost.hue},80%,75%)`;
+  ctx.beginPath();ctx.arc(x,y,s*1.55,0,6.283);ctx.fill();ctx.globalAlpha=1;
+
+  const g=ctx.createLinearGradient(x,y-s*1.1,x,y+s*1.2);
+  g.addColorStop(0,"#fff");g.addColorStop(1,`hsl(${ghost.hue},45%,82%)`);
+  ctx.fillStyle=g;ctx.beginPath();
+  ctx.moveTo(x-s,y+s*.9);ctx.lineTo(x-s,y-s*.12);ctx.arc(x,y-s*.12,s,Math.PI,0);ctx.lineTo(x+s,y+s*.9);
+  for(let i=0;i<4;i++){const px=x+s-(i+1)*(2*s/4);ctx.quadraticCurveTo(px+s*.22,y+s*1.18,px,y+s*.9);ctx.quadraticCurveTo(px-s*.22,y+s*.62,px-s*.5,y+s*.9)}
+  ctx.closePath();ctx.fill();
+
+  ctx.fillStyle="#28283a";ctx.beginPath();ctx.arc(x-s*.32,y-s*.1,s*.08,0,6.283);ctx.arc(x+s*.32,y-s*.1,s*.08,0,6.283);ctx.fill();
+  ctx.strokeStyle="#28283a";ctx.lineWidth=s*.05;ctx.lineCap="round";ctx.beginPath();
+  if(ghost.face==="happy")ctx.arc(x,y+s*.05,s*.18,.15,2.99);
+  else if(ghost.face==="sleepy"){ctx.moveTo(x-s*.45,y);ctx.lineTo(x-s*.2,y-s*.03);ctx.moveTo(x+s*.2,y-s*.03);ctx.lineTo(x+s*.45,y)}
+  else ctx.arc(x,y+s*.08,s*.12,0,6.283);
+  ctx.stroke();
+}
+
+function frame(ms){
+  t=ms;bgDraw();
+  if(mode==="jelly")jellyDraw();else ghostDraw();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+APKit.init({
+  canvas,
+  gifName:"jelly-vs-ghost-prototype",
+  clockFormat:"spec",
+  dock:true,
+  autoHide:true,
+  fullscreenButton:false,
+  buttons:[
+    {label:"✦",name:"mutate",onClick:reset},
+    {label:"↻",name:"reset",onClick:reset},
+    {label:"J",name:"jelly",onClick:function(){mode="jelly"}},
+    {label:"G",name:"ghost",onClick:function(){mode="ghost"}},
+    {label:"BG",name:"background",onClick:function(){bg=(bg+1)%palettes.length}}
+  ]
+});
+</script>
+</body>
+</html>
