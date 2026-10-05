@@ -1,3 +1,4 @@
+- 2026-10-05 チャッピー: JELLY VS GHOSTをドット絵方式に再構築。16px系の固定グリッド、表情ドット、ピクセル背景、個体差を導入し、150匹時も小さな顔が読める設計に変更(prototypes/jelly-vs-ghost.html)
 - 2026-10-05 チャッピー: JELLY VS GHOSTを比較用プロトタイプとして全面再構築。クラゲ/おばけを上下配置し、タップ追加・10匹追加・色変更・1匹リセット・最大150匹、クラゲの収縮/触手揺れ、おばけの通常/睡眠/怒りを実装(prototypes/jelly-vs-ghost.html)\n- 2026-10-05 チャッピー: JELLY VS GHOSTの比較用プロトタイプを追加(クラゲ/おばけの1モチーフ生成実験、prototypes/jelly-vs-ghost.html)
 - 2026-10-05 クロード: LAMP FOLDをart-v89として昇格(ap-kit.jsの相対パスをルート用に修正)しCURRENTに設定。それまでのCURRENTだったTWIN TIDEはLOG先頭へ移動、Published works先頭にLAMP FOLDを追加。「現在の状態」も更新(art-v89-lamp-fold.html, index.html)
 - 2026-10-05 しゅん: LAMP FOLDを採用・CURRENTに決定
