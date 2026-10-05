@@ -1,3 +1,4 @@
+- 2026-10-06 クロード: ギャラリーに「ポスター」を追加(しゅん承認)。同時に動くiframeが2枠(LIVE_BUDGET)なので残りが黒いタイルになっていたのを、作品ごとの静止画(344×459 WebP、ヒーローのみ690×920)を下地に敷いて解消。動く枠はポスターの上にフェードインで重ね、外すときもフェードで戻す(フェード中を含めて同時に動くiframeは最大3個)。40作品分を生成(計約1MB)。index.htmlはCSSとスクリプト末尾のJSだけ変更(LOG/CURRENT行のHTMLは不変)、worker.js・作品ファイル・ap-kit.jsは変更なし。新規: `posters/`(画像+manifest.json)、`tools/gen_posters.py`(足りない/古い分だけ生成、`--check`で点検)、`tools/poster-config.json`(VOID FIELD II・INFECTION=触るまで黒、TIDE MARK=長押し、CHROMA DRIFT=重いので上限延長)。`.assetsignore`に`tools/**`を追加。AGENTS.mdに14章を追加し、0章の例外と13章の手順(ポスター生成)を更新。外部CDN(p5.js)を使うVOID FIELD II・INFECTIONは、CDNに出られない環境では`POSTER_LIB_DIR`が必要(index.html, posters/, tools/, .assetsignore, AGENTS.md, CHANGELOG.md)
 - 2026-10-05 クロード: ギャラリーのlayout改善(しゅん承認)。①LOGの並び順を「ギャラリーに載った順(新しい→古い)」に整理(git履歴の初登場時刻で判定、同時刻はart-vNN大きい順)。TWIN TIDE(v86)が先頭でBIRTHMARK(v88)・LIGHT WEB(v87)より上だった/NIGHT SHIFT(v79)がv84とv83の間にいた/MIRROR系がv75→v73→v74の順だった/COLOR BREATH・RGB MEMBRANE・VOID FIELD IIなど番号の無い試作の位置が載った時期とずれていた/末尾のv36・v35・v31がv30・v28・v27より下だった、を解消(作品の追加・削除なし、39枠のまま)。②Aboutの本文末に混入していた「 · CHROMA DRIFT」を削除。原因は2026-09-23のコミット5a5e6b6(Add CHROMA DRIFT to gallery)で、Published works行に足すべき作品名がAbout本文の末尾に入っていたこと。Published works行にCHROMA DRIFTを追加(ギャラリー40作品に対し39作品しか載っていなかった)し、並びをLOGと同じに揃えた。③LOGタイルの文字を左揃えにしてヒーローと揃え、「開く」目印の▷を動いていない枠だけの中央表示から、全タイル共通の右上表示に変更。モーダルの✕はタップ範囲だけ拡大(見た目は変更なし)。④AGENTS.md 13章にLOGの並び順のルールを追記し、CURRENT入れ替え時の「LOG先頭に移す」を「並び順に従う位置」に変更(index.html, AGENTS.md, CHANGELOG.md)
 - 2026-10-05 クロード: LOGに3回出ていたMIRROR FRACTUREを1枠にまとめ(CHROMA DRIFTの直後を残し、重複2枠を削除)、そこに紛れていたスタイル無しの「CURRENT」タグも削除(しゅん承認)。LOGの並び順とAboutの「· CHROMA DRIFT」は未対応のまま、次のlayout改善で対応(index.html, CHANGELOG.md)
 - 2026-10-05 クロード: ギャラリーのclarify改善(しゅん承認)。ヘッダーを「触ると、世界のルールが変わる。」に変更、ヒーロー/タイルに一言説明(各作品の<title>『NAME — 日本語の一言』から自動取得。TWIN TIDE/LIGHT WEB/LUMINAだけindex.htmlのMETAで上書き)とヒーローの操作ヒントを追加、PREVIEWをLOG見出しの右へ移して「プレビュー ON/OFF」に変更、Aboutにジェネラティブアートの説明を1文追加。worker.jsと作品ファイルは変更なし。LOGのMIRROR FRACTURE重複・Aboutの「· CHROMA DRIFT」混入・LOGの並び順は次のlayout改善で対応(index.html, AGENTS.md, CHANGELOG.md)
@@ -361,6 +362,7 @@
 - 表示モード: iPhoneホーム画面から起動するとCURRENT作品を自動表示するstandalone Web App対応済み
 - 一言説明: ヒーロー/タイルの一言は各作品の`<title>`(`NAME — 日本語の一言`)から自動取得。上書き・ヒントは`index.html`の`META`(ルールはAGENTS.md 13章)
 - 運用メモ: `NOTES.md`(GitHub操作は可能性を確認してから実行)
+- ポスター: ギャラリーのタイルの静止画。`posters/`と`tools/gen_posters.py`、ルールはAGENTS.md 14章。作品追加・作品修正・CURRENT変更のたびに`python3 tools/gen_posters.py`(`--check`で点検)
 
 ---
 
