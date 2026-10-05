@@ -1,0 +1,548 @@
+<!-- BEAD STAIRS — クロちゃん(Claude)作。オイルタイマー(液体タイマー)を参考に、
+     「色には重さがある。粒をつつくと、その色の浮き沈みが世界じゅうで逆になる」という世界のルールで再構成。ap-kit.js統合: クロちゃん -->
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>BEAD STAIRS — 色の重さの法則</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#05030f;overflow:hidden;
+    -webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+  canvas#c{display:block;position:fixed;inset:0;width:100vw;height:100vh;touch-action:none}
+</style>
+<script src="../ap-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(function(){
+"use strict";
+
+/* ---------- 世界のルール ----------
+   とろりとした透明な油の中を、色のついた粒が落ちていく。粒には色ごとに「重さ」がある。
+   重い色は沈み、軽い色は昇る。沈む粒は上の液だまりから垂れて、ジグザグの斜面の上を滑り降りる。
+   昇る粒は下の液だまりから離れて、斜面の裏を滑り昇り、壁ぎわを抜けて上へ戻っていく。
+   粒はたどり着いた端の液だまりに溶けこんで、そこから(向きが合えば)また垂れ落ちる。
+
+   粒をつつくと、その粒の色の重さが反転する。世界じゅうのその色の粒が、いまいる場所で一斉に減速して
+   向きを変える。斜面を滑っていた粒は浮き上がり、昇っていた粒は斜面の裏から剥がれて落ちはじめる。
+   止まっていた色(端の液だまりに溜まりきった色)は、反転すると反対側の端から噴き出す。
+   放っておくと、溜まりきった色は自分で反転して、世界が止まりきらないようになっている。
+
+   ✦=別の油(色・段の数・斜面のかたむき・どの色が沈むか) / ↻=最初の油
+------------------------------------ */
+
+var TAU=Math.PI*2;
+var cv=document.getElementById('c');
+var ctx=cv.getContext('2d');
+var W=0,H=0,DPR=1;
+
+/* ---------- パレット ---------- */
+var PALS=[
+  {cols:['#ff3d9a','#25c8ff','#c6f23a'],bg:'#06041a',t0:'#2a1766',t1:'#0e3a73'},
+  {cols:['#ff8a1f','#ff3fa0','#ffe14a'],bg:'#12030f',t0:'#4a1650',t1:'#1c2f6e'},
+  {cols:['#9a5cff','#2ff0d0','#ff6a5a'],bg:'#040a14',t0:'#1b2a6e',t1:'#0b4a58'},
+  {cols:['#3a8bff','#34e07a','#ff4a5a'],bg:'#07040f',t0:'#3b1a5e',t1:'#6a1f4a'},
+  {cols:['#ff5c7a','#ffd36a','#7ad0ff'],bg:'#030912',t0:'#0f3a66',t1:'#3a1d63'}
+];
+var pal=0, PL=PALS[0];
+
+function hex(c){return [parseInt(c.substr(1,2),16),parseInt(c.substr(3,2),16),parseInt(c.substr(5,2),16)];}
+function rgb(a){return 'rgb('+(a[0]|0)+','+(a[1]|0)+','+(a[2]|0)+')';}
+function rgba(a,al){return 'rgba('+(a[0]|0)+','+(a[1]|0)+','+(a[2]|0)+','+al+')';}
+function mixc(a,b,t){return [a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t];}
+
+var spr=[],halo=[],rgbs=[];
+function makeBead(col){
+  var s=96,c=document.createElement('canvas');c.width=c.height=s;var g=c.getContext('2d');
+  var base=hex(col),hi=mixc(base,[255,255,255],0.6),lo=mixc(base,[0,0,0],0.5);
+  var gr=g.createRadialGradient(36,32,4,48,50,42);
+  gr.addColorStop(0,rgb(hi));gr.addColorStop(0.45,rgb(base));gr.addColorStop(1,rgb(lo));
+  g.fillStyle=gr;g.beginPath();g.arc(48,48,40,0,TAU);g.fill();
+  g.strokeStyle=rgba(mixc(base,[255,255,255],0.35),0.55);g.lineWidth=2.5;
+  g.beginPath();g.arc(48,48,39,0,TAU);g.stroke();
+  g.fillStyle='rgba(255,255,255,0.85)';g.beginPath();g.ellipse(34,31,11,7,-0.6,0,TAU);g.fill();
+  g.fillStyle='rgba(255,255,255,0.28)';g.beginPath();g.ellipse(61,63,7,4,-0.6,0,TAU);g.fill();
+  return c;
+}
+function makeHalo(col){
+  var s=128,c=document.createElement('canvas');c.width=c.height=s;var g=c.getContext('2d');
+  var base=hex(col);
+  var gr=g.createRadialGradient(64,64,0,64,64,64);
+  gr.addColorStop(0,rgba(base,0.55));gr.addColorStop(0.4,rgba(base,0.18));gr.addColorStop(1,rgba(base,0));
+  g.fillStyle=gr;g.fillRect(0,0,s,s);
+  return c;
+}
+function setPal(i){
+  pal=i;PL=PALS[i];spr=[];halo=[];rgbs=[];
+  for(var c=0;c<3;c++){spr.push(makeBead(PL.cols[c]));halo.push(makeHalo(PL.cols[c]));rgbs.push(hex(PL.cols[c]));}
+  bgDirty=true;
+}
+
+/* ---------- 世界の状態 ---------- */
+var NR=10, TILT=0.13;
+var ramps=[];
+var ins=0,tx0=0,tx1=0,ty0=0,ty1=0,tw=0,th=0,r=8,vt=50,slideV=80;
+var sign=[1,-1,1];
+var flash=[0,0,0];
+var poolT=[0,0,0],poolB=[0,0,0],dT=[0,0,0],dB=[0,0,0];
+var PT=0,PB=0;
+var nPer=24,nTot=72;
+var beads=[],rings=[],micro=[];
+var t=0,touchedOnce=false,hintA=1,lastTouch=0,lastAuto=0,autoT=[0,0,0];
+var emitT=[0.4,0.8];
+var bgC=null,bgDirty=true;
+
+function ry(R,x){return R.yc+R.s*(x-R.xm);}
+
+function layout(){
+  ins=Math.round(Math.min(W,H)*0.025);
+  tx0=ins;tx1=W-ins;ty0=ins;ty1=H-ins;tw=tx1-tx0;th=ty1-ty0;
+  r=Math.max(4,th*0.0135);
+  var lane=Math.max(tw*0.1,r*3.4),gp=Math.max(tw*0.13,r*3.6);
+  var y0=ty0+th*0.175,y1=ty1-th*0.175,step=(y1-y0)/NR;
+  ramps=[];
+  for(var k=0;k<NR;k++){
+    var d=(k%2===0)?1:-1;
+    var xa=d>0?tx0+lane:tx0+lane+gp;
+    var xb=d>0?tx1-lane-gp:tx1-lane;
+    var yc=y0+(k+0.5)*step;
+    var drop=Math.min(step*0.42,(xb-xa)*TILT);
+    var s=drop/(xb-xa)*d;
+    ramps.push({d:d,xa:xa,xb:xb,yc:yc,s:s,xm:(xa+xb)/2,ang:Math.atan(s)});
+  }
+  vt=th*0.07;
+  slideV=Math.min(tw,th*0.62)*0.21;
+  bgDirty=true;
+}
+
+function newBead(c){
+  return {c:c,st:0,x:0,y:0,vy:0,k:0,side:1,spd:slideV*(0.85+Math.random()*0.3),g:0,sc:0,end:0,ph:Math.random()*TAU,sq:0};
+}
+function slideY(b){
+  var R=ramps[b.k];
+  return ry(R,b.x)-b.side*(r*(1-0.26*b.sq)+r*0.16);
+}
+function placeFlight(c){
+  var k=(Math.random()*NR)|0,R=ramps[k],side=sign[c]>0?1:-1;
+  var b=newBead(c);
+  b.st=1;b.k=k;b.side=side;b.sq=1;
+  b.x=R.xa+r*2+Math.random()*Math.max(1,(R.xb-R.xa-r*4));
+  b.y=slideY(b);
+  beads.push(b);
+}
+function poolSum(a){return a[0]+a[1]+a[2];}
+
+function build(sg){
+  sign=sg.slice();flash=[0,0,0];poolT=[0,0,0];poolB=[0,0,0];beads=[];rings=[];
+  nPer=Math.round(24*Math.max(0.9,Math.min(2.2,tw/th*1.5)));
+  nTot=nPer*3;
+  var inflight=Math.round(nPer*0.6);
+  for(var c=0;c<3;c++){
+    for(var i=0;i<nPer;i++){
+      if(i<inflight)placeFlight(c);
+      else if(sign[c]>0)poolT[c]++;else poolB[c]++;
+    }
+  }
+  dT=poolT.slice();dB=poolB.slice();
+  PT=ty0+th*(0.02+0.115*poolSum(dT)/nTot);
+  PB=ty1-th*(0.02+0.115*poolSum(dB)/nTot);
+  emitT=[0.4,0.8];autoT=[0,0,0];
+  micro=[];
+  for(var m=0;m<26;m++)micro.push({x:tx0+Math.random()*tw,y:ty0+Math.random()*th,s:0.12+Math.random()*0.2,v:0.01+Math.random()*0.03,ph:Math.random()*TAU});
+}
+
+/* ---------- 反転 ---------- */
+function flip(c,x,y){
+  sign[c]=-sign[c];flash[c]=1;
+  for(var i=0;i<beads.length;i++){
+    var b=beads[i];
+    if(b.c===c&&b.st===1){b.st=0;b.vy=0;}
+  }
+  rings.push({x:x,y:y,t:0,c:c});
+}
+
+/* ---------- 液だまりからの粒の誕生 ---------- */
+function emit(dt){
+  for(var e=0;e<2;e++){
+    emitT[e]-=dt;
+    if(emitT[e]>0)continue;
+    var pool=e===0?poolT:poolB,want=e===0?1:-1;
+    var nb=0,i;
+    for(i=0;i<beads.length;i++)if(beads[i].st===2&&beads[i].end===e)nb++;
+    var tot=0,w=[0,0,0];
+    for(var c=0;c<3;c++){if(sign[c]===want&&pool[c]>0){w[c]=pool[c];tot+=pool[c];}}
+    if(tot<=0||nb>=2){emitT[e]=0.25;continue;}
+    var q=Math.random()*tot,pick=0;
+    for(c=0;c<3;c++){if(w[c]>0){q-=w[c];if(q<=0){pick=c;break;}pick=c;}}
+    pool[pick]--;
+    var b=newBead(pick);
+    b.st=2;b.end=e;b.g=0;
+    if(e===0){var R0=ramps[0];b.x=R0.xa+r*2+Math.random()*Math.max(1,(R0.xb-R0.xa-r*4));b.y=PT;}
+    else{b.x=tx0+r*2+Math.random()*(tw-r*4);b.y=PB;}
+    beads.push(b);
+    emitT[e]=0.55+Math.random()*0.7;
+  }
+}
+
+function budStep(b,dt,i){
+  var away=(b.end===0)?sign[b.c]>0:sign[b.c]<0;
+  if(!away){
+    b.g-=dt/0.5;
+    if(b.g<=0){(b.end===0?poolT:poolB)[b.c]++;beads.splice(i,1);return true;}
+  }else b.g+=dt/1.25;
+  var gg=Math.max(0,Math.min(1,b.g));
+  b.sc=gg*gg*(3-2*gg);
+  b.y=b.end===0?PT+r*(0.15+0.95*b.sc):PB-r*(0.15+0.95*b.sc);
+  if(b.g>=1){b.st=0;b.vy=0;b.sq=0;}
+  return false;
+}
+
+/* ---------- 自由落下/上昇 ---------- */
+function freeStep(b,dt,i){
+  var tv=sign[b.c]*vt;
+  b.vy+=(tv-b.vy)*(1-Math.exp(-dt/0.4));
+  var py=b.y;b.y+=b.vy*dt;
+  var x=b.x,k,R,L;
+  if(b.vy>0){
+    for(k=0;k<NR;k++){
+      R=ramps[k];if(x<R.xa||x>R.xb)continue;
+      L=ry(R,x)-r*0.16;
+      if(py+r<=L&&b.y+r>=L){
+        if(sign[b.c]>0){b.st=1;b.k=k;b.side=1;b.sq=0;b.spd=slideV*(0.85+Math.random()*0.3);b.y=L-r;}
+        else{b.y=L-r;b.vy=0;}
+        break;
+      }
+    }
+    if(b.st===0&&b.y+r>=PB){poolB[b.c]++;beads.splice(i,1);return true;}
+  }else if(b.vy<0){
+    for(k=NR-1;k>=0;k--){
+      R=ramps[k];if(x<R.xa||x>R.xb)continue;
+      L=ry(R,x)+r*0.16;
+      if(py-r>=L&&b.y-r<=L){
+        if(sign[b.c]<0){b.st=1;b.k=k;b.side=-1;b.sq=0;b.spd=slideV*(0.85+Math.random()*0.3);b.y=L+r;}
+        else{b.y=L+r;b.vy=0;}
+        break;
+      }
+    }
+    if(b.st===0&&b.y-r<=PT){poolT[b.c]++;beads.splice(i,1);return true;}
+  }
+  return false;
+}
+
+/* ---------- 1フレーム ---------- */
+function step(dt){
+  t+=dt;
+  var c,i,k;
+  for(c=0;c<3;c++){
+    if(flash[c]>0)flash[c]=Math.max(0,flash[c]-dt/1.3);
+    dT[c]+=(poolT[c]-dT[c])*(1-Math.exp(-dt/0.5));
+    dB[c]+=(poolB[c]-dB[c])*(1-Math.exp(-dt/0.5));
+  }
+  PT=ty0+th*(0.02+0.115*poolSum(dT)/nTot);
+  PB=ty1-th*(0.02+0.115*poolSum(dB)/nTot);
+  emit(dt);
+
+  var G=[];
+  for(i=0;i<NR*2;i++)G.push([]);
+  for(i=beads.length-1;i>=0;i--){
+    var b=beads[i];
+    b.sq+=((b.st===1?1:0)-b.sq)*(1-Math.exp(-dt/0.14));
+    if(b.st===2){budStep(b,dt,i);continue;}
+    if(b.st===0){if(freeStep(b,dt,i))continue;}
+    if(b.st===1){
+      var R=ramps[b.k],dir=b.side>0?R.d:-R.d;
+      b.x+=dir*b.spd*dt;
+      G[b.k*2+(b.side>0?0:1)].push(b);
+    }
+  }
+  for(var gi=0;gi<G.length;gi++){
+    var arr=G[gi];if(!arr.length)continue;
+    var RR=ramps[gi>>1],dr=(gi&1)?-RR.d:RR.d,side=(gi&1)?-1:1;
+    var keep=[];
+    for(i=0;i<arr.length;i++){
+      var q=arr[i];
+      if((dr>0&&q.x>RR.xb)||(dr<0&&q.x<RR.xa)){
+        q.x=(dr>0?RR.xb:RR.xa)+dr*r*0.8;
+        q.st=0;q.vy=side>0?vt*0.2:-vt*0.2;
+        q.y=side>0?ry(RR,q.x)-r*1.1:ry(RR,q.x)+r*1.1;
+      }else keep.push(q);
+    }
+    keep.sort(function(a,bb){return (bb.x-a.x)*dr;});
+    for(i=1;i<keep.length;i++){
+      var lead=keep[i-1],me=keep[i],lim=lead.x-dr*r*2.05;
+      if((me.x-lim)*dr>0)me.x=lim;
+    }
+    for(i=0;i<keep.length;i++)keep[i].y=slideY(keep[i]);
+  }
+  /* 溜まりきった色は、放っておくと自分で反転する */
+  if(t-lastTouch>8&&t-lastAuto>5){
+    for(c=0;c<3;c++){
+      var dest=sign[c]>0?poolB[c]:poolT[c];
+      if(dest>nPer*0.82){
+        autoT[c]+=dt;
+        if(autoT[c]>4+c){autoT[c]=0;lastAuto=t;flip(c,tx0+tw*(0.3+Math.random()*0.4),(sign[c]>0?ty1:ty0));break;}
+      }else autoT[c]=0;
+    }
+  }
+  for(i=rings.length-1;i>=0;i--){rings[i].t+=dt;if(rings[i].t>0.9)rings.splice(i,1);}
+  for(i=0;i<micro.length;i++){
+    var m=micro[i];m.y-=m.v*th*dt;
+    if(m.y<ty0)m.y=ty1;
+  }
+  if(touchedOnce)hintA-=dt*0.9;else if(t>14)hintA-=dt*0.5;
+  if(hintA<0)hintA=0;
+}
+
+/* ---------- 描画 ---------- */
+function tankPath(g){
+  var rad=Math.min(W,H)*0.05;
+  g.beginPath();
+  g.moveTo(tx0+rad,ty0);
+  g.arcTo(tx1,ty0,tx1,ty1,rad);
+  g.arcTo(tx1,ty1,tx0,ty1,rad);
+  g.arcTo(tx0,ty1,tx0,ty0,rad);
+  g.arcTo(tx0,ty0,tx1,ty0,rad);
+  g.closePath();
+}
+function makeBg(){
+  bgC=document.createElement('canvas');
+  bgC.width=Math.max(1,Math.round(W*DPR));bgC.height=Math.max(1,Math.round(H*DPR));
+  var g=bgC.getContext('2d');
+  g.scale(DPR,DPR);
+  g.fillStyle=PL.bg;g.fillRect(0,0,W,H);
+  tankPath(g);
+  var gr=g.createLinearGradient(0,ty0,0,ty1);
+  gr.addColorStop(0,PL.t0);gr.addColorStop(1,PL.t1);
+  g.fillStyle=gr;g.fill();
+  g.save();tankPath(g);g.clip();
+  var glow=[[0.2,0.3,0],[0.8,0.65,1]];
+  for(var i=0;i<glow.length;i++){
+    var gx=tx0+tw*glow[i][0],gy=ty0+th*glow[i][1],cc=rgbs[glow[i][2]]||hex(PL.cols[glow[i][2]]);
+    var rg=g.createRadialGradient(gx,gy,0,gx,gy,Math.max(tw,th)*0.55);
+    rg.addColorStop(0,rgba(cc,0.16));rg.addColorStop(1,rgba(cc,0));
+    g.fillStyle=rg;g.fillRect(tx0,ty0,tw,th);
+  }
+  var sx=[[0.1,0.07],[0.86,0.035]];
+  for(i=0;i<sx.length;i++){
+    var x0=tx0+tw*sx[i][0],ww=tw*sx[i][1];
+    var lg=g.createLinearGradient(x0,0,x0+ww,0);
+    lg.addColorStop(0,'rgba(255,255,255,0)');lg.addColorStop(0.5,'rgba(255,255,255,0.07)');lg.addColorStop(1,'rgba(255,255,255,0)');
+    g.fillStyle=lg;g.fillRect(x0,ty0,ww,th);
+  }
+  g.restore();
+  bgDirty=false;
+}
+
+function drawRamps(){
+  ctx.lineCap='round';
+  for(var k=0;k<NR;k++){
+    var R=ramps[k];
+    var y0=ry(R,R.xa),y1=ry(R,R.xb);
+    ctx.strokeStyle='rgba(150,220,255,0.10)';ctx.lineWidth=r*1.0;
+    ctx.beginPath();ctx.moveTo(R.xa,y0);ctx.lineTo(R.xb,y1);ctx.stroke();
+    ctx.strokeStyle='rgba(205,236,255,0.5)';ctx.lineWidth=r*0.34;
+    ctx.beginPath();ctx.moveTo(R.xa,y0);ctx.lineTo(R.xb,y1);ctx.stroke();
+    ctx.strokeStyle='rgba(255,255,255,0.55)';ctx.lineWidth=Math.max(1,r*0.1);
+    ctx.beginPath();ctx.moveTo(R.xa,y0-r*0.08);ctx.lineTo(R.xb,y1-r*0.08);ctx.stroke();
+  }
+}
+function drawMicro(){
+  ctx.fillStyle='rgba(255,255,255,0.14)';
+  for(var i=0;i<micro.length;i++){
+    var m=micro[i];
+    ctx.beginPath();ctx.arc(m.x+Math.sin(t*0.6+m.ph)*r*0.6,m.y,r*m.s,0,TAU);ctx.fill();
+  }
+}
+function surf(x,base){
+  return base+Math.sin(x*0.05+t*1.2)*r*0.13+Math.sin(x*0.013-t*0.8)*r*0.2;
+}
+function drawPool(top){
+  var disp=top?dT:dB,tot=poolSum(disp);
+  var base=top?PT:PB;
+  var x;
+  ctx.save();
+  ctx.beginPath();
+  if(top){
+    ctx.moveTo(tx0-3,ty0-3);ctx.lineTo(tx1+3,ty0-3);
+    for(x=tx1+3;x>=tx0-3;x-=6)ctx.lineTo(x,surf(x,base));
+  }else{
+    ctx.moveTo(tx0-3,ty1+3);ctx.lineTo(tx1+3,ty1+3);
+    for(x=tx1+3;x>=tx0-3;x-=6)ctx.lineTo(x,surf(x,base));
+  }
+  ctx.closePath();ctx.clip();
+  var y0=top?ty0:base,hh=top?(base-ty0):(ty1-base);
+  if(tot<0.05){
+    ctx.fillStyle='rgba(140,170,220,0.22)';ctx.fillRect(tx0-3,top?ty0:base,tw+6,hh+4);
+  }else{
+    var cur=top?ty0-3:base;
+    for(var c=0;c<3;c++){
+      var seg=hh*disp[c]/tot;
+      ctx.fillStyle=rgb(rgbs[c]);
+      ctx.fillRect(tx0-3,cur,tw+6,seg+1.5);
+      cur+=seg;
+    }
+    var gl=ctx.createLinearGradient(0,y0,0,y0+hh);
+    if(top){gl.addColorStop(0,'rgba(0,0,0,0.25)');gl.addColorStop(0.7,'rgba(255,255,255,0.05)');gl.addColorStop(1,'rgba(255,255,255,0.32)');}
+    else{gl.addColorStop(0,'rgba(255,255,255,0.32)');gl.addColorStop(0.3,'rgba(255,255,255,0.05)');gl.addColorStop(1,'rgba(0,0,0,0.25)');}
+    ctx.fillStyle=gl;ctx.fillRect(tx0-3,y0-3,tw+6,hh+6);
+  }
+  ctx.restore();
+  /* 液面のツヤ */
+  ctx.strokeStyle='rgba(255,255,255,0.45)';ctx.lineWidth=Math.max(1.2,r*0.14);
+  ctx.beginPath();
+  for(x=tx0;x<=tx1;x+=6){var yy=surf(x,base)+(top?1:-1)*r*0.12;if(x===tx0)ctx.moveTo(x,yy);else ctx.lineTo(x,yy);}
+  ctx.stroke();
+}
+function drawBeads(){
+  var i,b,f,h,sc;
+  ctx.globalCompositeOperation='lighter';
+  for(i=0;i<beads.length;i++){
+    b=beads[i];f=flash[b.c];
+    sc=(b.st===2)?(0.35+0.65*b.sc):1;
+    h=r*(2.0+1.8*f)*sc;
+    ctx.globalAlpha=0.2+0.55*f;
+    ctx.drawImage(halo[b.c],b.x-h,b.y-h,2*h,2*h);
+  }
+  ctx.globalAlpha=1;ctx.globalCompositeOperation='source-over';
+  /* 垂れはじめの粒の首 */
+  for(i=0;i<beads.length;i++){
+    b=beads[i];if(b.st!==2)continue;
+    ctx.strokeStyle=rgb(rgbs[b.c]);ctx.lineCap='round';
+    ctx.lineWidth=r*(0.55*(1-b.sc)+0.14);
+    ctx.beginPath();ctx.moveTo(b.x,b.end===0?PT-2:PB+2);ctx.lineTo(b.x,b.y);ctx.stroke();
+  }
+  for(i=0;i<beads.length;i++){
+    b=beads[i];f=flash[b.c];
+    sc=((b.st===2)?(0.35+0.65*b.sc):1)*(1+0.3*f);
+    var rx=r*(0.92+0.5*b.sq)*sc,ry2=r*(1.12-0.38*b.sq)*sc;
+    if(b.st===0)ry2*=1+0.1*Math.min(1,Math.abs(b.vy)/vt);
+    var ang=ramps[b.k]?ramps[b.k].ang*b.sq:0;
+    var wob=b.st===1?0:Math.sin(t*1.3+b.ph)*r*0.12;
+    ctx.save();
+    ctx.translate(b.x+wob,b.y);ctx.rotate(ang);
+    ctx.drawImage(spr[b.c],-rx*1.2,-ry2*1.2,rx*2.4,ry2*2.4);
+    ctx.restore();
+  }
+}
+function drawRings(){
+  for(var i=0;i<rings.length;i++){
+    var o=rings[i],e=o.t/0.9;
+    var col=o.c>=0?rgbs[o.c]:[255,255,255];
+    ctx.strokeStyle=rgba(mixc(col,[255,255,255],0.4),(1-e)*0.85);
+    ctx.lineWidth=Math.max(1.5,r*0.22*(1-e)+1);
+    ctx.beginPath();ctx.arc(o.x,o.y,r*(1.5+10*e),0,TAU);ctx.stroke();
+  }
+}
+function drawHint(){
+  if(hintA<=0.01)return;
+  var fs=Math.max(12,Math.round(Math.min(W,H)*0.036));
+  ctx.font='600 '+fs+'px "Hiragino Sans","Noto Sans JP",sans-serif';
+  ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.lineWidth=4;ctx.lineJoin='round';
+  ctx.strokeStyle='rgba(0,0,20,'+(0.55*hintA)+')';
+  ctx.fillStyle='rgba(255,255,255,'+(0.85*hintA)+')';
+  var tx='粒をつつくと、その色の浮き沈みが逆になる';
+  ctx.strokeText(tx,W/2,ty0+th*0.5);ctx.fillText(tx,W/2,ty0+th*0.5);
+}
+function render(){
+  if(bgDirty||!bgC)makeBg();
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.drawImage(bgC,0,0,W,H);
+  ctx.save();tankPath(ctx);ctx.clip();
+  drawMicro();
+  drawRamps();
+  drawPool(true);drawPool(false);
+  drawBeads();
+  drawRings();
+  ctx.restore();
+  tankPath(ctx);
+  ctx.strokeStyle='rgba(255,255,255,0.24)';ctx.lineWidth=2;ctx.stroke();
+  drawHint();
+}
+
+/* ---------- 操作 ---------- */
+cv.addEventListener('pointerdown',function(e){
+  if(window.APKit&&window.APKit.isUI(e.clientX,e.clientY))return;
+  e.preventDefault();
+  var x=e.clientX,y=e.clientY,best=null,bd=1e18;
+  for(var i=0;i<beads.length;i++){
+    var b=beads[i],dx=b.x-x,dy=b.y-y,d=dx*dx+dy*dy;
+    if(d<bd){bd=d;best=b;}
+  }
+  var lim=Math.max(r*4.5,Math.min(W,H)*0.12);
+  touchedOnce=true;lastTouch=t;
+  if(best&&bd<lim*lim)flip(best.c,best.x,best.y);
+  else rings.push({x:x,y:y,t:0,c:-1});
+},{passive:false});
+
+function mutate(){
+  var np=pal;while(np===pal)np=(Math.random()*PALS.length)|0;
+  setPal(np);
+  NR=7+((Math.random()*5)|0);
+  TILT=0.09+Math.random()*0.07;
+  var sg=[Math.random()<0.5?1:-1,Math.random()<0.5?1:-1,Math.random()<0.5?1:-1];
+  if(sg[0]===sg[1]&&sg[1]===sg[2])sg[(Math.random()*3)|0]*=-1;
+  layout();build(sg);
+  touchedOnce=true;lastTouch=t;
+}
+function resetAll(){
+  setPal(0);NR=10;TILT=0.13;
+  layout();build([1,-1,1]);
+  t=0;hintA=1;touchedOnce=false;lastTouch=0;lastAuto=0;
+}
+
+/* ---------- サイズ・ループ ---------- */
+function sizeSetup(){
+  var nw=window.innerWidth,nh=window.innerHeight;
+  DPR=Math.min(window.devicePixelRatio||1,2);
+  cv.width=Math.round(nw*DPR);cv.height=Math.round(nh*DPR);
+  var hadWorld=W>0&&th>0;
+  var o={x0:tx0,w:tw,y0:ty0,h:th,sv:slideV};
+  W=nw;H=nh;
+  layout();
+  if(hadWorld){
+    for(var i=0;i<beads.length;i++){
+      var b=beads[i];
+      b.x=tx0+(b.x-o.x0)/o.w*tw;
+      b.y=ty0+(b.y-o.y0)/o.h*th;
+      b.spd*=slideV/o.sv;
+    }
+    for(var j=0;j<rings.length;j++){rings[j].x=tx0+(rings[j].x-o.x0)/o.w*tw;rings[j].y=ty0+(rings[j].y-o.y0)/o.h*th;}
+  }
+}
+var last=0;
+function tick(now){
+  var dt=last?(now-last)/1000:0.016;last=now;
+  if(dt>0.05)dt=0.05;
+  step(dt);
+  render();
+  requestAnimationFrame(tick);
+}
+window.addEventListener('resize',sizeSetup);
+window.addEventListener('orientationchange',function(){setTimeout(sizeSetup,120);});
+
+setPal(0);
+sizeSetup();
+build([1,-1,1]);
+requestAnimationFrame(tick);
+
+if(window.APKit){
+  window.APKit.init({
+    canvas:cv,
+    gifName:'oil-timer',
+    clockFormat:'spec',
+    dock:true,
+    autoHide:true,
+    fullscreenButton:false,
+    buttons:[
+      {label:'✦',name:'mutate',onClick:mutate},
+      {label:'↻',name:'reset',onClick:resetAll}
+    ]
+  });
+}
+})();
+</script>
+</body>
+</html>
