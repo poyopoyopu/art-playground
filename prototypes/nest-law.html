@@ -1,0 +1,259 @@
+<!-- NEST LAW — クロちゃん(Claude)作。おっちゃんが見せてくれたInstagramの作品(入れ子の回転する正方形×グラデーション)を参考に、
+     「触った段から内側の法則が書き換わる」という世界のルールで再構成した(見た目のコピーではなく、考え方だけを使用)。ap-kit.js統合: クロちゃん -->
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>NEST LAW — 触った段から内側の法則が書き換わる</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#05050f;overflow:hidden;
+    -webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+  canvas#c{display:block;position:fixed;inset:0;width:100vw;height:100vh;touch-action:none}
+</style>
+<script src="../ap-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(function(){
+"use strict";
+
+/* ---------- 世界のルール ----------
+   四角は、親の四辺を同じ比率 t で割った4つの点を結んで生まれる(t=0.5なら45°回った菱形)。
+   生まれた四角の中で、また同じことが起きる。これが何十段も入れ子になっている。
+   この比率 t が、この世界の「法則」。段ごとに持っている。
+
+   ・ドラッグ … 触った段(指の下にいちばん深くある四角)から内側すべての法則が書き換わる。
+               横に動かすと比率が変わり(右→左で渦の向きも変わる)、縦に動かすと色の流れがずれる。
+               外側の段は元のまま。書き換えは外から内へ波のように伝わっていく。
+   ・タップ … 触った段から内側の渦の向きが反転する。法則はいったん菱形(t=0.5)を通って、逆向きに巻き直る。
+   ・手を離しても法則は戻らない。外側と内側で別の法則が重なっていく。
+   ・✦ … 別の世界(パレット・色の速さ・法則。奥の段で法則が切り替わっていることもある)
+   ・↻ … 最初の世界(t=0.5、すべて菱形)
+
+   描き方: 外から内へ。各段は、親の四隅に残る4つの三角形にそれぞれグラデーションを塗る(隅から斜辺へ)。
+   色は円環のパレットを段ごとに少しずつずらして巡る。ゆっくり呼吸するように比率が揺れ、その揺れも内側へ伝わる。
+------------------------------------ */
+
+var cv=document.getElementById('c'), ctx=cv.getContext('2d');
+var W=0,H=0,dpr=1;
+var NMAX=110;
+
+/* 段ごとの法則(比率)と色のずれ。cur=いま見えている値、tar=目標値 */
+var tcur=new Float32Array(NMAX+2), ttar=new Float32Array(NMAX+2);
+var hcur=new Float32Array(NMAX+2), htar=new Float32Array(NMAX+2);
+
+/* 四角の頂点(段j: PX[j*8..j*8+7] = TL,TR,BR,BL の x,y) */
+var PX=new Float32Array((NMAX+2)*8);
+var nLev=0;
+
+/* ---------- パレット(円環) ---------- */
+var PALS=[
+  ['#e0664a','#f4e26a','#f6efe6','#dd6aa3','#2f78ad','#0a0a3a','#3d8c60','#14301f'],
+  ['#2fb8b0','#f1e3b6','#e9899a','#7b5fc8','#1b2a7a','#050a24','#1a6f7a'],
+  ['#c9302c','#f08a2d','#f6d76b','#a23a7a','#3a1850','#0d0610','#7a3b22'],
+  ['#8fe0c0','#f7f2a8','#f5b49a','#c9a0f0','#6a7ae0','#10163a'],
+  ['#cfe86a','#4fa36b','#176050','#08242a','#d9c9a0','#e68b5a']
+];
+var palIdx=0, palRot=0, step=0.085, phase=0;
+var lut=new Array(256);
+function hexRgb(h){return [parseInt(h.substr(1,2),16),parseInt(h.substr(3,2),16),parseInt(h.substr(5,2),16)];}
+function buildLut(){
+  var P=PALS[palIdx].map(hexRgb), n=P.length;
+  for(var i=0;i<256;i++){
+    var u=i/256*n, a=Math.floor(u)%n, b=(a+1)%n, f=u-Math.floor(u);
+    f=f*f*(3-2*f);
+    lut[i]='rgb('+Math.round(P[a][0]+(P[b][0]-P[a][0])*f)+','+Math.round(P[a][1]+(P[b][1]-P[a][1])*f)+','+Math.round(P[a][2]+(P[b][2]-P[a][2])*f)+')';
+  }
+}
+function col(u){u=u-Math.floor(u);return lut[(u*256)|0];}
+
+/* ---------- 初期化・変異 ---------- */
+function resetAll(){
+  for(var j=0;j<NMAX+2;j++){tcur[j]=ttar[j]=0.5;hcur[j]=htar[j]=0;}
+  palIdx=0;palRot=0;step=0.085;phase=0;
+  buildLut();
+}
+function mutate(){
+  palIdx=(palIdx+1+Math.floor(Math.random()*(PALS.length-1)))%PALS.length;
+  palRot=Math.random(); step=0.05+Math.random()*0.09;
+  function rt(){var s=Math.random()<0.5?-1:1;return 0.5+s*(0.12+Math.random()*0.3);}
+  var t0=rt(), t1=rt(), J=4+Math.floor(Math.random()*8);
+  for(var j=0;j<NMAX+2;j++){ttar[j]=(j<J)?t0:t1;htar[j]=0;}
+  buildLut();
+}
+
+/* ---------- 画面 ---------- */
+function sizeSetup(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth; H=window.innerHeight;
+  cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
+}
+window.addEventListener('resize',sizeSetup);
+
+/* ---------- 幾何: 外から内へ、親の四辺を比率tで割った点を結ぶ ---------- */
+function geom(time){
+  var sv=0.92*Math.min(W,H), h=2*sv, cx=W/2, cy=H/2;
+  PX[0]=cx-h;PX[1]=cy-h; PX[2]=cx+h;PX[3]=cy-h; PX[4]=cx+h;PX[5]=cy+h; PX[6]=cx-h;PX[7]=cy+h;
+  var j=0;
+  while(j<NMAX){
+    var tt=tcur[j]+0.012*Math.sin(time*0.7-j*0.42);
+    if(tt<0.04)tt=0.04; else if(tt>0.96)tt=0.96;
+    var b=j*8, nb=b+8;
+    for(var i=0;i<4;i++){
+      var i2=(i+1)&3;
+      PX[nb+i*2]  =PX[b+i*2]  +tt*(PX[b+i2*2]  -PX[b+i*2]);
+      PX[nb+i*2+1]=PX[b+i*2+1]+tt*(PX[b+i2*2+1]-PX[b+i*2+1]);
+    }
+    j++;
+    var dx=PX[nb+2]-PX[nb], dy=PX[nb+3]-PX[nb+1];
+    if(dx*dx+dy*dy<0.36)break;
+  }
+  nLev=j+1;
+}
+
+function inPoly(j,x,y){
+  var b=j*8, pos=0, neg=0;
+  for(var i=0;i<4;i++){
+    var i2=(i+1)&3;
+    var ax=PX[b+i*2], ay=PX[b+i*2+1], bx=PX[b+i2*2], by=PX[b+i2*2+1];
+    var c=(bx-ax)*(y-ay)-(by-ay)*(x-ax);
+    if(c>0)pos++; else if(c<0)neg++;
+  }
+  return pos===0||neg===0;
+}
+/* 触った場所を含む、いちばん深い段。ただし小さすぎる段(一辺110px未満)は選ばない
+   (中心付近を触っても、見える範囲の法則がちゃんと書き換わるように) */
+function hitLevel(x,y){
+  for(var j=nLev-1;j>=0;j--){
+    var b=j*8, dx=PX[b+2]-PX[b], dy=PX[b+3]-PX[b+1];
+    if(dx*dx+dy*dy<12100)continue;
+    if(inPoly(j,x,y))return j;
+  }
+  return 0;
+}
+
+/* ---------- 描画 ---------- */
+var ptr=null, hintA=1, touchedOnce=false, tNow=0;
+
+function draw(){
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.lineJoin='round';
+  for(var j=0;j<nLev;j++){
+    var b=j*8;
+    var uj=phase+palRot+j*step+hcur[j];
+    /* 下地(隙間が見えないよう段全体を一色で塗ってから三角形を重ねる) */
+    ctx.fillStyle=col(uj+0.3);
+    ctx.beginPath();
+    ctx.moveTo(PX[b],PX[b+1]);ctx.lineTo(PX[b+2],PX[b+3]);ctx.lineTo(PX[b+4],PX[b+5]);ctx.lineTo(PX[b+6],PX[b+7]);
+    ctx.closePath();ctx.fill();
+    if(j===nLev-1)break;
+    var nb=b+8;
+    for(var i=0;i<4;i++){
+      var i1=(i+1)&3;
+      var ax=PX[nb+i*2], ay=PX[nb+i*2+1];      /* 子の頂点 C_i */
+      var cx=PX[b+i1*2], cy=PX[b+i1*2+1];      /* 親の頂点 P_{i+1}(三角形の隅) */
+      var ex=PX[nb+i1*2], ey=PX[nb+i1*2+1];    /* 子の頂点 C_{i+1} */
+      var minX=Math.min(ax,cx,ex), maxX=Math.max(ax,cx,ex), minY=Math.min(ay,cy,ey), maxY=Math.max(ay,cy,ey);
+      if(maxX<0||minX>W||maxY<0||minY>H)continue;
+      var mx=(ax+ex)*0.5, my=(ay+ey)*0.5;
+      var g=ctx.createLinearGradient(cx,cy,mx,my);
+      var u0=uj+i*0.25;
+      g.addColorStop(0,col(u0));
+      g.addColorStop(0.5,col(u0+0.1));
+      g.addColorStop(1,col(u0+0.2));
+      ctx.fillStyle=g;
+      ctx.beginPath();ctx.moveTo(ax,ay);ctx.lineTo(cx,cy);ctx.lineTo(ex,ey);ctx.closePath();ctx.fill();
+    }
+  }
+  /* 触っている段の縁(ここから内側の法則が書き換わる) */
+  if(ptr&&ptr.k<nLev){
+    var q=ptr.k*8;
+    ctx.strokeStyle='rgba(255,255,255,0.6)';ctx.lineWidth=2;
+    ctx.beginPath();
+    ctx.moveTo(PX[q],PX[q+1]);ctx.lineTo(PX[q+2],PX[q+3]);ctx.lineTo(PX[q+4],PX[q+5]);ctx.lineTo(PX[q+6],PX[q+7]);
+    ctx.closePath();ctx.stroke();
+  }
+  if(hintA>0.01){
+    ctx.font='13px -apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif';
+    ctx.textAlign='center';
+    ctx.fillStyle='rgba(255,255,255,'+(0.7*hintA)+')';
+    ctx.shadowColor='rgba(0,0,0,'+(0.6*hintA)+')';ctx.shadowBlur=6;
+    ctx.fillText('ドラッグ=触った段から内側の法則が変わる · タップ=渦が反転',W/2,H-Math.max(110,H*0.15));
+    ctx.shadowBlur=0;
+  }
+}
+
+/* ---------- ループ ---------- */
+var last=0;
+function tick(ts){
+  var dt=Math.min(0.05,(ts-last)/1000||0.016); last=ts; tNow+=dt;
+  phase+=dt*0.012;
+  /* 法則の書き換えは外から内へ波のように伝わる(外側ほど速く、奥の段ほどゆっくり) */
+  for(var j=0;j<NMAX+2;j++){
+    var r=1-Math.exp(-dt*14*Math.exp(-0.05*j));
+    tcur[j]+=(ttar[j]-tcur[j])*r;
+    hcur[j]+=(htar[j]-hcur[j])*r;
+  }
+  if(touchedOnce||tNow>10){hintA=Math.max(0,hintA-dt*0.8);}
+  geom(tNow);
+  draw();
+  requestAnimationFrame(tick);
+}
+
+/* ---------- 操作 ---------- */
+cv.addEventListener('pointerdown',function(e){
+  if(window.APKit&&window.APKit.isUI(e.clientX,e.clientY))return;
+  if(ptr)return;
+  e.preventDefault();
+  try{cv.setPointerCapture(e.pointerId);}catch(_){}
+  var k=hitLevel(e.clientX,e.clientY);
+  ptr={id:e.pointerId,ax:e.clientX,ay:e.clientY,k:k,t0:tNow,moved:false,startT:ttar[k],startH:htar[k]};
+  touchedOnce=true;
+},{passive:false});
+cv.addEventListener('pointermove',function(e){
+  if(!ptr||ptr.id!==e.pointerId)return;
+  var dx=e.clientX-ptr.ax, dy=e.clientY-ptr.ay;
+  if(!ptr.moved&&dx*dx+dy*dy<100)return;
+  ptr.moved=true;
+  var m=Math.min(W,H);
+  var nt=ptr.startT+dx/m*0.9;
+  if(nt<0.06)nt=0.06; else if(nt>0.94)nt=0.94;
+  var nh=ptr.startH-dy/H*1.2;
+  for(var j=ptr.k;j<NMAX+2;j++){ttar[j]=nt;htar[j]=nh;}
+},{passive:false});
+function endPtr(e){
+  if(!ptr||ptr.id!==e.pointerId)return;
+  if(!ptr.moved&&tNow-ptr.t0<0.35){
+    /* タップ: 触った段から内側の渦の向きを反転(いったん菱形を通って巻き直る) */
+    for(var j=ptr.k;j<NMAX+2;j++){ttar[j]=1-ttar[j];}
+  }
+  ptr=null;
+}
+cv.addEventListener('pointerup',endPtr);
+cv.addEventListener('pointercancel',endPtr);
+
+/* ---------- 起動 ---------- */
+sizeSetup();
+resetAll();
+requestAnimationFrame(tick);
+
+if(window.APKit){
+  window.APKit.init({
+    canvas:cv,
+    gifName:'nest-law',
+    clockFormat:'spec',
+    dock:true,
+    autoHide:true,
+    fullscreenButton:false,
+    buttons:[
+      {label:'✦',name:'mutate',onClick:mutate},
+      {label:'↻',name:'reset',onClick:resetAll}
+    ]
+  });
+}
+})();
+</script>
+</body>
+</html>
