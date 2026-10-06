@@ -1,3 +1,4 @@
+- 2026-10-06 クロード: BUD LAWをart-v91として昇格し、ギャラリーLOG先頭に追加(おっちゃんがInstagramで見つけた「渦を巻く多層の花が回り続けるリール」を「こんな感じのやつは作れる？」→試作→「良い 採用」。見た目のコピーではなく考え方だけ使用)。CURRENTはNEST LAWのまま。法則は「花は花びらの枚数という法則を持つ。触れた所に、親と違う枚数の花(芽)が咲く」。タップ=芽が咲く(芽の中にも咲く。3階層まで。いちばん小さい芽をもう一度触ると枚数が変わる)、押さえる=押している間、芽が大きくなる、なぞる=花の軸が指のほうへ傾く(離すと揺れて戻る)。芽が増えるほど親の花は芽のほうへ引かれて傾く。どの花の真ん中にも、枚数の違う逆回りの小さな花が入れ子で咲く(3階層)。描画は2D Canvas、湾曲した花びらを数十層ずらして重ねる。重い端末では層の数を自動で下げる。✦=別の世界(色5種・枚数・ねじれ・回る速さ。芽は消える)、↻=最初の世界。GIF書き出し・？ボタンなし。ap-kit.jsの相対パスをルート用に修正、Published worksはNEST LAWの直後に追加、`META`に操作ヒント「触れて、枚数の違う花を咲かせる」を1行追加。作品の操作説明(#hint)がポスターに写らないよう`tools/poster-config.json`に`hide`と、芽を2つ咲かせた後の姿を撮る`taps`を追加し、ポスター(`posters/`)とOGPカード(`og/`)を生成、`gen_posters.py --check`・`gen_og.py --check`とも終了コード0。試作版`prototypes/bud-law.html`は残す。スマホ幅(390×844、DPR2)のヘッドレスChromiumで描画・タップ・入れ子・長押し・なぞる・✦・↻を確認しエラーなし。**スマホ実機での確認は未了**(art-v91-bud-law.html, prototypes/bud-law.html, index.html, posters/, og/, tools/poster-config.json, CHANGELOG.md)
 - 2026-10-06 クロード: NEST LAWを録画の対象に追加し、CURRENTに変更(しゅん「この作品は録画はついてないの？」→「よろしく、ついでにカレントにしてくれ」)。①`REC_WORKS`に`art-v90-nest-law.html`を追加(計13作品)。スマホ(Android Chrome)のUA・390×844のヘッドレスChromiumで、ギャラリーから開き、本物の録画ボタン→2回なぞる→停止まで通して確認。録画ボタンが出て、動画は720×1558、絵と2行の透かしが映り、始めと終わりで約37%の画素が変わっていた(法則の書き換えが録れている)。2D Canvasのみで軽い作品だが、**スマホ実機での重さは未確認**。②CURRENTをLAMP FOLDからNEST LAWに入れ替え。LAMP FOLDは「載った順」に従ってLOG先頭に移し(消していない)、Published worksはNEST LAWを先頭に並べ替え。ヒーロー用ポスター(`art-v90-nest-law.hero.webp`)を生成し、`gen_posters.py --check`・`gen_og.py --check`とも終了コード0(index.html, posters/, CHANGELOG.md)
 - 2026-10-06 クロード: NEST LAWをart-v90として昇格し、ギャラリーLOG先頭に追加(しゅん「OK採用で」。CURRENTはLAMP FOLDのまま)。ap-kit.jsの相対パスをルート用に修正、Published worksの2番目(LAMP FOLDの次)に追加、`META`に操作ヒント「なぞって内側の法則を変える」を1行追加。ポスター(`posters/`)とOGPカード(`og/`)を生成し、`gen_posters.py --check`・`gen_og.py --check`とも終了コード0。作品の操作説明は画面(canvas)に直接描く方式なので、ポスターに写り込まないよう`tools/poster-config.json`に「中心を少しなぞった後の姿を撮る」設定(`drags`)を追加し、できた画像に文字が無いことを目で確認。試作版`prototypes/nest-law.html`は残す。**スマホ実機での最終確認は未了**(art-v90-nest-law.html, index.html, posters/, og/, tools/poster-config.json, CHANGELOG.md)
 - 2026-10-06 クロード: NEST LAWのチカチカを軽減(おっちゃん「ちょっとチカチカしてるな」)。原因は、段ごとの比率の呼吸(揺れ)が内側の段ほど回転として積み重なり、中心付近が大きく振れていたこと。揺れ幅を0.012→0.003、速さを0.7→0.35、段ごとの位相差を小さくし、色の流れも0.012→0.005に。一辺2px未満の極小の段は描かないように。中心付近のフレーム間の画素差は0.62→0.21(約1/3)。法則・操作は変更なし(prototypes/nest-law.html, CHANGELOG.md)
@@ -371,7 +372,7 @@
 ## 現在の状態(変わったら書き換える)
 
 - CURRENT: NEST LAW(`art-v90-nest-law.html`)
-- LOG先頭: LAMP FOLD(`art-v89-lamp-fold.html`)
+- LOG先頭: BUD LAW(`art-v91-bud-law.html`)
 - 作業ルール: `AGENTS.md`(ギャラリー追加の手順と命名ルールは13章)
 - 表示モード: iPhoneホーム画面から起動するとCURRENT作品を自動表示するstandalone Web App対応済み
 - 一言説明: ヒーロー/タイルの一言は各作品の`<title>`(`NAME — 日本語の一言`)から自動取得。上書き・ヒントは`index.html`の`META`(ルールはAGENTS.md 13章)

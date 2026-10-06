@@ -1,0 +1,436 @@
+<!-- BUD LAW — クロちゃん(Claude)作。おっちゃんが見せてくれたInstagramリール(渦を巻く多層の花が回り続ける作品)を参考に、
+     「触れた所に、枚数の違う花が咲く」という世界のルールで再構成した(見た目のコピーではなく、考え方だけを使用)。ap-kit.js統合: クロちゃん -->
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>BUD LAW — 触れた所に、枚数の違う花が咲く</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#e8741a;overflow:hidden;
+    -webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+  canvas#c{display:block;position:fixed;inset:0;width:100vw;height:100vh;touch-action:none}
+  #hint{position:fixed;left:0;right:0;bottom:calc(86px + env(safe-area-inset-bottom,0px));text-align:center;
+    font:500 13px/1.7 -apple-system,"Hiragino Sans","Yu Gothic",sans-serif;letter-spacing:.12em;color:rgba(255,255,255,.92);
+    text-shadow:0 1px 8px rgba(40,10,40,.55);pointer-events:none;opacity:0;transition:opacity 1.4s ease}
+  #hint.on{opacity:1}
+</style>
+<script src="ap-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">触れて、芽を咲かせる<br>なぞって、傾ける ・ 押さえて、大きく</div>
+<script>
+(function(){
+"use strict";
+
+/* ---------- 世界のルール ----------
+   花は「花びらの枚数」という法則を持つ。法則の違う花は、違う向きに回り、違う色を持つ。
+   ・タップ … 触れた所に、親と違う枚数の小さな花(芽)が咲く。芽の中にも、また芽が咲く(3階層まで)。
+             いちばん小さい芽をもう一度触ると、その芽の枚数が変わる(法則が書き換わる)。
+   ・押さえる … 押さえている間、芽が大きくなる。離した時の大きさで咲く。
+   ・なぞる … 花の軸が指のほうへ傾く(離すと揺れながら戻る)。
+   ・芽が増えるほど、親の花は芽のほうへ引かれて傾く。法則の中心が増えると、世界は一方向に落ち着かない。
+   ・どの花の真ん中にも、枚数の違う逆回りの小さな花がいる(その中にも、さらに)。入れ子の自己相似。
+   ・✦ … 別の世界(色・枚数・ねじれ・回る速さ。芽は消える)  ・↻ … 最初の世界
+
+   描き方: 外から内へ。湾曲した花びらを、少しずつ角度と大きさをずらして数十層重ねる(縁の細かい筋はこのズレ)。
+           層ごとに軸がずれていくので、傾くと花が漏斗のように芽のほうへ開く。
+------------------------------------ */
+
+var cv=document.getElementById('c'), ctx=cv.getContext('2d');
+var W=0,H=0,dpr=1,R0=400,CX=0,CY=0;
+var TAU=Math.PI*2;
+var tNow=0, q=1;               /* q = 描画品質(層の数)。重い端末では自動で下げる */
+function sm(a,b,x){var t=(x-a)/(b-a);t=t<0?0:t>1?1:t;return t*t*(3-2*t);}
+
+/* ---------- パレット ---------- */
+function hx(h){return [parseInt(h.substr(1,2),16),parseInt(h.substr(3,2),16),parseInt(h.substr(5,2),16)];}
+var PALDEF=[
+  {bg0:'#ffb743',bg1:'#e5701a',core:'#080a2e',edge:'#f7a02a',
+   wheel:['#ff2f78','#ff5a2e','#f23aa0','#8a3dff','#1d6bff','#12c4b4','#ff9a2e']},
+  {bg0:'#173a66',bg1:'#06142e',core:'#02040f',edge:'#1a4a80',
+   wheel:['#17e6c4','#7dff82','#22b8ff','#8d5cff','#ff4fd8','#2a7bff']},
+  {bg0:'#fbd3d4',bg1:'#ea8fa6',core:'#3a0f34',edge:'#f3b3c0',
+   wheel:['#e8325f','#c04fd8','#ff9a7a','#9b7bff','#ffd0a0','#ff5a8a']},
+  {bg0:'#2a0a10',bg1:'#0b0204',core:'#000000',edge:'#4a1208',
+   wheel:['#ffc531','#ff7a1a','#ff3b2e','#ff2f8a','#fff1b0','#ff5a2e']},
+  {bg0:'#d9f1ea',bg1:'#8fd0d2',core:'#0c1f45',edge:'#a8dcd8',
+   wheel:['#16b8c8','#9a8cf0','#f4a6c8','#5de0b4','#2a58d8','#c6f0e0']}
+];
+function buildPal(def){
+  var w=def.wheel.map(hx), n=w.length, lut=new Array(256);
+  for(var i=0;i<256;i++){
+    var u=i/256*n, a=Math.floor(u)%n, b=(a+1)%n, f=sm(0,1,u-Math.floor(u));
+    lut[i]=[w[a][0]+(w[b][0]-w[a][0])*f, w[a][1]+(w[b][1]-w[a][1])*f, w[a][2]+(w[b][2]-w[a][2])*f];
+  }
+  return {bg0:hx(def.bg0),bg1:hx(def.bg1),lut:lut,core:hx(def.core),edge:hx(def.edge)};
+}
+function hueRot(c,deg){
+  var r=deg*Math.PI/180, co=Math.cos(r), si=Math.sin(r);
+  var R=c[0],G=c[1],B=c[2];
+  function cl(v){return v<0?0:v>255?255:v;}
+  return [cl(R*(0.213+co*0.787-si*0.213)+G*(0.715-co*0.715-si*0.715)+B*(0.072-co*0.072+si*0.928)),
+          cl(R*(0.213-co*0.213+si*0.143)+G*(0.715+co*0.285+si*0.140)+B*(0.072-co*0.072-si*0.283)),
+          cl(R*(0.213-co*0.213-si*0.787)+G*(0.715-co*0.715+si*0.715)+B*(0.072+co*0.928+si*0.072))];
+}
+function rotPal(p,deg){
+  var lut=new Array(256);
+  for(var i=0;i<256;i++)lut[i]=hueRot(p.lut[i],deg);
+  return {bg0:p.bg0,bg1:p.bg1,lut:lut,core:p.core,edge:hueRot(p.edge,deg)};
+}
+
+/* ---------- 花(法則を持つ本体) ---------- */
+var NEXT={3:5,4:6,5:8,6:5,7:4,8:3,9:7};      /* 真ん中に咲く小さな花の枚数(親と必ず違う) */
+function makeBody(n,dir,pal,twist,curl,spin,levels){
+  var b={n:n,dir:dir,pal:pal,twist:twist,curl:curl,spin:spin,
+         ang:Math.random()*TAU,spinCur:spin*dir,wph:Math.random(),core:null,cs:0.2};
+  if(levels>0){
+    var cp=rotPal(pal,70); cp.edge=pal.core;
+    b.core=makeBody(NEXT[n]||5,-dir,cp,twist*1.1,curl*1.05,spin*1.8,levels-1);
+  }
+  return b;
+}
+function updBody(b,dt){
+  b.spinCur+=(b.spin*b.dir-b.spinCur)*Math.min(1,dt*3);
+  b.ang+=b.spinCur*dt;
+  if(b.core)updBody(b.core,dt);
+}
+function rebuildCore(b,levels){          /* 枚数が変わった時、真ん中の花も組み直す */
+  var cp=rotPal(b.pal,70); cp.edge=b.pal.core;
+  b.core=levels>0?makeBody(NEXT[b.n]||5,-b.dir,cp,b.twist*1.1,b.curl*1.05,b.spin*1.8,levels-1):null;
+}
+
+/* ---------- 描画 ---------- */
+function petalPath(cx,cy,a,r,hw,cu){
+  var ca=Math.cos(a), sa=Math.sin(a);
+  var w=r*Math.sin(hw), c=cu*r*0.5;
+  var x1=0.22*r,y1=-1.15*w, x2=0.78*r,y2=-0.95*w+0.55*c, x3=r,y3=c, x4=0.84*r,y4=0.9*w+0.45*c, x5=0.30*r,y5=1.05*w;
+  ctx.moveTo(cx,cy);
+  ctx.bezierCurveTo(cx+x1*ca-y1*sa,cy+x1*sa+y1*ca, cx+x2*ca-y2*sa,cy+x2*sa+y2*ca, cx+x3*ca-y3*sa,cy+x3*sa+y3*ca);
+  ctx.bezierCurveTo(cx+x4*ca-y4*sa,cy+x4*sa+y4*ca, cx+x5*ca-y5*sa,cy+x5*sa+y5*ca, cx,cy);
+}
+function rgba(r,g,b,a){return 'rgba('+(r|0)+','+(g|0)+','+(b|0)+','+a.toFixed(3)+')';}
+
+function drawBody(b,cx,cy,R,lx,ly,time,fade,isCore){
+  if(R<2.5)return;
+  var n=b.n, pal=b.pal, lut=pal.lut, ce=pal.core, ed=pal.edge, dir=b.dir;
+  var L=Math.round((12+78*Math.min(1,Math.sqrt(R/R0)))*q); if(L<9)L=9;
+  var hw=Math.PI/n*0.9, cu=b.curl*dir*1.35;
+  var tw=b.twist*(1+0.05*Math.sin(time*0.45+b.wph*6));
+  var step=TAU/n;
+  for(var k=0;k<L;k++){
+    var t=1-k/(L-1);
+    var rr=R*(0.035+0.965*Math.pow(t,1.35));
+    if(rr<1.2)continue;
+    var tp=Math.pow(t,1.5);
+    var ox=cx+lx*tp, oy=cy+ly*tp;
+    var th=b.ang+dir*tw*(1-t);
+    var te=sm(0.46,0.94,t)*0.95, ti=1-sm(0.0,0.62,t), lum=0.62+0.5*sm(0.08,0.62,t);
+    var al=0.32*(1-0.45*te);
+    if(fade)al*=1-fade*sm(0.45,1,t);
+    if(al<0.01)continue;
+    for(var i=0;i<n;i++){
+      var wi=i/n+b.wph+time*0.02*dir+t*0.45*dir; wi-=Math.floor(wi);
+      var c=lut[(wi*255)|0];
+      var r_=c[0]+(ed[0]-c[0])*te, g_=c[1]+(ed[1]-c[1])*te, b_=c[2]+(ed[2]-c[2])*te;
+      var m=ti*ti*0.6+ti*0.38;
+      r_=(r_+(ce[0]-r_)*m)*(lum>1?1:lum); g_=(g_+(ce[1]-g_)*m)*(lum>1?1:lum); b_=(b_+(ce[2]-b_)*m)*(lum>1?1:lum);
+      ctx.fillStyle=rgba(r_,g_,b_,al);
+      ctx.beginPath();
+      petalPath(ox,oy,th+i*step,rr,hw,cu);
+      ctx.fill();
+    }
+  }
+  /* 中心の暗がり */
+  var vr=R*0.3;
+  var g=ctx.createRadialGradient(cx,cy,0,cx,cy,vr);
+  g.addColorStop(0,rgba(ce[0],ce[1],ce[2],0.9)); g.addColorStop(1,rgba(ce[0],ce[1],ce[2],0));
+  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(cx,cy,vr,0,TAU); ctx.fill();
+  /* 虹色の細い糸(縁の色ずれ) */
+  if(R>38){
+    var SL=R*0.36, S=22, lw=Math.max(0.7,R/300*1.1);
+    var cols=['rgba(255,70,60,0.30)','rgba(255,200,70,0.26)','rgba(90,255,160,0.22)','rgba(70,150,255,0.34)'];
+    ctx.globalCompositeOperation='lighter'; ctx.lineWidth=lw; ctx.lineCap='round';
+    for(var mI=0;mI<4;mI++){
+      ctx.strokeStyle=cols[mI]; ctx.beginPath();
+      var off=mI*lw*1.05;
+      for(var i2=0;i2<n;i2++){
+        var a0=b.ang+i2*step;
+        for(var s=0;s<=S;s++){
+          var u=s/S, rad=u*SL+off*(0.4+u);
+          var ang=a0+dir*(1.5*(1-u)*(1-u)+0.15*Math.sin(time*0.8+u*5+i2));
+          var px=cx+Math.cos(ang)*rad, py=cy+Math.sin(ang)*rad;
+          if(s===0)ctx.moveTo(px,py); else ctx.lineTo(px,py);
+        }
+      }
+      ctx.stroke();
+    }
+    ctx.globalCompositeOperation='source-over';
+  }
+  /* 真ん中の小さな花(逆回り・枚数違い・さらにその中にも) */
+  if(b.core)drawBody(b.core,cx,cy,R*b.cs,0,0,time,1,true);
+}
+
+/* ---------- 世界の状態 ---------- */
+var palIdx=0, pal0=buildPal(PALDEF[0]);
+var root=null, buds=[], fxs=[], flash=0;
+var MAXBUD=16;
+
+function newFlower(parent,bx,by,rRel,body){
+  return {parent:parent,depth:parent?parent.depth+1:0,bx:bx,by:by,rRel:rRel,body:body,
+          x:0,y:0,r:0,rT:0,born:tNow,lx:0,ly:0,vx:0,vy:0,kids:[],pulse:0,dying:false,seed:Math.random()*TAU};
+}
+function initRoot(n,dir,twist,curl,spin,pal){
+  root=newFlower(null,0,0,1,makeBody(n,dir,pal,twist,curl,spin,3));
+  root.born=-10;
+}
+function clearBuds(){
+  for(var i=0;i<buds.length;i++)buds[i].dying=true;
+  root.kids=[];
+}
+function resetWorld(){
+  palIdx=0; pal0=buildPal(PALDEF[0]);
+  clearBuds();
+  var old=root;
+  initRoot(6,1,3.2,0.55,0.16,pal0);
+  root.lx=old.lx; root.ly=old.ly; root.vx=old.vx; root.vy=old.vy;
+  flash=0.55;
+}
+function mutateWorld(){
+  var p; do{p=Math.floor(Math.random()*PALDEF.length);}while(p===palIdx);
+  palIdx=p; pal0=buildPal(PALDEF[p]);
+  clearBuds();
+  var ns=[5,6,7,8,5,6,7,9,4], n=ns[Math.floor(Math.random()*ns.length)];
+  var old=root;
+  initRoot(n,Math.random()<0.5?1:-1,1.9+Math.random()*1.8,0.3+Math.random()*0.6,0.10+Math.random()*0.16,pal0);
+  root.lx=old.lx; root.ly=old.ly; root.vx=old.vx; root.vy=old.vy;
+  flash=0.7;
+}
+
+function allFlowers(){return [root].concat(buds);}
+function hitFlower(x,y){
+  var best=root, fl=allFlowers();
+  for(var i=0;i<fl.length;i++){
+    var f=fl[i]; if(f===root||f.dying)continue;
+    var vr=f.r*0.6, dx=x-f.x, dy=y-f.y;
+    if(dx*dx+dy*dy<vr*vr && f.depth>=best.depth && (f.depth>best.depth||f.r<best.r))best=f;
+  }
+  return best;
+}
+function pickN(parent){
+  var used={}; used[parent.body.n]=1;
+  for(var i=0;i<parent.kids.length;i++)used[parent.kids[i].body.n]=1;
+  var c=[]; for(var n=3;n<=9;n++)if(!used[n])c.push(n);
+  if(!c.length)c=[3,4,5,6,7,8,9];
+  return c[Math.floor(Math.random()*c.length)];
+}
+function ringFx(x,y,rad,col){fxs.push({x:x,y:y,t0:tNow,rad:rad,col:col});}
+function spawn(parent,px,py,size){
+  var ratio=(parent.depth===0?0.27:0.42)*size;
+  var rRel=parent.rRel*ratio;
+  var n=pickN(parent);
+  var pal=rotPal(parent.body.pal,(Math.random()<0.5?1:-1)*(55+Math.random()*70));
+  var body=makeBody(n,-parent.body.dir,pal,1.8+Math.random()*1.5,0.35+Math.random()*0.5,0.22+Math.random()*0.26,2);
+  var f=newFlower(parent,(px-CX)/R0,(py-CY)/R0,rRel,body);
+  f.x=px; f.y=py; f.r=0; f.rT=rRel*R0;
+  parent.kids.push(f); buds.push(f);
+  /* 親が芽のほうへ揺れる */
+  var pv=parent===root?{x:CX,y:CY}:{x:parent.x,y:parent.y};
+  parent.vx+=(px-pv.x)*2.2; parent.vy+=(py-pv.y)*2.2;
+  ringFx(px,py,f.rT*1.1,pal.lut[40]);
+  /* 芽が増えすぎたら、いちばん古い芽が散る */
+  var live=0,oldest=null;
+  for(var i=0;i<buds.length;i++){if(!buds[i].dying){live++; if(!oldest)oldest=buds[i];}}
+  if(live>MAXBUD&&oldest)killBud(oldest);
+}
+function killBud(f){
+  f.dying=true;
+  for(var i=0;i<f.kids.length;i++)killBud(f.kids[i]);
+  if(f.parent){var k=f.parent.kids.indexOf(f); if(k>=0)f.parent.kids.splice(k,1);}
+}
+function rewriteLaw(f){          /* いちばん小さい芽を触ると、枚数(法則)が変わる */
+  var b=f.body;
+  b.n=NEXT[b.n]||5; b.dir=-b.dir; b.wph=Math.random();
+  rebuildCore(b,2);
+  f.pulse=1;
+  ringFx(f.x,f.y,f.r*1.6,b.pal.lut[120]);
+}
+
+/* ---------- 更新 ---------- */
+var drag=null;
+function easeOutBack(x){var c1=1.7,c3=c1+1;return 1+c3*Math.pow(x-1,3)+c1*Math.pow(x-1,2);}
+function updFlower(f,dt){
+  updBody(f.body,dt);
+  if(f.depth>0){
+    f.x=CX+f.bx*R0; f.rT=f.rRel*R0;
+    if(f.dying){f.r+=(0-f.r)*Math.min(1,dt*7);}
+    else{var k=Math.min(1,(tNow-f.born)/0.9); f.r=f.rT*easeOutBack(k);}
+    f.y=CY+f.by*R0;
+  }else{f.x=CX;f.y=CY;f.r=R0;f.rT=R0;}
+  f.pulse*=Math.exp(-dt*3);
+  var cx=f.x, cy=f.y, tx=0, ty=0;
+  for(var i=0;i<f.kids.length;i++){
+    var kd=f.kids[i]; if(kd.dying)continue;
+    var g=Math.min(1,(tNow-kd.born)/0.9);
+    tx+=(kd.x-cx)*0.34*g; ty+=(kd.y-cy)*0.34*g;
+  }
+  if(f===root&&drag){tx+=(drag.x-cx)*0.6; ty+=(drag.y-cy)*0.6;}
+  tx+=Math.sin(tNow*0.31+f.seed)*f.rT*0.03; ty+=Math.cos(tNow*0.27+f.seed*1.3)*f.rT*0.03;
+  var cap=f.rT*0.32, mg=Math.sqrt(tx*tx+ty*ty);
+  if(mg>cap){tx*=cap/mg; ty*=cap/mg;}
+  var ax=(tx-f.lx)*36-f.vx*5.2, ay=(ty-f.ly)*36-f.vy*5.2;
+  f.vx+=ax*dt; f.vy+=ay*dt; f.lx+=f.vx*dt; f.ly+=f.vy*dt;
+}
+function update(dt){
+  updFlower(root,dt);
+  for(var i=buds.length-1;i>=0;i--){
+    var f=buds[i]; updFlower(f,dt);
+    if(f.dying&&f.r<0.6){buds.splice(i,1);}
+  }
+  for(var j=fxs.length-1;j>=0;j--)if(tNow-fxs[j].t0>1.1)fxs.splice(j,1);
+  flash*=Math.exp(-dt*3.2); if(flash<0.01)flash=0;
+}
+
+/* ---------- 描画(全体) ---------- */
+var grain=null;
+function makeGrain(){
+  var g=document.createElement('canvas'); g.width=g.height=128;
+  var c=g.getContext('2d'), im=c.createImageData(128,128), d=im.data;
+  for(var i=0;i<d.length;i+=4){var v=Math.random()*255; d[i]=d[i+1]=d[i+2]=v; d[i+3]=255;}
+  c.putImageData(im,0,0); grain=ctx.createPattern(g,'repeat');
+}
+function render(){
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.globalCompositeOperation='source-over'; ctx.globalAlpha=1;
+  var p=root.body.pal;
+  var bg=ctx.createRadialGradient(CX,CY*0.9,0,CX,CY,Math.max(W,H)*0.75);
+  bg.addColorStop(0,rgba(p.bg0[0],p.bg0[1],p.bg0[2],1)); bg.addColorStop(1,rgba(p.bg1[0],p.bg1[1],p.bg1[2],1));
+  ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+
+  drawBody(root.body,CX,CY,R0*(1+0.012*Math.sin(tNow*0.5)),root.lx,root.ly,tNow,0.8);
+
+  for(var i=0;i<buds.length;i++){
+    var f=buds[i]; if(f.r<1)continue;
+    var r=f.r*(1+0.16*f.pulse), ce=f.body.pal.core;
+    var hg=ctx.createRadialGradient(f.x,f.y,r*0.15,f.x,f.y,r*1.05);
+    hg.addColorStop(0,rgba(ce[0],ce[1],ce[2],0.5)); hg.addColorStop(1,rgba(ce[0],ce[1],ce[2],0));
+    ctx.fillStyle=hg; ctx.beginPath(); ctx.arc(f.x,f.y,r*1.05,0,TAU); ctx.fill();
+    drawBody(f.body,f.x,f.y,r,f.lx,f.ly,tNow,0.7);
+  }
+
+  /* 咲いた瞬間の光の輪 */
+  ctx.globalCompositeOperation='lighter';
+  for(var j=0;j<fxs.length;j++){
+    var e=fxs[j], a=(tNow-e.t0)/1.1, ea=1-(1-a)*(1-a), al=(1-a)*0.5;
+    var rad=e.rad*(0.25+0.95*ea);
+    ctx.lineWidth=2+(1-a)*3; ctx.strokeStyle=rgba(e.col[0],e.col[1],e.col[2],al);
+    ctx.beginPath(); ctx.arc(e.x,e.y,rad,0,TAU); ctx.stroke();
+    var fg=ctx.createRadialGradient(e.x,e.y,0,e.x,e.y,e.rad*1.3);
+    fg.addColorStop(0,rgba(e.col[0],e.col[1],e.col[2],al*0.6)); fg.addColorStop(1,rgba(e.col[0],e.col[1],e.col[2],0));
+    ctx.fillStyle=fg; ctx.beginPath(); ctx.arc(e.x,e.y,e.rad*1.3,0,TAU); ctx.fill();
+  }
+  ctx.globalCompositeOperation='source-over';
+
+  /* 押さえている間: これから咲く大きさの輪 */
+  if(hold&&!hold.moved){
+    var ht=tNow-hold.t0;
+    if(ht>0.16){
+      var sz=holdSize(ht), par=hitFlower(hold.x,hold.y);
+      var rr=par.rRel*(par.depth===0?0.27:0.42)*sz*R0;
+      var pulse=0.5+0.5*Math.sin(tNow*9);
+      ctx.strokeStyle='rgba(255,255,255,'+(0.45+0.25*pulse).toFixed(3)+')'; ctx.lineWidth=1.6;
+      ctx.beginPath(); ctx.arc(hold.x,hold.y,rr*0.6,0,TAU); ctx.stroke();
+      ctx.strokeStyle='rgba(255,255,255,0.18)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.arc(hold.x,hold.y,rr*0.6+6+4*pulse,0,TAU); ctx.stroke();
+    }
+  }
+
+  /* 周辺をわずかに落とす + 粒状感 */
+  var vg=ctx.createRadialGradient(CX,CY,Math.min(W,H)*0.45,CX,CY,Math.max(W,H)*0.8);
+  vg.addColorStop(0,'rgba(20,0,30,0)'); vg.addColorStop(1,'rgba(20,0,30,0.28)');
+  ctx.fillStyle=vg; ctx.fillRect(0,0,W,H);
+  if(grain){
+    ctx.globalCompositeOperation='overlay'; ctx.globalAlpha=0.065;
+    ctx.fillStyle=grain; ctx.fillRect(0,0,W,H);
+    ctx.globalAlpha=1; ctx.globalCompositeOperation='source-over';
+  }
+  if(flash>0){ctx.fillStyle='rgba(255,255,255,'+(flash*0.55).toFixed(3)+')'; ctx.fillRect(0,0,W,H);}
+}
+
+/* ---------- 入力 ---------- */
+var hold=null;
+function holdSize(ht){return Math.min(1.6,0.8+ht*0.75);}
+function sizeSetup(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth; H=window.innerHeight;
+  cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
+  CX=W/2; CY=H/2;
+  R0=Math.min(W,H)*0.86;
+  if(!grain)makeGrain();
+}
+cv.addEventListener('pointerdown',function(e){
+  if(window.APKit&&window.APKit.isUI(e.clientX,e.clientY))return;
+  try{cv.setPointerCapture(e.pointerId);}catch(_){}
+  hold={id:e.pointerId,x:e.clientX,y:e.clientY,x0:e.clientX,y0:e.clientY,t0:tNow,moved:false};
+  hintOff();
+});
+cv.addEventListener('pointermove',function(e){
+  if(!hold||hold.id!==e.pointerId)return;
+  hold.x=e.clientX; hold.y=e.clientY;
+  var dx=hold.x-hold.x0, dy=hold.y-hold.y0;
+  if(!hold.moved&&dx*dx+dy*dy>14*14)hold.moved=true;
+  if(hold.moved)drag={x:hold.x,y:hold.y};
+});
+function endPtr(e){
+  if(!hold||hold.id!==e.pointerId)return;
+  var h=hold; hold=null;
+  if(h.moved){drag=null; return;}
+  var ht=tNow-h.t0, f=hitFlower(h.x,h.y);
+  if(f.depth>=3||f.kids.length>=7)rewriteLaw(f);
+  else spawn(f,h.x,h.y,holdSize(ht));
+}
+cv.addEventListener('pointerup',endPtr);
+cv.addEventListener('pointercancel',function(e){if(hold&&hold.id===e.pointerId){hold=null;drag=null;}});
+window.addEventListener('resize',sizeSetup);
+
+/* ---------- ヒント ---------- */
+var hintEl=document.getElementById('hint'), hintDone=false;
+function hintOff(){if(hintDone)return; hintDone=true; hintEl.classList.remove('on');}
+setTimeout(function(){if(!hintDone)hintEl.classList.add('on');},1600);
+setTimeout(hintOff,9000);
+
+/* ---------- ループ ---------- */
+var last=0, ema=16, qT=0;
+function frame(now){
+  if(!last)last=now;
+  var raw=(now-last)/1000; last=now;
+  var dt=Math.min(0.05,raw); tNow+=dt;
+  ema+=(raw*1000-ema)*0.05; qT+=dt;
+  if(qT>0.6){ qT=0; if(ema>24&&q>0.45)q-=0.08; else if(ema<14.5&&q<1)q+=0.03; }
+  update(dt); render();
+  requestAnimationFrame(frame);
+}
+
+sizeSetup();
+initRoot(6,1,3.2,0.55,0.16,pal0);
+requestAnimationFrame(frame);
+
+if(window.APKit){
+  window.APKit.init({
+    canvas:cv,
+    gifName:'bud-law-loop',
+    clockFormat:'spec',
+    dock:true,
+    autoHide:true,
+    fullscreenButton:false,
+    buttons:[
+      {label:'✦',name:'mutate',onClick:mutateWorld},
+      {label:'↻',name:'reset',onClick:resetWorld}
+    ]
+  });
+}
+})();
+</script>
+</body>
+</html>
