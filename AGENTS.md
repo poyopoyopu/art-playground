@@ -320,7 +320,7 @@ SNS(Instagram/TikTok)から来た人をサイトで迎え、気に入った人�
 - 作品のcanvasを毎フレーム、画面サイズの別canvasに重ねて合成して録る(複数canvasの作品も、表示されているものを順に重ねる。不透明度と `mix-blend-mode` は反映、CSSのfilter/回転は反映されない)。左上に「ART PLAYGROUND」と、その下に小さく「@artplayground.art」の2行の透かし(ReelsやTikTokの操作UIにかぶらない位置)。2行目はTikTokのプロフィールにクリックできるリンクを貼れない(個人アカウントはフォロワー1000人未満)ため、見た人がInstagramで検索して来られるように入れた。文字列は `index.html` の `REC_HANDLE`。短い独自ドメインを取ったら、ここをそのURLに替える。
 - 動画形式は端末まかせ。iPhone/Android Chromeは **mp4(H.264)**(幅720px。スマホはハードウェアエンコード)。それ以外は webm(VP8優先。ソフトウェアエンコードになりやすいので幅は540pxまで)。`REC_W` で幅を変えられる。
 - 録画中に✕で閉じる/別の作品を開くと、録画は破棄される。
-- **`REC_WORKS` に載せる作品を増やすときは**: ①実際に録画して、動画に作品が映り(真っ黒でない)、透かしが読めることを見る ②スマホの実機で、録画中に作品が極端に重くならないことを見る。WebGLの作品は `preserveDrawingBuffer` の影響で映らないことがあるので、特に確認する。2026/10時点の対象は LAMP FOLD / BIRTHMARK / LIGHT WEB / TWIN TIDE / ANIMAL MANSION。
+- **`REC_WORKS` に載せる作品を増やすときは**: ①実際に録画して、動画に作品が映り(真っ黒でない)、透かしが読めることを見る ②スマホの実機で、録画中に作品が極端に重くならないことを見る。WebGLの作品は `preserveDrawingBuffer` の影響で映らないことがあるので、特に確認する。2026/10時点の対象は LAMP FOLD / BIRTHMARK / LIGHT WEB / TWIN TIDE / ANIMAL MANSION に、HAMSTER DROP / RAINBOW WALK / FEATHER FOLD / OPAL MARBLE / MIRROR DESCENT を追加した計10作品(追加の5つはヘッドレスChromiumで「canvasをdrawImageで読むと中身が映る」ことまで確認済み。スマホ実機での重さは要確認で、重い作品は外す)。
 - 既知の限界: 作品のDOM(文字・SVG)は映らない(canvasだけ)。録画中は作品の描画が重くなる(GPUのないテスト環境では4〜7割のfpsになった。スマホ実機での値は未確認)。
 - 9/29の「新作はGIF書き出しなし」の方針とは別物(GIFのボタンは作品側、これはギャラリー側)。
 - **`index.html` のJS・コメントに、`data-src` と `=` と `"` を続けた文字列を書かない**。`tools/gen_posters.py` と `gen_og.py` は、その形を「ギャラリーの作品一覧」として拾う(2026/10に一度、JSの中の文字列を作品と誤認して `--check` が失敗した)。作品の一覧を読むJSは `getAttribute('data-src')` を使う。
