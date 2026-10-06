@@ -317,7 +317,7 @@ SNS(Instagram/TikTok)から来た人をサイトで迎え、気に入った人�
 
 ### 録画ボタン(試験中: `REC_WORKS` の作品だけ)
 - 押すと最大30秒、触って変わる様子を動画にする(無音)。止めるとプレビューが開き、**共有する**(共有シートへ。Reels/TikTokに直接投稿できる)/ **保存** / 閉じる。共有をプレビュー側に置くのは、録画の完了直後はiOSが共有を許さないため(もう一度タップが要る)。
-- 作品のcanvasを毎フレーム、画面サイズの別canvasに重ねて合成して録る(複数canvasの作品も、表示されているものを順に重ねる。不透明度と `mix-blend-mode` は反映、CSSのfilter/回転は反映されない)。左上に「ART PLAYGROUND」の透かし(ReelsやTikTokの操作UIにかぶらない位置)。
+- 作品のcanvasを毎フレーム、画面サイズの別canvasに重ねて合成して録る(複数canvasの作品も、表示されているものを順に重ねる。不透明度と `mix-blend-mode` は反映、CSSのfilter/回転は反映されない)。左上に「ART PLAYGROUND」と、その下に小さく「@artplayground.art」の2行の透かし(ReelsやTikTokの操作UIにかぶらない位置)。2行目はTikTokのプロフィールにクリックできるリンクを貼れない(個人アカウントはフォロワー1000人未満)ため、見た人がInstagramで検索して来られるように入れた。文字列は `index.html` の `REC_HANDLE`。短い独自ドメインを取ったら、ここをそのURLに替える。
 - 動画形式は端末まかせ。iPhone/Android Chromeは **mp4(H.264)**(幅720px。スマホはハードウェアエンコード)。それ以外は webm(VP8優先。ソフトウェアエンコードになりやすいので幅は540pxまで)。`REC_W` で幅を変えられる。
 - 録画中に✕で閉じる/別の作品を開くと、録画は破棄される。
 - **`REC_WORKS` に載せる作品を増やすときは**: ①実際に録画して、動画に作品が映り(真っ黒でない)、透かしが読めることを見る ②スマホの実機で、録画中に作品が極端に重くならないことを見る。WebGLの作品は `preserveDrawingBuffer` の影響で映らないことがあるので、特に確認する。2026/10時点の対象は LAMP FOLD / BIRTHMARK / LIGHT WEB / TWIN TIDE / ANIMAL MANSION。
