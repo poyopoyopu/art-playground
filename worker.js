@@ -80,6 +80,117 @@ const SOCIAL_HTML = `
   </section>
 `;
 
+// ================= SNS導線まわり(2026/10) =================
+// 1) 公開作品ページ(art-vNN-xxx.html など)を「直接」開いたとき(SNSのクローラー含む)に、共有カード(OGP)とfaviconを<head>へ差し込む。
+//    og:image は og/<パス>.jpg(tools/gen_og.py が作る。無ければ brand/og-image.jpg)。作品ファイル自体は書き換えない。
+// 2) 人が直接開いたとき(Sec-Fetch-Dest: document)だけ、左上に「‹ ART PLAYGROUND」(ギャラリーへ戻る)のピルを足す。
+//    ギャラリーのプレビュー/全画面(iframe)では出さない。
+// 3) ギャラリー/作品を人が直接開いた回数を、流入元(?s=ig など + リファラのホスト名)つきで landings に記録する。
+const WORK_PAGE_RE = /^\/(art-v\d+(-[^/]+)?|void-field-ii)\.html$/i;
+const WORK_PAGE_EXTRA = new Set(['/prototypes/chroma-grid.html', '/prototypes/spiral-spectrum-200-v9.html', '/prototypes/membrane-rgb.html']);
+function isWorkPage(pathname) { return WORK_PAGE_RE.test(pathname) || WORK_PAGE_EXTRA.has(pathname); }
+function ogImageFor(pathname) { return '/og/' + pathname.replace(/^\/+/, '').replace(/\.html$/i, '').replace(/\//g, '__') + '.jpg'; } // tools/gen_og.py の og_name() と同じ規則
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function parseWorkTitle(html) {
+  const m = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html);
+  const t = m ? m[1].replace(/\s+/g, ' ').trim() : '';
+  const parts = t.split(/\s*[\u2014\u2013]\s*/);
+  const ja = parts.slice(1).reverse().find((p) => /[\u3040-\u30ff\u4e00-\u9fff]/.test(p)) || '';
+  let name = parts[0] || 'ART PLAYGROUND';
+  if (!ja && parts.length > 1) name = parts[parts.length - 1];
+  return { name: name.trim(), ja: ja.trim() };
+}
+async function pickOgImage(env, origin, pathname) {
+  const rel = ogImageFor(pathname);
+  try {
+    const r = await env.ASSETS.fetch(new Request(origin + rel, { method: 'HEAD' }));
+    if (r.ok) return origin + rel;
+  } catch (e) { /* 既定画像へ */ }
+  return origin + '/brand/og-image.jpg';
+}
+function workHeadTags({ name, ja, image }) {
+  const title = name + ' — ART PLAYGROUND';
+  const desc = (ja ? ja + ' — ' : '') + 'ART PLAYGROUNDのインタラクティブ作品。触ると、世界のルールが変わる。';
+  return [
+    '<meta name="description" content="' + esc(desc) + '">',
+    '<meta property="og:type" content="website">',
+    '<meta property="og:site_name" content="ART PLAYGROUND">',
+    '<meta property="og:locale" content="ja_JP">',
+    '<meta property="og:title" content="' + esc(title) + '">',
+    '<meta property="og:description" content="' + esc(desc) + '">',
+    '<meta property="og:image" content="' + esc(image) + '">',
+    '<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">',
+    '<meta name="twitter:card" content="summary_large_image">',
+    '<meta name="twitter:title" content="' + esc(title) + '">',
+    '<meta name="twitter:description" content="' + esc(desc) + '">',
+    '<meta name="twitter:image" content="' + esc(image) + '">',
+    '<link rel="icon" href="/brand/favicon.svg" type="image/svg+xml">',
+    '<link rel="icon" href="/brand/favicon-32.png" sizes="32x32" type="image/png">',
+    '<link rel="apple-touch-icon" href="/brand/apple-touch-icon.png">'
+  ].join('\n');
+}
+const HOME_PILL = `
+<style>
+#ap-home{position:fixed;z-index:2147483000;top:calc(env(safe-area-inset-top,0px) + 12px);left:12px;display:inline-flex;align-items:center;gap:8px;min-height:36px;padding:0 14px 0 11px;border-radius:999px;background:rgba(10,10,16,.55);border:1px solid rgba(255,255,255,.18);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);color:#f2f2f7;font:600 11px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.2em;text-decoration:none;box-shadow:0 6px 20px rgba(0,0,0,.4);opacity:1;transition:opacity .5s ease;-webkit-tap-highlight-color:transparent}
+#ap-home::before{content:"";position:absolute;inset:-6px}
+#ap-home i{display:block;width:6px;height:6px;border-radius:50%;background:linear-gradient(135deg,#7ad9ff,#ff7ad9);box-shadow:0 0 8px rgba(122,217,255,.7)}
+#ap-home.idle{opacity:0;pointer-events:none}
+#ap-home:focus-visible{outline:2px solid #7ad9ff;outline-offset:3px}
+@media (prefers-reduced-motion:reduce){#ap-home{transition:none}}
+</style>
+<a id="ap-home" href="/" aria-label="ART PLAYGROUND のギャラリーへ"><i></i>‹ ART PLAYGROUND</a>
+<script>
+(function(){var a=document.getElementById('ap-home');if(!a)return;var t;
+function show(){a.classList.remove('idle');clearTimeout(t);t=setTimeout(function(){a.classList.add('idle')},4000)}
+show();
+['touchstart','pointerdown','mousemove','keydown'].forEach(function(ev){addEventListener(ev,show,{passive:true,capture:true})});
+['touchstart','touchend','pointerdown','pointerup','mousedown','mouseup'].forEach(function(ev){a.addEventListener(ev,function(e){e.stopPropagation()})});/* 作品側のタッチ処理にpreventDefaultされてリンクが効かなくなるのを防ぐ */
+a.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();location.href=a.getAttribute('href')});
+})();
+</script>
+`;
+function htmlResponse(asset, body) {
+  const headers = new Headers(asset.headers);
+  // The body was changed, so stale byte/encoding validators must not be reused.
+  headers.delete('content-length'); headers.delete('content-encoding'); headers.delete('etag'); headers.delete('content-md5');
+  return new Response(body, { status: asset.status, statusText: asset.statusText, headers });
+}
+function cleanSource(v) { v = String(v || '').toLowerCase(); return /^[a-z0-9_-]{1,16}$/.test(v) ? v : ''; }
+function refererHost(request, url) {
+  try {
+    const h = new URL(request.headers.get('referer') || '').hostname.toLowerCase();
+    return h && h !== url.hostname.toLowerCase() ? h.slice(0, 64) : '';
+  } catch (e) { return ''; }
+}
+async function ensureLandingSchema(db) {
+  await db.prepare('CREATE TABLE IF NOT EXISTS landings (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, src TEXT NOT NULL, ref TEXT NOT NULL, created_at TEXT NOT NULL)').run();
+  await db.prepare('CREATE INDEX IF NOT EXISTS idx_landings_created_at ON landings(created_at)').run();
+}
+async function recordLanding(db, path, src, ref) {
+  try {
+    await ensureLandingSchema(db);
+    await db.prepare('INSERT INTO landings (path,src,ref,created_at) VALUES (?,?,?,?)').bind(path, src, ref, new Date().toISOString()).run();
+  } catch (e) { console.error('LANDING_RECORD_FAILED', e); }
+}
+async function onRequestGetSources({ env }) {
+  const db = env.DB || env.BD;
+  if (!db) return json({ error: 'DB_NOT_CONFIGURED' }, 503);
+  try {
+    await ensureLandingSchema(db);
+    const since = "created_at >= datetime('now','-30 days')";
+    const total = await db.prepare('SELECT COUNT(*) AS n FROM landings').first();
+    const recent = await db.prepare('SELECT COUNT(*) AS n FROM landings WHERE ' + since).first();
+    const bySrc = await db.prepare("SELECT src, COUNT(*) AS visits FROM landings WHERE " + since + " GROUP BY src ORDER BY visits DESC").all();
+    const byRef = await db.prepare("SELECT ref, COUNT(*) AS visits FROM landings WHERE " + since + " GROUP BY ref ORDER BY visits DESC LIMIT 15").all();
+    const byPath = await db.prepare("SELECT path, COUNT(*) AS visits FROM landings WHERE " + since + " GROUP BY path ORDER BY visits DESC LIMIT 15").all();
+    return json({ total: Number(total?.n || 0), last_30_days: Number(recent?.n || 0), by_source: bySrc.results || [], by_referrer: byRef.results || [], by_path: byPath.results || [] });
+  } catch (e) {
+    console.error('SOURCES_QUERY_FAILED', e);
+    return json({ error: 'SOURCES_QUERY_FAILED', detail: String((e && e.message) || e) }, 500);
+  }
+}
+// ================= /SNS導線まわり =================
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -94,6 +205,10 @@ export default {
     if (url.pathname === '/api/views') {
       if (request.method !== 'GET') return new Response('Method Not Allowed', { status: 405 });
       return onRequestGetAnalytics({ env });
+    }
+    if (url.pathname === '/api/sources') {
+      if (request.method !== 'GET') return new Response('Method Not Allowed', { status: 405 });
+      return onRequestGetSources({ env });
     }
 
     const asset = await env.ASSETS.fetch(request);
@@ -111,14 +226,41 @@ export default {
       ctx.waitUntil(recordView(env.DB, workPath, workTitle));
     }
 
+    // 流入の記録: 人が直接開いた(Sec-Fetch-Destがdocument。クローラーやギャラリーのiframeは付かない/別の値)ギャラリー・作品ページだけ。
+    // 流入元は ?s=ig / ?s=tt(または utm_source)とリファラのホスト名だけ。IPやUAは記録しない。
+    const dest = request.headers.get('sec-fetch-dest');
+    const isGalleryTop = url.pathname === '/' || url.pathname === '/index.html';
+    if (env.DB && request.method === 'GET' && asset.ok && dest === 'document' && (isGalleryTop || isWorkPage(url.pathname))) {
+      const landPath = isGalleryTop ? '/' : url.pathname;
+      ctx.waitUntil(recordLanding(env.DB, landPath, cleanSource(url.searchParams.get('s') || url.searchParams.get('utm_source')), refererHost(request, url)));
+    }
+
+    // 公開作品ページ: 共有カード(OGP)をクローラー/直接開きに、戻りリンクを直接開きに差し込む。
+    if (isWorkPage(url.pathname) && request.method === 'GET' && asset.ok && (!dest || dest === 'document')) {
+      const ct = asset.headers.get('content-type') || '';
+      if (ct.includes('text/html')) {
+        let html = await asset.text();
+        const { name, ja } = parseWorkTitle(html);
+        const image = await pickOgImage(env, url.origin, url.pathname);
+        if (!/property="og:title"/i.test(html)) html = html.replace(/<\/head>/i, () => workHeadTags({ name, ja, image }) + '\n</head>');
+        if (dest === 'document') {
+          const i = html.toLowerCase().lastIndexOf('</body>');
+          html = i >= 0 ? html.slice(0, i) + HOME_PILL + html.slice(i) : html + HOME_PILL;
+        }
+        return htmlResponse(asset, html);
+      }
+    }
+
     // Add social links only to the gallery page.
     if ((url.pathname === '/' || url.pathname === '/index.html') && asset.ok) {
       const contentType = asset.headers.get('content-type') || '';
       if (contentType.includes('text/html')) {
         const html = await asset.text();
-        const enhanced = html
+        // FOLLOWセクションは index.html 側に持つ(2026/10〜)。持っていない古い版のときだけ、従来どおりここで差し込む。
+        const hasFollow = html.includes('class="follow"');
+        const enhanced = (hasFollow ? html : html
           .replace('</style>', SOCIAL_CSS + '</style>')
-          .replace(/<section class="support"[^>]*>/, SOCIAL_HTML + '$&')
+          .replace(/<section class="support"[^>]*>/, SOCIAL_HTML + '$&'))
           .replace(/f\.src=url;/, "f.src=url+(url.indexOf('?')>=0?'&':'?')+'ap_view=1&ap_title='+encodeURIComponent(title||'');");
 
         const headers = new Headers(asset.headers);

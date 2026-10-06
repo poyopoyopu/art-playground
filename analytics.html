@@ -18,6 +18,8 @@ h2{font-size:13px;margin:28px 0 12px}.chart{height:170px;border:1px solid #20202
 button{margin-top:20px;border:1px solid #333;background:#111118;color:#fff;border-radius:10px;padding:10px 14px}
 #status{margin-top:10px;color:#666;font-size:11px}
 @media(max-width:600px){body{padding:18px 12px 50px}.row{grid-template-columns:24px 1fr 58px}.last{display:none}.stats{gap:8px}.num{font-size:26px}}
+.srow{display:flex;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid #202027;font-size:13px}.srow b{font-variant-numeric:tabular-nums}.srow span{color:#aaa;word-break:break-all}
+.bio{margin:14px 0 0;padding:14px;border:1px solid #202027;border-radius:14px;background:#0b0b10}.bio .t{font-size:11px;color:#888;margin-bottom:8px;line-height:1.7}.bio .u{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid #202027;font-size:12px}.bio .u code{color:#ddd;word-break:break-all}.bio button{margin:0;padding:8px 12px;font-size:11px;flex:none}
 </style>
 </head>
 <body><div class="wrap">
@@ -30,9 +32,12 @@ button{margin-top:20px;border:1px solid #333;background:#111118;color:#fff;borde
 <div class="stat"><div class="label">TODAY</div><div class="num" id="today">—</div></div>
 </div>
 <h2>DAILY VIEWS / 30 DAYS</h2><div class="chart" id="chart"></div>
+<h2>流入元 / 30 DAYS</h2><div class="meta" id="srcMeta">—</div>
+<div id="srcList"></div><h2>リファラ(どのサイトから来たか)</h2><div id="refList"></div>
+<div class="bio"><div class="t">プロフィールのリンクに、SNSごとのURLを使うと流入元が分かります(Instagram=ig / TikTok=tt)。</div><div id="bioLinks"></div></div>
 <h2>LATEST WORKS</h2><div class="meta" id="catalogMeta">—</div><div class="latest" id="latest"></div>
 <h2>WORKS / ALL TIME</h2><div class="tools"><button id="sortViews" class="active" onclick="setSort('views')">閲覧数順</button><button id="sortNew" onclick="setSort('new')">新しい順</button></div><input id="search" class="search" type="search" placeholder="作品名・ファイル名で検索" oninput="renderWorks()"><div id="list"></div>
-<button onclick="load()">↻ 更新</button><div id="status"></div>
+<button onclick="load();loadSources()">↻ 更新</button><div id="status"></div>
 </div>
 <script>
 let analyticsData=null,catalog=[],sortMode='views';
@@ -48,5 +53,15 @@ function setSort(mode){sortMode=mode;document.getElementById('sortViews').classL
 function renderWorks(){const vm=viewMap(),q=(document.getElementById('search').value||'').trim().toLowerCase();let rows=catalog.map((x,i)=>{const s=vm.get(normPath(x.path));return{path:x.path,title:x.title,views:Number(s?.views)||0,last_view:s?.last_view||null,index:i}}).filter(x=>!q||(x.title+' '+x.path).toLowerCase().includes(q));if(sortMode==='views')rows.sort((a,b)=>b.views-a.views||a.title.localeCompare(b.title));document.getElementById('list').innerHTML=rows.map((x,i)=>'<div class="row"><div>'+(sortMode==='views'?i+1:'—')+'</div><div><div class="name">'+esc(x.title)+(x.views===0?'<span class="zero">NO VIEWS</span>':'')+'</div><div class="path">'+esc(x.path)+'</div></div><div class="views">'+x.views.toLocaleString()+'</div><div class="last">'+formatDate(x.last_view)+'</div></div>').join('')||'該当する作品がありません。'}
 function esc(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function formatDate(s){if(!s)return'—';return new Date(s).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}
-load();setInterval(load,60000);
+const SRC_LABEL={ig:'Instagram',tt:'TikTok',x:'X (Twitter)',yt:'YouTube',line:'LINE'};
+function srcName(s){return s?(SRC_LABEL[s]||s):'(?s=なし:直接・ブックマーク・不明)'}
+function bioUrls(){return[['Instagram','ig'],['TikTok','tt']].map(([n,k])=>({n,k,u:location.origin+'/?s='+k}))}
+function renderBio(){document.getElementById('bioLinks').innerHTML=bioUrls().map(x=>'<div class="u"><div><div style="color:#888;font-size:10px">'+esc(x.n)+'</div><code>'+esc(x.u)+'</code></div><button onclick="copyBio(\''+x.k+'\',this)">コピー</button></div>').join('')}
+async function copyBio(k,btn){const x=bioUrls().find(y=>y.k===k);try{await navigator.clipboard.writeText(x.u);btn.textContent='コピーした'}catch(e){btn.textContent='長押しでコピー'}setTimeout(()=>{btn.textContent='コピー'},1800)}
+async function loadSources(){try{const r=await fetch('/api/sources',{cache:'no-store'}),d=await r.json();if(!r.ok)throw new Error((d.error||'API error')+(d.detail?(': '+d.detail):''));
+document.getElementById('srcMeta').textContent='過去30日 '+(d.last_30_days||0).toLocaleString()+' 回 / 累計 '+(d.total||0).toLocaleString()+' 回。人が直接開いた回数だけ(ギャラリーのプレビューとクローラーは除外)。記録は2026/10〜。';
+const row=(a,b)=>'<div class="srow"><span>'+esc(a)+'</span><b>'+Number(b).toLocaleString()+'</b></div>';
+document.getElementById('srcList').innerHTML=(d.by_source||[]).map(x=>row(srcName(x.src),x.visits)).join('')||'<div class="meta">まだ記録がありません。</div>';
+document.getElementById('refList').innerHTML=(d.by_referrer||[]).map(x=>row(x.ref||'(リファラなし)',x.visits)).join('')||'<div class="meta">まだ記録がありません。</div>'}catch(e){document.getElementById('srcMeta').textContent='流入データを取得できませんでした: '+e.message}}
+renderBio();load();loadSources();setInterval(()=>{load();loadSources()},60000);
 </script></body></html>

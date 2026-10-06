@@ -8,7 +8,7 @@
 
 - **削除しない。** ファイルもコードブロックも、明示的に頼まれない限り消さない。不要に見えても、まずコメントで指摘する。
 - **`ap-kit.js` は編集しない。** v32〜v48以降、10作品以上がこのファイルに依存しています。直したい点があっても、コードは変えずコメントで指摘するだけに留めてください。
-- **`index.html` は「ギャラリーへの作品追加」だけ許可(13章の手順を厳守)。** それ以外(デザイン・CSS・JS・構成の変更)は編集しない。(例外: 2026/10にしゅん承認で入れた「ポスター」の仕組み=CSSとスクリプト末尾のJS。14章。これも勝手に変えない)ギャラリーの入口で、複数人が同時に触っています。ここが壊れるとサイト全体が死にます。
+- **`index.html` は「ギャラリーへの作品追加」だけ許可(13章の手順を厳守)。** それ以外(デザイン・CSS・JS・構成の変更)は編集しない。(例外: 2026/10にしゅん承認で入れた「ポスター」の仕組み=CSSとスクリプト末尾のJS=14章、「LOGの畳み」=13章、「SNS導線」=headのOGP/favicon・FOLLOWセクション=15章。これらも勝手に変えない)ギャラリーの入口で、複数人が同時に触っています。ここが壊れるとサイト全体が死にます。
 - **作業前に `CHANGELOG.md` を読み、作業後にその履歴へ1行追記する。** 他の人が最近何を変えたかは、ここで共有する。
 - **作業前に、そのファイルを一度GitHubから取得し直してから編集する。** 別の経路(クロードや手動アップロード)でも同じリポジトリが更新されるため、古いローカルコピーをベースに書き戻すと、他の変更を消してしまいます。
 
@@ -202,9 +202,11 @@ if (window.APKit && APKit.isUI(x, y)) return true;
 
 ## 12. worker.js でHTMLを書き換える発想は基本NG
 
-`wrangler.toml` の `run_worker_first` は `/api/*` にしか設定してない。つまり `/api/*` 以外(HTMLファイル全部)へのリクエストは **`worker.js` の `fetch()` を素通りして静的アセットが直接返る**。worker.js側で正規表現やDOM操作でHTMLを書き換えて仕様を揃えようとしても、そのページが `/api/*` でなければ一生実行されない。
+(2026年9月時点の話。**2026/10以降、`wrangler.toml` の `run_worker_first` は `/api/*` に加えて HTML(`/`・`/index.html`・`/*.html`・`/**/*.html`)も含む**ので、HTMLも `worker.js` を通る。ただし下の方針は変わらない。書き換えてよいのは15章の「SNS導線」(作品ページへのOGP・戻りピルの差し込み)に限る。)
 
-実際にこれで時計の日付フォーマットが直らないというバグが起きた(2026年9月)。直し方は「Workerで書き換える」ではなく、**該当ファイル本体を直接編集する**こと。
+当時は `run_worker_first` が `/api/*` にしか設定されておらず、`/api/*` 以外(HTMLファイル全部)へのリクエストは **`worker.js` の `fetch()` を素通りして静的アセットが直接返っていた**。worker.js側で正規表現やDOM操作でHTMLを書き換えて仕様を揃えようとしても、そのページが `/api/*` でなければ一生実行されなかった。
+
+実際にこれで時計の日付フォーマットが直らないというバグが起きた(2026年9月)。直し方は「Workerで書き換える」ではなく、**該当ファイル本体を直接編集する**こと(作品の仕様・見た目を揃える目的でWorkerにHTMLを書き換えさせない。今も同じ)。
 
 ---
 
@@ -229,6 +231,7 @@ if (window.APKit && APKit.isUI(x, y)) return true;
    - `openArt` の引用符・カッコが閉じているか、`<button>` と `</button>` の数が一致しているか
    - 追加行以外に差分が出ていないか(変更前後の差分を自分で確認する)
 5. **ポスターを作る(14章)**: `python3 tools/gen_posters.py` を実行し、増えた `posters/` を同じコミットに入れる。`python3 tools/gen_posters.py --check` が通る(終了コード0)ことを確認する。作り忘れると、そのタイルが黒く見える。実行できない担当は、追加のコミット後にクロちゃんへ依頼する。
+5b. **共有カード画像(OGP)を作る(15章)**: `python3 tools/gen_og.py` を実行し、増えた `og/` を同じコミットに入れる。`python3 tools/gen_og.py --check` が通る(終了コード0)ことを確認する。作り忘れると、その作品のURLを貼ったときのカードが既定画像(`brand/og-image.jpg`)になる(壊れはしない)。ブラウザが動かない担当は、ポスターと同じくコミット後にクロちゃんへ依頼する。
 6. `CHANGELOG.md` の履歴と「現在の状態」を更新する。
 7. GitHub APIで `main` に直接push。コミットメッセージ例: `Add COLOR BREATH to gallery`
 8. push前に、**GitHub上の最新コミットが手順1で取得した時点から変わっていないか**を再確認する。変わっていたら、もう一度最新を取り直してからpushする。
@@ -274,3 +277,30 @@ if (window.APKit && APKit.isUI(x, y)) return true;
 - **ポスターは撮った時点の1コマ**: 作品は毎回乱数で変わるので、ライブとは絵や色が違う。作品ファイルを変えない限りこの差は直せない。
 - **しゅんの承認なしに変えない**: `index.html` のポスター用CSS/JS、`tools/`、`posters/` の仕組み。
 - ブラウザ(Chromium + Playwright)が動かない担当はポスターを作れない。その場合は、作品追加のコミット後にクロちゃんへ「ポスターを作って」と頼む。
+
+---
+
+## 15. SNS導線(サイト⇄SNS)— 2026/10〜
+
+SNS(Instagram/TikTok)から来た人をサイトで迎え、気に入った人をSNSへ戻す仕組み。しゅん承認済み。
+
+### サイト → SNS(FOLLOW)
+- `index.html` の `.follow` セクション(**LOGの畳みボタンの直下・Aboutの前**)。Instagram/TikTokの2ボタン(高さ50px)。SUPPORTより先に出る。リンク先やボタンを変えるときはここ。
+- 以前は `worker.js` が実行時に差し込んでいたが、`index.html` に `class="follow"` があるあいだは差し込まない(二重にならない)。`worker.js` 側の `SOCIAL_HTML/SOCIAL_CSS` は古い版へのフォールバックで、使われない。
+
+### SNS → サイト(共有カード・アイコン)
+- **トップ**: `index.html` の head に description / OGP / Twitterカード / favicon / apple-touch-icon(静的)。`og:image` は絶対URL `https://art-playground.artplayground.workers.dev/brand/og-image.jpg`(1200×630。LAMP FOLD・ANIMAL MANSION・BIRTHMARKを並べたもの。作り直すときだけ `python3 tools/gen_og.py --brand`)。
+- **作品ページ**: 作品ファイルは書き換えず、`worker.js` が直接開き/クローラーのときだけ head に OGP・favicon を差し込む。対象は `WORK_PAGE_RE`(`art-vNN…html` と `void-field-ii.html`)と `WORK_PAGE_EXTRA`(ギャラリーにあるprototypes 3作品)。**新作を `art-vNN-name.html` で昇格すれば自動で対象**。タイトルは `<title>` の「NAME — 日本語の一言」から作る。
+- カード画像は `og/<パスの / を __ にして .html を除く>.jpg`(1200×630)。生成は `tools/gen_og.py`(ポスターと同じく、足りない/古い分だけ作る・`--check` あり。撮影設定は `tools/poster-config.json` を共用し、`#hint` とap-kitのUIは常に隠す)。`og/` に無ければ既定画像になる。
+- `brand/` にfavicon(SVG・32px)・apple-touch-icon(180px)・PWAアイコン(192/512px)・既定OGP。`manifest.webmanifest` にアイコンを登録済み。
+
+### 作品ページを直接開いたとき(戻りリンク)
+- 人が直接開いた(`Sec-Fetch-Dest: document`)ときだけ、`worker.js` が左上に「‹ ART PLAYGROUND」ピルを差し込む(押すと `/`)。4秒で消え、画面に触れると再表示。ギャラリーのプレビュー/全画面(iframe)では出ない。作品ファイル・`ap-kit.js` は変更なし。作品のタッチ処理に邪魔されないよう、ピル上のタッチはイベントを止めている。
+
+### 流入の計測
+- プロフィールのリンクは **Instagram=`https://art-playground.artplayground.workers.dev/?s=ig`、TikTok=`…/?s=tt`**(`analytics.html` の「流入元」にコピーボタンあり)。
+- `worker.js` が、人が直接開いたギャラリー/作品ページを D1 の `landings`(path・src・ref・日時)に記録する。`src` は `?s=`(または `utm_source`)の英数字16文字まで、`ref` はリファラの**ホスト名だけ**。IP・UAは記録しない。クローラー・ギャラリーのiframe・自サイト内の移動は数えない。
+- 集計は `GET /api/sources`(過去30日の流入元別・リファラ別・ページ別)。`analytics.html` に表示。
+
+### 畳みとの関係
+- プロフィールのリンクはトップへ飛ぶ。リールで紹介した作品が畳みの中だと見つけてもらえないので、**SNSで紹介する作品はCURRENTにする**のが一番簡単(CURRENTの入れ替えは13章)。
