@@ -29,7 +29,9 @@ iframeを外すので、ポスターが無いと「黒いタイル」になる�
   taps    = 撮影前にクリックする座標(触るまで何も出ない作品用)
   holds   = 撮影前に [x, y, 押し続けるms] で長押しする(押して引く作品用)
   timeout = この作品だけ撮影の上限ms(既定 45000。重い作品用)
-  ※ taps → holds → delay の順に実行。ポスターは「少し触った後」の姿になる。
+  hide    = 撮影のあいだ隠すCSSセレクタの配列(例 ["#hint"])。作品の冒頭に出る操作説明(#hint)が
+            ポスターに写り込むのを防ぐ。説明が自動で消えない作品もあるので、delayで待つより確実
+  ※ hide(読み込み直後) → taps → holds → delay の順に実行。ポスターは「少し触った後」の姿になる。
 
 外部CDN(p5.js等)に出られない環境で撮るとき: 環境変数 POSTER_LIB_DIR にライブラリのファイル置き場を指定すると、
   同じファイル名(例 p5.min.js)のCDN読み込みをそのフォルダのものに差し替える。通常(CI等、CDNに出られる環境)は不要。
@@ -165,6 +167,9 @@ def shoot(browser, port, src, cfg, hero=False):
     page.set_default_timeout(int(c.get("timeout", PAGE_TIMEOUT_MS)))
     try:
         page.goto(f"http://127.0.0.1:{port}/{src}", wait_until="load")
+        hide = c.get("hide", [])
+        if hide:  # 操作説明などを隠して撮る(display:none なので後から出てきても写らない)
+            page.add_style_tag(content="".join(f"{sel}{{display:none!important}}" for sel in hide))
         for x, y in c.get("taps", []):
             page.mouse.click(x, y)
             page.wait_for_timeout(250)

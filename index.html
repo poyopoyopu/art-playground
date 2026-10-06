@@ -38,6 +38,15 @@
   .about{margin:38px 2px 0;padding:24px 4px 2px;border-top:1px solid var(--line-2)}.about-kicker{margin:0 0 10px;font-size:11px;letter-spacing:.28em;color:var(--text-3)}.about h2{margin:0;font-size:16px;line-height:1.5;font-weight:700;letter-spacing:-.02em}.about p{margin:10px 0 0;color:var(--text-2);font-size:12px;line-height:1.8}.about-en{margin-top:12px!important;color:var(--text-3)!important;font-size:11px!important;line-height:1.7!important}.about-works{margin-top:12px!important;color:var(--text-3)!important;font-size:11px!important;line-height:1.7!important}
   .support{margin:42px 2px 0;padding:26px 8px 4px;position:relative;text-align:center;border-top:1px solid var(--line-2)}.support::before{content:"";position:absolute;top:-1px;left:50%;width:76px;height:1px;transform:translateX(-50%);background:linear-gradient(90deg,var(--a),var(--b));box-shadow:0 0 12px rgba(122,217,255,.18)}.support-kicker{margin:0 0 10px;font-size:11px;letter-spacing:.28em;color:var(--text-3)}.support h2{margin:0;font-size:17px;line-height:1.45;font-weight:700;letter-spacing:-.02em}.support p{margin:10px auto 18px;max-width:38ch;color:var(--text-2);font-size:12px;line-height:1.75}.support-link{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:42px;padding:0 20px;border:1px solid rgba(255,255,255,.12);border-radius:999px;background:linear-gradient(135deg,rgba(122,217,255,.12),rgba(108,77,255,.18),rgba(255,122,217,.12));box-shadow:0 10px 28px -18px rgba(108,77,255,.65);color:var(--text-1);font-size:11px;font-weight:700;letter-spacing:.02em;transition:transform .15s ease,border-color .15s ease,background .15s ease}.support-link:active{transform:scale(.97)}.support-note{margin:10px 0 0!important;font-size:11px!important;line-height:1.6!important;color:var(--text-3)!important}@media (hover:hover){.support-link:hover{border-color:rgba(122,217,255,.28);background:linear-gradient(135deg,rgba(122,217,255,.17),rgba(108,77,255,.24),rgba(255,122,217,.16))}}
   .credit{padding:30px 2px 0;font-size:11px;letter-spacing:.1em;color:var(--text-3);text-align:center}.standalone-launch .wrap{visibility:hidden}.modal{position:fixed;inset:0;background:#000;z-index:50;opacity:0;pointer-events:none;transition:opacity .28s ease}.modal.open{opacity:1;pointer-events:auto}.modal iframe{width:100%;height:100%;height:100dvh;border:0;transform:scale(.97);transition:transform .32s cubic-bezier(.2,.7,.2,1)}.modal.open iframe{transform:none}@media (prefers-reduced-motion:reduce){.modal{transition:none}.modal iframe{transition:none;transform:none}}.modal .close::before{content:"";position:absolute;inset:-6px}.modal .close{position:fixed;top:calc(env(safe-area-inset-top) + 20px);right:16px;width:38px;height:38px;border-radius:50%;z-index:51;display:flex;align-items:center;justify-content:center;color:#fff;border:1px solid rgba(255,255,255,.16);background:rgba(10,10,16,.55);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);font-size:15px;box-shadow:0 6px 20px rgba(0,0,0,.4)}
+  /* LOGの畳み: 先頭LOG_VISIBLE件だけ見せ、残りは「ほかの○作品も見る」で開く(JSが.foldを付ける。JSが動かなければ全部見える) */
+  .log .entry.fold{display:none}.log.open .entry.fold{display:block}
+  .log-more{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;min-height:52px;margin:12px 0 0;padding:0 18px;border:1px solid var(--line-2);border-radius:16px;background:transparent;color:var(--text-1);font-size:13px;font-weight:600;letter-spacing:.02em;cursor:pointer;-webkit-appearance:none;appearance:none;transition:transform .15s ease,border-color .15s ease,background .15s ease}
+  .log-more .n{margin:0 .15em;color:var(--text-2);font-weight:400;font-variant-numeric:tabular-nums}
+  .log-more::after{content:"";width:7px;height:7px;border-right:1.5px solid var(--text-2);border-bottom:1.5px solid var(--text-2);transform:translateY(-2px) rotate(45deg);transition:transform .2s ease}
+  .log-more[aria-expanded="true"]::after{transform:translateY(2px) rotate(-135deg)}
+  .log-more:active{transform:scale(.98)}
+  @media (hover:hover){.log-more:hover{border-color:rgba(122,217,255,.28);background:rgba(255,255,255,.03)}}
+  @media (prefers-reduced-motion:reduce){.log-more,.log-more::after{transition:none}}
 </style>
 </head>
 <body>
@@ -157,6 +166,16 @@ function hydrateSub(box){
   var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){io.unobserve(e.target);hydrateSub(e.target)}})},{rootMargin:'600px 0px'});
   tiles.forEach(function(t){io.observe(t)});
 })();
+/* ---- LOGの畳み: 上から新しい順の先頭LOG_VISIBLE件だけ見せ、残りは「ほかの○作品も見る」で開く。タイルは消さない(HTMLの並び・追加手順は不変。新作を先頭に足せば自動で数がずれる) ---- */
+(function(){
+  var LOG_VISIBLE=8,log=document.querySelector('.log');if(!log)return;
+  var rest=[].slice.call(log.querySelectorAll('.entry')).slice(LOG_VISIBLE);if(!rest.length)return;
+  rest.forEach(function(t){t.classList.add('fold')});
+  log.id='log';var btn=document.createElement('button');btn.type='button';btn.className='log-more';btn.setAttribute('aria-controls','log');
+  function paint(){var open=log.classList.contains('open');btn.setAttribute('aria-expanded',open?'true':'false');btn.innerHTML='<span>'+(open?'たたむ':'ほかの<span class="n">'+rest.length+'</span>作品も見る')+'</span>'}
+  btn.addEventListener('click',function(){log.classList.toggle('open');paint();scalePreviews();schedule();if(window.apFillPosters)window.apFillPosters()});
+  log.parentNode.insertBefore(btn,log.nextSibling);paint();
+})();
 /* ---- ポスター: posters/manifest.json に載っている作品だけ、タイルの下地に静止画を貼る。無い作品は従来どおり(暗いタイル)。生成は tools/gen_posters.py ---- */
 (function(){
   function put(box,man){
@@ -167,6 +186,7 @@ function hydrateSub(box){
     im.onload=function(){im.classList.add('on')};im.onerror=function(){if(im.parentNode)im.parentNode.removeChild(im)};
     im.src='posters/'+((box.classList.contains('current')&&it.hf)||it.f)+'?v='+it.h;box.insertBefore(im,f);/* ヒーローだけ大きい専用版(hf)があればそれを使う */
   }
-  fetch('posters/manifest.json',{cache:'no-cache'}).then(function(r){return r.ok?r.json():null}).then(function(man){if(man)boxes().forEach(function(b){put(b,man)})}).catch(function(){});
+  var MAN=null;function fill(){if(!MAN)return;boxes().forEach(function(b){if(b.offsetParent!==null)put(b,MAN)})}/* 畳まれた(display:none)タイルには貼らない。開いたときにLOGの畳みJSがもう一度呼ぶ */window.apFillPosters=fill;
+  fetch('posters/manifest.json',{cache:'no-cache'}).then(function(r){return r.ok?r.json():null}).then(function(man){if(man){MAN=man;fill()}}).catch(function(){});
 })();
 </script></body></html>
