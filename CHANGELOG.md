@@ -1,3 +1,4 @@
+- 2026-10-06 クロード: NEST LAWをart-v90として昇格し、ギャラリーLOG先頭に追加(しゅん「OK採用で」。CURRENTはLAMP FOLDのまま)。ap-kit.jsの相対パスをルート用に修正、Published worksの2番目(LAMP FOLDの次)に追加、`META`に操作ヒント「なぞって内側の法則を変える」を1行追加。ポスター(`posters/`)とOGPカード(`og/`)を生成し、`gen_posters.py --check`・`gen_og.py --check`とも終了コード0。作品の操作説明は画面(canvas)に直接描く方式なので、ポスターに写り込まないよう`tools/poster-config.json`に「中心を少しなぞった後の姿を撮る」設定(`drags`)を追加し、できた画像に文字が無いことを目で確認。試作版`prototypes/nest-law.html`は残す。**スマホ実機での最終確認は未了**(art-v90-nest-law.html, index.html, posters/, og/, tools/poster-config.json, CHANGELOG.md)
 - 2026-10-06 クロード: NEST LAWのチカチカを軽減(おっちゃん「ちょっとチカチカしてるな」)。原因は、段ごとの比率の呼吸(揺れ)が内側の段ほど回転として積み重なり、中心付近が大きく振れていたこと。揺れ幅を0.012→0.003、速さを0.7→0.35、段ごとの位相差を小さくし、色の流れも0.012→0.005に。一辺2px未満の極小の段は描かないように。中心付近のフレーム間の画素差は0.62→0.21(約1/3)。法則・操作は変更なし(prototypes/nest-law.html, CHANGELOG.md)
 - 2026-10-06 クロード: 新作NEST LAW(触った段から内側の法則が書き換わる)を試作(おっちゃんがInstagramで見つけた「入れ子の回転する正方形×グラデーション」の作品を「これすごく好きだわ」→「作ってみて」。見た目のコピーではなく考え方だけ使用)。法則は「四角は親の四辺を同じ比率tで割った点を結んで生まれる。その比率が世界の法則で、段ごとに持つ」。ドラッグ=触った段(指の下にいちばん深くある四角。一辺110px未満は選ばない)から内側すべての法則が書き換わる(横=比率と渦の向き、縦=色の流れ。外側は元のまま、書き換えは外から内へ波のように伝わり、手を離しても戻らない)、タップ=触った段から内側の渦が反転(いったんt=0.5の菱形を通って巻き直る)。描画は2D Canvas、各段の親の四隅に残る4つの三角形にグラデーション、円環パレット5種を段ごとにずらす。✦=別の世界(パレット・色の速さ・法則。奥の段で法則が切り替わる)、↻=最初の世界。GIF書き出し・？ボタンなし。スマホ幅のヘッドレスChromiumで描画・ドラッグ・タップ・✦・↻を確認しエラーなし、60fps(GPUなし環境)。**スマホ実機は未確認**(prototypes/nest-law.html, CHANGELOG.md)
 - 2026-10-06 クロード: 録画の対象を10作品から12作品に拡大(STRATUM / ENCIRCLE を`REC_WORKS`に追加。しゅん「では1」)。どちらもWebGLで`preserveDrawingBuffer:true`のため、録画の合成(canvasをdrawImage)で真っ黒にならない見込みだったが、スマホ幅(390×844、DPR2)のヘッドレスChromiumで実際の録画ボタンを押し、触って停止するまで通して確認した。mp4が録れ、絵と2行の透かしが映り、始めと終わりで絵が変わっていた(STRATUMは光の形、ENCIRCLEは球の中身)。重さはGPUなしの環境でしか測れず、録画なしの描画回数が LAMP FOLD 3.6 / MIRROR DESCENT 4.0 / HAMSTER DROP 4.0 / STRATUM 2.8 / ENCIRCLE 1.4 回/秒で、ENCIRCLEだけ明確に重い順。絶対値は実機と無関係なので、**スマホ実機での確認待ち**(重ければENCIRCLEだけ外す)。作品ファイル・ap-kit.jsは変更なし(index.html, AGENTS.md, CHANGELOG.md)
@@ -369,7 +370,7 @@
 ## 現在の状態(変わったら書き換える)
 
 - CURRENT: LAMP FOLD(`art-v89-lamp-fold.html`)
-- LOG先頭: BIRTHMARK(`art-v88-birthmark.html`)
+- LOG先頭: NEST LAW(`art-v90-nest-law.html`)
 - 作業ルール: `AGENTS.md`(ギャラリー追加の手順と命名ルールは13章)
 - 表示モード: iPhoneホーム画面から起動するとCURRENT作品を自動表示するstandalone Web App対応済み
 - 一言説明: ヒーロー/タイルの一言は各作品の`<title>`(`NAME — 日本語の一言`)から自動取得。上書き・ヒントは`index.html`の`META`(ルールはAGENTS.md 13章)
