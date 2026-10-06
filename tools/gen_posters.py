@@ -29,9 +29,10 @@ iframeを外すので、ポスターが無いと「黒いタイル」になる�
   taps    = 撮影前にクリックする座標(触るまで何も出ない作品用)
   holds   = 撮影前に [x, y, 押し続けるms] で長押しする(押して引く作品用)
   timeout = この作品だけ撮影の上限ms(既定 45000。重い作品用)
+  drags   = 撮影前に [[x0,y0],[x1,y1],分割数] の直線を押したままなぞる(なぞって初めて絵が出る作品用。分割数は省略で30。1分割あたり約50ms)
   hide    = 撮影のあいだ隠すCSSセレクタの配列(例 ["#hint"])。作品の冒頭に出る操作説明(#hint)が
             ポスターに写り込むのを防ぐ。説明が自動で消えない作品もあるので、delayで待つより確実
-  ※ hide(読み込み直後) → taps → holds → delay の順に実行。ポスターは「少し触った後」の姿になる。
+  ※ hide(読み込み直後) → taps → holds → drags → delay の順に実行。ポスターは「少し触った後」の姿になる。
 
 外部CDN(p5.js等)に出られない環境で撮るとき: 環境変数 POSTER_LIB_DIR にライブラリのファイル置き場を指定すると、
   同じファイル名(例 p5.min.js)のCDN読み込みをそのフォルダのものに差し替える。通常(CI等、CDNに出られる環境)は不要。
@@ -177,6 +178,15 @@ def shoot(browser, port, src, cfg, hero=False):
             page.mouse.move(x, y)
             page.mouse.down()
             page.wait_for_timeout(int(ms))
+            page.mouse.up()
+        for d in c.get("drags", []):  # [[x0,y0],[x1,y1],分割数(既定30)] 押したまま直線でなぞる
+            (x0, y0), (x1, y1) = d[0], d[1]
+            n = int(d[2]) if len(d) > 2 else 30
+            page.mouse.move(x0, y0)
+            page.mouse.down()
+            for i in range(1, n + 1):
+                page.mouse.move(x0 + (x1 - x0) * i / n, y0 + (y1 - y0) * i / n)
+                page.wait_for_timeout(50)
             page.mouse.up()
         page.wait_for_timeout(int(c.get("delay", DEFAULT_DELAY_MS)))
         png = page.screenshot(clip={"x": 0, "y": 0, "width": VIEW_W, "height": CROP_H})

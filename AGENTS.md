@@ -270,7 +270,7 @@ if (window.APKit && APKit.isUI(x, y)) return true;
 - **対象**: `index.html` の `data-src` に載っている全作品(CURRENT + LOG)。manifestに載った作品にだけ貼られる。無い作品は従来どおり暗いタイルになる(壊れはしないが、作り忘れ)。
 - **いつ作るか**: 作品をギャラリーに足したとき / 作品ファイルを直したとき / CURRENTを替えたとき。`python3 tools/gen_posters.py` が、足りない分と古い分だけ作る。`--check` は作らずに点検する(不足・古いがあれば終了コード1)。
 - **ヒーロー**: `index.html` 先頭の `data-src`(=CURRENT)だけ、大きい版(`<名前>.hero.webp`)も作る。
-- **作品ごとの調整**: 触るまで何も出ない作品・重い作品は `tools/poster-config.json`(`taps` / `holds` / `delay` / `timeout` / `hide`。書式は `tools/gen_posters.py` の冒頭)。作ったら画像を目で見て、真っ黒・ほぼ一色でないか確認する(スクリプトも警告する)。
+- **作品ごとの調整**: 触るまで何も出ない作品・重い作品は `tools/poster-config.json`(`taps` / `holds` / `drags` / `delay` / `timeout` / `hide`。`drags` は押したまま直線でなぞる(TIDE MARKのように、なぞって初めて絵が出る作品用。`holds` は動かさずに押すだけ)。書式は `tools/gen_posters.py` の冒頭)。作ったら画像を目で見て、真っ黒・ほぼ一色でないか確認する(スクリプトも警告する)。
 - **操作説明の写り込み**: 作品の冒頭に操作説明(`#hint`)を出す作品は、ポスターにその文字が写ってしまう(消えるのを待つ方式は、自動で消えない作品があり不確実)。`poster-config.json` に `{"hide":["#hint"]}` を足して作り直す(2026/10時点で ANIMAL MANSION・HAMSTER DROP・INNER EYE・RAIN RELAY・RAINBOW WALK・NIGHT SHIFT・HELD TIME に設定済み)。新作に `#hint` があれば同じように足し、できたポスターに文字が写っていないか目で見る。
 - **外部CDN**: p5.js などをCDNから読む作品は、CDNに出られない環境では環境変数 `POSTER_LIB_DIR` が要る(`tools/gen_posters.py` の冒頭)。
 - **サイズ・画質**: タイル344×459、ヒーロー690×920、WebP q70。変えるときは `RENDER_VERSION` を上げる(全ポスターが「古い」扱いになり作り直しになる)。
