@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<!-- HALO PULL — クロード作。ap-kit.js統合: クロード
+     法則: 光の輪は、ふだんは焦点の外にいる。ピントは「触れた方角」からしか入ってこない。
+     タップ=指の方からピントの面が入ってきて、ぼやけた光が虹の縁の輪になる。
+           ピントが合っている時のタップ=指の方からピントが抜けて、また溶ける。
+     押さえる=押している間はピントが逃げない(合っていれば保たれ、ぼけていれば指の方から合わせにいく)。
+     触らなければ、ピントはまわりの気まぐれな方角から入って、抜けていく。
+     ✦=別の光(背景と輪の色相・輪の大きさ)、↻=最初の光。GIF書き出し・？ボタンなし。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>HALO PULL — 触れた方から、ピントが入ってくる</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#c9cdf2;
+    -webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+  canvas#c{display:block;position:fixed;inset:0;width:100vw;height:100vh;touch-action:none}
+</style>
+<script src="../ap-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(function(){
+'use strict';
+var cv=document.getElementById('c');
+var gl=cv.getContext('webgl',{antialias:false,alpha:false,depth:false,stencil:false,preserveDrawingBuffer:true,powerPreference:'high-performance'});
+if(!gl){document.body.style.background='#c9cdf2';return;}
+
+var VS='attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}';
+var FS=[
+'precision highp float;',
+'uniform vec2 res;uniform float t;uniform float pin;uniform float pout;',
+'uniform vec2 dir0;uniform vec2 dir1;uniform float hs;uniform float hr;uniform float R;',
+'float g(float x,float s){return exp(-x*x/(s*s));}',
+'float h(vec2 p){return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453);}',
+'float vn(vec2 p){vec2 i=floor(p),u=fract(p);u=u*u*(3.-2.*u);',
+'return mix(mix(h(i),h(i+vec2(1.,0.)),u.x),mix(h(i+vec2(0.,1.)),h(i+vec2(1.,1.)),u.x),u.y);}',
+'float fbm(vec2 p){float v=0.,a=.5;for(int i=0;i<3;i++){v+=a*vn(p);p=p*2.03+vec2(1.7,9.2);a*=.5;}return v;}',
+'vec3 hue(vec3 c,float a){',
+'  const mat3 toY=mat3(.299,.596,.211,.587,-.274,-.523,.114,-.322,.312);',
+'  const mat3 toR=mat3(1.,1.,1.,.956,-.272,-1.106,.621,-.647,1.703);',
+'  vec3 y=toY*c;float cs=cos(a),sn=sin(a);',
+'  y.yz=vec2(y.y*cs-y.z*sn,y.y*sn+y.z*cs);return toR*y;}',
+'vec3 sky(vec2 uv,float w,float tt,float nz){',
+'  vec2 p1=vec2(-.45+.15*sin(tt*.21),.4+.12*cos(tt*.17));',
+'  vec2 p2=vec2(.5+.12*cos(tt*.19),.35+.15*sin(tt*.23));',
+'  vec2 p3=vec2(.4+.15*sin(tt*.16+2.),-.45+.12*cos(tt*.2));',
+'  vec2 p4=vec2(-.45+.12*cos(tt*.18+1.),-.4+.15*sin(tt*.22));',
+'  vec2 p5=vec2(.05*sin(tt*.3),.05*cos(tt*.27));',
+'  vec3 c1=mix(vec3(.66,.74,1.),vec3(1.,.74,.62),w);',
+'  vec3 c2=mix(vec3(.96,.78,.95),vec3(1.,.6,.72),w);',
+'  vec3 c3=mix(vec3(.6,.92,.98),vec3(1.,.86,.55),w);',
+'  vec3 c4=mix(vec3(.78,.68,1.),vec3(.98,.66,.88),w);',
+'  vec3 c5=mix(vec3(.9,.92,1.),vec3(1.,.9,.82),w);',
+'  float w1=1./(dot(uv-p1,uv-p1)+.05),w2=1./(dot(uv-p2,uv-p2)+.05),w3=1./(dot(uv-p3,uv-p3)+.05),w4=1./(dot(uv-p4,uv-p4)+.05),w5=.6/(dot(uv-p5,uv-p5)+.08);',
+'  w1*=w1;w2*=w2;w3*=w3;w4*=w4;w5*=w5;',
+'  vec3 c=(c1*w1+c2*w2+c3*w3+c4*w4+c5*w5)/(w1+w2+w3+w4+w5);',
+'  c+=(nz-.5)*.06;c*=1.-.12*dot(uv,uv);return c;}',
+'void main(){',
+'  vec2 uv=(gl_FragCoord.xy-.5*res)/min(res.x,res.y);',
+'  float r=length(uv);',
+'  float wob=.03*sin(uv.x*7.+uv.y*3.+t*.9)+.02*sin(uv.y*11.-uv.x*5.-t*1.3);',
+'  float Rr=.78;',
+'  float D0=mix(2.1,0.,pin);float D1=mix(2.1,0.,pout);',
+'  float e0=Rr-length(uv-dir0*D0)+wob;float e1=Rr-length(uv-dir1*D1)-wob;',
+'  float f=smoothstep(-.06,.06,e0)*(1.-smoothstep(-.06,.06,e1));',
+'  float fb=smoothstep(-.3,.3,e0)*(1.-smoothstep(-.3,.3,e1));',
+'  float front=(g(e0,.07)*step(.001,pin)*(1.-pin*pin)+g(e1,.07)*step(.001,pout)*(1.-pout*pout))*1.6;',
+'  float wm=clamp(fb*(.55+.45*smoothstep(R,R+.3,r)),0.,1.);',
+'  float nz=fbm(uv*2.2+t*.03);',
+'  vec3 bg=hue(sky(uv,wm,t,nz),hs);',
+'  vec3 bgCool=hue(sky(uv,0.,t,nz),hs);',
+'  bg+=hue(vec3(1.,.6,.4),hs)*exp(-max(r-R,0.)/.18)*.08*fb;',
+'  float blob=g(r,R*.83);',
+'  vec3 blurC=mix(bgCool,hue(mix(vec3(.4,.84,1.),vec3(.66,.62,1.),g(r,R*.33)),hr),blob*.85);',
+'  blurC+=vec3(.12,.1,.12)*g(r,R*.55);',
+'  float eB=1.-smoothstep(R-.004,R+.004,r+.018);',
+'  vec3 inside=hue(mix(vec3(.68,.72,1.),vec3(.35,.92,1.),smoothstep(0.,R,r)),hr);',
+'  float rimW=g(r-R+.004,.006);float rimC=g(r-R+.02,.018);',
+'  float rimM=g(r-R-.012,.01);float rimO=g(r-R-.03,.022);',
+'  float halo=smoothstep(R,R+.01,r)*exp(-(r-R)/.09);',
+'  vec3 sharp=mix(bg,inside,eB);',
+'  sharp+=hue(vec3(-.4,.1,.05),hr)*rimC*1.2;sharp+=hue(vec3(0.,.95,1.),hr)*rimC*.3;',
+'  sharp=mix(sharp,vec3(1.),clamp(rimW*1.3,0.,1.));',
+'  sharp=mix(sharp,hue(vec3(1.,.15,.75),hr),rimM*.8);',
+'  sharp=mix(sharp,hue(vec3(1.,.45,.1),hr),rimO*.75);',
+'  sharp+=hue(vec3(1.,.55,.3),hr)*halo*.25;',
+'  vec2 dd=pout>.001?dir1:dir0;float ee=pout>.001?e1:e0;',
+'  vec3 rb=.5+.5*cos(6.2832*(dot(uv,vec2(-dd.y,dd.x))*1.4+ee*3.+t*.2+vec3(0.,.33,.67)));',
+'  rb=mix(rb,vec3(1.),.22);float con=front*(1.-smoothstep(R,R+.05,r));',
+'  vec3 col=mix(mix(blurC,bg,fb*(1.-blob*.8)),sharp,f);',
+'  col=mix(col,rb,clamp(con*.7,0.,1.));',
+'  col+=(h(gl_FragCoord.xy+fract(t)*91.)-.5)*.035;',
+'  gl_FragColor=vec4(clamp(col,0.,1.),1.);}'
+].join('\n');
+
+function sh(tp,src){var o=gl.createShader(tp);gl.shaderSource(o,src);gl.compileShader(o);
+  if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))console.error(gl.getShaderInfoLog(o));return o;}
+var pr=gl.createProgram();
+gl.attachShader(pr,sh(gl.VERTEX_SHADER,VS));gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,FS));
+gl.linkProgram(pr);gl.useProgram(pr);
+var buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+var lp=gl.getAttribLocation(pr,'p');gl.enableVertexAttribArray(lp);gl.vertexAttribPointer(lp,2,gl.FLOAT,false,0,0);
+var U={};['res','t','pin','pout','dir0','dir1','hs','hr','R'].forEach(function(n){U[n]=gl.getUniformLocation(pr,n);});
+
+/* 解像度(重い端末では自動で下げる) */
+var scale=Math.min(window.devicePixelRatio||1,2),minScale=0.6;
+function resize(){
+  var w=Math.max(1,Math.round(innerWidth*scale)),hh=Math.max(1,Math.round(innerHeight*scale));
+  if(cv.width!==w||cv.height!==hh){cv.width=w;cv.height=hh;gl.viewport(0,0,w,hh);}
+}
+addEventListener('resize',resize);resize();
+
+/* ピントの状態: blur(ぼけ) → in(ピントが入る) → sharp(合っている) → out(抜ける) → blur */
+var DUR={blur:0.9,in:2.8,sharp:1.7,out:2.6};
+var S={state:'blur',k:0,pin:0,pout:0,a0:0,a1:0,next:null,auto:true};
+var look={hs:0,hr:0,R:0.36};
+var held=false,touch=null;
+
+function rnd(a,b){return a+Math.random()*(b-a);}
+function startIn(a){S.state='in';S.k=0;S.pin=0;S.pout=0;S.a0=a;}
+function startOut(a){S.state='out';S.k=0;S.a1=a;}
+function ease(x){return x<0?0:x>1?1:x*x*(3-2*x);}
+
+function angleAt(x,y){
+  /* 画面の中心から指へ向かう方角(シェーダーの座標はyが上向き) */
+  var dx=x-innerWidth/2,dy=-(y-innerHeight/2);
+  if(dx*dx+dy*dy<4)return Math.random()*Math.PI*2;
+  return Math.atan2(dy,dx);
+}
+
+function step(dt){
+  S.k+=dt;
+  if(S.state==='blur'){
+    if(S.next!==null){startIn(S.next);S.next=null;}
+    else if(held&&touch){startIn(touch.a);}
+    else if(S.k>DUR.blur){startIn(rnd(0,Math.PI*2));}
+  }else if(S.state==='in'){
+    S.pin=Math.min(1,S.k/DUR.in);
+    if(S.pin>=1){S.state='sharp';S.k=0;}
+  }else if(S.state==='sharp'){
+    if(S.next!==null){startOut(S.next);S.next=null;}
+    else if(!held&&S.k>DUR.sharp){startOut(S.a0+rnd(2.2,4.0));}
+  }else if(S.state==='out'){
+    S.pout=Math.min(1,S.k/DUR.out);
+    if(S.pout>=1){S.state='blur';S.k=0;S.pin=0;S.pout=0;}
+  }
+}
+
+function onTap(a){
+  if(S.state==='blur'){startIn(a);}
+  else if(S.state==='sharp'){startOut(a);}
+  else{S.next=a;} /* 動いている途中なら、次の番にその方角を使う */
+}
+
+cv.addEventListener('pointerdown',function(e){
+  if(window.APKit&&window.APKit.isUI(e.clientX,e.clientY))return;
+  e.preventDefault();
+  if(touch)return;
+  touch={id:e.pointerId,t0:performance.now(),a:angleAt(e.clientX,e.clientY),x:e.clientX,y:e.clientY};
+  try{cv.setPointerCapture(e.pointerId);}catch(_){}
+});
+cv.addEventListener('pointermove',function(e){
+  if(!touch||e.pointerId!==touch.id)return;
+  touch.a=angleAt(e.clientX,e.clientY);
+});
+function up(e){
+  if(!touch||e.pointerId!==touch.id)return;
+  var dur=performance.now()-touch.t0;
+  if(!held&&dur<350)onTap(touch.a);
+  if(held&&S.state==='sharp')S.k=0; /* 離してから少し余韻 */
+  held=false;touch=null;
+}
+cv.addEventListener('pointerup',up);
+cv.addEventListener('pointercancel',up);
+
+function mutate(){
+  look.hs=rnd(-Math.PI,Math.PI);
+  look.hr=Math.random()<0.35?0:rnd(-Math.PI,Math.PI);
+  look.R=rnd(0.28,0.4);
+}
+function resetAll(){
+  look.hs=0;look.hr=0;look.R=0.36;
+  S.state='blur';S.k=0;S.pin=0;S.pout=0;S.next=null;
+}
+
+var T0=performance.now(),last=T0,slow=0,fast=0;
+function frame(now){
+  var dt=Math.min((now-last)/1000,0.1);last=now;
+  if(touch&&!held&&now-touch.t0>=350)held=true;
+  step(dt);
+  /* 重さを見て解像度を調整 */
+  if(dt>0.034){slow++;fast=0;}else{fast++;if(slow>0)slow--;}
+  if(slow>40&&scale>minScale){scale=Math.max(minScale,scale*0.8);slow=0;resize();}
+  resize();
+  var tt=(now-T0)/1000;
+  gl.uniform2f(U.res,cv.width,cv.height);
+  gl.uniform1f(U.t,tt);
+  gl.uniform1f(U.pin,ease(S.pin));
+  gl.uniform1f(U.pout,ease(S.pout));
+  gl.uniform2f(U.dir0,Math.cos(S.a0),Math.sin(S.a0));
+  gl.uniform2f(U.dir1,Math.cos(S.a1),Math.sin(S.a1));
+  gl.uniform1f(U.hs,look.hs);gl.uniform1f(U.hr,look.hr);gl.uniform1f(U.R,look.R);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+if(window.APKit){
+  window.APKit.init({
+    canvas:cv,
+    gifName:'halo-pull',
+    clockFormat:'spec',
+    dock:true,
+    autoHide:true,
+    fullscreenButton:false,
+    buttons:[
+      {label:'✦',name:'mutate',onClick:mutate},
+      {label:'↻',name:'reset',onClick:resetAll}
+    ]
+  });
+}
+})();
+</script>
+</body>
+</html>
