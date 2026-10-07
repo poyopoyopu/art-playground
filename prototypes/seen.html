@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<!-- SEEN — クロード作。ap-kit.js統合: クロード
+     HALO PULL(prototypes/halo-pull.html)の作り直し。
+     法則: 世界はぜんぶピンボケ。見つめられた所だけピントが合い、合ったピントはそこに残る。
+     ぼやけた光の正体は、大小の虹の縁の輪(3段の入れ子)。
+     なぞる=指がレンズになり、レンズ越しの所だけピントが合う(少し拡大して見える)。
+     じっと見つめる(指を置いたまま)=その場所にピントが少しずつ残り、離しても戻らない。
+           残ったピントの場所を輪が流れていくと、通る輪だけがくっきりする。
+     見た場所は端末が覚えていて、次に開いたときも続きから(localStorage)。
+     世界の大部分を見終えると、ゆっくりボケて次の世界(色・輪の並び)に変わる。
+     触らないときは、幽霊のレンズがゆっくりさまよう(ピントは残さない)。
+     ✦=別の世界(見た跡は消える)、↻=見た跡を消す(同じ世界)。GIF書き出し・？ボタンなし。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>SEEN — 見つめた所だけ、世界のピントが残る</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#c9cdf2;
+    -webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+  canvas#c{display:block;position:fixed;inset:0;width:100%;height:100%;touch-action:none}
+</style>
+<script src="../ap-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(function(){
+'use strict';
+var cv=document.getElementById('c');
+var gl=cv.getContext('webgl',{antialias:false,alpha:false,depth:false,stencil:false,preserveDrawingBuffer:true,powerPreference:'high-performance'});
+if(!gl)return;
+
+var STORE='ap-seen-v1',MAP=96;
+
+/* 共通の頂点シェーダ: box=(中心x,中心y,半幅,半高さ)をuv座標(短辺=1)で受け取り、その四角だけを描く */
+var VS=[
+'attribute vec2 p;uniform vec4 box;uniform vec2 res;varying vec2 uv;varying vec2 vU;',
+'void main(){uv=box.xy+p*box.zw;float m=min(res.x,res.y);vec2 cl=uv*m/(.5*res);vU=cl*.5+.5;gl_Position=vec4(cl,0.,1.);}'
+].join('\n');
+var VSMAP='attribute vec2 p;varying vec2 vU;void main(){vU=p*.5+.5;gl_Position=vec4(p,0.,1.);}';
+
+var COMMON=[
+'precision highp float;varying vec2 uv;varying vec2 vU;',
+'uniform sampler2D fm;uniform vec2 res;uniform vec2 lp;uniform float lr;uniform float la;uniform float hs;',
+'float g(float x,float s){return exp(-x*x/(s*s));}',
+'float h(vec2 p){return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453);}',
+'vec3 hue(vec3 c,float a){',
+'  const mat3 toY=mat3(.299,.596,.211,.587,-.274,-.523,.114,-.322,.312);',
+'  const mat3 toR=mat3(1.,1.,1.,.956,-.272,-1.106,.621,-.647,1.703);',
+'  vec3 y=toY*c;float cs=cos(a),sn=sin(a);',
+'  y.yz=vec2(y.y*cs-y.z*sn,y.y*sn+y.z*cs);return toR*y;}',
+/* 重ねる(premultiplied): C=色*不透明度の合計、A=不透明度 */
+'vec4 lay(vec4 acc,vec3 c,float a){a=clamp(a,0.,1.);return vec4(c*a+acc.rgb*(1.-a),a+acc.a*(1.-a));}',
+''].join('\n');
+
+/* ピントの地図を更新する: 見つめている所だけ少しずつ増える。世界の入れ替わり中は全体が減る */
+var FS_MAP=[
+'precision highp float;varying vec2 vU;',
+'uniform sampler2D prev;uniform vec2 res;uniform vec2 lp;uniform float lr;uniform float add;uniform float fade;',
+'void main(){',
+'  float o=texture2D(prev,vU).r;',
+'  vec2 u=(vU*res-.5*res)/min(res.x,res.y);',
+'  float d=length(u-lp);',
+'  float m=1.-smoothstep(lr*.45,lr*.95,d);',
+'  float v=clamp(o+m*add-fade,0.,1.);',
+'  gl_FragColor=vec4(v,v,v,1.);}'
+].join('\n');
+
+/* 背景(全画面) */
+var FS_SKY=COMMON+[
+'uniform float t;',
+'void main(){',
+'  float m=texture2D(fm,vU).r;',
+'  float dl=length(uv-lp);',
+'  float inL=(1.-smoothstep(lr-.004,lr+.004,dl))*la;',
+'  vec2 q=mix(uv,lp+(uv-lp)/1.3,inL);',
+'  float sF=clamp(max(smoothstep(.05,.95,m),inL),0.,1.);float w=sF*.12;',
+'  vec2 p1=vec2(-.45+.15*sin(t*.21),.4+.12*cos(t*.17));',
+'  vec2 p2=vec2(.5+.12*cos(t*.19),.35+.15*sin(t*.23));',
+'  vec2 p3=vec2(.4+.15*sin(t*.16+2.),-.45+.12*cos(t*.2));',
+'  vec2 p4=vec2(-.45+.12*cos(t*.18+1.),-.4+.15*sin(t*.22));',
+'  vec3 c1=mix(vec3(.66,.74,1.),vec3(1.,.78,.68),w);',
+'  vec3 c2=mix(vec3(.96,.78,.95),vec3(1.,.68,.78),w);',
+'  vec3 c3=mix(vec3(.6,.92,.98),vec3(1.,.88,.64),w);',
+'  vec3 c4=mix(vec3(.78,.68,1.),vec3(.98,.72,.9),w);',
+'  float w1=1./(dot(q-p1,q-p1)+.05),w2=1./(dot(q-p2,q-p2)+.05),w3=1./(dot(q-p3,q-p3)+.05),w4=1./(dot(q-p4,q-p4)+.05);',
+'  w1*=w1;w2*=w2;w3*=w3;w4*=w4;',
+'  vec3 c=(c1*w1+c2*w2+c3*w3+c4*w4)/(w1+w2+w3+w4);',
+'  c*=1.-.1*dot(q,q);',
+/* ピントが合った所にだけ見える、細かい光の粒(ぼけると見えない) */
+'  vec2 gq=q*42.+vec2(t*.4,t*.15);vec2 gi=floor(gq),gf=fract(gq)-.5;',
+'  float rnd=h(gi);vec2 off=vec2(h(gi+.3),h(gi+.7))-.5;',
+'  float dot1=step(.55,rnd)*(1.-smoothstep(.04,.09+.05*(rnd-.55),length(gf-off*.6)));',
+'  vec3 dc=.6+.4*cos(6.2832*(rnd*3.+vec3(0.,.33,.67)));',
+'  c=mix(c,mix(vec3(1.),dc,.5),dot1*sF*.75);',
+'  gl_FragColor=vec4(hue(c,hs),1.);}'
+].join('\n');
+
+/* 輪ひとつ: ピントsで縁の幅が変わる(ぼけている時は柔らかい光、合うと虹の縁) */
+var FS_RING=COMMON+[
+'uniform vec2 ctr;uniform float rr;uniform vec3 tint;uniform float lv;',
+'void main(){',
+'  float m=texture2D(fm,vU).r;',
+'  float dl=length(uv-lp);',
+'  float inL=(1.-smoothstep(lr-.004,lr+.004,dl))*la;',
+'  vec2 q=mix(uv,lp+(uv-lp)/1.3,inL);',
+'  float s=clamp(max(smoothstep(.05,.95,m),inL),0.,1.);',
+'  float d=length(q-ctr);',
+'  float k=mix(5.,1.,s*s);float amp=s*s*(3.-2.*s);',
+'  vec4 acc=vec4(0.);',
+'  vec3 glow=mix(mix(vec3(.45,.85,1.),vec3(.7,.66,1.),g(d,rr*.4)),tint,.35);',
+'  acc=lay(acc,glow,g(d,rr*.85)*.6*(1.-s));',
+'  float e=.012*rr*k;',
+'  float ins=1.-smoothstep(rr-e,rr+e,d+.03*rr);',
+'  vec3 fill=mix(mix(vec3(.66,.68,1.),vec3(.3,.9,1.),smoothstep(.1*rr,rr,d)),tint,.25);',
+'  acc=lay(acc,fill,ins*amp*mix(.92,.75,lv*.5));',
+'  float x=d-rr;',
+'  acc=lay(acc,vec3(.1,.95,1.),g(x+.06*rr,.05*rr*k)*.85*amp);',
+'  acc=lay(acc,vec3(1.),g(x+.012*rr,.018*rr*k)*1.2*amp);',
+'  acc=lay(acc,vec3(1.,.15,.75),g(x-.035*rr,.03*rr*k)*.75*amp);',
+'  acc=lay(acc,vec3(1.,.45,.12),g(x-.09*rr,.065*rr*k)*.65*amp);',
+'  acc.rgb+=vec3(1.,.55,.3)*step(0.,x)*exp(-max(x,0.)/(rr*.25))*.18*s;',
+'  if(acc.a<.002&&dot(acc.rgb,acc.rgb)<.00001)discard;',
+'  gl_FragColor=vec4(hue(acc.rgb,hs),acc.a);}'
+].join('\n');
+
+/* 仕上げ(全画面): 見つめた跡の境目の虹、レンズの縁と影、粒子感 */
+var FS_TOP=COMMON+[
+'uniform float t;',
+'void main(){',
+'  float m=texture2D(fm,vU).r;',
+'  float dl=length(uv-lp);',
+'  float inL=(1.-smoothstep(lr-.004,lr+.004,dl))*la;',
+'  vec4 acc=vec4(0.);',
+'  float edge=g(m-.5,.08)*(1.-inL);',
+'  acc.rgb+=(.5+.5*cos(6.2832*(m*2.+t*.05+vec3(0.,.33,.67))))*edge*.07;',
+'  acc=lay(acc,vec3(0.),g(dl-lr-.012,.02)*la*(1.-inL)*.12);',
+'  acc=lay(acc,vec3(.1,.95,1.),g(dl-lr+.012,.01)*la*.7);',
+'  acc=lay(acc,vec3(1.),g(dl-lr+.003,.004)*la*1.2);',
+'  acc=lay(acc,vec3(1.,.2,.75),g(dl-lr-.007,.006)*la*.6);',
+'  acc=lay(acc,vec3(1.,.5,.15),g(dl-lr-.016,.012)*la*.5);',
+'  acc=lay(acc,vec3(h(gl_FragCoord.xy+fract(t)*91.)),.035);',
+'  gl_FragColor=acc;}'
+].join('\n');
+
+function sh(tp,src){var o=gl.createShader(tp);gl.shaderSource(o,src);gl.compileShader(o);
+  if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))console.error(gl.getShaderInfoLog(o));return o;}
+function prog(vs,fs,names){var p=gl.createProgram();gl.attachShader(p,sh(gl.VERTEX_SHADER,vs));gl.attachShader(p,sh(gl.FRAGMENT_SHADER,fs));
+  gl.bindAttribLocation(p,0,'p');gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS))console.error(gl.getProgramInfoLog(p));
+  var u={};names.forEach(function(n){u[n]=gl.getUniformLocation(p,n);});return {p:p,u:u};}
+var base=['box','res','fm','lp','lr','la','hs'];
+var PM=prog(VSMAP,FS_MAP,['prev','res','lp','lr','add','fade']);
+var PS=prog(VS,FS_SKY,base.concat(['t']));
+var PR=prog(VS,FS_RING,base.concat(['ctr','rr','tint','lv']));
+var PT=prog(VS,FS_TOP,base.concat(['t']));
+var buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+
+/* ピントの地図(2枚を交互に使う) */
+function makeTex(data){
+  var tx=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,tx);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,MAP,MAP,0,gl.RGBA,gl.UNSIGNED_BYTE,data||null);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  var fb=gl.createFramebuffer();gl.bindFramebuffer(gl.FRAMEBUFFER,fb);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,tx,0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+  return {tx:tx,fb:fb};
+}
+function blank(){var a=new Uint8Array(MAP*MAP*4);for(var i=3;i<a.length;i+=4)a[i]=255;return a;}
+
+/* 端末に覚えている続き */
+var world={seed:1,hs:0},saved=null;
+try{saved=JSON.parse(localStorage.getItem(STORE)||'null');}catch(_){saved=null;}
+var init=blank();
+if(saved&&typeof saved.seed==='number'){
+  world.seed=saved.seed;world.hs=saved.hs||0;
+  if(saved.map){
+    try{var bin=atob(saved.map);if(bin.length===MAP*MAP){for(var i=0;i<bin.length;i++){var v=bin.charCodeAt(i);init[i*4]=v;init[i*4+1]=v;init[i*4+2]=v;}}}catch(_){}
+  }
+}
+var A=makeTex(init),B=makeTex(init);
+
+/* 解像度(実際の表示サイズから。重い端末では自動で下げる) */
+var scale=Math.min(window.devicePixelRatio||1,2),minScale=0.6;
+function resize(){
+  var w=Math.max(1,Math.round((cv.clientWidth||innerWidth)*scale)),hh=Math.max(1,Math.round((cv.clientHeight||innerHeight)*scale));
+  if(cv.width!==w||cv.height!==hh){cv.width=w;cv.height=hh;}
+}
+addEventListener('resize',resize);
+if(window.ResizeObserver)new ResizeObserver(resize).observe(cv);
+resize();
+function half(){var m=Math.min(cv.width,cv.height);return [cv.width*.5/m,cv.height*.5/m];}
+
+/* 輪: 3段の大きさ。種(seed)から決まり、ゆっくり流れて画面の端で反対側へ回り込む */
+var LEVELS=[{r0:.15,r1:.26,dens:1.6,vx:.011,vy:.005},{r0:.065,r1:.11,dens:6,vx:.017,vy:.004},{r0:.028,r1:.05,dens:14,vx:.022,vy:.002}];
+var rings=[];
+function rand(seed){var x=Math.sin(seed*127.1+311.7)*43758.5453;return function(){x=Math.sin(x*12.9898+78.233)*43758.5453;return x-Math.floor(x);};}
+function buildRings(){
+  var r=rand(world.seed),hx=half(),area=4*hx[0]*hx[1];
+  rings=[];
+  LEVELS.forEach(function(L,li){
+    var n=Math.max(2,Math.round(L.dens*area));
+    for(var i=0;i<n;i++){
+      var c=0.5+0.45*Math.cos(6.2832*(r()*0.5+0.45)),c2=0.5+0.45*Math.cos(6.2832*(r()*0.5+0.45)+2.09),c3=0.5+0.45*Math.cos(6.2832*(r()*0.5+0.45)+4.19);
+      rings.push({lv:li,bx:r(),by:r(),rr:L.r0+(L.r1-L.r0)*r(),ph:r()*6.28,vx:L.vx*(0.7+0.6*r()),vy:L.vy*(r()*2-1),
+        tint:[.55+.45*Math.cos(6.2832*(r()*.5+.45)),.55+.45*Math.cos(6.2832*(r()*.5+.45+.33)),.55+.45*Math.cos(6.2832*(r()*.5+.45+.67))]});
+    }
+  });
+}
+buildRings();
+var lastHalf=half().join(',');
+
+function toUV(x,y){
+  var rc=cv.getBoundingClientRect(),m=Math.min(rc.width,rc.height);
+  return [(x-rc.left-rc.width/2)/m,-(y-rc.top-rc.height/2)/m];
+}
+
+/* レンズ */
+var LR=0.2,MAG=1.3;
+var lens={x:0,y:0,a:0.85},touch=null,idle=99,dirty=false;
+var fadeAll=0,coverage=0;
+
+cv.addEventListener('pointerdown',function(e){
+  if(window.APKit&&window.APKit.isUI(e.clientX,e.clientY))return;
+  e.preventDefault();
+  if(touch)return;
+  var u=toUV(e.clientX,e.clientY);
+  touch={id:e.pointerId,x:u[0],y:u[1]};
+  try{cv.setPointerCapture(e.pointerId);}catch(_){}
+});
+cv.addEventListener('pointermove',function(e){
+  if(!touch||e.pointerId!==touch.id)return;
+  var u=toUV(e.clientX,e.clientY);touch.x=u[0];touch.y=u[1];
+});
+function up(e){if(!touch||e.pointerId!==touch.id)return;touch=null;idle=0;}
+cv.addEventListener('pointerup',up);
+cv.addEventListener('pointercancel',up);
+
+/* 保存と、見終えたかの判定 */
+var px=new Uint8Array(MAP*MAP*4);
+function readMap(){
+  gl.bindFramebuffer(gl.FRAMEBUFFER,A.fb);
+  gl.readPixels(0,0,MAP,MAP,gl.RGBA,gl.UNSIGNED_BYTE,px);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+  var s='',sum=0;
+  for(var i=0;i<MAP*MAP;i++){var v=px[i*4];sum+=v;s+=String.fromCharCode(v);}
+  coverage=sum/(MAP*MAP*255);
+  return s;
+}
+function save(){
+  var s=readMap();
+  try{localStorage.setItem(STORE,JSON.stringify({seed:world.seed,hs:world.hs,map:btoa(s)}));}catch(_){}
+  dirty=false;
+}
+setInterval(function(){
+  if(fadeAll>0){readMap();if(coverage<0.01){fadeAll=0;newWorld(false);}return;}
+  if(dirty){save();if(coverage>0.82)fadeAll=1;}
+},2000);
+addEventListener('pagehide',function(){if(dirty)save();});
+document.addEventListener('visibilitychange',function(){if(document.hidden&&dirty)save();});
+
+function clearMap(){
+  var z=blank();
+  [A,B].forEach(function(o){gl.bindTexture(gl.TEXTURE_2D,o.tx);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,MAP,MAP,0,gl.RGBA,gl.UNSIGNED_BYTE,z);});
+  dirty=true;
+}
+function newWorld(clear){
+  world.seed=Math.floor(Math.random()*997)+1;
+  world.hs=(Math.random()*2-1)*Math.PI;
+  buildRings();
+  if(clear)clearMap();
+  dirty=true;save();
+}
+function mutate(){fadeAll=0;newWorld(true);}
+function resetAll(){fadeAll=0;clearMap();save();}
+
+function setBase(P,tt){
+  gl.useProgram(P.p);
+  gl.uniform2f(P.u.res,cv.width,cv.height);
+  gl.uniform1i(P.u.fm,0);
+  gl.uniform2f(P.u.lp,lens.x,lens.y);gl.uniform1f(P.u.lr,LR);gl.uniform1f(P.u.la,lens.a);
+  gl.uniform1f(P.u.hs,world.hs);
+  if(P.u.t)gl.uniform1f(P.u.t,tt);
+}
+
+var T0=performance.now(),last=T0,slow=0;
+function frame(now){
+  var dt=Math.min((now-last)/1000,0.1);last=now;
+  var tt=(now-T0)/1000;
+  idle+=dt;
+  /* レンズの行き先: 指 / 触らない間は幽霊のレンズがさまよう */
+  var tx,ty,k,ta;
+  if(touch){tx=touch.x;ty=touch.y;k=18;ta=1;}
+  else if(idle<2.5){tx=lens.x;ty=lens.y;k=0;ta=1;}
+  else{tx=0.26*Math.sin(tt*0.23)+0.08*Math.sin(tt*0.61);ty=0.3*Math.sin(tt*0.17+1.0);k=0.8;ta=0.85;}
+  var f=1-Math.exp(-k*dt);
+  lens.x+=(tx-lens.x)*f;lens.y+=(ty-lens.y)*f;
+  lens.a+=(ta-lens.a)*(1-Math.exp(-3*dt));
+
+  resize();
+  var hx=half();
+  if(hx.join(',')!==lastHalf){lastHalf=hx.join(',');buildRings();}
+  gl.disable(gl.BLEND);
+  /* 地図の更新 */
+  var add=touch?dt*0.55:0,fade=fadeAll?dt*0.18:0;
+  if(add>0||fade>0){
+    gl.useProgram(PM.p);
+    gl.bindFramebuffer(gl.FRAMEBUFFER,B.fb);gl.viewport(0,0,MAP,MAP);
+    gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,A.tx);
+    gl.uniform1i(PM.u.prev,0);gl.uniform2f(PM.u.res,cv.width,cv.height);
+    gl.uniform2f(PM.u.lp,lens.x,lens.y);gl.uniform1f(PM.u.lr,LR);
+    gl.uniform1f(PM.u.add,add);gl.uniform1f(PM.u.fade,fade);
+    gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+    var tmp=A;A=B;B=tmp;
+    if(add>0)dirty=true;
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.viewport(0,0,cv.width,cv.height);
+  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,A.tx);
+
+  /* 背景 */
+  setBase(PS,tt);gl.uniform4f(PS.u.box,0,0,hx[0],hx[1]);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+
+  /* 輪(大→小の順に重ねる) */
+  gl.enable(gl.BLEND);gl.blendFunc(gl.ONE,gl.ONE_MINUS_SRC_ALPHA);
+  setBase(PR,tt);
+  for(var i=0;i<rings.length;i++){
+    var R=rings[i],L=LEVELS[R.lv];
+    var rr=R.rr*(1+0.04*Math.sin(tt*0.6+R.ph));
+    var E=rr*1.95;
+    var wx=2*(hx[0]+E),wy=2*(hx[1]+E);
+    var cx=((R.bx*wx+R.vx*tt)%wx+wx)%wx-wx/2;
+    var cy=((R.by*wy+R.vy*tt)%wy+wy)%wy-wy/2;
+    /* 四角の範囲: ふつうの姿と、レンズ越しに拡大された姿の両方を覆う */
+    var x0=cx-E,x1=cx+E,y0=cy-E,y1=cy+E;
+    if(lens.a>0.01){
+      var mx=lens.x+(cx-lens.x)*MAG,my=lens.y+(cy-lens.y)*MAG,me=E*MAG;
+      if(Math.hypot(mx-lens.x,my-lens.y)<LR+me){
+        x0=Math.min(x0,mx-me);x1=Math.max(x1,mx+me);y0=Math.min(y0,my-me);y1=Math.max(y1,my+me);
+      }
+    }
+    if(x1<-hx[0]||x0>hx[0]||y1<-hx[1]||y0>hx[1])continue;
+    gl.uniform4f(PR.u.box,(x0+x1)/2,(y0+y1)/2,(x1-x0)/2,(y1-y0)/2);
+    gl.uniform2f(PR.u.ctr,cx,cy);gl.uniform1f(PR.u.rr,rr);
+    gl.uniform3f(PR.u.tint,R.tint[0],R.tint[1],R.tint[2]);gl.uniform1f(PR.u.lv,R.lv);
+    gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  }
+
+  /* 仕上げ */
+  setBase(PT,tt);gl.uniform4f(PT.u.box,0,0,hx[0],hx[1]);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  gl.disable(gl.BLEND);
+
+  if(dt>0.034)slow++;else if(slow>0)slow--;
+  if(slow>40&&scale>minScale){scale=Math.max(minScale,scale*0.8);slow=0;resize();}
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+if(window.APKit){
+  window.APKit.init({
+    canvas:cv,
+    gifName:'seen',
+    clockFormat:'spec',
+    dock:true,
+    autoHide:true,
+    fullscreenButton:false,
+    buttons:[
+      {label:'✦',name:'mutate',onClick:mutate},
+      {label:'↻',name:'reset',onClick:resetAll}
+    ]
+  });
+}
+})();
+</script>
+</body>
+</html>
