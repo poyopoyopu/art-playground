@@ -1,22 +1,22 @@
 <!DOCTYPE html>
 <!-- FOCUS FED — クロード作。ap-kit.js統合: クロード
      HALO PULL(prototypes/halo-pull.html)の見た目に戻した作り直し(SEENは要素が多すぎて静けさが消えたため)。
-     法則: 輪の中には魚が1匹いる。魚は、指で合わせたピントの中でしか育たない。
-     ふだんの輪はピンボケで、魚はただのにじんだ光。ときどきピントが勝手に少しだけ入りかけて、すぐ逃げる(のぞき見)。
-     タップ=指の方から曲線のピントの面が入ってきて、輪の中に魚がくっきり見える(金魚鉢をのぞく感じ)。
-           最後までピントが合うたびに、魚がひとまわり育つ。
-           そのとき、ピントが入ってきた方角の色の斑(右=朱、上=白、左=金、下=墨)が魚の体にひとつ増える。
-           どこから見てきたかで、模様がその人の魚になる。
-           稚魚は透きとおっていて目が大きく、育つと金色→朱色に、尾びれが長くなり、やがて二つに割れる。
+     最初は輪の中に金魚を入れたが、おっちゃん「🪼ぽいやつの方がいいかなー、クリオネとか？」でクリオネに。
+     法則: 輪の中にはクリオネが1匹いる。クリオネは、指で合わせたピントの中でしか育たない。
+     ふだんの輪はピンボケで、クリオネはただのにじんだ光(おなかの朱い灯りがにじむ)。
+     ときどきピントが勝手に少しだけ入りかけて、すぐ逃げる(のぞき見。ここでは育たない)。
+     タップ=指の方から曲線のピントの面が入ってきて、透きとおったクリオネがくっきり見える。
+           最後までピントが合うたびに、ひとまわり育つ(羽が大きく、おなかの灯りが強く、育ちきると光をまとう)。
+           そのとき、ピントが入ってきた方角の色(方角がそのまま色相)の小さな灯りが体の中にひとつ灯る(最大12)。
      ピントが合っている時のタップ=指の方からピントが抜けて、また溶ける。
-     押さえる=ピントが逃げない。魚は指のほうへ寄ってきて、こっちを向く。
-     魚は端末が覚えていて、次に開いたときも同じ魚(localStorage `ap-focus-fed-v1`)。
-     ✦=別の光(背景と輪の色相・輪の大きさ。魚はそのまま)、↻=魚を稚魚からやり直す。GIF書き出し・？ボタンなし。 -->
+     押さえる=ピントが逃げない。クリオネは指のほうへ寄ってきて、頭を指に向ける。
+     クリオネは端末が覚えていて、次に開いたときも同じ子(localStorage `ap-focus-fed-v2`)。
+     ✦=別の光(背景と輪の色相・輪の大きさ。クリオネはそのまま)、↻=クリオネを小さい子からやり直す。GIF書き出し・？ボタンなし。 -->
 <html lang="ja">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>FOCUS FED — ピントが合うたび、輪の中の魚が育つ</title>
+<title>FOCUS FED — ピントが合うたび、輪の中のクリオネが育つ</title>
 <style>
   html,body{margin:0;height:100%;overflow:hidden;background:#c9cdf2;
     -webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
@@ -40,7 +40,7 @@ var FS=[
 'uniform vec2 res;uniform float t;uniform float pin;uniform float pout;',
 'uniform vec2 dir0;uniform vec2 dir1;uniform float hs;uniform float hr;uniform float R;',
 /* 魚 */
-'uniform vec2 fp;uniform float fpi;uniform float ffa;uniform float fL;uniform float fg;uniform float ftp;uniform float fjoy;',
+'uniform vec2 fp;uniform float fpi;uniform float fL;uniform float fg;uniform float ftp;uniform float fjoy;',
 'uniform vec4 sp['+NSP+'];uniform vec3 sc['+NSP+'];uniform float nsp;',
 'float g(float x,float s){return exp(-x*x/(s*s));}',
 'float h(vec2 p){return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453);}',
@@ -90,66 +90,57 @@ var FS=[
 '  float eB=1.-smoothstep(R-.004,R+.004,r+.018);',
 '  vec3 inside=hue(mix(vec3(.68,.72,1.),vec3(.35,.92,1.),smoothstep(0.,R,r)),hr);',
 '  vec3 sharp=mix(bg,inside,eB);',
-/* ---- 魚(体長1の座標で形を作る) ---- */
-'  vec3 fishB=vec3(0.);float aB=0.,aF=0.,blurA=0.,du=9.;vec3 finC=vec3(1.);float bodyOp=1.;',
+/* ---- クリオネ(体長1、頭が+yの座標で形を作る) ---- */
+'  vec3 cAdd=vec3(0.),coreCol=vec3(1.),litCol=vec3(1.);float coreMix=0.,litMix=0.,aBody=0.,du=9.,blurA=0.,blurG=0.;vec3 bodyC=vec3(1.);',
 '  vec2 q0=uv-fp;',
-'  if(dot(q0,q0)<fL*fL*4.){',
-'    float sg=ffa<0.?-1.:1.;q0.x*=sg;',
-'    vec2 q=rot(q0,-fpi);',
-'    q.x/=max(abs(ffa),.18);q/=fL;',
-'    q.y-=(.05+.05*fjoy)*sin(ftp-q.x*4.)*smoothstep(.25,-.9,q.x);',
-'    float a=.5;float bb=mix(.15,.25,fg)*(1.+.16*clamp(q.x/a,-1.,1.));',
-'    float db=sdEl(q,vec2(a,bb));',
-/* 尾びれ: 育つと長く広く、やがて二つに割れる */
-'    float tl=mix(.26,.78,fg);float u=(-q.x-.4)/tl;',
-'    float ty=q.y-.05*sin(ftp*1.3-u*5.)*u;',
-'    float hw=mix(.035,mix(.16,.42,fg),pow(clamp(u,0.,1.),.8))*(1.+.07*sin(u*9.-ftp*1.5));',
-'    float dt=max(abs(ty)-hw,max(-u,u-1.)*tl);',
-'    float notch=max(0.,smoothstep(.45,.9,fg)*hw*smoothstep(.45,1.,u)*.6-.004);',
-'    if(notch>0.)dt=max(dt,notch-abs(ty));',
-/* 背びれ・胸びれ・腹びれ */
-'    float xt=clamp(q.x/a,-1.,1.);float ytop=bb*sqrt(max(0.,1.-xt*xt));',
-'    float fx=clamp((q.x+.26)/.38,0.,1.);float fh=mix(.04,.15,fg)*sin(3.1416*fx)*(1.+.08*sin(ftp*.9-fx*4.));',
-'    float dd=max(max(q.y-(ytop+fh),max(-.26-q.x,q.x-.12)),-q.y);',
-'    vec2 pc=rot(q-vec2(.14,-bb*.5),.55+.35*sin(ftp*.8));',
-'    float dp=sdEl(pc,vec2(.1*(.8+.5*fg),.032));',
-'    vec2 pv=rot(q-vec2(-.2,-bb*.78),-.5+.15*sin(ftp*.8+1.));',
-'    float dv=sdEl(pv,vec2(.08*(.8+.5*fg),.03));',
-'    float dF=min(min(dt,dd),min(dp,dv));',
-'    float dA=min(db,dF);du=dA*fL;',
+'  if(dot(q0,q0)<fL*fL*3.){',
+'    vec2 q=rot(q0,-fpi)/fL;',
+'    float wsc=mix(.75,1.3,fg);float fl=sin(ftp);',
+'    float ax=.17*(.28+.72*smoothstep(-.5,-.1,q.y))*(1.-.4*smoothstep(-.02,.2,q.y))*(1.+.12*fg);',
+'    float db=max(sdEl(q-vec2(0.,-.12),vec2(ax,.35)),-.47-q.y);',
+'    float dh=length((q-vec2(0.,.31))/vec2(1.,.9))-mix(.12,.14,fg);',
+'    float kk=.035;float hh=clamp(.5+.5*(dh-db)/kk,0.,1.);float dbody=mix(dh,db,hh)-kk*hh*(1.-hh);',
+/* 翼足(はばたく羽) */
+'    float wa=.15+.6*fl;',
+'    vec2 w1=rot(q-vec2(.08,.15),-wa);w1.x-=.15*wsc;w1.y-=.05*w1.x*w1.x/(.1*wsc);',
+'    vec2 w2=rot(q-vec2(-.08,.15),wa);w2.x+=.15*wsc;w2.y-=.05*w2.x*w2.x/(.1*wsc);',
+'    float dwg=min(sdEl(w1,vec2(.16*wsc,.055*wsc)),sdEl(w2,vec2(.16*wsc,.055*wsc)));',
+'    float dA=min(dbody,dwg);du=dA*fL;',
 '    float wn=.0028/fL;',
-'    aB=smoothstep(wn,-wn,db);aF=smoothstep(wn,-wn,dF)*(1.-aB);',
-'    blurA=smoothstep(.28,-.12,dA);',
-/* 体の色: 稚魚は透きとおった水色 → 金 → 朱 */
-'    vec2 pn=vec2(q.x/a,q.y/bb);',
-'    vec3 base=mix(vec3(.78,.9,.97),vec3(1.,.68,.26),smoothstep(.1,.42,fg));',
-'    base=mix(base,vec3(.97,.38,.2),smoothstep(.45,.85,fg));',
-'    bodyOp=mix(.5,1.,smoothstep(.08,.38,fg));vec3 base0=base;',
-'    float sw=.06/max(fL*4.,.05);',
+'    float aB=smoothstep(wn,-wn,dbody);float aW=smoothstep(wn,-wn,dwg)*(1.-aB);',
+/* 透きとおった体: 中は薄く、ふちほど白く光る */
+'    float edge=smoothstep(-.07,0.,dbody);float wedge=smoothstep(-.035,0.,dwg);',
+'    aBody=aB*(.2+.6*edge)+aW*(.22+.5*wedge);',
+'    bodyC=mix(vec3(.88,.97,1.),vec3(1.),edge*.8);',
+/* おなかの朱い灯り(育つほど強く)と頭のてっぺん */
+'    vec2 cq=(q-vec2(0.,-.14))/vec2(.065,.12);',
+'    float core=smoothstep(1.15,.75,length(cq)+.12*sin(atan(cq.y,cq.x)*3.+t*.6));',
+'    vec3 coreC=mix(vec3(1.,.55,.4),vec3(.96,.28,.2),smoothstep(.1,.6,fg));',
+'    vec2 tq=(q-vec2(0.,.42))/.03;float tip=smoothstep(1.2,.8,length(tq));',
+'    coreMix=(core*mix(.55,.95,fg)+tip*.85)*aB;coreCol=coreC;',
+'    cAdd+=coreC*exp(-dot(cq,cq)*.3)*.08*mix(.3,1.,fg);',
+/* 見られた方角の色の灯り(体の中にひとつずつ増える) */
 '    for(int i=0;i<'+NSP+';i++){',
 '      if(float(i)>=nsp)break;',
 '      vec4 s=sp[i];',
-'      float dsp=length((pn-s.xy)/vec2(1.,.8))/s.z+.3*(vn(pn*4.+s.w*7.)-.5);',
-'      base=mix(base,sc[i],smoothstep(1.+sw,1.-sw,dsp)*mix(.55,.95,smoothstep(0.,.3,fg)));',
+'      vec2 dp=q-vec2(s.x*.09,-.06+s.y*.3);',
+'      float tw=.7+.3*sin(t*1.7+s.w*6.28);',
+'      float pt=exp(-dot(dp,dp)/.0009);litMix=max(litMix,pt*tw*aB);litCol=mix(litCol,sc[i],pt);cAdd+=sc[i]*exp(-dot(dp,dp)/.01)*.06*tw;',
 '    }',
-'    base=mix(base,vec3(1.,.96,.9),smoothstep(.1,-.9,pn.y)*.35);',
-'    base*=1.-.16*smoothstep(.2,1.,pn.y);',
-'    base+=.22*exp(-pow((pn.y-.42)*4.,2.))*smoothstep(-.7,.3,pn.x);',
-'    vec2 ec=vec2(a*.6,bb*.18);float er=mix(.06,.04,fg);',
-'    float eo=1.-smoothstep(er-.006,er,length(q-ec));',
-'    base=mix(base,vec3(.07,.07,.14),eo);',
-'    base=mix(base,vec3(1.),(1.-smoothstep(er*.25,er*.4,length(q-ec-vec2(er*.3,er*.35))))*eo);',
-'    fishB=base;',
-'    float rays=.5+.5*sin(atan(q.y,q.x+.3)*28.);finC=mix(base0,vec3(1.,.97,.95),.2)*(.9+.1*rays);',
+/* 大きく育つと、まわりにうっすら光をまとう */
+'    cAdd+=mix(vec3(.75,.95,1.),vec3(1.,.8,.9),.5+.5*sin(t*.4))*exp(-max(dA,0.)/.07)*.07*smoothstep(.45,.9,fg)*(1.-aB);',
+'    blurA=smoothstep(.35,-.1,dA);',
+'    blurG=exp(-dot(cq,cq)*.12);',
 '  }',
 '  float inW=eB;',
-'  sharp=mix(sharp,fishB,aB*bodyOp*inW);',
-'  sharp=mix(sharp,finC,aF*.6*inW);',
-/* 魚の虹の縁どり(輪と同じ並び: 内側シアン→白→マゼンタ) */
-'  float fr=inW*smoothstep(.0,.15,fg+.15);',
-'  sharp+=hue(vec3(-.3,.12,.08),hr)*g(du+.0035,.003)*.35*fr;',
-'  sharp=mix(sharp,vec3(1.),clamp(g(du,.0014)*.9,0.,1.)*fr);',
-'  sharp=mix(sharp,hue(vec3(1.,.2,.75),hr),g(du-.003,.0025)*.45*fr);',
+'  sharp=mix(sharp,bodyC,aBody*inW);',
+'  sharp=mix(sharp,coreCol,coreMix*inW);',
+'  sharp=mix(sharp,litCol,litMix*.9*inW);',
+'  sharp+=cAdd*inW;',
+/* クリオネの虹の縁どり(輪と同じ並び: 内側シアン→白→マゼンタ) */
+'  sharp+=hue(vec3(-.3,.12,.08),hr)*g(du+.0035,.003)*.3*inW;',
+'  sharp=mix(sharp,vec3(1.),clamp(g(du,.0014)*.75,0.,1.)*inW);',
+'  sharp=mix(sharp,hue(vec3(1.,.2,.75),hr),g(du-.003,.0025)*.4*inW);',
 /* 輪の縁 */
 '  float rimW=g(r-R+.004,.006);float rimC=g(r-R+.02,.018);',
 '  float rimM=g(r-R-.012,.01);float rimO=g(r-R-.03,.022);',
@@ -159,8 +150,10 @@ var FS=[
 '  sharp=mix(sharp,hue(vec3(1.,.15,.75),hr),rimM*.8);',
 '  sharp=mix(sharp,hue(vec3(1.,.45,.1),hr),rimO*.75);',
 '  sharp+=hue(vec3(1.,.55,.3),hr)*halo*.25;',
-/* ボケている時の魚は、ただのにじんだ光 */
-'  blurC=mix(blurC,mix(fishB,vec3(1.),.25),blurA*.5*(.6+.4*fg)*smoothstep(R*1.1,R*.6,r));',
+/* ボケている時のクリオネは、ただのにじんだ光(おなかの灯りがにじむ) */
+'  float bm=smoothstep(R*1.1,R*.6,r);',
+'  blurC=mix(blurC,vec3(.97,.99,1.),blurA*.4*bm);',
+'  blurC=mix(blurC,vec3(1.,.5,.38),blurG*.35*mix(.5,1.,fg)*bm);',
 '  vec2 dd2=pout>.001?dir1:dir0;float ee=pout>.001?e1:e0;',
 '  vec3 rb=.5+.5*cos(6.2832*(dot(uv,vec2(-dd2.y,dd2.x))*1.4+ee*3.+t*.2+vec3(0.,.33,.67)));',
 '  rb=mix(rb,vec3(1.),.22);float con=front*(1.-smoothstep(R,R+.05,r));',
@@ -180,7 +173,7 @@ gl.useProgram(pr);
 var buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);
 gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
 var lp=gl.getAttribLocation(pr,'p');gl.enableVertexAttribArray(lp);gl.vertexAttribPointer(lp,2,gl.FLOAT,false,0,0);
-var U={};['res','t','pin','pout','dir0','dir1','hs','hr','R','fp','fpi','ffa','fL','fg','ftp','fjoy','nsp'].forEach(function(n){U[n]=gl.getUniformLocation(pr,n);});
+var U={};['res','t','pin','pout','dir0','dir1','hs','hr','R','fp','fpi','fL','fg','ftp','fjoy','nsp'].forEach(function(n){U[n]=gl.getUniformLocation(pr,n);});
 U.sp=gl.getUniformLocation(pr,'sp[0]');U.sc=gl.getUniformLocation(pr,'sc[0]');
 
 /* 解像度(重い端末では自動で下げる)。実際に表示されている大きさから決める(iPhoneで楕円にならないように) */
@@ -199,8 +192,8 @@ function clamp(x,a,b){return x<a?a:x>b?b:x;}
 function wrap(a){while(a>Math.PI)a-=Math.PI*2;while(a<-Math.PI)a+=Math.PI*2;return a;}
 function ease(x){return x<0?0:x>1?1:x*x*(3-2*x);}
 
-/* ---- 魚の記憶(端末に残る) ---- */
-var KEY='ap-focus-fed-v1';
+/* ---- クリオネの記憶(端末に残る) ---- */
+var KEY='ap-focus-fed-v2';
 var fishMem={n:0,spots:[]};
 function load(){
   try{var s=localStorage.getItem(KEY);if(s){var o=JSON.parse(s);if(o&&typeof o.n==='number'&&Array.isArray(o.spots))fishMem=o;}}catch(_){}
@@ -210,11 +203,10 @@ load();
 function growthOf(n){return 1-Math.exp(-n/9);}
 var gDisp=growthOf(fishMem.n);
 
-/* ピントが入ってきた方角の色: 右=朱、上=白、左=金、下=墨 */
-var DIRC=[[0.95,0.32,0.2],[1,0.96,0.92],[1,0.74,0.26],[0.2,0.2,0.3]];
+/* ピントが入ってきた方角の色(輪の虹と同じく、方角がそのまま色相になる) */
 function dirColor(a){
-  var x=((a/(Math.PI/2))%4+4)%4,i=Math.floor(x),f=x-i,A=DIRC[i],B=DIRC[(i+1)%4];
-  return [A[0]+(B[0]-A[0])*f,A[1]+(B[1]-A[1])*f,A[2]+(B[2]-A[2])*f];
+  var hh=a/(Math.PI*2);
+  return [0.6+0.4*Math.cos(Math.PI*2*hh),0.6+0.4*Math.cos(Math.PI*2*(hh-1/3)),0.6+0.4*Math.cos(Math.PI*2*(hh-2/3))];
 }
 var spA=new Float32Array(NSP*4),scA=new Float32Array(NSP*3);
 function packSpots(){
@@ -227,18 +219,16 @@ function packSpots(){
 }
 packSpots();
 
-/* ---- 魚の泳ぎ ---- */
-var F={x:0,y:0,h:rnd(-0.5,0.5),sp:0,face:1,pitch:0,tx:0,ty:0,tt:0,ft:0,joy:0};
+/* ---- クリオネの泳ぎ: 羽ではばたいて進み、ゆるむと頭を上にしてゆっくり沈む ---- */
+var F={x:0,y:0,th:Math.PI/2,mv:Math.PI/2,sp:0,tx:0,ty:0,tt:0,ft:0,joy:0};
 var look={hs:0,hr:0,R:0.36};
-function fishL(){return look.R*(0.25+0.31*gDisp);}
+function fishL(){return look.R*(0.3+0.3*gDisp);}
 
 function feed(a){
   fishMem.n++;
   var c=dirColor(a);
-  /* 方角に寄った位置に斑を置く(上から見たら背中側、下からならお腹側…) */
-  var sx=clamp(Math.cos(a)*0.35*(F.face<0?-1:1)+rnd(-0.4,0.4),-0.7,0.75);
-  var sy=clamp(Math.sin(a)*0.45+rnd(-0.3,0.3),-0.75,0.8);
-  var s=[sx,sy,rnd(0.2,0.4),Math.random(),c[0],c[1],c[2]];
+  /* 灯りは体の中の、見られた方角に寄ったところに灯る */
+  var s=[clamp(Math.cos(a)*0.5+rnd(-0.4,0.4),-0.9,0.9),clamp(Math.sin(a)*0.5+rnd(-0.35,0.35),-0.9,0.9),0,Math.random(),c[0],c[1],c[2]];
   if(fishMem.spots.length<NSP)fishMem.spots.push(s);
   else fishMem.spots[(fishMem.n-1)%NSP]=s;
   save();packSpots();
@@ -246,36 +236,34 @@ function feed(a){
 }
 
 function fishStep(dt){
-  var R=look.R,L=fishL(),Rs=Math.max(R*0.12,R*0.9-L*0.95);
-  F.tt-=dt;F.joy=Math.max(0,F.joy-dt*0.7);
+  var R=look.R,L=fishL(),Rs=Math.max(R*0.12,R*0.88-L*0.62);
+  F.tt-=dt;F.joy=Math.max(0,F.joy-dt*0.6);
   var looking=touch&&(S.state==='in'||S.state==='sharp');
   if(looking){F.tx=Math.cos(touch.a)*Rs*0.85;F.ty=Math.sin(touch.a)*Rs*0.85;}
   var dx=F.tx-F.x,dy=F.ty-F.y,dist=Math.hypot(dx,dy);
-  if(!looking&&(F.tt<=0||dist<L*0.3)){
+  if(!looking&&(F.tt<=0||dist<L*0.25)){
     var ang=Math.random()*Math.PI*2,rr=Math.sqrt(Math.random())*Rs;
-    F.tx=Math.cos(ang)*rr;F.ty=Math.sin(ang)*rr*0.75;F.tt=rnd(3,7);
+    F.tx=Math.cos(ang)*rr;F.ty=Math.sin(ang)*rr;F.tt=rnd(3.5,8);
     dx=F.tx-F.x;dy=F.ty-F.y;dist=Math.hypot(dx,dy);
   }
-  var vmax=R*(0.15+0.12*F.joy);
-  var slowR=L*0.7;
-  var tgt=dist<slowR?vmax*0.5*dist/slowR:vmax;
-  if(dist>1e-4){
-    var diff=wrap(Math.atan2(dy,dx)-F.h),turn=1.7*dt;
-    F.h+=clamp(diff,-turn,turn);
-  }
-  F.sp+=(tgt-F.sp)*Math.min(1,dt*1.5);
-  F.x+=Math.cos(F.h)*F.sp*dt;F.y+=Math.sin(F.h)*F.sp*dt;
+  var vmax=R*(0.12+0.16*F.joy);
+  var slowR=L*0.6;
+  var tgt=dist<slowR?vmax*0.4*dist/slowR:vmax;
+  F.sp+=(tgt-F.sp)*Math.min(1,dt*1.2);
+  /* 進む向き(なめらかに曲がる)と、頭の向きは別。頭はだいたい上向きで、下へ行くときは頭を上にしたまま沈む */
+  var mv=dist>1e-4?Math.atan2(dy,dx):F.mv;
+  F.mv+=clamp(wrap(mv-F.mv),-1.6*dt,1.6*dt);
+  var upW=1-Math.min(1,F.sp/(vmax*0.5+1e-6));
+  var desired=Math.PI/2+clamp(wrap(F.mv-Math.PI/2),-0.6,0.6)*(1-upW);
+  if(looking&&dist<slowR)desired=Math.PI/2+clamp(wrap(touch.a-Math.PI/2),-0.9,0.9);
+  F.th+=clamp(wrap(desired-F.th),-1.4*dt,1.4*dt);
+  var pulse=0.6+0.4*Math.sin(F.ft);
+  F.x+=Math.cos(F.mv)*F.sp*pulse*dt;
+  F.y+=Math.sin(F.mv)*F.sp*pulse*dt-R*0.012*upW*dt;
   var r=Math.hypot(F.x,F.y);
   if(r>Rs){F.x*=Rs/r;F.y*=Rs/r;}
-  /* 向き: 指のそばで止まったら、指の方を向く */
-  var c=Math.cos(F.h),want=Math.abs(c)>0.2?(c>0?1:-1):(F.face>=0?1:-1);
-  if(looking&&dist<slowR){var cc=Math.cos(touch.a);if(Math.abs(cc)>0.15)want=cc>0?1:-1;}
-  F.face+=(want-F.face)*Math.min(1,dt*2.4);
-  var p=clamp(Math.atan2(Math.sin(F.h),Math.abs(c)),-0.55,0.55)*Math.min(1,F.sp/(vmax*0.4+1e-6));
-  F.pitch+=(p-F.pitch)*Math.min(1,dt*2);
-  F.ft+=dt*(2.4+F.sp/R*16+F.joy*9);
+  F.ft+=dt*(3.2+F.sp/R*14+F.joy*10);
 }
-
 /* ---- ピントの状態: blur → peek(のぞき見、勝手に少しだけ入って逃げる) / in → sharp → out → blur ---- */
 var DUR={in:2.8,sharp:3.4,out:2.6,peek:3.6};
 var S={state:'blur',k:0,pin:0,pout:0,a0:0,a1:0,next:null,aim:null,byTouch:false,wait:rnd(1.5,3),peakAmt:0.5};
@@ -362,7 +350,7 @@ function mutate(){
 function resetAll(){
   look.hs=0;look.hr=0;look.R=0.36;
   fishMem={n:0,spots:[]};save();packSpots();gDisp=0;
-  F.x=0;F.y=0;F.joy=0;
+  F.x=0;F.y=0;F.joy=0;F.th=Math.PI/2;
   S.state='blur';S.k=0;S.pin=0;S.pout=0;S.next=null;S.aim=null;S.wait=rnd(1.5,3);
 }
 
@@ -384,7 +372,7 @@ function frame(now){
   gl.uniform2f(U.dir0,Math.cos(S.a0),Math.sin(S.a0));
   gl.uniform2f(U.dir1,Math.cos(S.a1),Math.sin(S.a1));
   gl.uniform1f(U.hs,look.hs);gl.uniform1f(U.hr,look.hr);gl.uniform1f(U.R,look.R);
-  gl.uniform2f(U.fp,F.x,F.y);gl.uniform1f(U.fpi,F.pitch);gl.uniform1f(U.ffa,F.face);
+  gl.uniform2f(U.fp,F.x,F.y);gl.uniform1f(U.fpi,F.th-Math.PI/2);
   gl.uniform1f(U.fL,fishL());gl.uniform1f(U.fg,gDisp);gl.uniform1f(U.ftp,F.ft);gl.uniform1f(U.fjoy,F.joy);
   gl.uniform1f(U.nsp,Math.min(NSP,fishMem.spots.length));
   gl.uniform4fv(U.sp,spA);gl.uniform3fv(U.sc,scA);
