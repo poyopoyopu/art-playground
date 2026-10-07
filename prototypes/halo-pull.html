@@ -14,7 +14,7 @@
 <style>
   html,body{margin:0;height:100%;overflow:hidden;background:#c9cdf2;
     -webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
-  canvas#c{display:block;position:fixed;inset:0;width:100vw;height:100vh;touch-action:none}
+  canvas#c{display:block;position:fixed;inset:0;width:100%;height:100%;touch-action:none}
 </style>
 <script src="../ap-kit.js"></script>
 </head>
@@ -107,11 +107,19 @@ var U={};['res','t','pin','pout','dir0','dir1','hs','hr','R'].forEach(function(n
 
 /* 解像度(重い端末では自動で下げる) */
 var scale=Math.min(window.devicePixelRatio||1,2),minScale=0.6;
+/* iPhoneのSafariは100vhが表示領域より長いので、実際に表示されている大きさから解像度を決める(縦横比がずれると円が楕円になる) */
+function viewSize(){
+  var w=cv.clientWidth||innerWidth,hh=cv.clientHeight||innerHeight;
+  return {w:w,h:hh};
+}
 function resize(){
-  var w=Math.max(1,Math.round(innerWidth*scale)),hh=Math.max(1,Math.round(innerHeight*scale));
+  var v=viewSize();
+  var w=Math.max(1,Math.round(v.w*scale)),hh=Math.max(1,Math.round(v.h*scale));
   if(cv.width!==w||cv.height!==hh){cv.width=w;cv.height=hh;gl.viewport(0,0,w,hh);}
 }
-addEventListener('resize',resize);resize();
+addEventListener('resize',resize);
+if(window.ResizeObserver)new ResizeObserver(resize).observe(cv);
+resize();
 
 /* ピントの状態: blur(ぼけ) → in(ピントが入る) → sharp(合っている) → out(抜ける) → blur */
 var DUR={blur:0.9,in:2.8,sharp:1.7,out:2.6};
@@ -126,7 +134,8 @@ function ease(x){return x<0?0:x>1?1:x*x*(3-2*x);}
 
 function angleAt(x,y){
   /* 画面の中心から指へ向かう方角(シェーダーの座標はyが上向き) */
-  var dx=x-innerWidth/2,dy=-(y-innerHeight/2);
+  var rc=cv.getBoundingClientRect();
+  var dx=x-(rc.left+rc.width/2),dy=-(y-(rc.top+rc.height/2));
   if(dx*dx+dy*dy<4)return Math.random()*Math.PI*2;
   return Math.atan2(dy,dx);
 }
