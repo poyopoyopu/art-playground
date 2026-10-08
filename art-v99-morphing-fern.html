@@ -308,6 +308,21 @@
   }
 
   /* ======== 描画 ======== */
+  /* ---- 消え残り対策 ----
+     毎フレーム少しずつ黒を重ねて暗くする方式は、明るさが整数(0〜255)のため、
+     暗い点ほど「2%暗く」が丸められて0まで下がらず、灰色のもやとして残りつづける。
+     0.05秒ごとに明るさを一律1だけ引いて、その残りを確実に消す
+     (白で反転→1を足す→白で反転し戻す、の3回の塗りで「引き算」になる)。 */
+  var floorT = 0;
+  function clearResidue(c2, w, h) {
+    c2.save();
+    c2.setTransform(1, 0, 0, 1, 0, 0);
+    c2.globalAlpha = 1;
+    c2.globalCompositeOperation = 'difference'; c2.fillStyle = '#fff'; c2.fillRect(0, 0, w, h);
+    c2.globalCompositeOperation = 'lighter';    c2.fillStyle = 'rgb(1,1,1)'; c2.fillRect(0, 0, w, h);
+    c2.globalCompositeOperation = 'difference'; c2.fillStyle = '#fff'; c2.fillRect(0, 0, w, h);
+    c2.restore();
+  }
   function render(dt) {
     var fadeA = 1 - Math.exp(-1.25 * dt);                 /* 尾を少し残す＝光の雲 */
     if (fadeA < 0.001) fadeA = 0.001;
@@ -316,6 +331,9 @@
     actx.globalAlpha = 1;
     actx.fillStyle = 'rgba(0,0,0,' + fadeA.toFixed(5) + ')';
     actx.fillRect(0, 0, acc.width, acc.height);
+
+    floorT += dt;
+    if (floorT >= 0.05) { floorT = 0; clearResidue(actx, acc.width, acc.height); }
 
     plot();
 
