@@ -25,7 +25,9 @@
 (function(){
 'use strict';
 const cv=document.getElementById('c');
-const ctx=cv.getContext('2d');
+const mctx=cv.getContext('2d');
+let ctx=mctx;               // drawing target (switches to the sky buffer while the sky is painted)
+let buf=null,bctx=null;
 const hintEl=document.getElementById('hint');
 const TAU=Math.PI*2;
 
@@ -118,7 +120,7 @@ let sunSprite=null, sunSpriteR=0;
 let swap=null;
 let hue=350;           // current world hue (lerped)
 let ground=null, mountains=null, speckle=null, bubbleImg=null;
-let waves=[], dots=[], sparks=[], bubbles=[];
+let waves=[], dots=[], sparks=[], bubbles=[], orbs=[];
 let t0=performance.now(), last=t0, now=0;
 let touched=false;
 
@@ -163,8 +165,10 @@ function buildGround(){
   gr.addColorStop(0,'hsl(70,85%,58%)');gr.addColorStop(.25,'hsl(95,70%,42%)');gr.addColorStop(1,'hsl(130,60%,18%)');
   g.fillStyle=gr;g.fillRect(0,horizon,W,H-horizon);
   // hills both sides, with bushes and cloud puffs along the ridge
+  orbs=[];
   for(const side of [-1,1]){
     const hy=x=>{const u=side<0?x/W:1-x/W;const k=clamp(1-u/.42,0,1);return horizon-H*.15*k*k*(3-2*k)-H*.012*Math.sin(u*40)*k;};
+    for(let i=0;i<8;i++){const u=.04+rr()*.36,x=side<0?u*W:(1-u)*W,top=hy(x);orbs.push({x,y:lerp(top,horizon,.15+rr()*.6),r:MIN*(.018+.03*rr()),ph:rr()*TAU});}
     g.beginPath();
     const xs=side<0?[-.02,.44]:[.56,1.02];
     g.moveTo(xs[0]*W,horizon+2);
@@ -285,6 +289,38 @@ function drawSky(sx,sy,hc,dim){
   ctx.fillStyle=g;ctx.fillRect(0,0,W,horizon+2);
   ctx.globalAlpha=.55;ctx.drawImage(speckle,0,0);ctx.globalAlpha=1;
 }
+// tie-dye rings welling out of the sun, wobbling
+function drawRings(sx,sy,hc,tm,dim){
+  const D=Math.max(W,H)*1.25,N=22,step=D/N,sp=.32,f=(tm*sp)%1,base=Math.floor(tm*sp),NP=72;
+  for(let i=N;i>=1;i--){
+    const r=(i-1+f)*step;if(r<sunR*.9)continue;
+    const idx=i-base;
+    const ring=(rad)=>{for(let j=0;j<=NP;j++){const a=j/NP*TAU,w=1+.05*Math.sin(a*7+tm*1.3+idx*.7)+.025*Math.sin(a*13-tm*2.1+idx);const x=sx+Math.cos(a)*rad*w,y=sy+Math.sin(a)*rad*w;j?ctx.lineTo(x,y):ctx.moveTo(x,y);}ctx.closePath();};
+    ctx.beginPath();ring(r);ring(Math.max(1,r-step*.52));
+    ctx.fillStyle=hsl((hc+idx*47+tm*10)%360,100,62,.42*dim);ctx.fill('evenodd');
+  }
+}
+// rainbow eyes on the hills
+function drawOrbs(hc,tm){
+  for(const o of orbs){
+    const br=1+.12*Math.sin(tm*2.2+o.ph);
+    for(let j=0;j<5;j++){
+      const r=o.r*br*(1-j*.18);
+      ctx.beginPath();ctx.arc(o.x,o.y,r,0,TAU);
+      ctx.fillStyle=hsl((hc+tm*35+o.ph*60+j*62)%360,100,j===4?20:60);ctx.fill();
+      ctx.lineWidth=Math.max(1,o.r*.06);ctx.strokeStyle='rgba(30,10,50,.55)';ctx.stroke();
+    }
+    ctx.beginPath();ctx.arc(o.x-o.r*.25,o.y-o.r*.25,o.r*.14,0,TAU);ctx.fillStyle='rgba(255,255,255,.9)';ctx.fill();
+  }
+}
+// the moment of a new sun: a rainbow shock ring crossing the whole world
+function drawShock(t,x,y){
+  const R0=Math.max(W,H)*1.5*ease(t),a=1-t;
+  for(let j=0;j<6;j++){
+    const r=R0-j*MIN*.025;if(r<=0)continue;
+    ctx.beginPath();ctx.arc(x,y,r,0,TAU);ctx.lineWidth=MIN*.022;ctx.strokeStyle=hsl((j*60+hue)%360,100,65,.55*a);ctx.stroke();
+  }
+}
 function drawRays(sx,sy,hc,tm,dim){
   const D=Math.max(W,H)*1.4,NR=80;
   const cols=['255,255,255',null,null,'255,240,150',null];
@@ -295,7 +331,7 @@ function drawRays(sx,sy,hc,tm,dim){
       ctx.moveTo(sx,sy);ctx.lineTo(sx+Math.cos(a-hw)*D,sy+Math.sin(a-hw)*D);ctx.lineTo(sx+Math.cos(a+hw)*D,sy+Math.sin(a+hw)*D);ctx.closePath();
     }
     const g=ctx.createRadialGradient(sx,sy,sunR,sx,sy,D*.7);
-    const c=cols[gI]||null;const hh=(hc+gI*70)%360;
+    const c=cols[gI]||null;const hh=(hc+gI*70+tm*14)%360;
     g.addColorStop(0,c?`rgba(${c},${.7*dim})`:hsl(hh,100,75,.6*dim));
     g.addColorStop(1,c?`rgba(${c},0)`:hsl(hh,100,70,0));
     ctx.fillStyle=g;ctx.fill();
@@ -309,7 +345,7 @@ function drawRays(sx,sy,hc,tm,dim){
       const x=sx+Math.cos(d.a)*r,y=sy+Math.sin(d.a)*r;if(y>horizon)continue;
       const rad=(.5+u*2.6)*DPR;ctx.moveTo(x+rad,y);ctx.arc(x,y,rad,0,TAU);
     }
-    ctx.fillStyle=gI<2?'rgba(255,255,255,.9)':hsl((hc+gI*90)%360,100,78,.9);ctx.fill();
+    ctx.fillStyle=gI<2?'rgba(255,255,255,.9)':hsl((hc+gI*90+tm*30)%360,100,78,.9);ctx.fill();
   }
 }
 function drawSparks(tm){
@@ -323,7 +359,8 @@ function drawSparks(tm){
   }
 }
 function drawRibbons(sx,sy,hc,tm){
-  const hs=[(hc+0)%360,(hc+300)%360,(hc+200)%360,50,-1];
+  const dr=tm*12;
+  const hs=[(hc+dr)%360,(hc+300+dr)%360,(hc+200+dr)%360,(50+dr)%360,-1];
   const NS=34;
   for(let k=0;k<RIB.length;k++){
     const pts=[];
@@ -366,12 +403,14 @@ function drawZigzags(sx,sy,hc,tm){
       }
       // draw in chunks so the band gets wider with distance
       const CH=6;
-      for(let pass=0;pass<3;pass++){
+      for(let pass=-2;pass<3;pass++){
         for(let c=0;c<pts.length-1;c+=CH){
           const seg=pts.slice(c,Math.min(pts.length,c+CH+1));if(seg.length<2)continue;
           const r=seg[0][2],bw=Math.max(1.5,r*.021*nest);
-          ctx.beginPath();ctx.moveTo(seg[0][0],seg[0][1]);for(let i=1;i<seg.length;i++)ctx.lineTo(seg[i][0],seg[i][1]);
-          if(pass===0){ctx.lineWidth=bw*1.5;ctx.strokeStyle=hsl(gold,80,20);}
+          const sh=pass<0?(pass===-2?1:-1)*bw*(1.3+.5*Math.sin(tm*2+b)):0;
+          ctx.beginPath();ctx.moveTo(seg[0][0]+px*sh,seg[0][1]+py*sh);for(let i=1;i<seg.length;i++)ctx.lineTo(seg[i][0]+px*sh,seg[i][1]+py*sh);
+          if(pass<0){ctx.lineWidth=bw*1.1;ctx.strokeStyle=hsl((tm*40+b*30+(pass===-2?0:180))%360,100,60,.8);}
+          else if(pass===0){ctx.lineWidth=bw*1.5;ctx.strokeStyle=hsl(gold,80,20);}
           else if(pass===1){ctx.lineWidth=bw;ctx.strokeStyle=hsl(gold,98,52);}
           else{ctx.lineWidth=bw*.3;ctx.strokeStyle=hsl(55,100,88);}
           ctx.stroke();
@@ -415,6 +454,13 @@ function drawWater(sx,hc,tm,dim){
   g.addColorStop(0,hsl(glowH,95,82));g.addColorStop(.18,'hsl(195,90%,62%)');g.addColorStop(.6,'hsl(222,80%,46%)');g.addColorStop(1,'hsl(245,70%,32%)');
   ctx.fillStyle=g;ctx.fill();
   ctx.lineWidth=Math.max(1.5,DPR*2);ctx.strokeStyle='rgba(255,255,255,.75)';ctx.stroke();
+  for(let b=0;b<5;b++){
+    const o=-.62+b*.31,hw=.065;
+    ctx.beginPath();
+    for(let i=0;i<=N;i++){const p=.02+1.06*i/N,c=riverC(p,sx),w=riverW(p)/2,wob=.09*Math.sin(Math.log(p+.05)*14-tm*3+b);ctx.lineTo(c+(o+wob-hw)*w,pY(p));}
+    for(let i=N;i>=0;i--){const p=.02+1.06*i/N,c=riverC(p,sx),w=riverW(p)/2,wob=.09*Math.sin(Math.log(p+.05)*14-tm*3+b);ctx.lineTo(c+(o+wob+hw)*w,pY(p));}
+    ctx.closePath();ctx.fillStyle=hsl((tm*25+b*72)%360,95,66,.6);ctx.fill();
+  }
   // waves flow from the sun toward us
   const wc=['rgba(255,255,255,.9)','hsla(190,100%,80%,.85)','hsla(265,80%,72%,.85)','hsla(210,100%,35%,.8)'];
   for(let band=0;band<3;band++){
@@ -457,6 +503,7 @@ function drawField(sx,tm,skip){
       }
     }
     ctx.save();ctx.translate(hx,y);ctx.rotate(toward*.35+f.spin*Math.sin(tm*.3+f.ph));
+    const br=1+.08*Math.sin(tm*2.6-Math.hypot(hx-sx,y-sunY)/(MIN*.11));ctx.scale(br,br);
     const sw=f.sprite.width;ctx.drawImage(f.sprite,-sw/2,-sw/2);
     if(f.exSun){
       // it was a sun once: a faint gold ring stays
@@ -502,15 +549,26 @@ function frame(nowMs){
     hue=lerpHue(swap.fromHue,swap.toHue,e);
     dim=1-.55*Math.sin(Math.PI*swap.t);
   }
-  ctx.setTransform(1,0,0,1,0,0);
+  ctx=bctx;ctx.setTransform(1,0,0,1,0,0);
   drawSky(sx,sy,hue,dim);
+  drawRings(sx,sy,hue,tm,dim);
   drawRays(sx,sy,hue,tm,dim);
   drawSparks(tm);
   drawRibbons(sx,sy,hue,tm);
   ctx.drawImage(ground,0,0);
+  drawOrbs(hue,tm);
   drawZigzags(sx,sy,hue,tm);
   if(!swap)drawSun(sx,sy,tm,1);
   ctx.drawImage(mountains,0,0);
+  // melt: the sky above the horizon ripples like liquid, calmer toward the horizon
+  ctx=mctx;ctx.setTransform(1,0,0,1,0,0);
+  const hz=Math.floor(horizon),stp=Math.max(2,Math.round(3*DPR));
+  for(let y=0;y<hz;y+=stp){
+    const h2=Math.min(stp,hz-y),amp=DPR*9*Math.pow(1-y/hz,.8);
+    const off=(Math.sin(y/DPR*.013+tm*2.1)+.45*Math.sin(y/DPR*.037-tm*1.5))*amp;
+    ctx.drawImage(buf,0,y,W,h2,off-amp*1.5,y,W+amp*3,h2);
+  }
+  ctx.drawImage(buf,0,hz,W,H-hz,0,hz,W,H-hz);
   drawWater(sx,hue,tm,dim);
   drawField(sx,tm,swap?swap.f:null);
   if(swap){
@@ -524,6 +582,7 @@ function frame(nowMs){
     const cx=(swap.at.x+swap.to.x)/2,cy=Math.min(swap.at.y,swap.to.y)-H*.18;
     const u=1-re,rx=u*u*swap.at.x+2*u*re*cx+re*re*swap.to.x,ry=u*u*swap.at.y+2*u*re*cy+re*re*swap.to.y;
     drawGlowSprite(swap.rise,rx,ry,lerp(swap.f.size,sunR,re),re*TAU,re);
+    if(st>.55)drawShock((st-.55)/.45,swap.to.x,swap.to.y);
     if(swap.t>=1)endSwap();
   }
   requestAnimationFrame(frame);
@@ -553,6 +612,7 @@ function layout(){
   DPR=Math.min(2,window.devicePixelRatio||1);
   W=Math.round(innerWidth*DPR);H=Math.round(innerHeight*DPR);
   cv.width=W;cv.height=H;MIN=Math.min(W,H);
+  buf=document.createElement('canvas');buf.width=W;buf.height=H;bctx=buf.getContext('2d');
   horizon=H*(W<H?.55:.58);
   sunR=MIN*.1;sunY=horizon-Math.max(sunR*1.55,H*.08);
 }
