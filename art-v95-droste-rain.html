@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<!-- DROSTE RAIN — Arenaで作った「Droste Rain」をおっちゃんが持ち込み、Claude(クロちゃん)が改良。
+     改良: 多角形・星・四角の窓枠を廃止し、大小の光のしずくを弧に並べる形に変更。ap-kit.js統合(✦=渦の向きを反転し、さまよう道筋と色を替える、↻=入れ子を消して、最初の雨から) -->
+<!-- 世界のルール: 画面は毎瞬、自分自身を少し縮めて回した写しを重ねる。だから描かれた光はすべて、渦の中心へ無限に入れ子になって落ちつづける。指は渦の中心そのものを動かし、落ちる先を変える。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>DROSTE RAIN — 光のしずくが、無限の入れ子へ落ちてゆく</title>
+<script src="ap-kit.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; padding: 0; height: 100%; background: #000; overflow: hidden; }
+  body {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    user-select: none; -webkit-user-select: none;
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  }
+  #c { display: block; width: 100%; height: 100%; touch-action: none; }
+  #hint {
+    position: fixed; left: 0; right: 0;
+    bottom: calc(78px + env(safe-area-inset-bottom, 0px));   /* ap-kitのボタン列と重ならない高さ */
+    text-align: center; pointer-events: none;
+    font-size: 11.5px; line-height: 1.85; letter-spacing: .07em;
+    color: #9adcff; opacity: 0;
+    transition: opacity 2s ease;
+    text-shadow: 0 0 14px rgba(70, 170, 255, .6);
+  }
+  #hint.on { opacity: .72; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">タップ ＝ 光の雨つぶ ／ ドラッグ ＝ 渦を回して落ちる先を動かす<br>２本指タップ（PC はダブルクリック）＝ 渦の向きを反転</div>
+<script>
+(function () {
+  'use strict';
+
+  var cvs  = document.getElementById('c');
+  var hint = document.getElementById('hint');
+  var ctx  = cvs.getContext('2d', { alpha: false, desynchronized: true });
+  /* ひとつ前のフレームを「元絵」として使い回す＝Droste 効果 */
+  var tex  = document.createElement('canvas');
+  var tctx = tex.getContext('2d', { alpha: false });
+
+  /* ================= tuning ================= */
+  var ZOOM   = 0.88;             /* 1秒あたりの吸い込み（ln スケール） */
+  var RET    = 0.24;             /* 1秒あたりの残像の残り方（小さいほど深い多重化） */
+  var SPIN   = 0.30;             /* 渦の回転量（rad/秒） */
+  var MAX_DROP = 150;
+  var RES_CAP  = 2200000;
+  var PALETTE  = [190, 205, 265, 290, 320, 162, 45, 232];
+  var TAU = Math.PI * 2;
+
+  var W = 0, H = 0, DPR = 1, now = 0, maxDim = 1, minDim = 1;
+  var view = { x: 0, y: 0, tx: 0, ty: 0, dir: 1, boost: 0, wob: Math.random() * 100 };
+  var drops = [], flashes = [], hue = 200;
+  var glyphT = 0.05, rainT = 0.5, extraRot = 0;
+  var ptr = { x: 0, y: 0, down: false, active: false, strength: 0 };
+  var pointers = new Map();
+  var mouseClicks = 0;
+  var quality = 2, perfAcc = 0, perfN = 0;
+
+  /* ================= 発光スプライト（24色を事前生成） ================= */
+  var SPRITES = (function () {
+    var a = [], i, k, s, c, g;
+    for (i = 0; i < 24; i++) {
+      k = i * 15;
+      s = document.createElement('canvas');
+      s.width = s.height = 64;
+      c = s.getContext('2d');
+      g = c.createRadialGradient(32, 32, 0, 32, 32, 32);
+      g.addColorStop(0,    'rgba(255,255,255,0.95)');
+      g.addColorStop(0.12, 'hsla(' + k + ',100%,80%,0.55)');
+      g.addColorStop(0.34, 'hsla(' + k + ',100%,62%,0.14)');
+      g.addColorStop(0.66, 'hsla(' + k + ',100%,56%,0.035)');
+      g.addColorStop(1,    'hsla(' + k + ',100%,55%,0)');
+      c.fillStyle = g;
+      c.fillRect(0, 0, 64, 64);
+      a.push(s);
+    }
+    return a;
+  })();
+
+  function sprite(h, x, y, r, a, stretch) {
+    var i = (Math.round(h / 15) % 24 + 24) % 24;
+    var ry = r * (stretch || 1);
+    ctx.globalAlpha = a;
+    ctx.drawImage(SPRITES[i], x - r, y - ry, r * 2, ry * 2);
+  }
+
+  function randHue() {
+    return PALETTE[(Math.random() * PALETTE.length) | 0] + (Math.random() - 0.5) * 24;
+  }
+
+  /* ================= 画面サイズ ================= */
+  function resize() {
+    var w = cvs.clientWidth || window.innerWidth;
+    var h = cvs.clientHeight || window.innerHeight;
+    W = w; H = h;
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    if (w * h * DPR * DPR > RES_CAP) DPR = Math.max(1, Math.sqrt(RES_CAP / (w * h)));
+    cvs.width  = Math.max(1, Math.round(w * DPR));
+    cvs.height = Math.max(1, Math.round(h * DPR));
+    tex.width  = cvs.width;
+    tex.height = cvs.height;
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, w, h);
+    tctx.setTransform(1, 0, 0, 1, 0, 0);
+    tctx.globalCompositeOperation = 'source-over';
+    tctx.globalAlpha = 1;
+    tctx.fillStyle = '#000';
+    tctx.fillRect(0, 0, tex.width, tex.height);
+    maxDim = Math.max(w, h);
+    minDim = Math.min(w, h);
+    view.x = view.tx = w / 2;
+    view.y = view.ty = h / 2;
+    drops.length = 0; flashes.length = 0;
+  }
+
+  /* ================= 雨つぶ・ひかり ================= */
+  function addDrop(x, y, spd, hug) {
+    if (drops.length >= MAX_DROP) return;
+    var a = Math.random() * TAU;
+    var s = spd * (0.35 + Math.random() * 0.9);
+    drops.push({
+      x: x, y: y,
+      vx: Math.cos(a) * s * 0.5, vy: Math.sin(a) * s * 0.5 + 16,
+      hue: (hug || hue) + (Math.random() - 0.5) * 34,
+      r: 3.4 + Math.random() * 7.0,
+      ph: Math.random() * TAU,
+      life: 3.2 + Math.random() * 3.6, max: 1
+    });
+    drops[drops.length - 1].max = drops[drops.length - 1].life;
+  }
+
+  function edgeDrop() {
+    var side = Math.random();
+    if (side < 0.62)      addDrop(Math.random() * W, -30, 26, hue);          /* 主に上から */
+    else if (side < 0.81) addDrop(-30, Math.random() * H * 0.8, 22, hue);
+    else                  addDrop(W + 30, Math.random() * H * 0.8, 22, hue);
+  }
+
+  /* ================= 渦の中に落ちていく「窓」 ================= */
+  /* 渦の中へ落ちていく「しずくの連なり」。
+     弧の上に大小の光の粒を並べるだけ。これが毎フレーム縮みながら回るので、
+     無限に重なって螺旋の銀河のような模様になる（多角形・四角の枠は廃止）。 */
+  function drawGlyph() {
+    var r = minDim * (0.12 + Math.random() * 0.34);
+    var a0 = Math.random() * TAU;
+    var span = TAU * (0.18 + Math.random() * 0.42);      /* 弧の長さはまちまち */
+    var h  = ((hue + Math.random() * 50) % 360 + 360) % 360;
+    var n = 7 + ((Math.random() * 11) | 0);
+    var wav = 0.05 + Math.random() * 0.12;               /* 弧のうねり */
+    var i, t, a, rr, x, y, sz, swell;
+
+    for (i = 0; i < n; i++) {
+      t = n > 1 ? i / (n - 1) : 0.5;
+      a = a0 + span * t + (Math.random() - 0.5) * 0.05;
+      rr = r * (1 + Math.sin(t * Math.PI * 2.0 + a0) * wav + (Math.random() - 0.5) * 0.05);
+      x = view.x + Math.cos(a) * rr;
+      y = view.y + Math.sin(a) * rr;
+      swell = Math.sin(Math.PI * t);                     /* 弧の真ん中ほど大きなしずく */
+      sz = 1.6 + swell * (2.4 + Math.random() * 3.2);
+      sprite(h + t * 46, x, y, sz * 3.4, 0.22 + 0.18 * swell);
+      sprite(h + t * 46 + 18, x, y, sz * 0.9, 0.55 + 0.3 * swell);
+    }
+    /* ときどき、弧から少し離れた小さな飛沫 */
+    if (quality === 2 || Math.random() < 0.5) {
+      for (i = 0; i < 4; i++) {
+        a = a0 + span * Math.random();
+        rr = r * (1.08 + Math.random() * 0.16);
+        sprite(h + 60, view.x + Math.cos(a) * rr, view.y + Math.sin(a) * rr, 2.4, 0.45);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /* ================= 更新 ================= */
+  function update(dt) {
+    var i, p, d, f;
+
+    f = ptr.active ? (ptr.down ? 1 : 0.45) : 0;
+    ptr.strength += (f - ptr.strength) * (1 - Math.exp(-6 * dt));
+    if (ptr.strength < 0.002) ptr.strength = 0;
+    view.boost += (ptr.strength - view.boost) * (1 - Math.exp(-4 * dt));
+
+    /* 落ちてゆく先（渦の中心）: 触っていなければ静かに彷徨う */
+    if (ptr.strength > 0.02) {
+      view.tx += (ptr.x - view.tx) * (1 - Math.exp(-6 * dt)) * ptr.strength;
+      view.ty += (ptr.y - view.ty) * (1 - Math.exp(-6 * dt)) * ptr.strength;
+    } else {
+      var wob = view.wob;
+      view.tx = W * (0.5 + Math.sin(now * 0.113 + wob) * 0.17 + Math.sin(now * 0.041 + wob * 1.7) * 0.09);
+      view.ty = H * (0.5 + Math.sin(now * 0.071 + wob * 2.3) * 0.15 + Math.sin(now * 0.029 + wob) * 0.08);
+    }
+    view.x += (view.tx - view.x) * (1 - Math.exp(-4.5 * dt));
+    view.y += (view.ty - view.y) * (1 - Math.exp(-4.5 * dt));
+
+    /* 雨 */
+    rainT -= dt;
+    if (rainT <= 0) {
+      rainT = 0.09 + Math.random() * 0.30;
+      edgeDrop();
+    }
+    for (i = drops.length - 1; i >= 0; i--) {
+      d = drops[i];
+      d.life -= dt;
+      if (d.life <= 0) { drops.splice(i, 1); continue; }
+      d.vx += Math.sin(now * 1.4 + d.ph) * 26 * dt;
+      d.x += (d.vx - (d.x - view.x) * 0.22) * dt;      /* わずかに中心へ流される */
+      d.y += (d.vy - (d.y - view.y) * 0.22) * dt;
+      if (d.x < -80 || d.x > W + 80 || d.y < -80 || d.y > H + 80) drops.splice(i, 1);
+    }
+    for (i = flashes.length - 1; i >= 0; i--) {
+      p = flashes[i];
+      p.r += p.v * dt; p.v *= 1 - 1.8 * dt; p.a -= dt * 1.5;
+      if (p.a <= 0) flashes.splice(i, 1);
+    }
+    hue = (hue + 7 * dt) % 360;
+    extraRot *= 1 - Math.min(1, 7 * dt);               /* ドラッグで足した回転は少しずつ抜ける */
+  }
+
+  /* ================= 描画（Droste の心臓部） ================= */
+  function render(dt) {
+    var sc  = Math.exp(-ZOOM * dt * (1 + view.boost * 0.85));   /* 中心へ縮みながら落ちる */
+    var ret = Math.exp(-RET * dt * (1 + view.boost * 0.6));
+    var rot = SPIN * view.dir * dt * (1 + view.boost * 0.55) + extraRot;
+
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+
+    /* --- 前のフレームを、中心へ向かって縮小＆回転しながら写して刷り重ねる --- */
+    ctx.save();
+    ctx.translate(view.x, view.y);
+    ctx.rotate(rot);
+    ctx.scale(sc, sc);
+    ctx.translate(-view.x, -view.y);
+    ctx.globalAlpha = ret;
+    ctx.drawImage(tex, 0, 0, tex.width, tex.height, 0, 0, W, H);
+    ctx.restore();
+    ctx.globalAlpha = 1;
+
+    /* --- 無限に重なる中心の明るさをやわらかく抑える --- */
+    var g = ctx.createRadialGradient(view.x, view.y, 0, view.x, view.y, minDim * 0.34);
+    g.addColorStop(0,    'rgba(0,0,0,0.155)');
+    g.addColorStop(0.3,  'rgba(0,0,0,0.085)');
+    g.addColorStop(0.65, 'rgba(0,0,0,0.028)');
+    g.addColorStop(1,    'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+
+    /* --- 新しい光を描く（これが無限に増えていく） --- */
+    ctx.globalCompositeOperation = 'lighter';
+    glyphT -= dt;
+    if (glyphT <= 0) { glyphT = 0.24 + Math.random() * 0.26; drawGlyph(); }
+
+    var i, d, a;
+    for (i = 0; i < drops.length; i++) {
+      d = drops[i];
+      a = Math.min(d.life * 0.9, (d.max - d.life) * 1.6);
+      if (a <= 0) continue;
+      if (quality === 1 && (i & 1)) continue;
+      sprite(d.hue, d.x, d.y, d.r * 3.2, 0.5 * a, 1.5);
+      sprite(d.hue + 20, d.x, d.y, d.r * 1.0, 0.7 * a, 1.0);
+    }
+    ctx.globalAlpha = 1;
+    for (i = 0; i < flashes.length; i++) {
+      var fl = flashes[i];
+      ctx.strokeStyle = 'hsla(' + fl.hue.toFixed(0) + ',100%,80%,' + (0.5 * fl.a).toFixed(3) + ')';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.arc(fl.x, fl.y, fl.r, 0, TAU);
+      ctx.stroke();
+    }
+    /* 指先の残光 */
+    if (ptr.strength > 0.05) {
+      sprite(200 + hue * 0.1, ptr.x, ptr.y, 30 + 24 * ptr.strength, 0.16 * ptr.strength, 1);
+      ctx.globalAlpha = 1;
+    }
+
+    /* --- 次のフレームの元絵としてコピー --- */
+    tctx.setTransform(1, 0, 0, 1, 0, 0);
+    tctx.globalCompositeOperation = 'source-over';
+    tctx.globalAlpha = 1;
+    tctx.drawImage(cvs, 0, 0);
+  }
+
+  /* ================= メインループ ================= */
+  var last = 0;
+  function frame(ts) {
+    if (!last) last = ts;
+    var dt = (ts - last) / 1000;
+    last = ts;
+    if (dt > 0.05) dt = 0.05;
+    if (dt < 0.0005) dt = 0.0005;
+    now += dt;
+    update(dt);
+    render(dt);
+    perfAcc += dt * 1000; perfN++;
+    if (perfN >= 90) {
+      if (perfAcc / perfN > 26 && quality === 2) quality = 1;
+      perfAcc = 0; perfN = 0;
+    }
+    requestAnimationFrame(frame);
+  }
+
+  /* ================= 操作 ================= */
+  function toXY(e) {
+    var r = cvs.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  }
+  function hideHint() { hint.classList.remove('on'); }
+
+  function rainBurst(x, y) {                            /* タップ＝光の雨つぶが飛び散る */
+    var i, a;
+    for (i = 0; i < 7; i++) {
+      a = Math.random() * TAU;
+      addDrop(x + Math.cos(a) * 14, y + Math.sin(a) * 14, 120, randHue());
+    }
+    flashes.push({ x: x, y: y, r: 3, v: 340, a: 1, hue: randHue() });
+  }
+
+  cvs.addEventListener('pointerdown', function (e) {
+    if (window.APKit && APKit.isUI(e.clientX, e.clientY)) return;
+    var p = toXY(e);
+    ptr.x = p.x; ptr.y = p.y;
+    ptr.down = true; ptr.active = true;
+    pointers.set(e.pointerId, p);
+    if (now > 1.2) hideHint();
+
+    if (pointers.size >= 2) {                           /* ２本指＝渦の向きを反転 */
+      view.dir *= -1;
+      flashes.push({ x: view.x, y: view.y, r: 6, v: 900, a: 1, hue: randHue() });
+      return;
+    }
+    if (e.pointerType === 'mouse') {
+      var t = performance.now();
+      if (t - mouseClicks < 320) { mouseClicks = 0; view.dir *= -1; rainBurst(p.x, p.y); return; }
+      mouseClicks = t;
+    }
+    rainBurst(p.x, p.y);
+  }, { passive: false });
+
+  cvs.addEventListener('pointermove', function (e) {
+    var p = toXY(e);
+    if (e.pointerType === 'mouse' && !ptr.down) {        /* PC はホバーでも渦を手繰れる */
+      ptr.x = p.x; ptr.y = p.y; ptr.active = true;
+      return;
+    }
+    if (!ptr.down) return;
+    extraRot += (p.x - ptr.x) * 0.0016;                  /* 指の横移動で渦がねじれる */
+    ptr.x = p.x; ptr.y = p.y;
+    if (Math.random() < 0.5) addDrop(p.x, p.y, 60, randHue());
+  }, { passive: true });
+
+  window.addEventListener('pointermove', function (e) {
+    if (!ptr.down) return;
+    var p = toXY(e);
+    extraRot += (p.x - ptr.x) * 0.0016;
+    ptr.x = p.x; ptr.y = p.y;
+  }, { passive: true });
+
+  function release(e) {
+    pointers.delete(e.pointerId);
+    if (pointers.size === 0) {
+      ptr.down = false;
+      if (e.pointerType !== 'mouse') ptr.active = false;
+    }
+  }
+  window.addEventListener('pointerup', release);
+  window.addEventListener('pointercancel', release);
+  cvs.addEventListener('pointerleave', function (e) {
+    if (e.pointerType === 'mouse' && !ptr.down) ptr.active = false;
+  });
+
+  document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
+  document.addEventListener('dblclick', function (e) { e.preventDefault(); });
+
+  var rT = 0;
+  window.addEventListener('resize', function () {
+    clearTimeout(rT);
+    rT = setTimeout(resize, 180);
+  });
+  window.addEventListener('orientationchange', function () { setTimeout(resize, 300); });
+  document.addEventListener('visibilitychange', function () { last = 0; extraRot = 0; });
+
+  /* ================= 起動 ================= */
+  resize();
+  view.wob = Math.random() * 100;
+  var i;
+  for (i = 0; i < 46; i++) edgeDrop();
+  setTimeout(function () { hint.classList.add('on'); }, 550);
+  setTimeout(hideHint, 7000);
+  requestAnimationFrame(frame);
+
+  /* ---- 共有コントロール（ap-kit.js） ---- */
+  if (window.APKit) {
+    window.APKit.init({
+      canvas: cvs,
+      gifName: 'droste-rain',
+      clockFormat: 'spec',
+      dock: true,
+      autoHide: true,
+      fullscreenButton: false,
+      buttons: [
+        { label: '✦', name: 'mutate', onClick: function () { view.dir *= -1; view.wob = Math.random() * 100; hue = randHue(); flashes.push({ x: view.x, y: view.y, r: 6, v: 900, a: 1, hue: randHue() }); } },   /* 渦の向きを反転し、さまよう道筋と色を替える */
+        { label: '↻', name: 'reset',  onClick: function () { tctx.setTransform(1, 0, 0, 1, 0, 0); tctx.globalAlpha = 1; tctx.globalCompositeOperation = 'source-over'; tctx.fillStyle = '#000'; tctx.fillRect(0, 0, tex.width, tex.height); view.dir = 1; extraRot = 0; drops.length = 0; flashes.length = 0; for (var k = 0; k < 46; k++) edgeDrop(); } }   /* 入れ子を消して、最初の雨から */
+      ]
+    });
+  }
+})();
+</script>
+</body>
+</html>

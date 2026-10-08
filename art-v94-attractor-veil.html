@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<!-- ATTRACTOR VEIL — Arenaで作った「Attractor Veil」をおっちゃんが持ち込み、Claude(クロちゃん)が改良。
+     改良: 触ると止まるバグ(未定義のスプライト)を修正、高精細画面で絵が左上にずれる問題を修正、
+     点が1か所に縮んで真っ暗になる係数を除外、形の大きさに合わせて画面に収める、白飛びを抑える、ap-kit.js統合 -->
+<!-- 世界のルール: 光の雲は一本の式(クリフォード・アトラクタ)の軌跡でできている。指は雲を動かすのではなく、式の係数そのものを引っぱる。
+     式が変われば雲の形が変わり、古い形の塵はしばらく残って新しい形と重なる。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>ATTRACTOR VEIL — 指が式を歪め、光の雲が姿を変える</title>
+<script src="ap-kit.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; padding: 0; height: 100%; background: #000; overflow: hidden; overscroll-behavior: none; }
+  body {
+    -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none;
+    user-select: none; -webkit-user-select: none;
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  }
+  #c { position: fixed; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; }
+  #hint {
+    position: fixed; left: 0; right: 0; bottom: calc(78px + env(safe-area-inset-bottom, 0px));   /* ap-kitのボタン列と重ならない高さ */
+    text-align: center; pointer-events: none; font-size: 11.5px; line-height: 1.85; letter-spacing: .07em;
+    color: #d8c2ff; opacity: 0; transition: opacity 2s ease; text-shadow: 0 0 14px rgba(150, 110, 255, .5);
+  }
+  #hint.on { opacity: .72; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">ドラッグ ＝ 式を歪めて雲のかたちを変える ／ タップ ＝ 別の混沌へ<br>２本指タップ（PC はダブルクリック）＝ 塵を払ってやり直す</div>
+<script>
+(function () {
+  'use strict';
+  var cvs = document.getElementById('c'), hint = document.getElementById('hint');
+  var ctx = cvs.getContext('2d', { alpha: false, desynchronized: true });
+  var acc = document.createElement('canvas');                    /* 光の粒を溜める層 */
+  var actx = acc.getContext('2d', { alpha: false, desynchronized: true });
+  var W = 0, H = 0, DPR = 1, now = 0, minDim = 1, RES_CAP = 2200000, TAU = Math.PI * 2;
+  var PALETTE = [275, 300, 250, 200, 330, 45];
+  /* 指の残光用スプライト（元のコードで未定義だったため追加） */
+  var SPRITES = (function () {
+    var a = [], i, k, s, c, g;
+    for (i = 0; i < 24; i++) {
+      k = i * 15; s = document.createElement('canvas'); s.width = s.height = 64;
+      c = s.getContext('2d');
+      g = c.createRadialGradient(32, 32, 0, 32, 32, 32);
+      g.addColorStop(0, 'rgba(255,255,255,0.95)');
+      g.addColorStop(0.12, 'hsla(' + k + ',100%,80%,0.5)');
+      g.addColorStop(0.34, 'hsla(' + k + ',100%,62%,0.13)');
+      g.addColorStop(1, 'hsla(' + k + ',100%,55%,0)');
+      c.fillStyle = g; c.fillRect(0, 0, 64, 64); a.push(s);
+    }
+    return a;
+  })();
+
+  /* ---- 式のパラメータ（Clifford アトラクタ） ---- */
+  var cur = { a: -1.7, b: 1.8, c: -1.9, d: -0.4 };
+  var tgt = { a: -1.7, b: 1.8, c: -1.9, d: -0.4 };
+  var warp = { a: 0, b: 0, c: 0, d: 0 };
+  var x = 0.1, y = 0.1, hueBase = 275, autoT = 13, quality = 2;
+  var N = 3600;                                   /* 1フレームに打つ粒の数 */
+  var px = new Float32Array(N), py = new Float32Array(N);
+  var ptr = { x: 0, y: 0, down: false, active: false, strength: 0 };
+  var pointers = new Map(), mouseClicks = 0;
+
+  /* 係数によっては点が1か所や数か所に吸い寄せられて画面が真っ暗になる。
+     試しに回してみて、雲状に広がる組み合わせだけを採用する。 */
+  function spread(a, b, c, d) {
+    var x0 = 0.1, y0 = 0.1, i, nx, ny, seen = {}, n = 0, k;
+    var mnx = 1e9, mxx = -1e9, mny = 1e9, mxy = -1e9;
+    for (i = 0; i < 2400; i++) {
+      nx = Math.sin(a * y0) + c * Math.cos(a * x0);
+      ny = Math.sin(b * x0) + d * Math.cos(b * y0);
+      x0 = nx; y0 = ny;
+      if (i < 100) continue;
+      if (x0 < mnx) mnx = x0; if (x0 > mxx) mxx = x0;
+      if (y0 < mny) mny = y0; if (y0 > mxy) mxy = y0;
+      k = ((x0 + 3.5) * 8 | 0) * 100 + ((y0 + 3.5) * 8 | 0);
+      if (!seen[k]) { seen[k] = 1; n++; }
+    }
+    spreadCX = (mnx + mxx) / 2; spreadCY = (mny + mxy) / 2;          /* 雲の外枠の中心と半分の大きさ */
+    spreadX = Math.max(0.3, (mxx - mnx) / 2); spreadY = Math.max(0.3, (mxy - mny) / 2);
+    return n;
+  }
+  var spreadX = 2.5, spreadY = 2.5, fitX = 2.5, fitY = 2.5, viewX = 2.5, viewY = 2.5;
+  var spreadCX = 0, spreadCY = 0, fitCX = 0, fitCY = 0, viewCX = 0, viewCY = 0;
+  var GOOD = [[-1.7, 1.8, -1.9, -0.4], [-1.4, 1.6, 1.0, 0.7], [1.6, -0.6, -1.2, 1.6],
+              [1.7, 1.7, 0.6, 1.2], [-1.8, -2.0, -0.5, -0.9], [-1.32, -1.65, 0.74, 1.81]];
+  function newParams(soft) {
+    var t, a, b, c, d, ok = false;
+    for (t = 0; t < 40 && !ok; t++) {
+      a = (Math.random() * 2 - 1) * 2.2; b = (Math.random() * 2 - 1) * 2.2;
+      c = (Math.random() * 2 - 1) * 2.2; d = (Math.random() * 2 - 1) * 2.2;
+      ok = spread(a, b, c, d) >= 260;
+    }
+    if (!ok) { var g = GOOD[(Math.random() * GOOD.length) | 0]; a = g[0]; b = g[1]; c = g[2]; d = g[3]; }
+    tgt.a = a; tgt.b = b; tgt.c = c; tgt.d = d;
+    spread(a, b, c, d); fitX = spreadX; fitY = spreadY; fitCX = spreadCX; fitCY = spreadCY;   /* 画面に収める大きさ */
+    warp.a = warp.b = warp.c = warp.d = 0;
+    hueBase = PALETTE[(Math.random() * PALETTE.length) | 0];
+  }
+
+  function resize() {
+    var w = cvs.clientWidth || window.innerWidth, h = cvs.clientHeight || window.innerHeight;
+    W = w; H = h;
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    if (w * h * DPR * DPR > RES_CAP) DPR = Math.max(1, Math.sqrt(RES_CAP / (w * h)));
+    cvs.width = Math.max(1, Math.round(w * DPR)); cvs.height = Math.max(1, Math.round(h * DPR));
+    acc.width = cvs.width; acc.height = cvs.height;
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h);
+    actx.setTransform(1, 0, 0, 1, 0, 0);
+    actx.globalCompositeOperation = 'source-over'; actx.globalAlpha = 1;
+    actx.fillStyle = '#000'; actx.fillRect(0, 0, acc.width, acc.height);
+    minDim = Math.min(w, h);
+  }
+
+  /* ---- 操作 ---- */
+  function toXY(e) { var r = cvs.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+  function hideHint() { hint.classList.remove('on'); }
+  function freshStart() {                          /* 塵を払い、新しい式へ即座に切り替える */
+    clearDust(); newParams();
+    cur.a = tgt.a; cur.b = tgt.b; cur.c = tgt.c; cur.d = tgt.d; viewX = fitX; viewY = fitY; viewCX = fitCX; viewCY = fitCY;
+  }
+  function clearDust() {
+    actx.setTransform(1, 0, 0, 1, 0, 0);
+    actx.globalCompositeOperation = 'source-over'; actx.globalAlpha = 1;
+    actx.fillStyle = '#000'; actx.fillRect(0, 0, acc.width, acc.height);
+  }
+
+  cvs.addEventListener('pointerdown', function (e) {
+    if (window.APKit && APKit.isUI(e.clientX, e.clientY)) return;
+    var p = toXY(e);
+    ptr.x = p.x; ptr.y = p.y; ptr.down = true; ptr.active = true;
+    pointers.set(e.pointerId, p);
+    if (now > 1.2) hideHint();
+    if (pointers.size >= 2) { freshStart(); return; }
+    if (e.pointerType === 'mouse') {
+      var t = performance.now();
+      if (t - mouseClicks < 320) { mouseClicks = 0; freshStart(); return; }
+      mouseClicks = t;
+    }
+    newParams();                                   /* タップ＝別の混沌へ */
+  }, { passive: false });
+  cvs.addEventListener('pointermove', function (e) {
+    var p = toXY(e);
+    if (e.pointerType === 'mouse' && !ptr.down) {
+      if (!ptr.active && p.x <= 0.5 && p.y <= 0.5) return;
+      ptr.x = p.x; ptr.y = p.y; ptr.active = true; return;
+    }
+    ptr.x = p.x; ptr.y = p.y;
+  }, { passive: true });
+  window.addEventListener('pointermove', function (e) {
+    if (!ptr.down) return;
+    var p = toXY(e); ptr.x = p.x; ptr.y = p.y;
+  }, { passive: true });
+  function release(e) {
+    pointers.delete(e.pointerId);
+    if (pointers.size === 0) { ptr.down = false; if (e.pointerType !== 'mouse') ptr.active = false; }
+  }
+  window.addEventListener('pointerup', release);
+  window.addEventListener('pointercancel', release);
+  cvs.addEventListener('pointerleave', function (e) { if (e.pointerType === 'mouse' && !ptr.down) ptr.active = false; });
+  document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
+  document.addEventListener('dblclick', function (e) { e.preventDefault(); });
+  var rT = 0;
+  window.addEventListener('resize', function () { clearTimeout(rT); rT = setTimeout(resize, 180); });
+  window.addEventListener('orientationchange', function () { setTimeout(resize, 300); });
+  document.addEventListener('visibilitychange', function () { last = 0; });
+
+  /* ---- 更新 ---- */
+  function update(dt) {
+    var f = ptr.active ? (ptr.down ? 1 : 0.35) : 0, k;
+    ptr.strength += (f - ptr.strength) * (1 - Math.exp(-7 * dt));
+    if (ptr.strength < 0.002) ptr.strength = 0;
+
+    /* 指で式を歪める */
+    if (ptr.strength > 0.02) {
+      var nx = (ptr.x / W - 0.5) * 2, ny = (ptr.y / H - 0.5) * 2;
+      warp.a += ((nx * 2.6) - warp.a) * (1 - Math.exp(-3.4 * dt));
+      warp.b += ((ny * 2.6) - warp.b) * (1 - Math.exp(-3.4 * dt));
+      warp.c += ((-nx * 1.8 - ny * 0.7) - warp.c) * (1 - Math.exp(-3.0 * dt));
+      warp.d += ((nx * 0.9 - ny * 1.6) - warp.d) * (1 - Math.exp(-3.0 * dt));
+    } else {
+      k = 1 - Math.exp(-1.4 * dt);
+      warp.a += (0 - warp.a) * k; warp.b += (0 - warp.b) * k;
+      warp.c += (0 - warp.c) * k; warp.d += (0 - warp.d) * k;
+    }
+    k = 1 - Math.exp(-1.1 * dt);
+    cur.a += (tgt.a - cur.a) * k; cur.b += (tgt.b - cur.b) * k;
+    cur.c += (tgt.c - cur.c) * k; cur.d += (tgt.d - cur.d) * k;
+
+    viewX += (fitX - viewX) * k; viewY += (fitY - viewY) * k;
+    viewCX += (fitCX - viewCX) * k; viewCY += (fitCY - viewCY) * k;
+    autoT -= dt;
+    if (autoT <= 0) { autoT = 12 + Math.random() * 9; newParams(); }
+    hueBase += dt * 2.6;
+  }
+
+  /* ---- 粒を打つ ---- */
+  function plot(dt) {
+    var n = Math.round(N * (quality === 2 ? 1 : 0.55));
+    var a = cur.a + warp.a, b = cur.b + warp.b, c = cur.c + warp.c, d = cur.d + warp.d;
+    var fs = Math.min(W * 0.44 / viewX, H * 0.34 / viewY);   /* 形に合わせて拡大率を決める */
+    var sx = fs, sy = fs;
+    var i, nx, ny, gx, gy, hue, band;
+    var size = Math.max(1, Math.round(DPR));
+    actx.globalCompositeOperation = 'lighter';
+    var lastBand = -1;
+    /* 毎フレーム、選んだときと同じ出発点から軌道をたどり直す（別の小さな周期軌道に取り残されて消えるのを防ぐ） */
+    x = 0.1 + Math.random() * 0.01; y = 0.1 + Math.random() * 0.01;
+    for (i = 0; i < 40; i++) { nx = Math.sin(a * y) + c * Math.cos(a * x); ny = Math.sin(b * x) + d * Math.cos(b * y); x = nx; y = ny; }
+    for (i = 0; i < n; i++) {
+      nx = Math.sin(a * y) + c * Math.cos(a * x);
+      ny = Math.sin(b * x) + d * Math.cos(b * y);
+      if (!isFinite(nx) || !isFinite(ny)) { x = 0.1; y = 0.1; continue; }
+      x = nx; y = ny;
+      gx = acc.width / 2 + (x - viewCX) * sx * DPR;      /* 中心は端末の画素で取る（元は左上にずれていた） */
+      gy = acc.height / 2 + (y - viewCY) * sy * DPR;
+      if (gx < -20 || gx > acc.width + 20 || gy < -20 || gy > acc.height + 20) continue;
+      band = (i * 7) / n | 0;
+      if (band !== lastBand) {
+        lastBand = band;
+        hue = ((hueBase + band * 34) % 360 + 360) % 360;
+        actx.fillStyle = 'hsla(' + hue.toFixed(0) + ',100%,' +
+                         (58 + 18 * Math.sin(i * 0.01 + now)) + '%,0.13)';
+      }
+      actx.fillRect(gx, gy, size, size);
+    }
+  }
+
+  /* ---- 描画 ---- */
+  function render(dt) {
+    var fadeA = 1 - Math.exp(-0.85 * dt);              /* ゆっくり消える＝雲が尾を引く */
+    if (fadeA < 0.0008) fadeA = 0.0008;
+    actx.setTransform(1, 0, 0, 1, 0, 0);
+    actx.globalCompositeOperation = 'source-over'; actx.globalAlpha = 1;
+    actx.fillStyle = 'rgba(0,0,0,' + fadeA.toFixed(5) + ')';
+    actx.fillRect(0, 0, acc.width, acc.height);
+    plot(dt);
+
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 1;
+    ctx.drawImage(acc, 0, 0, acc.width, acc.height, 0, 0, W, H);
+    /* 中心の灯と、指の残光 */
+    var pa = ctx.globalAlpha;
+    ctx.globalAlpha = 0.07;
+    /* 元絵の座標を端末の画素数に合わせる（元は左上だけが拡大されて重なっていた） */
+    var ox = Math.round(W * 0.02 * DPR), oy = Math.round(H * 0.02 * DPR);
+    ctx.drawImage(acc, ox, oy, acc.width - ox, acc.height - oy, 0, 0, W - ox / DPR, H - oy / DPR);
+    ctx.globalAlpha = pa;
+    if (ptr.strength > 0.05) {
+      var h = (hueBase + 60) % 360;
+      ctx.globalAlpha = 0.10 * ptr.strength;
+      ctx.drawImage(SPRITES[(Math.round(h / 15) % 24 + 24) % 24], ptr.x - 30, ptr.y - 30, 60, 60);
+      ctx.globalAlpha = pa;
+    }
+  }
+
+  /* ---- ループ ---- */
+  var perfAcc = 0, perfN = 0, last = 0;
+  function frame(ts) {
+    if (!last) last = ts;
+    var dt = (ts - last) / 1000; last = ts;
+    if (dt > 0.05) dt = 0.05;
+    if (dt < 0.0005) dt = 0.0005;
+    now += dt;
+    update(dt); render(dt);
+    perfAcc += dt * 1000; perfN++;
+    if (perfN >= 90) { if (perfAcc / perfN > 26 && quality === 2) quality = 1; perfAcc = 0; perfN = 0; }
+    requestAnimationFrame(frame);
+  }
+
+  resize();
+  newParams();
+  cur.a = tgt.a; cur.b = tgt.b; cur.c = tgt.c; cur.d = tgt.d; viewX = fitX; viewY = fitY; viewCX = fitCX; viewCY = fitCY;   /* 最初から完成した雲で始める */
+  setTimeout(function () { hint.classList.add('on'); }, 550);
+  setTimeout(hideHint, 7000);
+  requestAnimationFrame(frame);
+
+  /* ---- 共有コントロール（ap-kit.js） ---- */
+  if (window.APKit) {
+    window.APKit.init({
+      canvas: cvs,
+      gifName: 'attractor-veil',
+      clockFormat: 'spec',
+      dock: true,
+      autoHide: true,
+      fullscreenButton: false,
+      buttons: [
+        { label: '✦', name: 'mutate', onClick: function () { newParams(); } },              /* 別の式へ（古い雲の塵は残って重なる） */
+        { label: '↻', name: 'reset',  onClick: function () { freshStart(); } }  /* 塵を払って、まっさらな式から */
+      ]
+    });
+  }
+})();
+</script>
+</body>
+</html>

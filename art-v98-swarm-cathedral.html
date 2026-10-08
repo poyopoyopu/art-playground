@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<!-- SWARM CATHEDRAL — Arenaで作った「Swarm Cathedral」をおっちゃんが持ち込み、Claude(クロちゃん)が改良。
+     改良: なし(ap-kit.js統合のみ)。ap-kit.js統合(✦=別の自己相似なかたちへ編み替える、↻=粒を空に散らし、最初の三角から) -->
+<!-- 世界のルール: 数百の光の粒は、それぞれ自己相似な図形(シェルピンスキーの三角・竜の曲線・六方の結晶・渦の花)の上に持ち場を持っている。タップの衝撃は持ち場をシャッフルし、群れは同じ形を別の編み方で組み直す。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>SWARM CATHEDRAL — 光の群れが、自己相似のかたちを編み直す</title>
+<script src="ap-kit.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; padding: 0; height: 100%; background: #000; overflow: hidden; overscroll-behavior: none; }
+  body {
+    -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none;
+    user-select: none; -webkit-user-select: none;
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  }
+  #c { position: fixed; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; }
+  #hint {
+    position: fixed; left: 0; right: 0; bottom: calc(78px + env(safe-area-inset-bottom, 0px));   /* ap-kitのボタン列と重ならない高さ */
+    text-align: center; pointer-events: none; font-size: 11.5px; line-height: 1.85; letter-spacing: .07em;
+    color: #cfe6ff; opacity: 0; transition: opacity 2s ease; text-shadow: 0 0 14px rgba(140, 190, 255, .5);
+  }
+  #hint.on { opacity: .72; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">ドラッグ ＝ 群れを巻き込む ／ タップ ＝ 衝撃で散らして、組み直させる<br>２本指タップ（PC はダブルクリック）＝ 別の形へ編み替える</div>
+<script>
+(function () {
+  'use strict';
+  var cvs = document.getElementById('c'), hint = document.getElementById('hint');
+  var ctx = cvs.getContext('2d', { alpha: false, desynchronized: true });
+  var W = 0, H = 0, DPR = 1, now = 0, minDim = 1, RES_CAP = 2200000, TAU = Math.PI * 2;
+  var PALETTE = [205, 265, 190, 320, 45, 225];
+
+  var SPRITES = (function () {
+    var a = [], i, k, s, c, g;
+    for (i = 0; i < 24; i++) {
+      k = i * 15; s = document.createElement('canvas'); s.width = s.height = 64;
+      c = s.getContext('2d');
+      g = c.createRadialGradient(32, 32, 0, 32, 32, 32);
+      g.addColorStop(0, 'rgba(255,255,255,0.95)');
+      g.addColorStop(0.12, 'hsla(' + k + ',100%,84%,0.5)');
+      g.addColorStop(0.34, 'hsla(' + k + ',100%,64%,0.13)');
+      g.addColorStop(0.66, 'hsla(' + k + ',100%,58%,0.034)');
+      g.addColorStop(1, 'hsla(' + k + ',100%,56%,0)');
+      c.fillStyle = g; c.fillRect(0, 0, 64, 64); a.push(s);
+    }
+    return a;
+  })();
+  function sprite(h, x, y, r, a) {
+    var i = (Math.round(h / 15) % 24 + 24) % 24;
+    var pa = ctx.globalAlpha; ctx.globalAlpha = a;
+    ctx.drawImage(SPRITES[i], x - r, y - r, r * 2, r * 2);
+    ctx.globalAlpha = pa;
+  }
+  function randHue() { return PALETTE[(Math.random() * PALETTE.length) | 0]; }
+
+  /* ---- 自己相似な「かたち」＝アフィン変換の繰り返し（カオスゲーム） ---- */
+  var SHAPES = [
+    { name: 'sierpinski', T: [                                   /* シェルピンスキーの三角 */
+      [0.5, 0, 0, 0.5, -0.5, -0.4], [0.5, 0, 0, 0.5, 0.5, -0.4], [0.5, 0, 0, 0.5, 0, 0.5]] },
+    { name: 'dragon', T: [                                       /* 竜の曲線 */
+      [0.5, -0.5, 0.5, 0.5, 0, 0], [-0.5, -0.5, 0.5, -0.5, 1, 0]] },
+    { name: 'snowflake', T: [                                    /* 六方の結晶 */
+      [0.36, -0.10, 0.10, 0.36, 0.0, 0.0], [0.36, -0.10, 0.10, 0.36, 0.62, 0.36],
+      [0.36, -0.10, 0.10, 0.36, -0.62, 0.36], [0.30, 0.16, -0.16, 0.30, 0.0, -0.45],
+      [0.30, 0.16, -0.16, 0.30, 0.42, -0.78], [0.30, 0.16, -0.16, 0.30, -0.42, -0.78]] },
+    { name: 'spiral', T: [                                       /* 渦巻く花 */
+      [0.62, -0.24, 0.24, 0.62, 0.10, -0.10], [0.36, -0.48, 0.48, 0.36, -0.32, 0.30],
+      [0.30, 0.42, -0.42, 0.30, 0.20, -0.40], [0.22, 0.0, 0.0, 0.22, -0.10, 0.42]] }
+  ];
+
+  var N = 460;                       /* 光の粒の数（軽さ優先で調整） */
+  var mx = new Float32Array(N), my = new Float32Array(N);
+  var vx = new Float32Array(N), vy = new Float32Array(N);
+  var hx = new Float32Array(N), hy = new Float32Array(N);
+  var shape = 0, shapeT = 12, hueBase = 205, fit = { s: 1, cx: 0, cy: 0, ox: 0, oy: 0, os: 1 };
+  var shockT = -9, shockX = 0, shockY = 0, vortex = { x: 0, y: 0, k: 0 };
+  var ptr = { x: 0, y: 0, down: false, active: false, strength: 0 };
+  var pointers = new Map(), mouseClicks = 0;
+
+  function targetsFor(si, soft) {                     /* カオスゲームで目標点を作る */
+    var set = SHAPES[si].T, px = 0.1, py = 0.1, i, j, r, t, nx, ny, k = set.length;
+    var xs = new Float32Array(N), ys = new Float32Array(N);
+    var mnx = 1e9, mxx = -1e9, mny = 1e9, mxy = -1e9;
+    for (i = 0; i < N * 30; i++) {                    /* ならし運転 */
+      r = (Math.random() * k) | 0; t = set[r];
+      nx = t[0] * px + t[1] * py + t[4]; ny = t[2] * px + t[3] * py + t[5];
+      px = nx; py = ny;
+    }
+    for (i = 0; i < N; i++) {
+      for (j = 0; j < 6; j++) {
+        r = (Math.random() * k) | 0; t = set[r];
+        nx = t[0] * px + t[1] * py + t[4]; ny = t[2] * px + t[3] * py + t[5];
+        if (isFinite(nx) && isFinite(ny)) { px = nx; py = ny; }
+      }
+      xs[i] = px; ys[i] = py;
+      if (px < mnx) mnx = px; if (px > mxx) mxx = px;
+      if (py < mny) mny = py; if (py > mxy) mxy = py;
+    }
+    var bw = Math.max(0.001, mxx - mnx), bh = Math.max(0.001, mxy - mny);
+    var s = Math.min(W * 0.82 / bw, H * 0.62 / bh);
+    var ox = W / 2 - (mnx + mxx) / 2 * s, oy = H * 0.5 - (mny + mxy) / 2 * s;
+    for (i = 0; i < N; i++) {
+      var tx = ox + xs[i] * s, ty = oy + ys[i] * s;
+      if (soft) {                                     /* ゆっくり入れ替わるよう補間 */
+        hx[i] += (tx - hx[i]) * 0.5; hy[i] += (ty - hy[i]) * 0.5;
+      } else { hx[i] = tx; hy[i] = ty; }
+    }
+    fit.ox = ox; fit.oy = oy; fit.s = s;
+  }
+  function reshuffle() {                              /* 対応を入れ替える＝編み直し */
+    var i, tmp, j;
+    for (i = N - 1; i > 0; i--) {
+      j = (Math.random() * (i + 1)) | 0;
+      tmp = hx[i]; hx[i] = hx[j]; hx[j] = tmp;
+      tmp = hy[i]; hy[i] = hy[j]; hy[j] = tmp;
+    }
+  }
+  function nextShape(soft) {
+    shape = (shape + 1 + ((Math.random() * (SHAPES.length - 1)) | 0)) % SHAPES.length;
+    hueBase = randHue();
+    targetsFor(shape, false);
+    if (soft) reshuffle();
+  }
+
+  function resize() {
+    var w = cvs.clientWidth || window.innerWidth, h = cvs.clientHeight || window.innerHeight;
+    W = w; H = h;
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    if (w * h * DPR * DPR > RES_CAP) DPR = Math.max(1, Math.sqrt(RES_CAP / (w * h)));
+    cvs.width = Math.max(1, Math.round(w * DPR)); cvs.height = Math.max(1, Math.round(h * DPR));
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h);
+    minDim = Math.min(w, h);
+    targetsFor(shape, false);
+    var i;
+    for (i = 0; i < N; i++) {                          /* 空からふわっと集まってくる */
+      mx[i] = Math.random() * w; my[i] = Math.random() * h;
+      vx[i] = 0; vy[i] = 0;
+    }
+  }
+
+  /* ---- 操作 ---- */
+  function toXY(e) { var r = cvs.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+  function hideHint() { hint.classList.remove('on'); }
+
+  function bang(x, y) {
+    shockT = now; shockX = x; shockY = y;
+    reshuffle();                                      /* 同じ形のまま、粒の持ち場を入れ替える */
+    hueBase = randHue();
+  }
+
+  cvs.addEventListener('pointerdown', function (e) {
+    if (window.APKit && APKit.isUI(e.clientX, e.clientY)) return;
+    var p = toXY(e);
+    ptr.x = p.x; ptr.y = p.y; ptr.down = true; ptr.active = true;
+    pointers.set(e.pointerId, p);
+    if (now > 1.2) hideHint();
+    if (pointers.size >= 2) { nextShape(true); return; }
+    if (e.pointerType === 'mouse') {
+      var t = performance.now();
+      if (t - mouseClicks < 320) { mouseClicks = 0; nextShape(true); return; }
+      mouseClicks = t;
+    }
+    bang(p.x, p.y);
+  }, { passive: false });
+  cvs.addEventListener('pointermove', function (e) {
+    var p = toXY(e);
+    if (e.pointerType === 'mouse' && !ptr.down) {
+      if (!ptr.active && p.x <= 0.5 && p.y <= 0.5) return;
+      ptr.x = p.x; ptr.y = p.y; ptr.active = true; return;
+    }
+    ptr.x = p.x; ptr.y = p.y;
+  }, { passive: true });
+  window.addEventListener('pointermove', function (e) {
+    if (!ptr.down) return;
+    var p = toXY(e); ptr.x = p.x; ptr.y = p.y;
+  }, { passive: true });
+  function release(e) {
+    pointers.delete(e.pointerId);
+    if (pointers.size === 0) { ptr.down = false; if (e.pointerType !== 'mouse') ptr.active = false; }
+  }
+  window.addEventListener('pointerup', release);
+  window.addEventListener('pointercancel', release);
+  cvs.addEventListener('pointerleave', function (e) { if (e.pointerType === 'mouse' && !ptr.down) ptr.active = false; });
+  document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
+  document.addEventListener('dblclick', function (e) { e.preventDefault(); });
+  var rT = 0;
+  window.addEventListener('resize', function () { clearTimeout(rT); rT = setTimeout(resize, 180); });
+  window.addEventListener('orientationchange', function () { setTimeout(resize, 300); });
+  document.addEventListener('visibilitychange', function () { last = 0; });
+
+  /* ---- 更新 ---- */
+  function update(dt) {
+    var f = ptr.active ? (ptr.down ? 1 : 0.4) : 0, i, dx, dy, d, fa, ex, ey;
+    ptr.strength += (f - ptr.strength) * (1 - Math.exp(-7 * dt));
+    if (ptr.strength < 0.002) ptr.strength = 0;
+
+    vortex.x += (ptr.x - vortex.x) * (1 - Math.exp(-6 * dt));
+    vortex.y += (ptr.y - vortex.y) * (1 - Math.exp(-6 * dt));
+    vortex.k += (ptr.strength - vortex.k) * (1 - Math.exp(-4 * dt));
+
+    shapeT -= dt;
+    if (shapeT <= 0) { shapeT = 12 + Math.random() * 8; nextShape(false); }
+    hueBase += dt * 3.2;
+
+    var shockAge = now - shockT;
+    var k = 1 - Math.exp(-2.4 * dt);
+    var damp = 1 - Math.min(0.9, 1.1 * dt);
+    for (i = 0; i < N; i++) {
+      /* 目標へ寄る（春）＋ゆらぎ */
+      vx[i] += (hx[i] - mx[i]) * k * 2.2;
+      vy[i] += (hy[i] - my[i]) * k * 2.2;
+      vx[i] += Math.sin(now * 0.9 + i * 0.7) * 6 * dt;
+      vy[i] += Math.cos(now * 1.05 + i * 0.53) * 6 * dt;
+
+      /* 指の渦 */
+      if (vortex.k > 0.02) {
+        dx = vortex.x - mx[i]; dy = vortex.y - my[i];
+        d = Math.hypot(dx, dy) + 1;
+        if (d < minDim * 0.7) {
+          fa = (1 - d / (minDim * 0.7)) * vortex.k;
+          vx[i] += (dx / d) * fa * 220 * dt + (-dy / d) * fa * 320 * dt;
+          vy[i] += (dy / d) * fa * 220 * dt + (dx / d) * fa * 320 * dt;
+        }
+      }
+      /* 衝撃波 */
+      if (shockAge < 0.9) {
+        ex = mx[i] - shockX; ey = my[i] - shockY;
+        d = Math.hypot(ex, ey) + 1;
+        if (d < minDim * 0.8) {
+          fa = Math.exp(-shockAge * 3.0) * 900 * (1 - d / (minDim * 0.8));
+          vx[i] += (ex / d) * fa * dt * 8; vy[i] += (ey / d) * fa * dt * 8;
+        }
+      }
+      vx[i] *= damp; vy[i] *= damp;
+      mx[i] += vx[i] * dt; my[i] += vy[i] * dt;
+    }
+  }
+
+  /* ---- 描画 ---- */
+  function render(dt) {
+    var fadeA = 1 - Math.exp(-6.5 * dt);
+    if (fadeA < 0.02) fadeA = 0.02;
+    var GAIN = 1 / fadeA;
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+    ctx.fillStyle = 'rgba(0,0,0,' + fadeA.toFixed(4) + ')';
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'lighter';
+
+    var i, band, hue, pa = ctx.globalAlpha;
+    /* 尾（彗星のようになびく線）を色の帯ごとにまとめて描く */
+    ctx.lineCap = 'round';
+    for (band = 0; band < 6; band++) {
+      hue = ((hueBase + band * 42) % 360 + 360) % 360;
+      ctx.beginPath();
+      for (i = band; i < N; i += 6) {
+        ctx.moveTo(mx[i] - vx[i] * 2.6, my[i] - vy[i] * 2.6);
+        ctx.lineTo(mx[i], my[i]);
+      }
+      ctx.lineWidth = 1.1;
+      ctx.strokeStyle = 'hsla(' + hue.toFixed(0) + ',100%,70%,' + (0.30 / GAIN).toFixed(4) + ')';
+      ctx.stroke();
+    }
+    ctx.globalAlpha = pa;
+
+    /* 粒：芯は四角、4つに1つだけ光をまとわせる（軽量化） */
+    var step = quality === 2 ? 1 : 2;
+    var lastBand = -1;
+    for (band = 0; band < 6; band++) {
+      hue = ((hueBase + band * 42) % 360 + 360) % 360;
+      ctx.fillStyle = 'hsla(' + hue.toFixed(0) + ',100%,74%,' + (0.5 / GAIN).toFixed(4) + ')';
+      for (i = band; i < N; i += 6 * step) {
+        ctx.fillRect(mx[i] - DPR * 0.5, my[i] - DPR * 0.5, DPR, DPR);
+      }
+    }
+    for (i = 0; i < N; i += 4) {
+      band = i % 6;
+      hue = ((hueBase + band * 42) % 360 + 360) % 360;
+      var sp = Math.min(60, Math.hypot(vx[i], vy[i]));
+      sprite(hue, mx[i], my[i], 2.0 + sp * 0.035, (0.22 + sp * 0.004) / GAIN);
+    }
+
+    /* 衝撃の波紋 */
+    ctx.globalAlpha = 1;
+    var sa = now - shockT;
+    if (sa < 0.9) {
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = 'hsla(' + ((hueBase + 60) % 360).toFixed(0) + ',100%,82%,' + (0.5 * (1 - sa / 0.9) / GAIN).toFixed(4) + ')';
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.arc(shockX, shockY, sa * minDim * 1.1, 0, TAU);
+      ctx.stroke();
+    }
+    if (ptr.strength > 0.05) sprite(hueBase + 40, ptr.x, ptr.y, 24 + 20 * ptr.strength, 0.09 * ptr.strength / GAIN);
+  }
+
+  /* ---- ループ ---- */
+  var quality = 2, perfAcc = 0, perfN = 0, last = 0;
+  function frame(ts) {
+    if (!last) last = ts;
+    var dt = (ts - last) / 1000; last = ts;
+    if (dt > 0.05) dt = 0.05;
+    if (dt < 0.0005) dt = 0.0005;
+    now += dt;
+    update(dt); render(dt);
+    perfAcc += dt * 1000; perfN++;
+    if (perfN >= 90) { if (perfAcc / perfN > 26 && quality === 2) quality = 1; perfAcc = 0; perfN = 0; }
+    requestAnimationFrame(frame);
+  }
+
+  resize();
+  setTimeout(function () { hint.classList.add('on'); }, 550);
+  setTimeout(hideHint, 7000);
+  requestAnimationFrame(frame);
+
+  /* ---- 共有コントロール（ap-kit.js） ---- */
+  if (window.APKit) {
+    window.APKit.init({
+      canvas: cvs,
+      gifName: 'swarm-cathedral',
+      clockFormat: 'spec',
+      dock: true,
+      autoHide: true,
+      fullscreenButton: false,
+      buttons: [
+        { label: '✦', name: 'mutate', onClick: function () { nextShape(true); } },   /* 別の自己相似なかたちへ編み替える */
+        { label: '↻', name: 'reset',  onClick: function () { shape = 0; hueBase = 205; shapeT = 12; targetsFor(0, false); for (var k = 0; k < N; k++) { mx[k] = Math.random() * W; my[k] = Math.random() * H; vx[k] = 0; vy[k] = 0; } } }   /* 粒を空に散らし、最初の三角から */
+      ]
+    });
+  }
+})();
+</script>
+</body>
+</html>

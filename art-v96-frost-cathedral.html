@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<!-- FROST CATHEDRAL — Arenaで作った「Frost Cathedral」をおっちゃんが持ち込み、Claude(クロちゃん)が改良。
+     改良: 育つたびに色の組み合わせが替わる(6種)・タップの種が別の色で育つよう水蒸気を分配・暗すぎた粒を明るく・にじみの座標ずれを修正。ap-kit.js統合(✦=別の色の組み合わせで、別の場所から育て直す、↻=同じ色のまま、真ん中から育て直す) -->
+<!-- 世界のルール: 水蒸気はさまよい、霜に触れた所で凍りつく(拡散律速凝集)。なぞった風が、霜の伸びる向きを決める。タップで蒔いた別の色の種もそれぞれ育ち、ぶつかった所で色が混ざる。育ちきると融けて、別の色でまた始まる。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>FROST CATHEDRAL — 霜は風下へ伸び、色の違う結晶が混ざりあう</title>
+<script src="ap-kit.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; padding: 0; height: 100%; background: #000; overflow: hidden; overscroll-behavior: none; }
+  body {
+    -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none;
+    user-select: none; -webkit-user-select: none;
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  }
+  #c { position: fixed; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; }
+  #hint {
+    position: fixed; left: 0; right: 0; bottom: calc(78px + env(safe-area-inset-bottom, 0px));   /* ap-kitのボタン列と重ならない高さ */
+    text-align: center; pointer-events: none; font-size: 11.5px; line-height: 1.85; letter-spacing: .07em;
+    color: #bff2ff; opacity: 0; transition: opacity 2s ease; text-shadow: 0 0 14px rgba(110, 220, 255, .5);
+  }
+  #hint.on { opacity: .72; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">ドラッグ ＝ 風を吹かせる（霜は風下へ伸びる）／ タップ ＝ 別の色の結晶の種を蒔く（ぶつかると色が混ざる）<br>２本指タップ（PC はダブルクリック）＝ 色を変えてやり直す</div>
+<script>
+(function () {
+  'use strict';
+  var cvs = document.getElementById('c'), hint = document.getElementById('hint');
+  var ctx = cvs.getContext('2d', { alpha: false, desynchronized: true });
+  var acc = document.createElement('canvas');                 /* 霜を積もらせる層 */
+  var actx = acc.getContext('2d', { alpha: false, desynchronized: true });
+  var W = 0, H = 0, DPR = 1, now = 0, minDim = 1, RES_CAP = 2200000, TAU = Math.PI * 2;
+
+  /* ---- 霜の粒を描くためのスプライト（白〜氷色） ---- */
+  var FROST = (function () {
+    var a = [], i, s, c, g, k;
+    for (i = 0; i < 24; i++) {
+      k = i * 15; s = document.createElement('canvas'); s.width = s.height = 64;
+      c = s.getContext('2d');
+      g = c.createRadialGradient(32, 32, 0, 32, 32, 32);
+      g.addColorStop(0, 'rgba(255,255,255,0.98)');
+      g.addColorStop(0.16, 'hsla(' + k + ',90%,88%,0.55)');
+      g.addColorStop(0.42, 'hsla(' + k + ',90%,70%,0.16)');
+      g.addColorStop(1, 'hsla(' + k + ',90%,66%,0)');
+      c.fillStyle = g; c.fillRect(0, 0, 64, 64); a.push(s);
+    }
+    return a;
+  })();
+  function frostSprite(h, x, y, r, a) {
+    var i = (Math.round(h / 15) % 24 + 24) % 24;
+    var pa = actx.globalAlpha; actx.globalAlpha = a;
+    actx.drawImage(FROST[i], x - r, y - r, r * 2, r * 2);
+    actx.globalAlpha = pa;
+  }
+
+  /* ---- 霜：拡散律速凝集（DLA）＝雪の結晶そっくりのフラクタル ---- */
+  var CS = 3;                             /* 占有セルの大きさ（CSS px） */
+  var gw = 1, gh = 1, grid = null;
+  var NW = 720;                           /* さまよう水蒸気の粒 */
+  var wx = new Float32Array(NW), wy = new Float32Array(NW);
+  var nodes = 0, NODE_CAP = 26000, maxRad = 0, mature = 0, meltT = 0;
+  var cx = 0, cy = 0, phase = 'grow', phaseT = 0;
+  var wind = { x: 0, y: 0, tx: 0, ty: 0 };
+  var ptr = { x: 0, y: 0, down: false, prevX: 0, prevY: 0, active: false, strength: 0 };
+  var pointers = new Map(), mouseClicks = 0;
+
+  /* ---- 色：育つたびに組み合わせが替わる。種ごとに色を持ち、ぶつかった所で混ざる ---- */
+  var PALETTES = [
+    [195, 215, 175, 240],      /* 氷 */
+    [330, 300, 350, 12],       /* 薔薇 */
+    [40, 22, 55, 8],           /* 琥珀 */
+    [150, 172, 118, 190],      /* 翡翠 */
+    [268, 248, 292, 222],      /* 菫 */
+    [165, 285, 205, 325]       /* オーロラ */
+  ];
+  var palIdx = (Math.random() * PALETTES.length) | 0, pal = PALETTES[palIdx];
+  var seeds = [], seedTurn = 0, nearSeed = null;
+  function hueAt(x, y) {                      /* いちばん近い種の色＋距離でゆらぐ */
+    var best = seeds[0], bd = 1e18, i, s, d;
+    for (i = 0; i < seeds.length; i++) {
+      s = seeds[i]; d = (s.x - x) * (s.x - x) + (s.y - y) * (s.y - y);
+      if (d < bd) { bd = d; best = s; }
+    }
+    nearSeed = best;
+    if (!best) return pal[0];
+    return best.hue + 22 * Math.sin(Math.sqrt(bd) * 0.02 + now * 0.4);
+  }
+
+  function occupied(x, y) {
+    var gx = (x / CS) | 0, gy = (y / CS) | 0, i, j;
+    for (j = -1; j <= 1; j++) for (i = -1; i <= 1; i++) {
+      var nx = gx + i, ny = gy + j;
+      if (nx < 0 || ny < 0 || nx >= gw || ny >= gh) continue;
+      if (grid[ny * gw + nx]) return true;
+    }
+    return false;
+  }
+  function stick(x, y) {
+    var gx = (x / CS) | 0, gy = (y / CS) | 0;
+    if (gx < 0 || gy < 0 || gx >= gw || gy >= gh) return false;
+    if (grid[gy * gw + gx]) return false;
+    grid[gy * gw + gx] = 1;
+    nodes++;
+    var d = Math.hypot(x - cx, y - cy);
+    if (d > maxRad) maxRad = d;
+    var hue = hueAt(x, y);
+    if (nearSeed) {                            /* その種の結晶がどこまで育ったか */
+      var ds = Math.hypot(x - nearSeed.x, y - nearSeed.y);
+      if (ds > nearSeed.r) nearSeed.r = ds;
+    }
+    frostSprite(hue, x * DPR, y * DPR, (3.0 + Math.random() * 2.0) * DPR, 0.6 + 0.35 * Math.random());
+    return true;
+  }
+  function seedCrystal(x, y, big) {
+    var i, a, r;
+    /* 最初の種はパレットの主色、タップの種は残りの色を順番に */
+    seeds.push({ x: x, y: y, r: CS * 2, hue: big ? pal[0] : pal[1 + (seedTurn++ % (pal.length - 1))] });
+    if (seeds.length > 12) seeds.splice(1, 1);
+    for (i = 0; i < 7; i++) {
+      a = i / 7 * TAU; r = i ? CS * 1.2 : 0;
+      stick(x + Math.cos(a) * r, y + Math.sin(a) * r);
+    }
+    if (big) {
+      cx = x; cy = y; maxRad = CS * 2;
+      for (i = 0; i < NW; i++) spawnWalker(i, true);
+    } else {
+      for (i = 0; i < 90; i++) spawnWalker(i % NW, true, x, y);
+    }
+  }
+  function spawnWalker(i, force, ox, oy) {
+    if (!force && Math.random() > 0.25) i = (Math.random() * NW) | 0;
+    var baseX = ox === undefined ? cx : ox, baseY = oy === undefined ? cy : oy;
+    var R = (ox === undefined ? maxRad : CS * 6) + minDim * 0.05 + Math.random() * minDim * 0.25;
+    /* タップで蒔いた種にも水蒸気を分ける（半分はどれかの種のまわりから湧く） */
+    /* ただし大きい結晶にのみ込まれた種は除く（中から湧くと隙間が埋まって塊になる） */
+    if (ox === undefined && seeds.length > 1 && Math.random() < 0.5) {
+      var sd = seeds[1 + ((Math.random() * (seeds.length - 1)) | 0)];
+      if (Math.hypot(sd.x - cx, sd.y - cy) > maxRad + sd.r * 0.5) {
+        baseX = sd.x; baseY = sd.y;
+        R = sd.r + minDim * 0.04 + Math.random() * minDim * 0.16;
+      }
+    }
+    var a = Math.random() * TAU, k;
+    for (k = 0; k < 4; k++) {                  /* 湧いた場所が結晶の上なら、外側へずらす */
+      wx[i] = baseX + Math.cos(a) * R + wind.x * 40;
+      wy[i] = baseY + Math.sin(a) * R + wind.y * 40;
+      if (!grid || !occupied(wx[i], wy[i])) break;
+      R += minDim * 0.06;
+    }
+  }
+  function reset(seedX, seedY, newColor) {
+    if (newColor) {                          /* やり直すたびに次の色の組み合わせへ */
+      palIdx = (palIdx + 1 + ((Math.random() * (PALETTES.length - 1)) | 0)) % PALETTES.length;
+      pal = PALETTES[palIdx];
+    }
+    seeds.length = 0; seedTurn = 0;
+    grid = new Uint8Array(gw * gh);
+    nodes = 0; mature = 0;
+    maxRad = 0;
+    cx = seedX; cy = seedY;
+    actx.setTransform(1, 0, 0, 1, 0, 0);
+    actx.globalCompositeOperation = 'source-over'; actx.globalAlpha = 1;
+    actx.fillStyle = '#000'; actx.fillRect(0, 0, acc.width, acc.height);
+    seedCrystal(cx, cy, true);
+    phase = 'grow'; phaseT = 0;
+  }
+
+  function resize() {
+    var w = cvs.clientWidth || window.innerWidth, h = cvs.clientHeight || window.innerHeight;
+    W = w; H = h;
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    if (w * h * DPR * DPR > RES_CAP) DPR = Math.max(1, Math.sqrt(RES_CAP / (w * h)));
+    cvs.width = Math.max(1, Math.round(w * DPR)); cvs.height = Math.max(1, Math.round(h * DPR));
+    acc.width = cvs.width; acc.height = cvs.height;
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h);
+    gw = Math.ceil(w / CS) + 2; gh = Math.ceil(h / CS) + 2;
+    minDim = Math.min(w, h);
+    reset(w / 2, h * 0.52);
+  }
+
+  /* ---- 操作 ---- */
+  function toXY(e) { var r = cvs.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+  function hideHint() { hint.classList.remove('on'); }
+
+  cvs.addEventListener('pointerdown', function (e) {
+    if (window.APKit && APKit.isUI(e.clientX, e.clientY)) return;
+    var p = toXY(e);
+    ptr.x = p.x; ptr.y = p.y; ptr.prevX = p.x; ptr.prevY = p.y;
+    ptr.down = true; ptr.active = true;
+    pointers.set(e.pointerId, p);
+    if (now > 1.2) hideHint();
+    if (pointers.size >= 2) { reset(W / 2, H * 0.52, true); return; }
+    if (e.pointerType === 'mouse') {
+      var t = performance.now();
+      if (t - mouseClicks < 320) { mouseClicks = 0; reset(W / 2, H * 0.52, true); return; }
+      mouseClicks = t;
+    }
+    seedCrystal(p.x, p.y, false);                 /* タップ＝二つ目の結晶 */
+  }, { passive: false });
+  cvs.addEventListener('pointermove', function (e) {
+    var p = toXY(e);
+    if (e.pointerType === 'mouse' && !ptr.down) {
+      if (!ptr.active && p.x <= 0.5 && p.y <= 0.5) return;
+      ptr.x = p.x; ptr.y = p.y; ptr.active = true;
+      return;
+    }
+    ptr.x = p.x; ptr.y = p.y;
+    if (ptr.down) {
+      wind.tx += (p.x - ptr.prevX) * 0.06;        /* 指の動きが風になる */
+      wind.ty += (p.y - ptr.prevY) * 0.06;
+      ptr.prevX = p.x; ptr.prevY = p.y;
+    }
+  }, { passive: true });
+  window.addEventListener('pointermove', function (e) {
+    if (!ptr.down) return;
+    var p = toXY(e);
+    wind.tx += (p.x - ptr.prevX) * 0.06;
+    wind.ty += (p.y - ptr.prevY) * 0.06;
+    ptr.x = p.x; ptr.y = p.y; ptr.prevX = p.x; ptr.prevY = p.y;
+  }, { passive: true });
+  function release(e) {
+    pointers.delete(e.pointerId);
+    if (pointers.size === 0) { ptr.down = false; if (e.pointerType !== 'mouse') ptr.active = false; }
+  }
+  window.addEventListener('pointerup', release);
+  window.addEventListener('pointercancel', release);
+  cvs.addEventListener('pointerleave', function (e) { if (e.pointerType === 'mouse' && !ptr.down) ptr.active = false; });
+  document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
+  document.addEventListener('dblclick', function (e) { e.preventDefault(); });
+  var rT = 0;
+  window.addEventListener('resize', function () { clearTimeout(rT); rT = setTimeout(resize, 180); });
+  window.addEventListener('orientationchange', function () { setTimeout(resize, 300); });
+  document.addEventListener('visibilitychange', function () { last = 0; });
+
+  /* ---- 更新 ---- */
+  function update(dt) {
+    var f = ptr.active ? (ptr.down ? 1 : 0.35) : 0, i, s, sub, st, ang, step;
+    ptr.strength += (f - ptr.strength) * (1 - Math.exp(-7 * dt));
+    if (ptr.strength < 0.002) ptr.strength = 0;
+
+    var decay = 1 - Math.exp(-1.6 * dt);
+    wind.tx *= 1 - decay; wind.ty *= 1 - decay;
+    if (ptr.strength < 0.05) {                  /* 触っていないときはよどみに風がそよぐ */
+      wind.tx += Math.sin(now * 0.23) * 0.06 * dt;
+      wind.ty += Math.cos(now * 0.19) * 0.06 * dt;
+    }
+    wind.x += (wind.tx - wind.x) * (1 - Math.exp(-5 * dt));
+    wind.y += (wind.ty - wind.y) * (1 - Math.exp(-5 * dt));
+    var wl = Math.hypot(wind.x, wind.y);
+    if (wl > 1.6) { wind.x *= 1.6 / wl; wind.y *= 1.6 / wl; }
+
+    phaseT += dt;
+    if (phase === 'grow') {
+      /* 水蒸気がさまよい、霜に触れると凍りつく */
+      var sub1;
+      for (i = 0; i < NW; i++) {
+        sub1 = 3 + ((maxRad / 60) | 0);            /* 結晶が大きいほど探索を速く */
+        for (sub = 0; sub < sub1; sub++) {
+          ang = Math.random() * TAU;
+          step = CS * 1.1;
+          wx[i] += Math.cos(ang) * step + wind.x * step * 0.9;
+          wy[i] += Math.sin(ang) * step + wind.y * step * 0.9;
+          if (wx[i] < 0 || wy[i] < 0 || wx[i] > W || wy[i] > H) { spawnWalker(i, true); break; }
+          if (occupied(wx[i], wy[i])) {
+            if (nodeCountCheck()) stick(wx[i], wy[i]);
+            spawnWalker(i, true);
+            break;
+          }
+        }
+      }
+      if (nodes >= NODE_CAP) { phase = 'mature'; phaseT = 0; }
+    } else if (phase === 'mature') {
+      mature = Math.min(1, mature + dt * 0.5);
+      if (phaseT > 9) { phase = 'melt'; phaseT = 0; }
+    } else {
+      meltT = Math.min(1, meltT + dt * 0.35);
+      if (phaseT > 3.4) { meltT = 0; reset(W * (0.3 + Math.random() * 0.4), H * (0.42 + Math.random() * 0.25), true); }
+    }
+    if (phase === 'melt') meltT = Math.max(0, meltT);
+    mature = phase === 'mature' ? mature : Math.max(0, mature - dt * 0.6);
+  }
+  function nodeCountCheck() { return nodes < NODE_CAP; }
+
+  /* ---- 描画 ---- */
+  function render(dt) {
+    var base = 0.012 + (phase === 'melt' ? meltT * 0.5 : 0) + mature * 0.02;
+    var fadeA = 1 - Math.exp(-base * dt);
+    if (fadeA < 0.0002) fadeA = 0.0002;
+    actx.setTransform(1, 0, 0, 1, 0, 0);
+    actx.globalCompositeOperation = 'source-over'; actx.globalAlpha = 1;
+    actx.fillStyle = 'rgba(0,0,0,' + fadeA.toFixed(5) + ')';
+    actx.fillRect(0, 0, acc.width, acc.height);
+
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'lighter';
+
+    if (phase !== 'grow') {
+      /* 成熟したら、内側から光が脈打つ */
+      var pr = minDim * (0.32 + 0.05 * Math.sin(now * 0.8));
+      var h = pal[0] + 25 * Math.sin(now * 0.4);
+      ctx.globalAlpha = (0.10 + 0.10 * mature - 0.10 * meltT);
+      ctx.drawImage(FROST[(Math.round(h / 15) % 24 + 24) % 24], cx - pr, cy - pr * 0.8, pr * 2, pr * 1.6);
+      ctx.globalAlpha = 1;
+    }
+    ctx.drawImage(acc, 0, 0, acc.width, acc.height, 0, 0, W, H);
+    /* ほんのり滲ませる */
+    ctx.globalAlpha = 0.10;
+    /* 元は元絵の座標が端末の画素数とずれて、左上だけが拡大されて重なっていたのを修正 */
+    var ox = Math.round(W * 0.015 * DPR), oy = Math.round(H * 0.015 * DPR);
+    ctx.drawImage(acc, ox, oy, acc.width - ox, acc.height - oy, 0, 0, W - ox / DPR, H - oy / DPR);
+    ctx.globalAlpha = 1;
+
+    /* 漂う水蒸気のつぶ */
+    var i, tw = quality === 2 ? NW : NW * 0.5;
+    var pa;
+    for (i = 0; i < tw; i += 7) {
+      var vx = wx[i] / W * 2 - 1, vy = wy[i] / H * 2 - 1;
+      ctx.globalAlpha = 0.05 + 0.05 * Math.sin(now * 2 + i);
+      var wh = pal[i % pal.length];
+      var idx = (Math.round(wh / 15) % 24 + 24) % 24;
+      ctx.drawImage(FROST[idx], wx[i] - 5, wy[i] - 5, 10, 10);
+    }
+    ctx.globalAlpha = 1;
+
+    /* 風の可視化：うっすら流れる線 */
+    if (ptr.strength > 0.04) {
+      ctx.strokeStyle = 'hsla(' + ((pal[0] % 360 + 360) % 360) + ',100%,80%,' + (0.16 * ptr.strength).toFixed(3) + ')';
+      ctx.lineWidth = 1.2;
+      for (i = 0; i < 5; i++) {
+        var yy = (now * 40 + i * H / 5) % H;
+        ctx.beginPath();
+        ctx.moveTo(0, yy);
+        ctx.quadraticCurveTo(W / 2, yy + wind.y * 60 * ptr.strength, W, yy + wind.y * 120 * ptr.strength);
+        ctx.stroke();
+      }
+    }
+  }
+
+  /* ---- ループ ---- */
+  var quality = 2, perfAcc = 0, perfN = 0, last = 0;
+  function frame(ts) {
+    if (!last) last = ts;
+    var dt = (ts - last) / 1000; last = ts;
+    if (dt > 0.05) dt = 0.05;
+    if (dt < 0.0005) dt = 0.0005;
+    now += dt;
+    update(dt); render(dt);
+    perfAcc += dt * 1000; perfN++;
+    if (perfN >= 90) {
+      if (perfAcc / perfN > 26 && quality === 2) quality = 1;
+      if (perfAcc / perfN > 34) NW = Math.max(320, (NW * 0.75) | 0);
+      perfAcc = 0; perfN = 0;
+    }
+    requestAnimationFrame(frame);
+  }
+
+  resize();
+  setTimeout(function () { hint.classList.add('on'); }, 550);
+  setTimeout(hideHint, 7000);
+  requestAnimationFrame(frame);
+
+  /* ---- 共有コントロール（ap-kit.js） ---- */
+  if (window.APKit) {
+    window.APKit.init({
+      canvas: cvs,
+      gifName: 'frost-cathedral',
+      clockFormat: 'spec',
+      dock: true,
+      autoHide: true,
+      fullscreenButton: false,
+      buttons: [
+        { label: '✦', name: 'mutate', onClick: function () { reset(W * (0.3 + Math.random() * 0.4), H * (0.42 + Math.random() * 0.25), true); } },   /* 別の色の組み合わせで、別の場所から育て直す */
+        { label: '↻', name: 'reset',  onClick: function () { reset(W / 2, H * 0.52, false); } }   /* 同じ色のまま、真ん中から育て直す */
+      ]
+    });
+  }
+})();
+</script>
+</body>
+</html>

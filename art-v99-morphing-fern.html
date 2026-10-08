@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<!-- MORPHING FERN — Arenaで作った「Morphing Fern」をおっちゃんが持ち込み、Claude(クロちゃん)が改良。
+     改良: なし(ap-kit.js統合のみ)。ap-kit.js統合(✦=次の生きものへ変身させる、↻=光を払って、最初のシダへ) -->
+<!-- 世界のルール: 数千の光の粒は、4つの変換を繰り返すだけで生まれる自己相似の図形(シダ・島のシダ・渦)に集まっている。変換の係数が混ざりあうと、生きものは別の生きものへ溶けるように姿を変える。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>MORPHING FERN — 光の粒のシダが、ゆっくり別の生きものになる</title>
+<script src="ap-kit.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; padding: 0; height: 100%; background: #000; overflow: hidden; overscroll-behavior: none; }
+  body {
+    -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none;
+    user-select: none; -webkit-user-select: none;
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  }
+  #c { position: fixed; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; }
+  #hint {
+    position: fixed; left: 0; right: 0; bottom: calc(78px + env(safe-area-inset-bottom, 0px));   /* ap-kitのボタン列と重ならない高さ */
+    text-align: center; pointer-events: none; font-size: 11.5px; line-height: 1.85; letter-spacing: .07em;
+    color: #b6ffcf; opacity: 0; transition: opacity 2s ease;
+    text-shadow: 0 0 14px rgba(80, 255, 160, .45);
+  }
+  #hint.on { opacity: .72; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">タップ ＝ 光の粒がその場から弾けて、種がいっきに舞う<br>ドラッグ ＝ 粒が指へなびき、葉のかたちが歪む ／ ２本指タップ（PC はダブルクリック）＝ 次の姿へ変身</div>
+<script>
+(function () {
+  'use strict';
+
+  var cvs = document.getElementById('c');
+  var hint = document.getElementById('hint');
+  var ctx = cvs.getContext('2d', { alpha: false, desynchronized: true });
+  var acc = document.createElement('canvas');            /* 粒を溜める層 */
+  var actx = acc.getContext('2d', { alpha: false, desynchronized: true });
+
+  var W = 0, H = 0, DPR = 1, now = 0, minDim = 1, sc = 1, wcx = 0, wcy = 0;
+  var RES_CAP = 2200000, TAU = Math.PI * 2;
+  var STEPS = 5200, MAXDT = 0.05;
+  var PALETTE = [140, 95, 175, 205, 45, 300, 25];
+
+  /* ======== 発光スプライト ======== */
+  var SPRITES = (function () {
+    var a = [], i, k, s, c, g;
+    for (i = 0; i < 24; i++) {
+      k = i * 15;
+      s = document.createElement('canvas'); s.width = s.height = 64;
+      c = s.getContext('2d');
+      g = c.createRadialGradient(32, 32, 0, 32, 32, 32);
+      g.addColorStop(0, 'rgba(255,255,255,0.95)');
+      g.addColorStop(0.12, 'hsla(' + k + ',100%,80%,0.5)');
+      g.addColorStop(0.34, 'hsla(' + k + ',100%,62%,0.13)');
+      g.addColorStop(0.66, 'hsla(' + k + ',100%,56%,0.034)');
+      g.addColorStop(1, 'hsla(' + k + ',100%,55%,0)');
+      c.fillStyle = g; c.fillRect(0, 0, 64, 64);
+      a.push(s);
+    }
+    return a;
+  })();
+  function sprite(c2, h, x, y, r, a) {
+    var i = (Math.round(h / 15) % 24 + 24) % 24;
+    var pa = c2.globalAlpha;
+    c2.globalAlpha = a;
+    c2.drawImage(SPRITES[i], x - r, y - r, r * 2, r * 2);
+    c2.globalAlpha = pa;
+  }
+  function randHue() { return PALETTE[(Math.random() * PALETTE.length) | 0] + (Math.random() - 0.5) * 22; }
+
+  /* ======== 自己相似な図形（4つの変換の繰り返し＝フラクタル） ========
+     係数を混ぜ合わせると、しだいに別の生きものへ姿を変える。            */
+  var SETS = [
+    { p: [0.01, 0.85, 0.07, 0.07], T: [
+      [0, 0, 0, 0.16, 0, 0],
+      [0.85, 0.04, -0.04, 0.85, 0, 1.6],
+      [0.20, -0.26, 0.23, 0.22, 0, 1.6],
+      [-0.15, 0.28, 0.26, 0.24, 0, 0.44]] },            /* シダの葉 */
+    { p: [0.02, 0.84, 0.07, 0.07], T: [
+      [0, 0, 0, 0.25, 0, -0.4],
+      [0.95, 0.005, -0.005, 0.93, -0.002, 0.5],
+      [0.035, -0.2, 0.16, 0.04, -0.09, 0.02],
+      [-0.04, 0.2, 0.16, 0.04, 0.083, 0.12]] },        /* 島のシダ */
+    { p: [0.90, 0.05, 0.048, 0.002], T: [
+      [0.787879, -0.424242, 0.242424, 0.859848, 1.758647, 1.408065],
+      [-0.121212, 0.257576, 0.151515, 0.053030, -6.721654, 1.377236],
+      [0.181818, -0.136364, 0.090909, 0.181818, 6.086107, 1.568035],
+      [0.05, 0, 0, 0.05, 0, 0]] }                      /* 渦 */
+  ];
+  var NB = SETS.length, bounds = [], cur = null, morphFrom = 0, morphTo = 1, morphT = 1, morphDur = 3.0;
+  var hueBase = 140, autoMorph = 16;
+
+  function boundsOf(set) {
+    var x = 0.5, y = 0.5, i, j, t, cum, nx, ny, sum = 0;
+    var minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
+    for (i = 0; i < 24000; i++) {
+      var r = Math.random(), c = 0;
+      for (j = 0; j < 4; j++) { c += set.p[j]; if (r <= c) break; }
+      if (j > 3) j = 3;
+      t = set.T[j];
+      nx = t[0] * x + t[1] * y + t[4];
+      ny = t[2] * x + t[3] * y + t[5];
+      x = nx; y = ny;
+      if (!isFinite(x) || !isFinite(y)) { x = 0.5; y = 0.5; continue; }
+      if (i > 60) {
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; if (y > maxY) maxY = y;
+      }
+    }
+    return [minX, maxX, minY, maxY];
+  }
+
+  function blendSets(t) {                                   /* t: 0→1 で形が入れ替わる */
+    var A = SETS[morphFrom], B = SETS[morphTo];
+    var T = [[], [], [], []], p = [0, 0, 0, 0], i, j;
+    for (i = 0; i < 4; i++) {
+      for (j = 0; j < 6; j++) T[i][j] = A.T[i][j] * (1 - t) + B.T[i][j] * t;
+      p[i] = Math.max(0.001, A.p[i] * (1 - t) + B.p[i] * t);
+    }
+    cur = { p: p, T: T, cum: [0, 0, 0, 0] };
+    var s = 0;
+    for (i = 0; i < 4; i++) { s += p[i]; cur.cum[i] = s; }
+    for (i = 0; i < 4; i++) cur.cum[i] /= s;
+
+    var ba = bounds[morphFrom], bb = bounds[morphTo];
+    var b = [ba[0] * (1 - t) + bb[0] * t, ba[1] * (1 - t) + bb[1] * t,
+             ba[2] * (1 - t) + bb[2] * t, ba[3] * (1 - t) + bb[3] * t];
+    var bw = Math.max(0.001, b[1] - b[0]), bh = Math.max(0.001, b[3] - b[2]);
+    wcx = (b[0] + b[1]) / 2; wcy = (b[2] + b[3]) / 2;
+    sc = Math.min(W / bw, H / bh) * 0.86;
+  }
+
+  function startMorph(to, dur) {
+    morphFrom = morphTo % NB;
+    morphTo = (to === undefined) ? (morphTo + 1) % NB : to % NB;
+    if (morphTo === morphFrom) morphTo = (morphTo + 1) % NB;
+    morphT = 0; morphDur = dur || (2.6 + Math.random() * 1.4);
+    hueBase = randHue();
+  }
+
+  /* ======== 状態 ======== */
+  var px = 0.5, py = 0.5;
+  var ptr = { x: 0, y: 0, down: false, active: false, strength: 0 };
+  var pointers = new Map(), mouseClicks = 0;
+  var shocks = [], burst = 0;
+  var CAP = 19000;                                          /* 1フレームに打てる粒の上限 */
+  var dotsX = new Float32Array(CAP), dotsY = new Float32Array(CAP), dotsT = new Uint8Array(CAP);
+
+  function resize() {
+    var w = cvs.clientWidth || window.innerWidth;
+    var h = cvs.clientHeight || window.innerHeight;
+    W = w; H = h;
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    if (w * h * DPR * DPR > RES_CAP) DPR = Math.max(1, Math.sqrt(RES_CAP / (w * h)));
+    cvs.width = Math.max(1, Math.round(w * DPR));
+    cvs.height = Math.max(1, Math.round(h * DPR));
+    acc.width = cvs.width; acc.height = cvs.height;
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h);
+    actx.setTransform(1, 0, 0, 1, 0, 0);
+    actx.globalCompositeOperation = 'source-over'; actx.globalAlpha = 1;
+    actx.fillStyle = '#000'; actx.fillRect(0, 0, acc.width, acc.height);
+    minDim = Math.min(w, h);
+    blendSets(Math.min(1, morphT));
+  }
+
+  /* ======== 操作 ======== */
+  function toXY(e) {
+    var r = cvs.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  }
+  function hideHint() { hint.classList.remove('on'); }
+
+  function tap(x, y) {
+    shocks.push({ x: x, y: y, t: now });
+    if (shocks.length > 3) shocks.shift();
+    burst = 1.1;
+    hueBase = randHue();
+    var i, a;
+    for (i = 0; i < 16; i++) {
+      a = Math.random() * TAU;
+      sprite(actx, randHue(), x * DPR + Math.cos(a) * 40 * DPR, y * DPR + Math.sin(a) * 40 * DPR, minDim * 0.05 * DPR, 0.5);
+    }
+  }
+
+  cvs.addEventListener('pointerdown', function (e) {
+    if (window.APKit && APKit.isUI(e.clientX, e.clientY)) return;
+    var p = toXY(e);
+    ptr.x = p.x; ptr.y = p.y; ptr.down = true; ptr.active = true;
+    pointers.set(e.pointerId, p);
+    if (now > 1.2) hideHint();
+    if (pointers.size >= 2) { startMorph(undefined, 1.6); burst = 1.4; return; }
+    if (e.pointerType === 'mouse') {
+      var t = performance.now();
+      if (t - mouseClicks < 320) { mouseClicks = 0; startMorph(undefined, 1.6); burst = 1.4; return; }
+      mouseClicks = t;
+    }
+    tap(p.x, p.y);
+  }, { passive: false });
+
+  cvs.addEventListener('pointermove', function (e) {
+    var p = toXY(e);
+    if (e.pointerType === 'mouse' && !ptr.down) {
+      if (!ptr.active && p.x <= 0.5 && p.y <= 0.5) return;
+      ptr.x = p.x; ptr.y = p.y; ptr.active = true; return;
+    }
+    ptr.x = p.x; ptr.y = p.y;
+  }, { passive: true });
+  window.addEventListener('pointermove', function (e) {
+    if (!ptr.down) return;
+    var p = toXY(e); ptr.x = p.x; ptr.y = p.y;
+  }, { passive: true });
+  function release(e) {
+    pointers.delete(e.pointerId);
+    if (pointers.size === 0) { ptr.down = false; if (e.pointerType !== 'mouse') ptr.active = false; }
+  }
+  window.addEventListener('pointerup', release);
+  window.addEventListener('pointercancel', release);
+  cvs.addEventListener('pointerleave', function (e) {
+    if (e.pointerType === 'mouse' && !ptr.down) ptr.active = false;
+  });
+  document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
+  document.addEventListener('dblclick', function (e) { e.preventDefault(); });
+  var rT = 0;
+  window.addEventListener('resize', function () { clearTimeout(rT); rT = setTimeout(resize, 180); });
+  window.addEventListener('orientationchange', function () { setTimeout(resize, 300); });
+  document.addEventListener('visibilitychange', function () { last = 0; });
+
+  /* ======== 更新 ======== */
+  function update(dt) {
+    var f = ptr.active ? (ptr.down ? 1 : 0.45) : 0, i;
+    ptr.strength += (f - ptr.strength) * (1 - Math.exp(-7 * dt));
+    if (ptr.strength < 0.002) ptr.strength = 0;
+
+    if (morphT < 1) {
+      morphT = Math.min(1, morphT + dt / morphDur);
+      var e = morphT < 0.5 ? 2 * morphT * morphT : 1 - Math.pow(-2 * morphT + 2, 2) / 2;
+      blendSets(e);
+    }
+    autoMorph -= dt;
+    if (autoMorph <= 0) { autoMorph = 14 + Math.random() * 9; startMorph(undefined, 3.0 + Math.random() * 1.5); }
+
+    hueBase = (hueBase + dt * 5) % 360;
+    burst = Math.max(0, burst - dt);
+    for (i = shocks.length - 1; i >= 0; i--) if (now - shocks[i].t > 0.9) shocks.splice(i, 1);
+  }
+
+  /* ======== 粒をまく（カオスゲーム） ======== */
+  function plot() {
+    var steps = Math.round((quality === 2 ? STEPS : STEPS * 0.5) * (1 + burst * 2.4));
+    if (steps > CAP) steps = CAP;
+    var j, k, t, i2, sx, sy, cnt = 0;
+    var sway = Math.sin(now * 0.37) * 2.2, sway2 = Math.cos(now * 0.29) * 2.2;
+
+    for (i2 = 0; i2 < steps; i2++) {
+      var r = Math.random();
+      for (j = 0; j < 4; j++) { if (r <= cur.cum[j]) break; if (j === 3) break; }
+      t = cur.T[j];
+      var nx = t[0] * px + t[1] * py + t[4];
+      var ny = t[2] * px + t[3] * py + t[5];
+      if (!isFinite(nx) || !isFinite(ny)) { px = 0.5; py = 0.5; continue; }
+      px = nx; py = ny;
+
+      sx = W / 2 + (px - wcx) * sc + sway;
+      sy = H / 2 - (py - wcy) * sc + sway2;
+
+      /* 指の風 */
+      if (ptr.strength > 0.01) {
+        var dx = ptr.x - sx, dy = ptr.y - sy, d = Math.hypot(dx, dy) + 1;
+        var R = minDim * 0.62;
+        if (d < R) {
+          var fa = (1 - d / R) * ptr.strength * 0.55;
+          sx += dx * fa * fa; sy += dy * fa * fa;
+        }
+      }
+      /* タップの衝撃波 */
+      for (k = 0; k < shocks.length; k++) {
+        var e2 = now - shocks[k].t;
+        if (e2 > 0.85) continue;
+        var ex = sx - shocks[k].x, ey = sy - shocks[k].y, ed = Math.hypot(ex, ey) + 1;
+        var amp = Math.exp(-e2 * 3.2) * 90 * (1 - Math.min(1, ed / (minDim * 0.9)));
+        sx += (ex / ed) * amp; sy += (ey / ed) * amp;
+      }
+      if (sx < -30 || sx > W + 30 || sy < -30 || sy > H + 30) continue;
+      dotsX[cnt] = sx * DPR; dotsY[cnt] = sy * DPR; dotsT[cnt] = j;
+      cnt++;
+    }
+
+    /* 変換ごとにまとめて描く（色替えを最小に） */
+    actx.globalCompositeOperation = 'lighter';
+    var sizes = Math.max(1, DPR * 1.05);
+    for (j = 0; j < 4; j++) {
+      var hit = false;
+      for (i2 = 0; i2 < cnt; i2++) if (dotsT[i2] === j) { hit = true; break; }
+      if (!hit) continue;
+      actx.fillStyle = 'hsla(' + (((hueBase + j * 46) % 360 + 360) % 360).toFixed(0) + ',100%,66%,' +
+                       (j === 0 ? 0.20 : 0.42).toFixed(3) + ')';
+      for (i2 = 0; i2 < cnt; i2++) {
+        if (dotsT[i2] !== j) continue;
+        actx.fillRect(dotsX[i2], dotsY[i2], sizes, sizes);
+      }
+    }
+  }
+
+  /* ======== 描画 ======== */
+  function render(dt) {
+    var fadeA = 1 - Math.exp(-1.25 * dt);                 /* 尾を少し残す＝光の雲 */
+    if (fadeA < 0.001) fadeA = 0.001;
+    actx.setTransform(1, 0, 0, 1, 0, 0);
+    actx.globalCompositeOperation = 'source-over';
+    actx.globalAlpha = 1;
+    actx.fillStyle = 'rgba(0,0,0,' + fadeA.toFixed(5) + ')';
+    actx.fillRect(0, 0, acc.width, acc.height);
+
+    plot();
+
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 1;
+    ctx.drawImage(acc, 0, 0, acc.width, acc.height, 0, 0, W, H);
+
+    /* まわりを漂う胞子 */
+    var i, a;
+    for (i = 0; i < 14; i++) {
+      a = now * (0.13 + i * 0.017) + i * 2.4;
+      var rr = minDim * (0.30 + 0.16 * Math.sin(now * 0.21 + i));
+      sprite(ctx, hueBase + i * 24, W / 2 + Math.cos(a) * rr * 0.8, H / 2 + Math.sin(a * 0.9) * rr,
+             2.4 + 2.2 * Math.sin(now * 1.1 + i), 0.10);
+    }
+    if (ptr.strength > 0.05) sprite(ctx, hueBase + 60, ptr.x, ptr.y, 22 + 22 * ptr.strength, 0.09 * ptr.strength);
+  }
+
+  /* ======== ループ ======== */
+  var quality = 2, perfAcc = 0, perfN = 0, last = 0;
+  function frame(ts) {
+    if (!last) last = ts;
+    var dt = (ts - last) / 1000;
+    last = ts;
+    if (dt > MAXDT) dt = MAXDT;
+    if (dt < 0.0005) dt = 0.0005;
+    now += dt;
+    update(dt);
+    render(dt);
+    perfAcc += dt * 1000; perfN++;
+    if (perfN >= 90) { if (perfAcc / perfN > 26 && quality === 2) quality = 1; perfAcc = 0; perfN = 0; }
+    requestAnimationFrame(frame);
+  }
+
+  /* 初期化 */
+  var i;
+  for (i = 0; i < NB; i++) bounds.push(boundsOf(SETS[i]));
+  resize();
+  morphFrom = 0; morphTo = 1; morphT = 0.001;
+  blendSets(0);
+  setTimeout(function () { hint.classList.add('on'); }, 550);
+  setTimeout(hideHint, 7000);
+  requestAnimationFrame(frame);
+
+  /* ---- 共有コントロール（ap-kit.js） ---- */
+  if (window.APKit) {
+    window.APKit.init({
+      canvas: cvs,
+      gifName: 'morphing-fern',
+      clockFormat: 'spec',
+      dock: true,
+      autoHide: true,
+      fullscreenButton: false,
+      buttons: [
+        { label: '✦', name: 'mutate', onClick: function () { startMorph(undefined, 1.6); burst = 1.4; } },   /* 次の生きものへ変身させる */
+        { label: '↻', name: 'reset',  onClick: function () { actx.setTransform(1, 0, 0, 1, 0, 0); actx.globalCompositeOperation = 'source-over'; actx.globalAlpha = 1; actx.fillStyle = '#000'; actx.fillRect(0, 0, acc.width, acc.height); startMorph(0, 1.2); autoMorph = 16; } }   /* 光を払って、最初のシダへ */
+      ]
+    });
+  }
+})();
+</script>
+</body>
+</html>

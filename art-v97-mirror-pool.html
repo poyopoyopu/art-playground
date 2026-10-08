@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<!-- MIRROR POOL — Arenaで作った「Mirror Pool」をおっちゃんが持ち込み、Claude(クロちゃん)が改良。
+     改良: なし(ap-kit.js統合のみ)。ap-kit.js統合(✦=模様をまき散らし、筆の軌跡と色の回り方を替える、↻=まっさらな水面に花ひとつから) -->
+<!-- 世界のルール: この世界の絵は一枚しかなく、それが六つに折り返されて見えている。指は筆になり、描いた一本の線がそのまま六重の曼荼羅になる。放っておくと筆はひとりでに舞い、模様を描き足していく。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>MIRROR POOL — なぞった線が六つに折り返され、曼荼羅になる</title>
+<script src="ap-kit.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; padding: 0; height: 100%; background: #000; overflow: hidden; overscroll-behavior: none; }
+  body {
+    -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none;
+    user-select: none; -webkit-user-select: none;
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  }
+  #c { position: fixed; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; }
+  #hint {
+    position: fixed; left: 0; right: 0; bottom: calc(78px + env(safe-area-inset-bottom, 0px));   /* ap-kitのボタン列と重ならない高さ */
+    text-align: center; pointer-events: none; font-size: 11.5px; line-height: 1.85; letter-spacing: .07em;
+    color: #ffd0f0; opacity: 0; transition: opacity 2s ease;
+    text-shadow: 0 0 14px rgba(255, 110, 220, .5);
+  }
+  #hint.on { opacity: .72; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">ドラッグ ＝ あなたが筆になる（描いた線が６つに折り返されて増える）<br>タップ ＝ その場に花をひとつ ／ ２本指タップ（PC はダブルクリック）＝ 模様をまき散らす</div>
+<script>
+(function () {
+  'use strict';
+
+  var cvs = document.getElementById('c');
+  var hint = document.getElementById('hint');
+  var ctx = cvs.getContext('2d', { alpha: false, desynchronized: true });
+  /* 折り返す前の「ひとつの絵」を描くバッファ */
+  var acc = document.createElement('canvas');
+  var actx = acc.getContext('2d', { alpha: false, desynchronized: true });
+
+  var W = 0, H = 0, DPR = 1, now = 0, minDim = 1;
+  var RES_CAP = 2200000, TAU = Math.PI * 2;
+  var FOLDS = 6;                       /* 折り返しの数＝曼荼羅の対称 */
+  var PALETTE = [315, 285, 340, 200, 25, 265];
+
+  /* ======== 発光スプライト ======== */
+  var SPRITES = (function () {
+    var a = [], i, k, s, c, g;
+    for (i = 0; i < 24; i++) {
+      k = i * 15;
+      s = document.createElement('canvas'); s.width = s.height = 64;
+      c = s.getContext('2d');
+      g = c.createRadialGradient(32, 32, 0, 32, 32, 32);
+      g.addColorStop(0, 'rgba(255,255,255,0.95)');
+      g.addColorStop(0.12, 'hsla(' + k + ',100%,82%,0.5)');
+      g.addColorStop(0.34, 'hsla(' + k + ',100%,62%,0.13)');
+      g.addColorStop(0.66, 'hsla(' + k + ',100%,56%,0.034)');
+      g.addColorStop(1, 'hsla(' + k + ',100%,55%,0)');
+      c.fillStyle = g; c.fillRect(0, 0, 64, 64);
+      a.push(s);
+    }
+    return a;
+  })();
+  function sprite(c2, h, x, y, r, a) {
+    var i = (Math.round(h / 15) % 24 + 24) % 24;
+    c2.globalAlpha = a;
+    c2.drawImage(SPRITES[i], x - r, y - r, r * 2, r * 2);
+  }
+  function randHue() { return PALETTE[(Math.random() * PALETTE.length) | 0] + (Math.random() - 0.5) * 20; }
+
+  /* ======== 筆 ======== */
+  var brush = { x: 0, y: 0, px: 0, py: 0, tx: 0, ty: 0, hue: 315, speed: 0, hold: 0 };
+  var pattern = 0, patT = 0, patDur = 13, patPhase = Math.random() * 100;
+  var burst = 0, hueSpin = 1, autoEvent = 8;
+  var ptr = { x: 0, y: 0, down: false, active: false, strength: 0 };
+  var pointers = new Map(), mouseClicks = 0;
+
+  function pathPoint(t, i) {                       /* 自動で描く軌跡（バラ曲線とリサージュ） */
+    var a, r, cx = W / 2, cy = H / 2, k;
+    var q = minDim * 0.42;
+    if (i === 0) {                                  /* バラ曲線 r=cos(kθ) */
+      k = 2 + (pattern % 5) * 0.5;
+      a = t * 0.45;
+      r = q * (0.35 + 0.65 * Math.abs(Math.cos(k * a)));
+      return [cx + Math.cos(a) * r, cy + Math.sin(a) * r * 1.15];
+    }
+    if (i === 1) {                                  /* リサージュ */
+      return [cx + Math.sin(t * 0.31 + patPhase) * q * 0.95,
+              cy + Math.sin(t * 0.47 + patPhase * 1.7) * q * 0.78];
+    }
+    if (i === 2) {                                  /* 渦を巻く螺旋 */
+      a = t * 0.36; r = q * (0.16 + 0.8 * ((t * 0.02) % 1));
+      return [cx + Math.cos(a) * r, cy + Math.sin(a) * r];
+    }
+    return [cx + Math.sin(t * 0.23) * q * 0.9, cy + Math.cos(t * 0.41) * q * 0.85];
+  }
+
+  function resize() {
+    var w = cvs.clientWidth || window.innerWidth;
+    var h = cvs.clientHeight || window.innerHeight;
+    W = w; H = h;
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    if (w * h * DPR * DPR > RES_CAP) DPR = Math.max(1, Math.sqrt(RES_CAP / (w * h)));
+    cvs.width = Math.max(1, Math.round(w * DPR));
+    cvs.height = Math.max(1, Math.round(h * DPR));
+    acc.width = cvs.width; acc.height = cvs.height;
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h);
+    actx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    actx.globalCompositeOperation = 'source-over';
+    actx.globalAlpha = 1; actx.fillStyle = '#000'; actx.fillRect(0, 0, w, h);
+    minDim = Math.min(w, h);
+    brush.x = brush.px = W / 2; brush.y = brush.py = H / 2;
+  }
+
+  /* ======== 描く ======== */
+  function stampLine(x0, y0, x1, y1, hue, width, alpha) {
+    var d = Math.hypot(x1 - x0, y1 - y0);
+    var n = Math.max(1, Math.min(10, Math.ceil(d / 5)));
+    var i, x, y;
+    actx.globalCompositeOperation = 'lighter';
+    for (i = 0; i <= n; i++) {
+      x = x0 + (x1 - x0) * (i / n);
+      y = y0 + (y1 - y0) * (i / n);
+      sprite(actx, hue, x, y, width * 2.1, alpha * 0.34);
+      sprite(actx, hue + 30, x, y, width * 0.75, alpha * 0.75);
+    }
+  }
+
+  function flower(x, y, hue, size) {
+    var i, a, rr = size;
+    actx.globalCompositeOperation = 'lighter';
+    for (i = 0; i < 12; i++) {
+      a = i / 12 * TAU + patPhase;
+      sprite(actx, hue + i * 7, x + Math.cos(a) * rr, y + Math.sin(a) * rr, size * 0.5, 0.5);
+      stampLine(x, y, x + Math.cos(a) * rr * 1.5, y + Math.sin(a) * rr * 1.5, hue + 20, size * 0.06, 0.5);
+    }
+  }
+
+  function scramble() {
+    var i, x, y, r, a;
+    hueSpin = (Math.random() < 0.5 ? -1 : 1) * (0.6 + Math.random() * 1.4);
+    brush.hue = randHue();
+    for (i = 0; i < 26; i++) {
+      a = Math.random() * TAU;
+      r = minDim * (0.05 + Math.random() * 0.45);
+      x = W / 2 + Math.cos(a) * r; y = H / 2 + Math.sin(a) * r;
+      flower(x, y, randHue(), minDim * (0.02 + Math.random() * 0.06));
+    }
+    pattern = (Math.random() * 4) | 0;
+    patDur = 8 + Math.random() * 8;
+    patT = 0;
+  }
+
+  /* ======== 操作 ======== */
+  function toXY(e) {
+    var r = cvs.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  }
+  function hideHint() { hint.classList.remove('on'); }
+
+  cvs.addEventListener('pointerdown', function (e) {
+    if (window.APKit && APKit.isUI(e.clientX, e.clientY)) return;
+    var p = toXY(e);
+    ptr.x = p.x; ptr.y = p.y; ptr.down = true; ptr.active = true;
+    pointers.set(e.pointerId, p);
+    if (now > 1.2) hideHint();
+    if (pointers.size >= 2) { scramble(); return; }
+    if (e.pointerType === 'mouse') {
+      var t = performance.now();
+      if (t - mouseClicks < 320) { mouseClicks = 0; scramble(); return; }
+      mouseClicks = t;
+    }
+    brush.x = p.x; brush.y = p.y; brush.hold = 1.6;      /* 筆を指へ */
+    flower(p.x, p.y, brush.hue, minDim * 0.045);
+  }, { passive: false });
+
+  cvs.addEventListener('pointermove', function (e) {
+    var p = toXY(e);
+    if (e.pointerType === 'mouse' && !ptr.down) {
+      if (!ptr.active && p.x <= 0.5 && p.y <= 0.5) return;
+      ptr.x = p.x; ptr.y = p.y; ptr.active = true; return;
+    }
+    ptr.x = p.x; ptr.y = p.y;
+    if (ptr.down) brush.hold = 1.6;
+  }, { passive: true });
+  window.addEventListener('pointermove', function (e) {
+    if (!ptr.down) return;
+    var p = toXY(e); ptr.x = p.x; ptr.y = p.y; brush.hold = 1.6;
+  }, { passive: true });
+  function release(e) {
+    pointers.delete(e.pointerId);
+    if (pointers.size === 0) { ptr.down = false; if (e.pointerType !== 'mouse') ptr.active = false; }
+  }
+  window.addEventListener('pointerup', release);
+  window.addEventListener('pointercancel', release);
+  cvs.addEventListener('pointerleave', function (e) {
+    if (e.pointerType === 'mouse' && !ptr.down) ptr.active = false;
+  });
+  document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
+  document.addEventListener('dblclick', function (e) { e.preventDefault(); });
+  var rT = 0;
+  window.addEventListener('resize', function () { clearTimeout(rT); rT = setTimeout(resize, 180); });
+  window.addEventListener('orientationchange', function () { setTimeout(resize, 300); });
+  document.addEventListener('visibilitychange', function () { last = 0; });
+
+  /* ======== 更新 ======== */
+  function update(dt) {
+    var f = ptr.active ? (ptr.down ? 1 : 0.5) : 0;
+    ptr.strength += (f - ptr.strength) * (1 - Math.exp(-7 * dt));
+    if (ptr.strength < 0.002) ptr.strength = 0;
+
+    brush.hue = (brush.hue + dt * 7 * hueSpin + 360) % 360;
+    patT += dt;
+    if (patT > patDur) { pattern = (pattern + 1) % 4; patT = 0; patDur = 9 + Math.random() * 8; }
+
+    /* 筆の行き先：指があれば指、なければ自動の軌跡 */
+    brush.hold -= dt;
+    if (brush.hold > 0) {
+      brush.tx = ptr.x; brush.ty = ptr.y;
+    } else {
+      var pp = pathPoint(now, pattern);
+      brush.tx = pp[0]; brush.ty = pp[1];
+    }
+    var k = brush.hold > 0 ? 14 : 2.2;
+    var ox = brush.x, oy = brush.y;
+    brush.x += (brush.tx - brush.x) * (1 - Math.exp(-k * dt));
+    brush.y += (brush.ty - brush.y) * (1 - Math.exp(-k * dt));
+    brush.speed = Math.hypot(brush.x - ox, brush.y - oy) / Math.max(dt, 0.001);
+
+    /* 筆で描く：速いほど細く */
+    var wdt = Math.max(1.6, minDim * 0.012 - brush.speed * 0.010);
+    var al = Math.max(0.25, Math.min(1, 1 - brush.speed / 1400));
+    stampLine(ox, oy, brush.x, brush.y, brush.hue, wdt, al);
+
+    /* ときどき大きな図形を描く（それが折り返されて曼荼羅になる） */
+    burst -= dt;
+    autoEvent -= dt;
+    if (burst > 0 && Math.random() < 0.25) {
+      var a = Math.random() * TAU, r = minDim * (0.1 + Math.random() * 0.34);
+      flower(W / 2 + Math.cos(a) * r, H / 2 + Math.sin(a) * r, brush.hue + Math.random() * 60, minDim * 0.03);
+    }
+    if (autoEvent <= 0) {
+      autoEvent = 9 + Math.random() * 9;
+      burst = 0.9;
+      flower(brush.x, brush.y, brush.hue + 40, minDim * 0.035);
+    }
+  }
+
+  /* ======== 描画：ひとつの絵を6回、交互に鏡映して重ねる ======== */
+  function render(dt) {
+    var fadeA = 1 - Math.exp(-0.9 * dt);              /* バッファはゆっくり消えていく＝長い尾 */
+    if (fadeA < 0.0005) fadeA = 0.0005;
+    actx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    actx.globalCompositeOperation = 'source-over';
+    actx.globalAlpha = 1;
+    actx.fillStyle = 'rgba(0,0,0,' + fadeA.toFixed(5) + ')';
+    actx.fillRect(0, 0, W, H);
+
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.globalCompositeOperation = 'lighter';
+    var cx = W / 2, cy = H / 2, i, a;
+    var spin = now * 0.03;
+    for (i = 0; i < FOLDS; i++) {
+      a = spin + i * TAU / FOLDS;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(a);
+      if (i % 2) ctx.scale(1, -1);                    /* 一枚おきに鏡映＝万華鏡 */
+      ctx.translate(-cx, -cy);
+      ctx.globalAlpha = i === 0 ? 1 : 0.92;
+      ctx.drawImage(acc, 0, 0, acc.width, acc.height, 0, 0, W, H);
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+
+    /* 中心の灯 */
+    sprite(ctx, 320, cx, cy, minDim * 0.05 + 6 * Math.sin(now * 0.9), 0.16);
+    if (ptr.strength > 0.05) sprite(ctx, brush.hue + 30, ptr.x, ptr.y, 20 + 20 * ptr.strength, 0.10 * ptr.strength);
+  }
+
+  /* ======== ループ ======== */
+  var quality = 2, perfAcc = 0, perfN = 0, last = 0;
+  function frame(ts) {
+    if (!last) last = ts;
+    var dt = (ts - last) / 1000;
+    last = ts;
+    if (dt > 0.05) dt = 0.05;
+    if (dt < 0.0005) dt = 0.0005;
+    now += dt;
+    update(dt);
+    render(dt);
+    perfAcc += dt * 1000; perfN++;
+    if (perfN >= 90) { if (perfAcc / perfN > 26 && quality === 2) quality = 1; perfAcc = 0; perfN = 0; }
+    requestAnimationFrame(frame);
+  }
+
+  resize();
+  flower(W / 2, H / 2, brush.hue, minDim * 0.08);
+  setTimeout(function () { hint.classList.add('on'); }, 550);
+  setTimeout(hideHint, 7000);
+  requestAnimationFrame(frame);
+
+  /* ---- 共有コントロール（ap-kit.js） ---- */
+  if (window.APKit) {
+    window.APKit.init({
+      canvas: cvs,
+      gifName: 'mirror-pool',
+      clockFormat: 'spec',
+      dock: true,
+      autoHide: true,
+      fullscreenButton: false,
+      buttons: [
+        { label: '✦', name: 'mutate', onClick: function () { scramble(); } },   /* 模様をまき散らし、筆の軌跡と色の回り方を替える */
+        { label: '↻', name: 'reset',  onClick: function () { actx.setTransform(DPR, 0, 0, DPR, 0, 0); actx.globalCompositeOperation = 'source-over'; actx.globalAlpha = 1; actx.fillStyle = '#000'; actx.fillRect(0, 0, W, H); flower(W / 2, H / 2, brush.hue, minDim * 0.08); } }   /* まっさらな水面に花ひとつから */
+      ]
+    });
+  }
+})();
+</script>
+</body>
+</html>
