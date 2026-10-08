@@ -1,0 +1,349 @@
+<!-- UNMIX — クロちゃん(Claude)作。おっちゃんが見せてくれた動画(Mario Carrillo氏「Tayas」: ブラインドの羽ごとにずれた黒い刃と虹色の縁)を参考に、
+     「羽ごとに風の速さが違う。丸い夜は刃に裂かれるが、混ざってはいない。だから押さえると元の丸に戻る」という世界のルールで再構成。ap-kit.js統合: クロちゃん -->
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>UNMIX — ずれただけの夜は、元の丸に戻る</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#8a8c94;overflow:hidden;
+    -webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+  canvas#c{display:block;position:fixed;inset:0;width:100vw;height:100vh;touch-action:none}
+  #hint{position:fixed;left:0;right:0;bottom:calc(112px + env(safe-area-inset-bottom));text-align:center;pointer-events:none;
+    font:500 13px/1.9 -apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;letter-spacing:.08em;
+    color:rgba(255,255,255,.92);text-shadow:0 1px 8px rgba(0,0,0,.45);transition:opacity 1.2s ease}
+  #nogl{position:fixed;inset:0;display:none;align-items:center;justify-content:center;color:#333;font:14px sans-serif}
+</style>
+<script src="../ap-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">横になぞると、その段の風が変わる<br>押さえると、ちぎれた夜が丸に戻る</div>
+<div id="nogl">WebGLが使えない環境です</div>
+<script>
+(function(){
+"use strict";
+
+/* ---------- 世界のルール ----------
+   この世界はブラインドのように、横長の段(羽)に分かれている。
+   段ごとに吹いている風の速さと向きが違う。
+   丸い「夜」(黒い玉)が生まれると、段ごとに違う速さで流されるので、夜は段ごとにずれて刃の列になる。
+   でも風は夜を「ずらした」だけで、混ぜてはいない(粘い流れの可逆性 — グリセリンに落としたインクを逆に回すと元の滴に戻る、あの現象)。
+   だから押さえて時間を巻き戻すと、刃はもう一度そろって、元の丸に戻る。
+   ただし、画面の外まで遠く流れ去った夜は、もう戻らない。
+
+   ・タップ … 触れた所に新しい夜が落ちる(丸い)。
+   ・横になぞる … なぞった段の風を、なぞった速さと向きに書き換える(段は書き換えた風を覚えている)。
+   ・押さえる(約0.35秒じっと) … 風が止まり、ずれが巻き戻る。ずれがゼロになった夜は、縁が光って「丸に戻った」ことを知らせる。
+   ・✦ … 別の風(段ごとの速さの並び)と別の色。書き換えた段も含めて全部新しい風になる。今ある夜はそのまま。
+   ・↻ … 最初の世界(裂けかけた夜がひとつ)。
+
+   描き方: WebGLのシェーダで、画面の各点が「どの段か」を求め、その段で夜がどれだけずれているか(夜×段ごとのずれ量をテクスチャで渡す)を引いて、
+   ずらす前の座標で夜(メタボール)を測る。段の中でもずれ量を少し傾けるので、刃の先がとがる。
+   黒の縁は薄膜のような虹色(シアン→白→黄→マゼンタ→橙)、まわりは横に流れる光のにじみ。
+------------------------------------ */
+
+var cv=document.getElementById('c');
+var gl=cv.getContext('webgl',{antialias:false,alpha:false,depth:false,stencil:false,premultipliedAlpha:false,powerPreference:'high-performance'});
+if(!gl){document.getElementById('nogl').style.display='flex';return;}
+
+var MAXB=10, MAXL=32;
+var TW=MAXL, TH=MAXB+1;           // 最後の行は段のハイライト
+
+var VS='attribute vec2 p;void main(){gl_Position=vec4(p,0.0,1.0);}';
+var FS=[
+'precision highp float;',
+'uniform vec2 R;uniform float M;uniform float N;uniform sampler2D T;',
+'uniform vec4 B[10];uniform vec4 C[10];',
+'uniform vec3 bgA;uniform vec3 bgB;uniform vec3 glw;uniform float hueBase;uniform float tm;uniform float rew;uniform float tilt;',
+'float dec(vec4 t){return (t.r*255.0*256.0+t.g*255.0)/65535.0*16.0-8.0;}',
+'float offAt(float i,float b){return dec(texture2D(T,vec2((i+0.5)/'+TW+'.0,(b+0.5)/'+TH+'.0)));}',
+'vec3 spec(float h){return 0.5+0.5*cos(6.28318*(h+vec3(0.0,0.33,0.67)));}',
+'void main(){',
+'  vec2 px=vec2(gl_FragCoord.x,R.y-gl_FragCoord.y);',
+'  vec2 p=px/M;',
+'  float W=R.x/M,H=R.y/M,sh=H/N;',
+'  float yi=p.y/sh;float i=min(floor(yi),N-1.0);float f=fract(yi);',
+'  float iu=max(i-1.0,0.0),id=min(i+1.0,N-1.0);',
+'  float F=0.0;float G=0.0;vec2 hv=vec2(0.0);float whole=0.0;float wsum=0.0;',
+'  for(int b=0;b<10;b++){',
+'    vec4 bb=B[b];',
+'    if(bb.w<=0.001)continue;',
+'    float fb=float(b);',
+'    float o0=offAt(i,fb),ou=offAt(iu,fb),od=offAt(id,fb);',
+'    float slope=(od-ou)*0.5;',                       // 段の中の傾き(となりの段との差)
+'    float o=o0-slope*(f*f-0.36)*tilt;',                // 段の中は全体と逆向きに傾ける → 刃の先がとがる(ずれがゼロなら傾きもゼロ=丸)
+'    vec2 d=vec2(p.x-(bb.x+o),p.y-bb.y);',
+'    float r=max(bb.z*bb.w,0.0005);',
+'    float q=dot(d,d)/(r*r);',
+'    float w=1.0/max(q*q,0.00000001);',
+'    F+=w;',
+'    vec2 dg=vec2(d.x*0.32,d.y*1.15)/r;',
+'    G+=bb.w/(1.0+dot(dg,dg)*1.6);',
+'    hv+=w*vec2(cos(6.28318*C[b].x),sin(6.28318*C[b].x));',
+'    whole+=w*C[b].y;wsum+=w;',
+'  }',
+'  float e=pow(max(F,1e-8),-0.25);',                 // ほぼ「夜の半径で割った距離」
+'  float hb=atan(hv.y,hv.x)/6.28318;',
+'  float wh=wsum>0.0?whole/wsum:0.0;',
+'  // 背景: ゆっくり色が変わる横長のグラデーション + 段の陰影',
+'  float gx=p.x/W,gy=p.y/H;',
+'  vec3 col=mix(bgA,bgB,clamp(gy*0.8+0.25*sin(gx*2.2+tm*0.07),0.0,1.0));',
+'  float shade=0.9+0.12*f-0.07*smoothstep(0.93,1.0,f)+0.05*(1.0-smoothstep(0.0,0.06,f));',
+'  vec4 hl=texture2D(T,vec2((i+0.5)/'+TW+'.0,('+MAXB+'.0+0.5)/'+TH+'.0));',
+'  shade+=hl.r*0.10*(0.4+0.6*f);',
+'  col*=shade;',
+'  // 横に流れる光のにじみ(夜のまわり)',
+'  float g=clamp(G,0.0,1.6);',
+'  vec3 gc=mix(glw,glw.bgr*vec3(0.9,1.0,1.15),0.5+0.5*sin(6.28318*(hb+i*0.015)))*1.02;',
+'  col=mix(col,gc*(0.95+0.1*f),clamp(g*0.62,0.0,0.82));',
+'  // 夜に近づくほど暗い影',
+'  float sd=exp(-max(e-1.0,0.0)*3.2);',
+'  col*=1.0-0.42*sd;',
+'  // 虹色の縁(薄膜): シアン→白→黄→マゼンタ→橙',
+'  float t=max(e-1.0,0.0)/0.10;',
+'  float hr=hueBase+hb+0.5+t*0.55+i*0.035-tm*0.02;',
+'  vec3 rc=spec(hr);',
+'  rc=mix(rc,vec3(1.0,0.97,0.86),0.35*exp(-t*3.0));',
+'  float ri=exp(-t*2.3)*(1.0+wh*1.4);',
+'  col+=rc*ri*0.95;',
+'  // 夜(黒)',
+'  float ins=1.0-smoothstep(0.988,1.0,e);',
+'  vec3 night=vec3(0.022,0.022,0.03)+rc*0.03*wh;',
+'  col=mix(col,night,ins);',
+'  // 巻き戻し中はほんの少し冷たい色に',
+'  col=mix(col,col*vec3(0.92,0.97,1.08),rew*0.6);',
+'  gl_FragColor=vec4(clamp(col,0.0,1.0),1.0);',
+'}'
+].join('\n');
+
+function sh(type,src){var s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){console.error(gl.getShaderInfoLog(s));return null;}return s;}
+var pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,VS));gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,FS));gl.linkProgram(pr);
+if(!gl.getProgramParameter(pr,gl.LINK_STATUS)){console.error(gl.getProgramInfoLog(pr));document.getElementById('nogl').style.display='flex';return;}
+gl.useProgram(pr);
+var buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+var loc=gl.getAttribLocation(pr,'p');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+var U={};['R','M','N','T','B','C','bgA','bgB','glw','hueBase','tm','rew','tilt'].forEach(function(n){U[n]=gl.getUniformLocation(pr,n);});
+
+var tex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,tex);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+var texData=new Uint8Array(TW*TH*4);
+gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,TW,TH,0,gl.RGBA,gl.UNSIGNED_BYTE,texData);
+gl.uniform1i(U.T,0);
+
+/* ---------- 画面と段 ---------- */
+var W=0,H=0,DPR=1,Mpx=1,N=15,Wn=1,Hn=1,scale=1;
+function resize(){
+  DPR=Math.min(window.devicePixelRatio||1,2)*scale;
+  W=window.innerWidth;H=window.innerHeight;
+  cv.width=Math.max(1,Math.round(W*DPR));cv.height=Math.max(1,Math.round(H*DPR));
+  gl.viewport(0,0,cv.width,cv.height);
+  Mpx=Math.min(W,H);Wn=W/Mpx;Hn=H/Mpx;
+  N=Math.max(12,Math.min(MAXL,Math.round(H/30)));
+}
+window.addEventListener('resize',resize);resize();
+
+/* ---------- 風(段ごとの速さ) ---------- */
+var vel=new Float32Array(MAXL), touched=new Uint8Array(MAXL), hlv=new Float32Array(MAXL);
+var wind={a:0.30,m:0.045,b:0.06,k:1.3,ph:0.0,drift:0.04};
+function profile(i,t){
+  var u=(i+0.5)/N;
+  return wind.m+wind.a*(u-0.5)+wind.b*Math.sin(6.2832*u*wind.k+wind.ph+t*wind.drift);
+}
+
+/* ---------- 夜 ---------- */
+var blobs=[];   // {x,y,r,a,dying,hue,off:Float32Array(MAXL),born,whole}
+var hueSeed=Math.random();
+function rand(a,b){return a+Math.random()*(b-a);}
+function spawn(x,y,r,preage){
+  var live=blobs.filter(function(b){return !b.dying;});
+  if(live.length>=MAXB-1){live[0].dying=true;}
+  if(blobs.length>=MAXB){blobs.shift();}
+  var b={x:x,y:y,r:r,a:0,dying:false,hue:(hueSeed+rand(-0.12,0.12)+1)%1,off:new Float32Array(MAXL),born:now,whole:0};
+  if(preage){for(var i=0;i<MAXL;i++){b.off[i]=vel[i]*preage;}b.a=1;}
+  blobs.push(b);
+  return b;
+}
+
+/* ---------- 色 ---------- */
+var PALS=[
+  {a:[0.50,0.53,0.58],b:[0.62,0.60,0.64],g:[0.93,0.62,0.45],h:0.52},  // 灰青
+  {a:[0.55,0.49,0.52],b:[0.66,0.56,0.54],g:[1.00,0.48,0.24],h:0.85},  // 藤
+  {a:[0.70,0.57,0.51],b:[0.80,0.63,0.54],g:[1.00,0.58,0.20],h:0.05},  // 桃橙
+  {a:[0.42,0.46,0.50],b:[0.58,0.55,0.56],g:[0.40,0.75,0.95],h:0.40}   // 夕方の青
+];
+var palOff=Math.random()*PALS.length;
+function lerp3(x,y,t){return [x[0]+(y[0]-x[0])*t,x[1]+(y[1]-x[1])*t,x[2]+(y[2]-x[2])*t];}
+function palAt(t){
+  var s=(t*0.022+palOff)%PALS.length;var i=Math.floor(s),f=s-i;f=f*f*(3-2*f);
+  var A=PALS[i],Bp=PALS[(i+1)%PALS.length];
+  var dh=Bp.h-A.h;if(dh>0.5)dh-=1;if(dh<-0.5)dh+=1;
+  return {a:lerp3(A.a,Bp.a,f),b:lerp3(A.b,Bp.b,f),g:lerp3(A.g,Bp.g,f),h:A.h+dh*f};
+}
+
+/* ---------- 入力 ---------- */
+var now=0, rew=0, holding=false, lastTouch=-99, nextAuto=4;
+var ptr=null;  // {id,x0,y0,x,y,t0,lt,moved}
+function laneOf(yPx){return Math.max(0,Math.min(N-1,Math.floor(yPx/(H/N))));}
+function hideHint(){var h=document.getElementById('hint');if(h)h.style.opacity='0';}
+setTimeout(hideHint,6500);
+
+cv.addEventListener('pointerdown',function(e){
+  if(window.APKit&&window.APKit.isUI(e.clientX,e.clientY))return;
+  e.preventDefault();
+  hideHint();
+  try{cv.setPointerCapture(e.pointerId);}catch(_){}
+  ptr={id:e.pointerId,x0:e.clientX,y0:e.clientY,x:e.clientX,y:e.clientY,t0:performance.now(),lt:performance.now(),moved:false};
+  lastTouch=now;
+});
+cv.addEventListener('pointermove',function(e){
+  if(!ptr||e.pointerId!==ptr.id)return;
+  var t=performance.now();
+  var dx=e.clientX-ptr.x,dy=e.clientY-ptr.y;
+  if(!ptr.moved&&!holding&&Math.hypot(e.clientX-ptr.x0,e.clientY-ptr.y0)>9)ptr.moved=true;
+  if(ptr.moved){
+    var dt=Math.max(8,t-ptr.lt)/1000;
+    var vx=(dx/Mpx)/dt;                               // 画面の短辺/秒
+    var target=Math.max(-0.75,Math.min(0.75,vx*0.55));
+    var l0=laneOf(ptr.y),l1=laneOf(e.clientY);
+    var lo=Math.min(l0,l1),hi=Math.max(l0,l1);
+    for(var i=lo;i<=hi;i++){vel[i]+=(target-vel[i])*0.55;touched[i]=1;hlv[i]=1;}
+  }
+  ptr.x=e.clientX;ptr.y=e.clientY;ptr.lt=t;lastTouch=now;
+});
+function up(e){
+  if(!ptr||e.pointerId!==ptr.id)return;
+  var t=performance.now();
+  if(!ptr.moved&&!holding&&t-ptr.t0<350){
+    spawn(e.clientX/Mpx,e.clientY/Mpx,rand(0.16,0.28));
+  }
+  ptr=null;holding=false;lastTouch=now;
+}
+cv.addEventListener('pointerup',up);
+cv.addEventListener('pointercancel',function(e){if(ptr&&e.pointerId===ptr.id){ptr=null;holding=false;}});
+
+/* ---------- ボタン ---------- */
+function mutate(){
+  wind={a:rand(-0.42,0.42),m:rand(-0.07,0.07),b:rand(0.03,0.12),k:rand(0.6,2.4),ph:rand(0,6.28),drift:rand(0.02,0.07)*(Math.random()<0.5?-1:1)};
+  if(Math.abs(wind.a)<0.15)wind.a=0.2*(wind.a<0?-1:1);
+  touched.fill(0);
+  hueSeed=Math.random();palOff=Math.random()*PALS.length;
+  blobs.forEach(function(b){b.hue=(hueSeed+rand(-0.12,0.12)+1)%1;});
+}
+function resetAll(){
+  wind={a:0.30,m:0.045,b:0.06,k:1.3,ph:0.0,drift:0.04};
+  touched.fill(0);blobs=[];
+  for(var i=0;i<MAXL;i++)vel[i]=profile(i,now);
+  spawn(Wn*0.42,Hn*0.44,0.34,5.0);
+  nextAuto=now+6;
+}
+
+/* ---------- 1フレーム ---------- */
+var Bu=new Float32Array(MAXB*4),Cu=new Float32Array(MAXB*4);
+function enc(v,k){
+  var u=Math.round(Math.max(0,Math.min(1,(v+8)/16))*65535);
+  texData[k]=u>>8;texData[k+1]=u&255;texData[k+2]=0;texData[k+3]=255;
+}
+function step(dt){
+  // 長押し判定
+  if(ptr&&!ptr.moved&&!holding&&performance.now()-ptr.t0>350){holding=true;}
+  rew+=((holding?1:0)-rew)*Math.min(1,dt*(holding?6:3));
+
+  // 風: 触っていない段は、ゆっくり世界の風に戻る
+  for(var i=0;i<N;i++){
+    if(!touched[i])vel[i]+=(profile(i,now)-vel[i])*Math.min(1,dt*0.6);
+    hlv[i]*=Math.exp(-dt*1.8);
+  }
+  var flow=1-rew;
+  var back=Math.exp(-dt*1.9*rew);
+  var sh=Hn/N;
+  for(var j=blobs.length-1;j>=0;j--){
+    var b=blobs[j];
+    var maxo=0;
+    for(i=0;i<MAXL;i++){
+      b.off[i]=b.off[i]*back+vel[Math.min(i,N-1)]*dt*flow;
+      b.off[i]=Math.max(-7.9,Math.min(7.9,b.off[i]));
+    }
+    // 生まれる / 消える
+    if(b.dying){b.a-=dt*0.9;if(b.a<=0){blobs.splice(j,1);continue;}}
+    else b.a=Math.min(1,b.a+dt*1.1);
+    // 丸に戻ったか(この夜がかかっている段のずれが、ほぼゼロ)
+    var l0=Math.max(0,Math.floor((b.y-b.r)/sh)),l1=Math.min(N-1,Math.floor((b.y+b.r)/sh));
+    var gone=true;
+    for(i=l0;i<=l1;i++){
+      maxo=Math.max(maxo,Math.abs(b.off[i]));
+      var cx=b.x+b.off[i];
+      if(cx>-b.r-1.3*Wn&&cx<Wn+b.r+1.3*Wn)gone=false;
+    }
+    var w=maxo<b.r*0.05?1:0;
+    b.whole+=(w-b.whole)*Math.min(1,dt*(w?3:1.5));
+    if(gone&&!b.dying){blobs.splice(j,1);continue;}   // 遠くへ流れ去った夜は戻らない
+  }
+  // ひとりでに夜が落ちる(しばらく触っていないとき)
+  var live=blobs.filter(function(b){return !b.dying;}).length;
+  if(now>nextAuto&&now-lastTouch>5&&!holding){
+    if(live<4){
+      var big=Math.random()<0.12;
+      spawn(rand(0.15,0.85)*Wn,rand(0.15,0.85)*Hn,big?rand(0.42,0.55):rand(0.16,0.34));
+    }
+    nextAuto=now+rand(4.5,8);
+  }
+}
+function draw(){
+  var P=palAt(now);
+  for(var b=0;b<MAXB;b++){
+    var o=b*4;
+    if(b<blobs.length){
+      var bl=blobs[b],a=bl.a;a=a*a*(3-2*a);
+      Bu[o]=bl.x;Bu[o+1]=bl.y;Bu[o+2]=bl.r;Bu[o+3]=a;
+      Cu[o]=bl.hue;Cu[o+1]=bl.whole;Cu[o+2]=0;Cu[o+3]=0;
+      for(var i=0;i<MAXL;i++)enc(bl.off[i],(b*TW+i)*4);
+    }else{Bu[o]=0;Bu[o+1]=0;Bu[o+2]=0;Bu[o+3]=0;Cu[o]=0;Cu[o+1]=0;}
+  }
+  for(var i2=0;i2<MAXL;i2++){var k=(MAXB*TW+i2)*4;texData[k]=Math.round(Math.min(1,hlv[i2])*255);texData[k+1]=0;texData[k+2]=0;texData[k+3]=255;}
+  gl.bindTexture(gl.TEXTURE_2D,tex);
+  gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,TW,TH,gl.RGBA,gl.UNSIGNED_BYTE,texData);
+  gl.uniform2f(U.R,cv.width,cv.height);
+  gl.uniform1f(U.M,Mpx*DPR);
+  gl.uniform1f(U.N,N);
+  gl.uniform4fv(U.B,Bu);gl.uniform4fv(U.C,Cu);
+  gl.uniform3fv(U.bgA,P.a);gl.uniform3fv(U.bgB,P.b);gl.uniform3fv(U.glw,P.g);
+  gl.uniform1f(U.hueBase,P.h+hueSeed*0.0);
+  gl.uniform1f(U.tm,now);gl.uniform1f(U.rew,rew);gl.uniform1f(U.tilt,TILT);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+}
+
+var TILT=(function(){var m=/tilt=([\d.-]+)/.exec(location.search);return m?parseFloat(m[1]):2.6;})();
+var last=performance.now(),slow=0,minScale=0.6;
+function frame(t){
+  var dt=Math.min(0.05,(t-last)/1000);last=t;now+=dt;
+  step(dt);draw();
+  if(dt>0.04)slow++;else slow=Math.max(0,slow-1);
+  if(slow>40&&scale>minScale){scale=Math.max(minScale,scale*0.85);resize();slow=0;}
+  requestAnimationFrame(frame);
+}
+resetAll();
+requestAnimationFrame(frame);
+
+if(window.APKit){
+  window.APKit.init({
+    canvas:cv,
+    gifName:'unmix',
+    clockFormat:'spec',
+    dock:true,
+    autoHide:true,
+    fullscreenButton:false,
+    buttons:[
+      {label:'✦',name:'mutate',onClick:mutate},
+      {label:'↻',name:'reset',onClick:resetAll}
+    ]
+  });
+}
+})();
+</script>
+</body>
+</html>
