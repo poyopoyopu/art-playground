@@ -25,14 +25,8 @@
 (function(){
 'use strict';
 const cv=document.getElementById('c');
-// the world is painted in 2D on an offscreen canvas, then shown through a WebGL "liquid lens" that bends it
-const scene=document.createElement('canvas');
-const mctx=scene.getContext('2d');
+const mctx=cv.getContext('2d');
 let ctx=mctx;
-const gl=cv.getContext('webgl',{preserveDrawingBuffer:true,antialias:false,premultipliedAlpha:false})||cv.getContext('experimental-webgl',{preserveDrawingBuffer:true});
-const ctx2=gl?null:cv.getContext('2d');
-let glProg=null,glTex=null,glMask=null,U={};
-let warpAmp=1,warpT=0,warpSx=0,warpSy=0;
 const hintEl=document.getElementById('hint');
 const TAU=Math.PI*2;
 
@@ -63,13 +57,17 @@ function petalPath(c,r0,r1,w,pointed){
   else{c.bezierCurveTo(r1*.45,-w*1.2,r1*1.02,-w*.9,r1,0);c.bezierCurveTo(r1*1.02,w*.9,r1*.45,w*1.2,r0,0);}
 }
 // draws a flower of radius sz at origin of context c; depth = recursion for the center (flower in the flower)
-function paintFlower(c,f,sz,depth){
+// part: 'o' = outer petals, 'm' = inner petals, 'c' = center; undefined = whole flower
+function paintFlower(c,f,sz,depth,part){
+  const P=k=>part===undefined||part===k;
   const pointed=f.type===0||f.type===2;
   const wMul=[.13,.42,.2,.3][f.type];
   const lw=Math.max(.6,sz*.025);
   // outer ring
   c.save();c.rotate(f.twist);
-  let g=c.createRadialGradient(0,0,sz*.15,0,0,sz);
+  let g;
+  if(P('o')){
+  g=c.createRadialGradient(0,0,sz*.15,0,0,sz);
   g.addColorStop(0,hsl(f.h,f.s,Math.min(96,f.l+28)));
   g.addColorStop(.55,hsl(f.h,f.s,f.l));
   g.addColorStop(1,hsl(f.h,f.s,Math.max(20,f.l-12)));
@@ -83,14 +81,18 @@ function paintFlower(c,f,sz,depth){
     for(let i=0;i<f.n;i++){const a=i/f.n*TAU;c.moveTo(Math.cos(a)*sz*.3,Math.sin(a)*sz*.3);c.lineTo(Math.cos(a)*sz*.86,Math.sin(a)*sz*.86);}
     c.lineWidth=Math.max(.5,sz*.02);c.strokeStyle='rgba(255,255,255,.75)';c.stroke();
   }
+  }
   // inner ring
   c.rotate(Math.PI/f.n2);
+  if(P('m')){
   g=c.createRadialGradient(0,0,0,0,0,sz*.62);
   g.addColorStop(0,hsl(f.h2,90,80));g.addColorStop(1,hsl(f.h2,85,50));
   c.beginPath();
   for(let i=0;i<f.n2;i++){c.save();c.rotate(i/f.n2*TAU);petalPath(c,sz*.08,sz*.62,sz*.62*(wMul+.08),pointed);c.restore();}
   c.fillStyle=g;c.fill();c.lineWidth=lw*.8;c.strokeStyle=hsl(f.h2,60,20);c.stroke();
+  }
   c.restore();
+  if(!P('c'))return;
   // center disc: rings + dot ring
   const cr=sz*.3;
   c.beginPath();c.arc(0,0,cr,0,TAU);c.fillStyle=hsl(f.h3,85,48);c.fill();
@@ -111,21 +113,29 @@ function paintFlower(c,f,sz,depth){
     c.beginPath();c.arc(-cr*.12,-cr*.12,cr*.12,0,TAU);c.fillStyle='rgba(255,255,255,.9)';c.fill();
   }
 }
-function flowerSprite(f,sz){
-  const s=Math.ceil(sz*2+4);
+function flowerSprite(f,sz,part){
+  const s=Math.ceil((part==='c'?sz*.62:part==='m'?sz*1.3:sz*2)+4);
   const c=document.createElement('canvas');c.width=c.height=s;
-  const x=c.getContext('2d');x.translate(s/2,s/2);paintFlower(x,f,sz,3);
+  const x=c.getContext('2d');x.translate(s/2,s/2);paintFlower(x,f,sz,3,part);
   return c;
+}
+// a flower as three separately turning parts
+function flowerParts(f,sz){return {o:flowerSprite(f,sz,'o'),m:flowerSprite(f,sz,'m'),c:flowerSprite(f,sz,'c'),sz};}
+function drawParts(P,scale,ro,rm,rc,flut){
+  for(const [img,rot,sq] of [[P.o,ro,flut],[P.m,rm,-flut*.7],[P.c,rc,0]]){
+    ctx.save();ctx.rotate(rot);if(sq)ctx.scale(1+sq,1-sq);
+    const w=img.width*scale;ctx.drawImage(img,-w/2,-w/2,w,w);ctx.restore();
+  }
 }
 
 // ---------- world state ----------
 let field=[];          // {xn,p,data,exSun,sprite,size,ph}
 let sun=null;          // {data, xn}  (xn = normalized x)
-let sunSprite=null, sunSpriteR=0;
+let sunParts=null;
 let swap=null;
 let hue=350;           // current world hue (lerped)
 let ground=null, mountains=null, speckle=null, bubbleImg=null;
-let waves=[], dots=[], sparks=[], bubbles=[], orbs=[];
+let waves=[], dots=[], sparks=[], bubbles=[], orbs=[], clouds=[], glints=[];
 let t0=performance.now(), last=t0, now=0;
 let touched=false;
 
@@ -149,16 +159,16 @@ function newField(){
     for(let k=0;k<30;k++){
       const p=.025+1.0*Math.pow(R(),.8);
       const xn=-.04+1.08*R();
-      if(placeOK(xn,p)){field.push({xn,p,data:makeFlowerData(),exSun:false,ph:R()*TAU,spin:(R()-.5)*.25});break;}
+      if(placeOK(xn,p)){field.push({xn,p,data:makeFlowerData(),exSun:false,ph:R()*TAU,spin:(R()-.5)*.25,rs:(R()<.5?-1:1)*(.15+R()*.4),rf:1.5+R()*2.5});break;}
     }
   }
   sun={data:seed===INIT_SEED?{h:350,s:90,l:58,h2:40,h3:48,type:0,n:20,n2:13,twist:0}:makeFlowerData(),xn:.5};
   hue=sun.data.h;
 }
 function sizeField(){
-  for(const f of field){f.size=fSize(f.p);f.sprite=flowerSprite(f.data,f.size);}
+  for(const f of field){f.size=fSize(f.p);f.parts=flowerParts(f.data,f.size);}
   field.sort((a,b)=>a.p-b.p);
-  sunSpriteR=sunR;sunSprite=flowerSprite(sun.data,sunR);
+  sunParts=flowerParts(sun.data,sunR);
 }
 
 // ---------- cached layers ----------
@@ -170,7 +180,7 @@ function buildGround(){
   gr.addColorStop(0,'hsl(70,85%,58%)');gr.addColorStop(.25,'hsl(95,70%,42%)');gr.addColorStop(1,'hsl(130,60%,18%)');
   g.fillStyle=gr;g.fillRect(0,horizon,W,H-horizon);
   // hills both sides, with bushes and cloud puffs along the ridge
-  orbs=[];
+  orbs=[];clouds=[];
   for(const side of [-1,1]){
     const hy=x=>{const u=side<0?x/W:1-x/W;const k=clamp(1-u/.42,0,1);return horizon-H*.15*k*k*(3-2*k)-H*.012*Math.sin(u*40)*k;};
     for(let i=0;i<8;i++){const u=.04+rr()*.36,x=side<0?u*W:(1-u)*W,top=hy(x);orbs.push({x,y:lerp(top,horizon,.15+rr()*.6),r:MIN*(.018+.03*rr()),ph:rr()*TAU});}
@@ -194,8 +204,7 @@ function buildGround(){
     for(let i=0;i<34;i++){
       const u=rr();const x=lerp(xs[0],xs[1],side<0?u*.8:.2+u*.8)*W,y=hy(x)-MIN*.01,r=MIN*(.012+.028*rr());
       if(hy(x)>horizon-H*.02)continue;
-      g.beginPath();g.arc(x,y,r,0,TAU);g.fillStyle=hsl(50,100,88+rr()*8);g.fill();
-      g.lineWidth=Math.max(1,r*.1);g.strokeStyle='hsla(40,80%,55%,.7)';g.stroke();
+      clouds.push({x,y,r,l:88+rr()*8,ph:rr()*TAU});
     }
   }
   // field confetti: tiny blossoms and grass, smaller toward the horizon
@@ -255,6 +264,7 @@ function seedParticles(){
   const rr=mulberry(seed+19);
   waves=[];for(let i=0;i<240;i++)waves.push({p:.03+rr()*1.05,s:(rr()-.5)*1.7,c:(rr()*4)|0,ph:rr()*TAU});
   dots=[];for(let i=0;i<460;i++)dots.push({a:-Math.PI-.25+(Math.PI+.5)*rr(),u:rr(),c:(rr()*5)|0,sp:.6+rr()*.8});
+  glints=[];for(let i=0;i<160;i++)glints.push({xn:rr(),p:.03+Math.pow(rr(),.8),ph:rr()*TAU,sp:1.5+rr()*3,h:rr()<.5?55:rr()*360});
   sparks=[];for(let i=0;i<46;i++)sparks.push({x:rr(),y:rr()*.85,s:.4+rr()*(i<6?2.6:1),ph:rr()*TAU,sp:1+rr()*2});
   bubbles=[];for(let k=0;k<6;k++)for(let i=0;i<11;i++)bubbles.push({k,t:rr(),o:(rr()-.5)*.9,s:.5+rr()*.9});
 }
@@ -300,7 +310,7 @@ function drawRings(sx,sy,hc,tm,dim){
   for(let i=N;i>=1;i--){
     const r=(i-1+f)*step;if(r<sunR*.9)continue;
     const idx=i-base;
-    const ring=(rad)=>{for(let j=0;j<=NP;j++){const a=j/NP*TAU,w=1+.05*Math.sin(a*7+tm*1.3+idx*.7)+.025*Math.sin(a*13-tm*2.1+idx);const x=sx+Math.cos(a)*rad*w,y=sy+Math.sin(a)*rad*w;j?ctx.lineTo(x,y):ctx.moveTo(x,y);}ctx.closePath();};
+    const ring=(rad)=>{for(let j=0;j<=NP;j++){const a=j/NP*TAU,w=1+.015*Math.sin(a*7+tm*1.3+idx*.7)+.008*Math.sin(a*13-tm*2.1+idx);const x=sx+Math.cos(a)*rad*w,y=sy+Math.sin(a)*rad*w;j?ctx.lineTo(x,y):ctx.moveTo(x,y);}ctx.closePath();};
     ctx.beginPath();ring(r);ring(Math.max(1,r-step*.52));
     ctx.fillStyle=hsl((hc+idx*47+tm*10)%360,100,62,.42*dim);ctx.fill('evenodd');
   }
@@ -310,12 +320,34 @@ function drawOrbs(hc,tm){
   for(const o of orbs){
     const br=1+.12*Math.sin(tm*2.2+o.ph);
     for(let j=0;j<5;j++){
-      const r=o.r*br*(1-j*.18);
-      ctx.beginPath();ctx.arc(o.x,o.y,r,0,TAU);
+      const r=o.r*br*(1-j*.18),wa=tm*(1.2+j*.5)*(j%2?-1:1)+o.ph,ex=o.r*.05*j;
+      ctx.beginPath();ctx.arc(o.x+Math.cos(wa)*ex,o.y+Math.sin(wa)*ex,r,0,TAU);
       ctx.fillStyle=hsl((hc+tm*35+o.ph*60+j*62)%360,100,j===4?20:60);ctx.fill();
       ctx.lineWidth=Math.max(1,o.r*.06);ctx.strokeStyle='rgba(30,10,50,.55)';ctx.stroke();
     }
     ctx.beginPath();ctx.arc(o.x-o.r*.25,o.y-o.r*.25,o.r*.14,0,TAU);ctx.fillStyle='rgba(255,255,255,.9)';ctx.fill();
+    // a dotted ring ticking around each eye
+    ctx.fillStyle='rgba(255,255,230,.95)';ctx.beginPath();
+    for(let j=0;j<10;j++){const a=tm*.9+o.ph+j/10*TAU,xx=o.x+Math.cos(a)*o.r*br*1.22,yy=o.y+Math.sin(a)*o.r*br*1.22,d=o.r*.07;ctx.moveTo(xx+d,yy);ctx.arc(xx,yy,d,0,TAU);}
+    ctx.fill();
+  }
+}
+// cloud puffs on the ridges, each bobbing on its own
+function drawClouds(tm){
+  for(const c of clouds){
+    const k=Math.sin(tm*1.3+c.ph),r=c.r*(1+.05*k),y=c.y+k*c.r*.1;
+    ctx.beginPath();ctx.arc(c.x,y,r,0,TAU);ctx.fillStyle=hsl(50,100,c.l);ctx.fill();
+    ctx.lineWidth=Math.max(1,c.r*.1);ctx.strokeStyle='hsla(40,80%,55%,.7)';ctx.stroke();
+  }
+}
+// glints flickering over the flower field
+function drawGlints(tm){
+  for(const g of glints){
+    const k=Math.sin(tm*g.sp+g.ph);if(k<.3)continue;
+    const x=g.xn*W,y=pY(g.p),L=(1.5+g.p*7)*DPR*k,w=L*.22;
+    ctx.save();ctx.translate(x,y);ctx.rotate(tm*g.sp*.4);ctx.fillStyle=hsl(g.h,100,85,.9);
+    ctx.beginPath();ctx.moveTo(0,-L);ctx.lineTo(w,-w);ctx.lineTo(L,0);ctx.lineTo(w,w);ctx.lineTo(0,L);ctx.lineTo(-w,w);ctx.lineTo(-L,0);ctx.lineTo(-w,-w);ctx.closePath();ctx.fill();
+    ctx.restore();
   }
 }
 // the moment of a new sun: a rainbow shock ring crossing the whole world
@@ -357,10 +389,10 @@ function drawSparks(tm){
   ctx.fillStyle='rgba(255,252,220,.95)';
   for(const s of sparks){
     const k=.5+.5*Math.sin(tm*s.sp+s.ph);if(k<.15)continue;
-    const x=s.x*W,y=s.y*horizon,L=s.s*MIN*.028*k,w=L*.16;
+    const x=s.x*W,y=s.y*horizon,L=s.s*MIN*.028*k,w=L*.16,a0=tm*s.sp*.3+s.ph;
     ctx.beginPath();
-    ctx.moveTo(x,y-L);ctx.lineTo(x+w,y-w);ctx.lineTo(x+L,y);ctx.lineTo(x+w,y+w);ctx.lineTo(x,y+L);ctx.lineTo(x-w,y+w);ctx.lineTo(x-L,y);ctx.lineTo(x-w,y-w);ctx.closePath();
-    ctx.fill();
+    for(let j=0;j<8;j++){const a=a0+j/8*TAU,rr=j%2?w*1.4:L;j?ctx.lineTo(x+Math.cos(a)*rr,y+Math.sin(a)*rr):ctx.moveTo(x+Math.cos(a)*rr,y+Math.sin(a)*rr);}
+    ctx.closePath();ctx.fill();
   }
 }
 function drawRibbons(sx,sy,hc,tm){
@@ -386,7 +418,7 @@ function drawRibbons(sx,sy,hc,tm){
     const t=(b.t+tm*.035)%1;const [x,y,nx,ny]=ribbonAt(b.k,t,sx,sy,tm);const w=ribW(t);
     const bx=x+nx*w*b.o+Math.sin(tm*1.5+b.o*9)*w*.08,by=y+ny*w*b.o;
     const r=w*.34*b.s*(t<.08?t/.08:1);
-    if(r<1)continue;ctx.drawImage(bubbleImg,bx-r,by-r,r*2,r*2);
+    if(r<1)continue;const q=.07*Math.sin(tm*3+b.o*20);ctx.drawImage(bubbleImg,bx-r*(1+q),by-r*(1-q),r*2*(1+q),r*2*(1-q));
   }
 }
 const ZIG=[-74,-106,-52,-128,-30,-150];
@@ -434,9 +466,8 @@ function drawSun(sx,sy,tm,alpha){
     for(let j=0;j<n;j++){const a=rot+j/n*TAU,x=sx+Math.cos(a)*r,y=sy+Math.sin(a)*r,d=sunR*.035;ctx.moveTo(x+d,y);ctx.arc(x,y,d,0,TAU);}
     ctx.fill();
   }
-  ctx.translate(sx,sy);ctx.rotate(tm*.05);
-  const s=sunR/sunSpriteR,sw=sunSprite.width*s;
-  ctx.drawImage(sunSprite,-sw/2,-sw/2,sw,sw);
+  ctx.translate(sx,sy);
+  drawParts(sunParts,1+.04*Math.sin(tm*1.7),tm*.12,-tm*.3,tm*.5,.03*Math.sin(tm*2.3));
   ctx.globalCompositeOperation='lighter';
   const pulse=.55+.12*Math.sin(tm*1.3);
   const g=ctx.createRadialGradient(0,0,0,0,0,sunR*1.15);
@@ -454,7 +485,6 @@ function drawWater(sx,hc,tm,dim){
   // river
   const N=56,L=[],Rr=[];
   for(let i=0;i<=N;i++){const p=.02+1.06*i/N,c=riverC(p,sx),w=riverW(p)/2,y=pY(p);L.push([c-w,y]);Rr.push([c+w,y]);}
-  paintWaterMask(L,Rr,ly,rx,ry);
   ctx.beginPath();ctx.moveTo(L[0][0],L[0][1]);for(const q of L)ctx.lineTo(q[0],q[1]);for(let i=N;i>=0;i--)ctx.lineTo(Rr[i][0],Rr[i][1]);ctx.closePath();
   g=ctx.createLinearGradient(0,horizon,0,H);
   g.addColorStop(0,hsl(glowH,95,82));g.addColorStop(.18,'hsl(195,90%,62%)');g.addColorStop(.6,'hsl(222,80%,46%)');g.addColorStop(1,'hsl(245,70%,32%)');
@@ -505,12 +535,13 @@ function drawField(sx,tm,skip){
       ctx.fillStyle='hsl(105,60%,36%)';
       for(const sd of [-1,1]){
         const ly=y+s*(sd<0?2.3:3.1);
-        ctx.beginPath();ctx.moveTo(x,ly);ctx.quadraticCurveTo(x+sd*s*.9,ly-s*.9,x+sd*s*1.5,ly-s*1.1);ctx.quadraticCurveTo(x+sd*s*.6,ly-s*.1,x,ly);ctx.fill();
+        const lf=Math.sin(tm*f.rf+f.ph+sd)*s*.25;
+        ctx.beginPath();ctx.moveTo(x,ly);ctx.quadraticCurveTo(x+sd*s*.9,ly-s*.9+lf*.5,x+sd*s*1.5,ly-s*1.1+lf);ctx.quadraticCurveTo(x+sd*s*.6,ly-s*.1+lf*.3,x,ly);ctx.fill();
       }
     }
     ctx.save();ctx.translate(hx,y);ctx.rotate(toward*.35+f.spin*Math.sin(tm*.3+f.ph));
     const br=1+.08*Math.sin(tm*2.6-Math.hypot(hx-sx,y-sunY)/(MIN*.11));ctx.scale(br,br);
-    const sw=f.sprite.width;ctx.drawImage(f.sprite,-sw/2,-sw/2);
+    drawParts(f.parts,1,tm*f.rs,-tm*f.rs*1.7+f.ph,tm*f.rs*.6,.05*Math.sin(tm*f.rf*1.3+f.ph));
     if(f.exSun){
       // it was a sun once: a faint gold ring stays
       ctx.rotate(tm*.6);ctx.strokeStyle='rgba(255,225,120,.85)';ctx.lineWidth=Math.max(1,s*.05);
@@ -526,7 +557,7 @@ function drawGlowSprite(img,x,y,r,spin,glow){
     g.addColorStop(0,`rgba(255,255,230,${.8*glow})`);g.addColorStop(1,'rgba(255,240,180,0)');
     ctx.fillStyle=g;ctx.beginPath();ctx.arc(0,0,r*2.2,0,TAU);ctx.fill();
   }
-  ctx.rotate(spin);const s=r/sunR*img.width;ctx.drawImage(img,-s/2,-s/2,s,s);
+  drawParts(img,r/sunR,spin,-spin*1.5,spin*2,0);
   ctx.restore();
 }
 
@@ -535,13 +566,13 @@ function startSwap(f){
   const from={x:sunXof(sun.xn),y:sunY},to={x:sunXof(f.xn),y:sunY};
   const at={x:f.xn*W,y:pY(f.p)};
   swap={t:0,f,from,to,at,fromHue:hue,toHue:f.data.s<30?52:f.data.h,
-    rise:flowerSprite(f.data,sunR),riseData:f.data,fall:sunSprite,fallData:sun.data,fallXn:sun.xn};
+    rise:flowerParts(f.data,sunR),riseData:f.data,fall:sunParts,fallData:sun.data,fallXn:sun.xn};
 }
 function endSwap(){
   const f=swap.f;
   sun={data:swap.riseData,xn:f.xn};
-  sunSprite=swap.rise;sunSpriteR=sunR;
-  f.data=swap.fallData;f.exSun=true;f.sprite=flowerSprite(f.data,f.size);
+  sunParts=swap.rise;
+  f.data=swap.fallData;f.exSun=true;f.parts=flowerParts(f.data,f.size);
   hue=swap.toHue;swap=null;
 }
 
@@ -562,11 +593,13 @@ function frame(nowMs){
   drawSparks(tm);
   drawRibbons(sx,sy,hue,tm);
   ctx.drawImage(ground,0,0);
+  drawClouds(tm);
   drawOrbs(hue,tm);
   drawZigzags(sx,sy,hue,tm);
   if(!swap)drawSun(sx,sy,tm,1);
   ctx.drawImage(mountains,0,0);
   drawWater(sx,hue,tm,dim);
+  drawGlints(tm);
   drawField(sx,tm,swap?swap.f:null);
   if(swap){
     const st=swap.t;
@@ -582,75 +615,7 @@ function frame(nowMs){
     if(st>.55)drawShock((st-.55)/.45,swap.to.x,swap.to.y);
     if(swap.t>=1)endSwap();
   }
-  // the lens: always bending, and it boils over while a new sun is rising
-  warpT=tm;warpSx=sx;warpSy=sy;
-  warpAmp=1+(swap?1.15*Math.sin(Math.PI*swap.t):0);
-  present();
   requestAnimationFrame(frame);
-}
-
-// ---------- the liquid lens (water only) ----------
-// Only the lake and the river melt. A low-res mask of the water (soft edges come from its linear sampling)
-// tells the shader where to bend; everywhere else the world is shown as painted.
-const MASK_DIV=6;
-const wmask=document.createElement('canvas');const wmctx=wmask.getContext('2d');
-function paintWaterMask(L,Rr,ly,rx,ry){
-  const g=wmctx;g.setTransform(1,0,0,1,0,0);g.fillStyle='#000';g.fillRect(0,0,wmask.width,wmask.height);
-  g.setTransform(1/MASK_DIV,0,0,1/MASK_DIV,0,0);
-  g.beginPath();g.ellipse(W*.5,ly,rx,ry,0,0,TAU);
-  g.moveTo(L[0][0],L[0][1]);for(const q of L)g.lineTo(q[0],q[1]);for(let i=Rr.length-1;i>=0;i--)g.lineTo(Rr[i][0],Rr[i][1]);g.closePath();
-  g.fillStyle='#fff';g.fill();
-  g.lineJoin='round';g.lineWidth=MASK_DIV*2.5;g.strokeStyle='rgba(0,0,0,.55)';g.stroke(); // pull the edge in a little: banks stay calm
-}
-const WARP_GLSL=`
-vec2 warp(vec2 p,float k){
-  float m=min(res.x,res.y);
-  vec2 n=p/m;
-  float w1=sin(n.y*34.0-t*3.0+2.2*sin(n.x*8.0+t*1.3));
-  float w2=sin(n.x*22.0+t*2.2+2.2*sin(n.y*10.0-t*1.6));
-  vec2 big=vec2(sin(n.y*7.0+t*1.4+sin(n.x*3.0-t)),cos(n.x*6.0-t*1.1+sin(n.y*4.0+t*.7)));
-  return p+(vec2(w1,0.6*w2)*0.016+big*0.02)*m*amp*k;
-}`;
-function warpPoint(px,py){return [px,py];}   // flowers never stand in the water, so taps need no correction
-function initGL(){
-  if(!gl)return;
-  const vs=`attribute vec2 a;void main(){gl_Position=vec4(a,0.0,1.0);}`;
-  const fs=`precision highp float;
-uniform sampler2D tex;uniform sampler2D msk;uniform vec2 res;uniform vec2 sun;uniform float t;uniform float hz;uniform float amp;
-${WARP_GLSL}
-vec2 mir(vec2 u){return 1.0-abs(mod(u,2.0)-1.0);}
-void main(){
-  vec2 p=vec2(gl_FragCoord.x,res.y-gl_FragCoord.y);
-  float k=texture2D(msk,p/res).r;
-  if(k<0.003){gl_FragColor=vec4(texture2D(tex,p/res).rgb,1.0);return;}
-  vec2 w=warp(p,k);
-  vec2 d=vec2(1.0,0.3)*(1.5+1.2*sin(t*1.7+p.y*0.02))*amp*k*(res.x+res.y)/1400.0;
-  float r=texture2D(tex,mir((w+d)/res)).r;
-  vec4 g=texture2D(tex,mir(w/res));
-  float b=texture2D(tex,mir((w-d)/res)).b;
-  gl_FragColor=vec4(r,g.g,b,1.0);
-}`;
-  const sh=(type,src)=>{const o=gl.createShader(type);gl.shaderSource(o,src);gl.compileShader(o);if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(o));return o;};
-  glProg=gl.createProgram();gl.attachShader(glProg,sh(gl.VERTEX_SHADER,vs));gl.attachShader(glProg,sh(gl.FRAGMENT_SHADER,fs));gl.linkProgram(glProg);gl.useProgram(glProg);
-  const bufV=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,bufV);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
-  const loc=gl.getAttribLocation(glProg,'a');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
-  glTex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,glTex);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
-  for(const n of ['tex','msk','res','sun','t','hz','amp'])U[n]=gl.getUniformLocation(glProg,n);
-  glMask=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,glMask);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
-}
-function present(){
-  if(!gl){ctx2.drawImage(scene,0,0);return;}
-  gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,glMask);
-  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,wmask);
-  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,glTex);
-  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,scene);
-  gl.uniform1i(U.tex,0);gl.uniform1i(U.msk,1);gl.uniform2f(U.res,W,H);gl.uniform2f(U.sun,warpSx,warpSy);
-  gl.uniform1f(U.t,warpT);gl.uniform1f(U.hz,horizon);gl.uniform1f(U.amp,warpAmp);
-  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
 }
 
 // ---------- input ----------
@@ -668,8 +633,7 @@ cv.addEventListener('pointerdown',ev=>{
   ev.preventDefault();
   if(!touched){touched=true;hintEl.classList.remove('on');}
   if(swap)return;
-  const q=warpPoint(ev.clientX*DPR,ev.clientY*DPR);
-  const f=pick(q[0],q[1]);
+  const f=pick(ev.clientX*DPR,ev.clientY*DPR);
   if(f)startSwap(f);
 },{passive:false});
 
@@ -678,9 +642,6 @@ function layout(){
   DPR=Math.min(2,window.devicePixelRatio||1);
   W=Math.round(innerWidth*DPR);H=Math.round(innerHeight*DPR);
   cv.width=W;cv.height=H;MIN=Math.min(W,H);
-  scene.width=W;scene.height=H;
-  wmask.width=Math.ceil(W/MASK_DIV);wmask.height=Math.ceil(H/MASK_DIV);
-  if(gl)gl.viewport(0,0,W,H);
   horizon=H*(W<H?.55:.58);
   sunR=MIN*.1;sunY=horizon-Math.max(sunR*1.55,H*.08);
 }
@@ -692,7 +653,7 @@ function build(full){
 function mutate(){if(swap)return;seed=(Math.random()*1e9)|0;build(true);}
 function resetAll(){if(swap)return;seed=INIT_SEED;build(true);}
 
-layout();initGL();buildBubble();seed=INIT_SEED;build(true);
+layout();buildBubble();seed=INIT_SEED;build(true);
 let rt=null;
 addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(()=>{if(swap)endSwap();layout();build(false);},150);});
 setTimeout(()=>{if(!touched)hintEl.classList.add('on');},900);
