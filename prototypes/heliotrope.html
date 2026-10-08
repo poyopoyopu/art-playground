@@ -25,9 +25,14 @@
 (function(){
 'use strict';
 const cv=document.getElementById('c');
-const mctx=cv.getContext('2d');
-let ctx=mctx;               // drawing target (switches to the sky buffer while the sky is painted)
-let buf=null,bctx=null;
+// the world is painted in 2D on an offscreen canvas, then shown through a WebGL "liquid lens" that bends it
+const scene=document.createElement('canvas');
+const mctx=scene.getContext('2d');
+let ctx=mctx;
+const gl=cv.getContext('webgl',{preserveDrawingBuffer:true,antialias:false,premultipliedAlpha:false})||cv.getContext('experimental-webgl',{preserveDrawingBuffer:true});
+const ctx2=gl?null:cv.getContext('2d');
+let glProg=null,glTex=null,U={};
+let warpAmp=1,warpT=0,warpSx=0,warpSy=0;
 const hintEl=document.getElementById('hint');
 const TAU=Math.PI*2;
 
@@ -549,7 +554,7 @@ function frame(nowMs){
     hue=lerpHue(swap.fromHue,swap.toHue,e);
     dim=1-.55*Math.sin(Math.PI*swap.t);
   }
-  ctx=bctx;ctx.setTransform(1,0,0,1,0,0);
+  ctx=mctx;ctx.setTransform(1,0,0,1,0,0);
   drawSky(sx,sy,hue,dim);
   drawRings(sx,sy,hue,tm,dim);
   drawRays(sx,sy,hue,tm,dim);
@@ -560,15 +565,6 @@ function frame(nowMs){
   drawZigzags(sx,sy,hue,tm);
   if(!swap)drawSun(sx,sy,tm,1);
   ctx.drawImage(mountains,0,0);
-  // melt: the sky above the horizon ripples like liquid, calmer toward the horizon
-  ctx=mctx;ctx.setTransform(1,0,0,1,0,0);
-  const hz=Math.floor(horizon),stp=Math.max(2,Math.round(3*DPR));
-  for(let y=0;y<hz;y+=stp){
-    const h2=Math.min(stp,hz-y),amp=DPR*9*Math.pow(1-y/hz,.8);
-    const off=(Math.sin(y/DPR*.013+tm*2.1)+.45*Math.sin(y/DPR*.037-tm*1.5))*amp;
-    ctx.drawImage(buf,0,y,W,h2,off-amp*1.5,y,W+amp*3,h2);
-  }
-  ctx.drawImage(buf,0,hz,W,H-hz,0,hz,W,H-hz);
   drawWater(sx,hue,tm,dim);
   drawField(sx,tm,swap?swap.f:null);
   if(swap){
@@ -585,7 +581,76 @@ function frame(nowMs){
     if(st>.55)drawShock((st-.55)/.45,swap.to.x,swap.to.y);
     if(swap.t>=1)endSwap();
   }
+  // the lens: always bending, and it boils over while a new sun is rising
+  warpT=tm;warpSx=sx;warpSy=sy;
+  warpAmp=1+(swap?1.15*Math.sin(Math.PI*swap.t):0);
+  present();
   requestAnimationFrame(frame);
+}
+
+// ---------- the liquid lens ----------
+// warp(p): which point of the painted world is seen at screen pixel p. Same formula in GLSL and JS.
+const WARP_GLSL=`
+vec2 warp(vec2 p){
+  float m=min(res.x,res.y);
+  float sk=mix(1.0,0.5,clamp((p.y-hz)/(res.y-hz),0.0,1.0));
+  vec2 q=(p-sun)/m;float r=length(q);
+  float th=amp*(0.55*sin(t*0.31)*exp(-r*1.5)+0.16*sin(r*7.0-t*1.2));
+  float c=cos(th),s=sin(th);
+  q=vec2(c*q.x-s*q.y,s*q.x+c*q.y);
+  q*=1.0+amp*0.04*sin(r*15.0-t*2.3);
+  vec2 n=p/m;
+  float w1=sin(n.y*6.0+t*1.6+1.6*sin(n.x*4.5-t*1.05));
+  float w2=sin(n.x*5.5-t*1.25+1.6*sin(n.y*3.8+t*0.85));
+  vec2 p2=sun+q*m+vec2(w1,w2)*m*0.032*amp;
+  return mix(p,p2,sk);
+}`;
+function warpPoint(px,py){
+  const res=[W,H],m=Math.min(W,H),amp=warpAmp,t=warpT;
+  const sk=lerp(1,.5,clamp((py-horizon)/(H-horizon),0,1));
+  let qx=(px-warpSx)/m,qy=(py-warpSy)/m;const r=Math.hypot(qx,qy);
+  const th=amp*(.55*Math.sin(t*.31)*Math.exp(-r*1.5)+.16*Math.sin(r*7-t*1.2));
+  const c=Math.cos(th),s=Math.sin(th);
+  let x=c*qx-s*qy,y=s*qx+c*qy;
+  const k=1+amp*.04*Math.sin(r*15-t*2.3);x*=k;y*=k;
+  const nx=px/m,ny=py/m;
+  const w1=Math.sin(ny*6+t*1.6+1.6*Math.sin(nx*4.5-t*1.05));
+  const w2=Math.sin(nx*5.5-t*1.25+1.6*Math.sin(ny*3.8+t*.85));
+  const p2x=warpSx+x*m+w1*m*.032*amp,p2y=warpSy+y*m+w2*m*.032*amp;
+  return [lerp(px,p2x,sk),lerp(py,p2y,sk)];
+}
+function initGL(){
+  if(!gl)return;
+  const vs=`attribute vec2 a;void main(){gl_Position=vec4(a,0.0,1.0);}`;
+  const fs=`precision highp float;
+uniform sampler2D tex;uniform vec2 res;uniform vec2 sun;uniform float t;uniform float hz;uniform float amp;
+${WARP_GLSL}
+vec2 mir(vec2 u){return 1.0-abs(mod(u,2.0)-1.0);}
+void main(){
+  vec2 p=vec2(gl_FragCoord.x,res.y-gl_FragCoord.y);
+  vec2 w=warp(p);
+  vec2 d=normalize(w-sun+0.001)*(1.5+1.5*sin(t*0.9))*amp*(res.x+res.y)/1400.0;
+  float r=texture2D(tex,mir((w+d)/res)).r;
+  vec4 g=texture2D(tex,mir(w/res));
+  float b=texture2D(tex,mir((w-d)/res)).b;
+  gl_FragColor=vec4(r,g.g,b,1.0);
+}`;
+  const sh=(type,src)=>{const o=gl.createShader(type);gl.shaderSource(o,src);gl.compileShader(o);if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(o));return o;};
+  glProg=gl.createProgram();gl.attachShader(glProg,sh(gl.VERTEX_SHADER,vs));gl.attachShader(glProg,sh(gl.FRAGMENT_SHADER,fs));gl.linkProgram(glProg);gl.useProgram(glProg);
+  const bufV=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,bufV);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+  const loc=gl.getAttribLocation(glProg,'a');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+  glTex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,glTex);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  for(const n of ['tex','res','sun','t','hz','amp'])U[n]=gl.getUniformLocation(glProg,n);
+}
+function present(){
+  if(!gl){ctx2.drawImage(scene,0,0);return;}
+  gl.bindTexture(gl.TEXTURE_2D,glTex);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,scene);
+  gl.uniform1i(U.tex,0);gl.uniform2f(U.res,W,H);gl.uniform2f(U.sun,warpSx,warpSy);
+  gl.uniform1f(U.t,warpT);gl.uniform1f(U.hz,horizon);gl.uniform1f(U.amp,warpAmp);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
 }
 
 // ---------- input ----------
@@ -603,16 +668,18 @@ cv.addEventListener('pointerdown',ev=>{
   ev.preventDefault();
   if(!touched){touched=true;hintEl.classList.remove('on');}
   if(swap)return;
-  const f=pick(ev.clientX*DPR,ev.clientY*DPR);
+  const q=warpPoint(ev.clientX*DPR,ev.clientY*DPR);
+  const f=pick(q[0],q[1]);
   if(f)startSwap(f);
 },{passive:false});
 
 // ---------- setup ----------
 function layout(){
-  DPR=Math.min(2,window.devicePixelRatio||1);
+  DPR=Math.min(1.5,window.devicePixelRatio||1);
   W=Math.round(innerWidth*DPR);H=Math.round(innerHeight*DPR);
   cv.width=W;cv.height=H;MIN=Math.min(W,H);
-  buf=document.createElement('canvas');buf.width=W;buf.height=H;bctx=buf.getContext('2d');
+  scene.width=W;scene.height=H;
+  if(gl)gl.viewport(0,0,W,H);
   horizon=H*(W<H?.55:.58);
   sunR=MIN*.1;sunY=horizon-Math.max(sunR*1.55,H*.08);
 }
@@ -624,7 +691,7 @@ function build(full){
 function mutate(){if(swap)return;seed=(Math.random()*1e9)|0;build(true);}
 function resetAll(){if(swap)return;seed=INIT_SEED;build(true);}
 
-layout();buildBubble();seed=INIT_SEED;build(true);
+layout();initGL();buildBubble();seed=INIT_SEED;build(true);
 let rt=null;
 addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(()=>{if(swap)endSwap();layout();build(false);},150);});
 setTimeout(()=>{if(!touched)hintEl.classList.add('on');},900);
