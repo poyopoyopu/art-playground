@@ -1,3 +1,4 @@
+- 2026-10-09 クロード: HAIRLINEを採用・art-v100として昇格し、ギャラリーLOG先頭に追加(おっちゃん「採用で」)。CURRENTはNEST LAWのまま。ap-kit.jsの相対パスをルート用に修正、Published worksはNEST LAWの直後に追加、`META`に操作ヒント「タップで割る。割りすぎると床が抜ける」を1行追加。`tools/poster-config.json`に`hide:#hint`とタップ2回を追加し、ポスターとOGPカードを生成、`gen_posters.py --check`・`gen_og.py --check`とも終了コード0(ポスターに文字が写らずヒビが入っていることを目視で確認)。試作版`prototypes/hairline.html`は残す。`REC_WORKS`(録画)には入れていない。「現在の状態」のLOG先頭も更新(art-v100-hairline.html, index.html, posters/, og/, tools/poster-config.json, CHANGELOG.md)
 - 2026-10-09 クロード: HAIRLINE(試作)から峡谷の橋を外した(おっちゃん「渓谷はいまいちだから要らない」)。最初の景色は昼の街か夜の街(ランダム)、✦は 昼の街→夜の街→火口→雷雲の上 に戻した。ガラスの両側の鉄骨の枠は床の枠として残した。スマホ幅のヘッドレスChromiumで4種ともエラーなし(prototypes/hairline.html, CHANGELOG.md)
 - 2026-10-09 クロード: HAIRLINE(試作)に「峡谷にかかるガラスの橋」を追加し、最初の景色にした(おっちゃん「もっと高くからがいい、橋の上とかね」)。谷底まで700m、川は画面を横切り、両側の切り立った岩壁(横の地層・縦の割れ目・張り出し)と崖上の森を高さの場(ハイトフィールド)の光線行進で描く。谷底の川は流れて白く泡立ち、谷の中を鳥が3羽旋回、足もとと谷の間を雲が流れる。視野は他より広め(1.15)。ガラスの両側に橋の鉄骨(ボルト付き)を重ね、床が抜けると消える。落下は700mから約5秒。✦の順は 峡谷の橋→昼の街→夜の街→火口→雷雲の上(URLの#canyonでも固定可)。街・火口・雷雲も見下ろす高さを上げた(150/320)。スマホ幅のヘッドレスChromiumでエラーなし。**スマホ実機の重さは未確認**(峡谷は1画素あたり最大90歩の光線行進)(prototypes/hairline.html, CHANGELOG.md)
 - 2026-10-09 クロード: HAIRLINE(試作)を「地上300mのガラスの床から真下を見下ろす」作品に変更(おっちゃん「割れて落っこちたら怖い感じに、高いところから見下ろした感じ」)。足もとの景色はシェーダで毎フレーム描く4種(✦で切替、URLの#day/#night/#magma/#stormで固定可): 昼の街・夜の街(真上から見た高層ビル街を光線のマス目たどりで描画。窓・屋上・道路・走る車・夜は窓明かり/街灯/テールランプ/航空障害灯、遠いほど霞む。足もとは道の真上をゆっくり進む)、火口(はるか下の溶岩と3層の煙)、雷雲の上(4層の雲の海の中で稲妻が光る、光るたびに割れ目が白く浮かぶ)。新しい法則=「叩くたび・砕くたびにガラスにひずみがたまり、限界の手前できしみ(勝手にヒビが走り揺れる)、限界を超えると床が抜けてまっさかさまに落ちる」。落下は放射状のズームぼかし+波長ずれ、底で暗転して新しいガラスの上に戻る。テスト用フック window.__fall / __strike / __speed / __state あり。スマホ幅のヘッドレスChromiumで4種・落下を確認、エラーなし。**スマホ実機の重さは未確認**(街は1画素あたり最大90マスたどる。景色はCSS px×0.85の解像度)(prototypes/hairline.html, CHANGELOG.md)
@@ -396,7 +397,7 @@
 ## 現在の状態(変わったら書き換える)
 
 - CURRENT: NEST LAW(`art-v90-nest-law.html`)
-- LOG先頭: MORPHING FERN(`art-v99-morphing-fern.html`)。その下にv98〜v94、LIVING REEF(`art-v93-living-reef.html`)
+- LOG先頭: HAIRLINE(`art-v100-hairline.html`)。その下にMORPHING FERN(`art-v99-morphing-fern.html`)、v98〜v94、LIVING REEF(`art-v93-living-reef.html`)
 - 作業ルール: `AGENTS.md`(ギャラリー追加の手順と命名ルールは13章)
 - 表示モード: iPhoneホーム画面から起動するとCURRENT作品を自動表示するstandalone Web App対応済み
 - 一言説明: ヒーロー/タイルの一言は各作品の`<title>`(`NAME — 日本語の一言`)から自動取得。上書き・ヒントは`index.html`の`META`(ルールはAGENTS.md 13章)
