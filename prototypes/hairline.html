@@ -41,7 +41,7 @@
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hint">谷底まで700mのガラスの橋。割りすぎると、床が抜ける<br>タップ ＝ 叩く　押さえる・なぞる ＝ 砕く</div>
+<div id="hint">地上300mのガラスの床。割りすぎると、床が抜ける<br>タップ ＝ 叩く　押さえる・なぞる ＝ 砕く</div>
 <div id="nogl">WebGLが使えない環境です</div>
 <script>
 (function () {
@@ -117,7 +117,7 @@
     '  col+=sh*(1.0-gone);',
     '  vec2 q=uv-0.5;',
     '  col*=1.0-0.35*dot(q,q)*2.0;',
-    /* 橋の鉄骨(ガラスの両側の縁)。床が抜けると見えなくなる */
+    /* ガラスの床の両側の鉄骨の枠。床が抜けると見えなくなる */
     '  float bx=min(uv.x,1.0-uv.x);',
     '  if(bx<beamW*(1.0-gone)){',
     '    float k=bx/beamW;',
@@ -297,83 +297,6 @@
     '  return mix(col,haze,clamp(fogA,0.0,0.85));',
     '}',
     /* ---- 火口: はるか下の溶岩と、立ちのぼる煙 ---- */
-    /* ---- 峡谷: ガラスの橋の上から、はるか下の川を見下ろす(川は画面の横向き、橋は縦向きに谷をまたぐ) ---- */
-    'float mea(float x){return 18.0*sin(x*0.006)+8.0*sin(x*0.017+1.3);}',
-    'const float RIM=560.0;',
-    'float chh(vec2 p){',
-    '  float cy=p.y-mea(p.x);float sd=cy>0.0?1.0:-1.0;',
-    '  float a=abs(cy)+(noise(vec2(p.x*0.045,sd*5.0))-0.5)*22.0+(noise(vec2(p.x*0.16,sd*9.0))-0.5)*8.0+(noise(p*0.5)-0.5)*2.5;',
-    '  float w0=7.0+4.0*noise(vec2(p.x*0.02,3.0));',
-    '  float wT=62.0+30.0*noise(vec2(p.x*0.008,cy>0.0?7.0:1.0));',
-    '  float s=clamp((a-w0)/(wT-w0),0.0,1.0);',
-    '  float pr=pow(s,0.85);',
-    '  float tr=floor(pr*9.0+noise(p*0.05)*0.9)/9.0;pr=mix(pr,tr,0.3);',
-    '  float n=noise(p*0.05)*0.55+noise(p*0.14)*0.3+noise(p*0.4)*0.15;',
-    '  return RIM*pr+(n-0.5)*18.0*s*(1.0-s)*4.0+smoothstep(0.85,1.0,s)*(n*10.0+noise(p*0.35)*4.0);',
-    '}',
-    'vec3 canyon(vec3 ro,vec3 rd){float tt=t;',
-    '  float tm=max(0.0,(ro.z-(RIM+40.0))/(-rd.z));',
-    '  vec3 p=ro+rd*tm;',
-    '  for(int i=0;i<90;i++){',
-    '    p=ro+rd*tm;float d=p.z-chh(p.xy);',
-    '    if(d<0.05+tm*0.002)break;',
-    '    tm+=max(d*0.4,0.3);',
-    '  }',
-    '  float e=1.0;',
-    '  vec3 nn=normalize(vec3(chh(p.xy-vec2(e,0.0))-chh(p.xy+vec2(e,0.0)),chh(p.xy-vec2(0.0,e))-chh(p.xy+vec2(0.0,e)),2.0*e));',
-    '  vec3 sun=normalize(vec3(0.25,0.62,0.74));',
-    '  float z=p.z;',
-    /* 岩肌: 横の地層と、縦の割れ目 */
-    '  float strata=noise(vec2(z*0.11+noise(p.xy*0.03)*1.5,0.5));',
-    '  float fiss=noise(vec2(p.x*0.22+p.y*0.22,z*0.04))*0.7+noise(vec2(p.x*0.8,z*0.2))*0.3;',
-    '  vec3 rock=mix(vec3(0.33,0.28,0.24),vec3(0.68,0.58,0.46),strata)*(0.65+0.55*fiss);',
-    '  float veg=smoothstep(0.6,0.85,nn.z)*(0.5+0.5*noise(p.xy*0.2));',
-    '  float canopy=noise(p.xy*0.32)*0.6+noise(p.xy*0.9)*0.4;',
-    '  vec3 green=mix(vec3(0.05,0.11,0.045),vec3(0.2,0.3,0.12),canopy)*(0.6+0.7*smoothstep(0.3,0.8,canopy));',
-    '  vec3 col=mix(rock,green,veg);',
-    '  float dif=max(dot(nn,sun),0.0);',
-    '  float ao=mix(0.32,1.0,clamp(z/RIM,0.0,1.0));',
-    '  col*=(0.2+1.1*dif)*ao;',
-    /* 谷底の川 */
-    '  float cy=p.y-mea(p.x);',
-    '  float riv=smoothstep(3.0,0.4,z)*step(abs(cy),14.0);',
-    '  float fl2=noise(vec2((p.x+tt*6.0)*0.15,cy*0.8));',
-    '  vec3 water=mix(vec3(0.06,0.18,0.19),vec3(0.14,0.3,0.29),fl2)+vec3(0.75)*smoothstep(0.7,0.9,noise(vec2((p.x+tt*9.0)*0.3,cy*1.2)))*0.55;',
-    '  col=mix(col,water*0.75,riv);',
-    /* 遠さの霞と、谷底にたまる霞 */
-    '  float haze=1.0-exp(-(ro.z-z)*0.0008);',
-    '  haze+=0.25*smoothstep(120.0,0.0,z);',
-    '  col=mix(col,vec3(0.6,0.67,0.74),clamp(haze,0.0,0.7));',
-    /* 足もとと谷の間を流れていく雲 */
-    '  for(int k=0;k<2;k++){',
-    '    float fk=float(k);',
-    '    float zk=RIM*(0.5+0.3*fk);',
-    '    if(zk>=ro.z-1.0)continue;',
-    '    float tz=(ro.z-zk)/(-rd.z);',
-    '    vec2 q=(ro+rd*tz).xy*0.012+vec2(tt*0.004*(fk+1.0),tt*0.0025);',
-    '    float cd=smoothstep(0.6,0.85,fbm(q+fk*4.3));',
-    '    vec3 cc=vec3(0.93,0.95,0.98)*(0.82+0.2*fbm(q*3.0));',
-    '    col=mix(col,cc,cd*0.75);',
-    '  }',
-    /* 谷の中を旋回する鳥(その高さの平面で形を測る) */
-    '  for(int k=0;k<3;k++){',
-    '    float fk=float(k);',
-    '    float bz=RIM*(0.3+0.15*fk);',
-    '    if(bz>=ro.z-1.0)continue;',
-    '    float an=tt*(0.12+0.03*fk)+fk*1.7;',
-    '    float bxc=ro.x+50.0*fk-50.0;',
-    '    vec2 bp=vec2(bxc,mea(bxc))+vec2(cos(an),sin(an))*(16.0+8.0*fk);',
-    '    vec2 pw=ro.xy+rd.xy*(ro.z-bz)/(-rd.z);',
-    '    vec2 dlt=pw-bp;',
-    '    vec2 hd=vec2(-sin(an),cos(an));vec2 sd=vec2(-hd.y,hd.x);',
-    '    vec2 lq=vec2(dot(dlt,sd),dot(dlt,hd))/2.2;',
-    '    float flap=0.35+0.25*sin(tt*7.0+fk*2.0);',
-    '    float wing=abs(abs(lq.x)*flap+lq.y*0.6+0.1);',
-    '    float bird=step(abs(lq.x),1.0)*smoothstep(0.2,0.06,wing)+smoothstep(0.24,0.0,length(lq*vec2(1.0,0.6)));',
-    '    col=mix(col,vec3(0.06,0.06,0.07),clamp(bird,0.0,1.0)*0.85);',
-    '  }',
-    '  return col;',
-    '}',
     'vec3 crater(vec3 ro,vec3 rd){',
     '  float tg=ro.z/(-rd.z);',
     '  vec3 p=ro+rd*tg;',
@@ -415,9 +338,8 @@
     '  vec2 sp=(gl_FragCoord.xy-0.5*R)/R.y;',
     '  vec3 rd=normalize(vec3(sp.x*fov,-sp.y*fov,-1.0));',
     '  vec3 col;',
-    '  if(mode<0.5)col=canyon(cam,rd);',
-    '  else if(mode<2.5)col=city(cam,rd,mode-1.0);',
-    '  else if(mode<3.5)col=crater(cam,rd);',
+    '  if(mode<1.5)col=city(cam,rd,mode);',
+    '  else if(mode<2.5)col=crater(cam,rd);',
     '  else col=cloudsea(cam,rd,uvS);',
     '  gl_FragColor=vec4(clamp(col,0.0,1.0),1.0);',
     '}'
@@ -502,14 +424,14 @@
     c.shadowBlur = 0;
     uploadBolt();
   }
-  var mode = 0;   /* 0 = 峡谷の橋, 1 = 昼の街, 2 = 夜の街, 3 = 火口, 4 = 雷雲の上 */
-  var MODE_H = [700, 150, 150, 320, 320], MODE_G = [58, 32, 32, 42, 42], MODE_F = [1.15, 0.78, 0.78, 0.78, 0.78];
+  var mode = Math.random() < 0.5 ? 0 : 1;   /* 0 = 昼の街, 1 = 夜の街, 2 = 火口, 3 = 雷雲の上 */
+  var MODE_H = [150, 150, 320, 320], MODE_G = [32, 32, 42, 42], MODE_F = [0.78, 0.78, 0.78, 0.78];
   window.__strike = function () { nextStrike = 0; };   /* テスト用: すぐ雷を落とす */
   window.__fall = function () { addStress(99); };      /* テスト用: すぐ床を抜く */
   var timeScale = 1;
   window.__speed = function (k) { timeScale = k; };    /* テスト用: 時間を早回し */
   window.__state = function () { return { clock: clock, camZ: camZ, fallT: fallT, stress: stress }; };
-  var MH = { canyon: 0, day: 1, night: 2, magma: 3, storm: 4 };
+  var MH = { day: 0, night: 1, magma: 2, storm: 3 };
   for (var mk in MH) if (location.hash.indexOf(mk) >= 0) mode = MH[mk];   /* #day #night #magma #storm で固定して開ける */
   var strikeT = -99, strikeSheet = false, nextStrike = 1.5;
   function flashAt(s, sharp) {
@@ -953,8 +875,8 @@
     var gone = 0, black = 0, fallV = 0;
     if (fallT < 0) {
       camZ = MODE_H[mode];
-      if (mode === 0) { camX += dt * 2.5; camY = 18 * Math.sin(camX * 0.006) + 8 * Math.sin(camX * 0.017 + 1.3); }
-      else { camX += dt * 0.035 * (mode <= 2 ? 1 : 30); if (mode <= 2) camY = 0; }
+      camX += dt * 0.035 * (mode <= 1 ? 1 : 30);
+      if (mode <= 1) camY = 0;
       /* 限界が近いと、ガラスがきしむ: ヒビが勝手に走り、足もとが揺れる */
       if (stress > STRESS_MAX * 0.6) {
         creak -= dt;
@@ -994,7 +916,7 @@
 
     /* 雷: 雷雲の上のときだけ、ときどき落ちる(ときどき雲の中だけ光る) */
     var fl = 0, bo = 0;
-    if (mode === 4) {
+    if (mode === 3) {
       nextStrike -= dt;
       if (nextStrike <= 0) {
         strikeT = clock; strikeSheet = Math.random() < 0.3;
@@ -1020,7 +942,7 @@
     gl.uniform1f(SU.mode, mode);
     gl.uniform1f(SU.flash, fl);
     gl.uniform1f(SU.boltOn, bo);
-    var shk = mode === 0 ? 60 : 3;
+    var shk = 3;
     gl.uniform3f(SU.cam, camX + shx * shk, camY + shy * shk, camZ);
     gl.uniform1f(SU.fov, MODE_F[mode]);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
@@ -1076,8 +998,8 @@
       autoHide: true,
       fullscreenButton: false,
       buttons: [
-        { label: '✦', name: 'mutate', onClick: function () {   /* 足もとの景色を 峡谷の橋→昼の街→夜の街→火口→雷雲の上 と切り替え、ガラスの種類(虹の幅)も替える。割れ方はそのまま */
-          mode = (mode + 1) % 5; nextStrike = 0.8; strikeT = -99; clearBolt(); camZ = MODE_H[mode];
+        { label: '✦', name: 'mutate', onClick: function () {   /* 足もとの景色を 昼の街→夜の街→火口→雷雲の上 と切り替え、ガラスの種類(虹の幅)も替える。割れ方はそのまま */
+          mode = (mode + 1) % 4; nextStrike = 0.8; strikeT = -99; clearBolt(); camZ = MODE_H[mode];
           glass.D = 0.18 + Math.random() * 0.25;
           glass.Dc = 0.5 + Math.random() * 0.7;
         } },
