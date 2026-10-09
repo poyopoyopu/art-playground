@@ -9,9 +9,9 @@
 <style>
   html,body{margin:0;padding:0;height:100%;background:#05090b;overflow:hidden;
     -webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
-  canvas#c{display:block;position:fixed;inset:0;width:100vw;height:100vh;touch-action:none}
+  canvas#c{display:block;position:fixed;left:0;top:0;width:100%;height:100%;touch-action:none}
   #nogl{position:fixed;inset:0;display:none;align-items:center;justify-content:center;color:#888;font:14px sans-serif}
-  #hint{position:fixed;left:0;right:0;bottom:calc(18% + env(safe-area-inset-bottom));text-align:center;
+  #hint{position:fixed;left:16px;right:16px;bottom:calc(18% + env(safe-area-inset-bottom));text-align:center;
     color:rgba(220,240,232,.78);font:13px/1.9 -apple-system,"Hiragino Sans",sans-serif;letter-spacing:.06em;
     pointer-events:none;transition:opacity 1.2s;text-shadow:0 0 8px #000}
   #pick{position:fixed;left:0;top:0;pointer-events:none;color:#e9fff3;font:600 22px -apple-system,"Hiragino Sans",sans-serif;
@@ -160,11 +160,15 @@ var U={};['uRes','uT','uScroll','uBlur','uCharge','uFlashK','uFlashAge','uSamp',
 var W=0,H=0,dpr=1;
 function resize(){
   dpr=Math.min(window.devicePixelRatio||1,1.75);
-  W=window.innerWidth;H=window.innerHeight;
+  // 見えているキャンバスの実寸で描く(iPhoneは100vhとinnerHeightが食い違い、縦に引き伸ばされて楕円・中心ずれになる)
+  W=cv.clientWidth||window.innerWidth;H=cv.clientHeight||window.innerHeight;
   cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);
   gl.viewport(0,0,cv.width,cv.height);
 }
-window.addEventListener('resize',resize);resize();
+window.addEventListener('resize',resize);
+if(window.ResizeObserver)new ResizeObserver(resize).observe(cv);
+if(window.visualViewport)window.visualViewport.addEventListener('resize',resize);
+resize();
 
 /* ---------- 帯の遺伝子 ---------- */
 var HB=0.6, R_BIRTH=0.03, R_MIN=0.002;
@@ -274,7 +278,8 @@ cv.addEventListener('pointerdown',function(e){
   if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
   if(down)return;
   hideHint();
-  down={x:e.clientX,y:e.clientY,id:e.pointerId,moved:false};
+  var rc=cv.getBoundingClientRect();
+  down={x:e.clientX,y:e.clientY,cx:e.clientX-rc.left,cy:e.clientY-rc.top,id:e.pointerId,moved:false};
   clearTimeout(holdTimer);
   holdTimer=setTimeout(function(){if(down&&!down.moved)holding=true;},280);
   e.preventDefault();
@@ -290,7 +295,7 @@ function up(e){
     holding=false;
     kick+=0.5+charge*0.95;   // 吐き出す
   }else if(!down.moved){
-    choose(down.x,down.y);
+    choose(down.cx,down.cy);
   }
   down=null;
 }
