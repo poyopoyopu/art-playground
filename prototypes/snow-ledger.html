@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<!-- SNOW LEDGER — Claude(クロちゃん)作。試作SAME WINTER(自然のフラクタル・シリーズ2)を、おっちゃんの希望で単独の作品として作り直した。
+     改良: 本物っぽい氷(半透明の体・明るい縁・中心の筋・虹色ににじむ縁・腕ごとに光の当たり方が違う・きらめき)、
+     育ちきった結晶が降る雪になる、雪の夜の景色(街灯の明かり・遠くの家の灯・もみの木・雪の野原)。ap-kit.js統合: Claude -->
+<!-- 世界のルール: 雪の結晶の腕は、育つあいだの「空の状態」をそのまま形に刻む。6本の腕は同じ空を通ってきたので、同じ形になる。
+     指は空そのもの。タップ=突風(その瞬間、全部の枝先が同時に枝を出す)、上下になぞる=湿り気(湿るほど枝分かれし、雪もたくさん降る)、
+     長押し=冷たく静かな空(枝先に六角の板が育ち、風がやむ)。✦=空の温度(樹枝・扇形・星形・シダ形の育ち方)。
+     育ちきった結晶は空から放されて、降る雪の1粒になる。だから降っている雪は、ぜんぶこの空で育った結晶で、
+     触っているうちに、降る雪が自分の育てた結晶に入れ替わっていく(降った雪は帳簿のように野原に積もる)。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#03050c">
+<title>SNOW LEDGER — 降っている雪は、みんなこの空で育った結晶</title>
+<script src="../ap-kit.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; padding: 0; height: 100%; background: #03050c; overflow: hidden; overscroll-behavior: none; }
+  body { -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none;
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  #c { position: fixed; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; }
+  #hint { position: fixed; left: 16px; right: 16px; bottom: calc(78px + env(safe-area-inset-bottom, 0px));
+    text-align: center; pointer-events: none; font-size: 11.5px; line-height: 1.85; letter-spacing: .07em;
+    color: #e6f2ff; opacity: 0; transition: opacity 2s ease; text-shadow: 0 0 10px rgba(0, 10, 30, .9), 0 0 16px rgba(140, 190, 255, .45); }
+  #hint.on { opacity: .8; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">タップ ＝ 突風（6本の腕に同じ枝）／ 長押し ＝ 六角の板<br>上下になぞる ＝ 湿り気。育ちきった結晶は、降る雪になる</div>
+<script>
+(function () {
+  'use strict';
+  var TAU = Math.PI * 2, R60 = Math.PI / 3, S30 = Math.tan(Math.PI / 6);
+  var LIGHT = -2.25;                                    /* 光の来る向き(左上の街灯) */
+  var cvs = document.getElementById('c'), hint = document.getElementById('hint');
+  var ctx = cvs.getContext('2d', { alpha: false });
+  var bg = document.createElement('canvas'), bgx = bg.getContext('2d');
+  var W = 0, H = 0, DPR = 1, MIN = 1, RES_CAP = 2600000, YH = 0;
+  var now = 0, quality = 2, speedMul = 1;
+
+  /* ======== 空の温度で変わる育ち方(中谷ダイヤグラムの、ざっくり4種) ======== */
+  var HABITS = [
+    { w: [0.021, 0.013, 0.009, 0.007], rate: 1.0, core: [0.05, 0.09], plate: 0.0, len: 1.0 },    /* 樹枝 */
+    { w: [0.052, 0.034, 0.021, 0.014], rate: 0.42, core: [0.10, 0.16], plate: 0.55, len: 0.72 },  /* 扇形 */
+    { w: [0.030, 0.017, 0.011, 0.008], rate: 0.22, core: [0.06, 0.10], plate: 0.25, len: 0.8 },   /* 星形 */
+    { w: [0.016, 0.010, 0.007, 0.005], rate: 1.7, core: [0.04, 0.07], plate: 0.0, len: 1.1 }      /* シダ形 */
+  ];
+
+  /* ======== 結晶: 1本の腕の半分(30°のくさび)だけを育て、12倍(6本×鏡)にして見る ======== */
+  function Crystal(hum, habit) {
+    this.segs = []; this.tips = []; this.plates = []; this.age = 0; this.gust = 0; this.calm = 0;
+    this.hum = hum; this.habit = habit; this.ver = 0; this.sprite = null; this.mine = false;
+    var hb = HABITS[habit];
+    this.plates.push({ x: 0, y: 0, s: 0, max: hb.core[0] + Math.random() * (hb.core[1] - hb.core[0]), grow: 1, core: true });
+    this.armMax = 0.62 + Math.random() * 0.38;
+    this.addTip(0.015, 0, 0, 0);
+  }
+  Crystal.prototype.addTip = function (x, y, ang, lv) {
+    if (this.tips.length > 300) return;
+    var hb = HABITS[this.habit], h = this.hum;
+    var sg = { x1: x, y1: y, x2: x, y2: y, w: hb.w[lv] * (0.75 + 0.5 * (1 - h)), lv: lv };
+    this.segs.push(sg);
+    this.tips.push({ x: x, y: y, a: ang, ca: Math.cos(ang), sa: Math.sin(ang), lv: lv, seg: sg, since: 0,
+      gap: 0.05 + lv * 0.035, sp: [1, 0.5, 0.32, 0.22][lv], len: 0,
+      max: lv ? (0.24 / Math.pow(lv, 0.8)) * (0.45 + h) * hb.len : this.armMax, plate: null });
+  };
+  Crystal.prototype.branch = function (t) {         /* 60°ずつ枝を出す(同じきまりを何段でも) */
+    var l = t.lv + 1;
+    if (l > 3) return;
+    if (t.lv === 0) this.addTip(t.x, t.y, t.a + R60, l);
+    else { this.addTip(t.x, t.y, t.a + R60, l); this.addTip(t.x, t.y, t.a - R60, l); }
+    t.since = 0;
+  };
+  Crystal.prototype.gustNow = function () {
+    var n = this.tips.length;
+    for (var i = 0; i < n; i++) if (this.tips[i].since > 0.012) this.branch(this.tips[i]);
+    this.gust = 1; this.ver++;
+  };
+  Crystal.prototype.setCalm = function (on) {
+    this.calm = on ? 1 : 0;
+    if (!on) for (var i = 0; i < this.tips.length; i++) this.tips[i].plate = null;
+  };
+  Crystal.prototype.step = function (dt) {
+    var hb = HABITS[this.habit], h = this.hum, i, t;
+    this.age += dt;
+    this.gust = Math.max(0, this.gust - dt * 1.4);
+    if (this.calm) for (i = 0; i < this.tips.length; i++) {
+      t = this.tips[i];
+      if (!t.plate && t.lv <= 1) { t.plate = { x: t.x, y: t.y, s: 0, max: t.lv ? 0.024 : 0.05, grow: 1 }; this.plates.push(t.plate); }
+    }
+    var speed = (0.026 + 0.06 * h) * (this.calm ? 0.25 : 1) * (1 + this.gust * 1.5);
+    var rate = this.calm ? 0 : (0.25 + h * h * 3.2) * hb.rate;
+    for (i = this.tips.length - 1; i >= 0; i--) {
+      t = this.tips[i];
+      var v = speed * t.sp;
+      t.x += t.ca * v * dt; t.y += t.sa * v * dt; t.since += v * dt; t.len += v * dt;
+      t.seg.x2 = t.x; t.seg.y2 = t.y;
+      var r = Math.hypot(t.x, t.y);
+      if (t.y > t.x * S30 + 0.002 || t.y < -0.002 || r > 1 || t.len > t.max) {     /* 隣の腕との境目・外周・伸びきりで止まる */
+        if (hb.plate && t.lv <= 2 && Math.random() < hb.plate) this.plates.push({ x: t.x, y: t.y, s: 0, max: t.seg.w * 2.4, grow: 1 });
+        this.tips.splice(i, 1); continue;
+      }
+      if (t.since > t.gap && Math.random() < rate * dt * (t.lv === 0 ? 1.2 : 1)) this.branch(t);
+      if (t.plate) { t.plate.x = t.x; t.plate.y = t.y; }
+    }
+    for (i = 0; i < this.plates.length; i++) {
+      var p = this.plates[i];
+      if (p.grow) { p.s = Math.min(p.max, p.s + dt * 0.024); if (p.s >= p.max && !this.calm) p.grow = 0; }
+    }
+    if (this.age > 70) { this.tips.length = 0; for (i = 0; i < this.plates.length; i++) this.plates[i].grow = 0; }
+    this.ver++;
+  };
+  Crystal.prototype.done = function () {
+    if (this.tips.length) return false;
+    for (var i = 0; i < this.plates.length; i++) if (this.plates[i].grow) return false;
+    return true;
+  };
+  Crystal.prototype.extent = function () {
+    var e = 0.05, i;
+    for (i = 0; i < this.segs.length; i++) { var s = this.segs[i]; e = Math.max(e, Math.hypot(s.x2, s.y2) + s.w * 0.3); }
+    for (i = 0; i < this.plates.length; i++) { var p = this.plates[i]; e = Math.max(e, Math.hypot(p.x, p.y) + p.s); }
+    return e;
+  };
+
+  /* ---- 形の道筋(Path2D)。軸の上(鏡で重なる)・軸の外・芯の板で分ける ---- */
+  function hexPath(P, x, y, s) {
+    for (var k = 0; k < 6; k++) {
+      var a = k * R60, px = x + Math.cos(a) * s, py = y + Math.sin(a) * s;
+      if (k) P.lineTo(px, py); else P.moveTo(px, py);
+    }
+    P.closePath();
+  }
+  function newGroup() { return { body: new Path2D(), rib: new Path2D(), pl: new Path2D(), pld: new Path2D(), empty: true }; }
+  Crystal.prototype.paths = function () {
+    if (this._pv === this.ver) return this._p;
+    var G = { axis: newGroup(), off: newGroup(), core: newGroup() }, i, k;
+    for (i = 0; i < this.segs.length; i++) {
+      var s = this.segs[i], dx = s.x2 - s.x1, dy = s.y2 - s.y1, L = Math.hypot(dx, dy);
+      if (L < 1e-4) continue;
+      var g = (s.lv === 0) ? G.axis : G.off;
+      var ux = dx / L, uy = dy / L, nx = -uy, ny = ux, hb = s.w * 0.5, ht = hb * 0.78, cap = Math.min(L * 0.5, hb * 1.3);
+      var bx = s.x1 - ux * hb * 0.4, by = s.y1 - uy * hb * 0.4, ex = s.x2 - ux * cap, ey = s.y2 - uy * cap;
+      g.body.moveTo(bx + nx * hb, by + ny * hb); g.body.lineTo(ex + nx * ht, ey + ny * ht); g.body.lineTo(s.x2, s.y2);
+      g.body.lineTo(ex - nx * ht, ey - ny * ht); g.body.lineTo(bx - nx * hb, by - ny * hb); g.body.closePath();
+      g.rib.moveTo(s.x1, s.y1); g.rib.lineTo(s.x2 - ux * cap * 0.4, s.y2 - uy * cap * 0.4);
+      g.empty = false;
+    }
+    for (i = 0; i < this.plates.length; i++) {
+      var p = this.plates[i];
+      if (p.s < 0.004) continue;
+      var gp = p.core ? G.core : (Math.abs(p.y) < 0.004 ? G.axis : G.off);
+      hexPath(gp.pl, p.x, p.y, p.s);
+      hexPath(gp.pld, p.x, p.y, p.s * 0.62);
+      if (p.core) { hexPath(gp.pld, p.x, p.y, p.s * 0.34); hexPath(gp.pld, p.x, p.y, p.s * 0.14); }
+      for (k = 0; k < 6; k++) { gp.pld.moveTo(p.x, p.y); gp.pld.lineTo(p.x + Math.cos(k * R60) * p.s * 0.95, p.y + Math.sin(k * R60) * p.s * 0.95); }
+      gp.empty = false;
+    }
+    this._p = G; this._pv = this.ver;
+    return G;
+  };
+  Crystal.prototype.glintPts = function () {         /* きらめく所: 腕の先・大きな枝の先・芯の角 */
+    if (this._gv === this.ver) return this._g;
+    var ends = [], g = [], i;
+    for (i = 0; i < this.segs.length; i++) { var s = this.segs[i]; if (s.lv <= 1) ends.push([s.x2, s.y2, Math.hypot(s.x2, s.y2)]); }
+    ends.sort(function (a, b) { return b[2] - a[2]; });
+    for (i = 0; i < Math.min(4, ends.length); i++) g.push([ends[i][0], ends[i][1], i * 1.7]);
+    if (this.plates[0].s > 0.02) g.push([this.plates[0].s, 0, 5.1]);
+    this._g = g; this._gv = this.ver;
+    return g;
+  };
+
+  /* ======== 氷の描き方 ======== */
+  function irid(c) {                                     /* 薄い氷の虹色(中心からの距離で色が変わる) */
+    if (c.__irid) return c.__irid;
+    var g = c.createRadialGradient(0, 0, 0, 0, 0, 1);
+    g.addColorStop(0, 'rgba(255,214,240,0.22)'); g.addColorStop(0.07, 'rgba(160,240,255,0.2)');
+    g.addColorStop(0.15, 'rgba(255,236,170,0.17)'); g.addColorStop(0.25, 'rgba(200,170,255,0.17)');
+    g.addColorStop(0.4, 'rgba(150,230,255,0.15)'); g.addColorStop(0.6, 'rgba(255,200,230,0.13)');
+    g.addColorStop(0.85, 'rgba(170,255,240,0.12)'); g.addColorStop(1, 'rgba(230,240,255,0.1)');
+    c.__irid = g;
+    return g;
+  }
+  function setT(c, bs, x, y, ang, R, m) {
+    var ca = Math.cos(ang) * bs, sa = Math.sin(ang) * bs;
+    c.setTransform(ca * R, sa * R, -sa * R * m, ca * R * m, x * bs, y * bs);
+  }
+  function drawCrystal(c, C, bs, cx, cy, R, rot, A, t, hi, glints) {
+    var G = C.paths(), ir = irid(c), list = [], k, i;
+    for (k = 0; k < 6; k++) list.push([G.axis, rot + k * R60, 1, k]);
+    for (k = 0; k < 6; k++) { list.push([G.off, rot + k * R60, 1, k]); list.push([G.off, rot + k * R60, -1, k]); }
+    list.push([G.core, rot, 1, 0]);
+    c.globalCompositeOperation = 'lighter';
+    c.lineJoin = 'round'; c.lineCap = 'round';
+    var bright = [];
+    for (i = 0; i < list.length; i++) {
+      var g = list[i][0], ang = list[i][1], m = list[i][2], kk = list[i][3];
+      if (g.empty) { bright.push(0); continue; }
+      var th = ang + (g === G.off ? m * 0.35 : 0);
+      var f = 0.5 + 0.5 * Math.cos(th - LIGHT), b = 0.35 + 0.65 * Math.pow(f, 2.5), sp = Math.pow(f, 14);
+      if (g === G.core) { b = 0.8; sp = 0.25; }
+      bright.push(b);
+      setT(c, bs, cx, cy, ang, R, m);
+      c.globalAlpha = A * b; c.fillStyle = 'rgba(150,190,240,0.2)'; c.fill(g.body);
+      c.globalAlpha = A * b * (0.75 + 0.25 * Math.sin(t * 0.7 + kk * 1.3 + m)); c.fillStyle = ir; c.fill(g.pl);
+      if (sp > 0.02) { c.globalAlpha = A * sp; c.fillStyle = 'rgba(255,255,255,0.34)'; c.fill(g.body); c.fill(g.pl); }
+      if (hi) {                                          /* 縁が虹色ににじむ(プリズム) */
+        c.lineWidth = 1.3 / R; c.globalAlpha = A * (0.5 + 0.5 * b);
+        setT(c, bs, cx + 0.8, cy + 0.45, ang, R, m); c.strokeStyle = 'rgba(255,92,150,0.2)'; c.stroke(g.body); c.stroke(g.pl);
+        setT(c, bs, cx - 0.8, cy - 0.45, ang, R, m); c.strokeStyle = 'rgba(90,170,255,0.3)'; c.stroke(g.body); c.stroke(g.pl);
+        setT(c, bs, cx, cy, ang, R, m);
+      }
+      c.globalAlpha = A * (0.3 + 0.7 * b); c.lineWidth = 1.0 / R; c.strokeStyle = 'rgba(236,246,255,0.48)';
+      c.stroke(g.body); c.stroke(g.pl);
+      c.lineWidth = 0.75 / R; c.strokeStyle = 'rgba(255,255,255,0.42)'; c.stroke(g.rib);
+      c.strokeStyle = 'rgba(210,232,255,0.3)'; c.stroke(g.pld);
+    }
+    c.setTransform(bs, 0, 0, bs, 0, 0);
+    if (glints) {
+      var pts = C.glintPts();
+      for (i = 0; i < list.length - 1; i++) {
+        var bb = bright[i];
+        if (bb < 0.72) continue;
+        var a2 = list[i][1], m2 = list[i][2], ca = Math.cos(a2), sa = Math.sin(a2);
+        for (var j = 0; j < pts.length; j++) {
+          var px = pts[j][0], py = pts[j][1] * m2;
+          var tw = Math.sin(t * 1.7 + pts[j][2] + list[i][3] * 2.1 + m2);
+          if (tw <= 0) continue;
+          var al = A * Math.pow(tw, 10) * (bb - 0.72) * 3.6;
+          if (al < 0.03) continue;
+          star(c, cx + (px * ca - py * sa) * R, cy + (px * sa + py * ca) * R, 7 + 16 * al, al);
+        }
+      }
+    }
+    c.globalAlpha = 1; c.globalCompositeOperation = 'source-over';
+  }
+
+  /* ---- 光の素材 ---- */
+  function radialSprite(size, stops) {
+    var s = document.createElement('canvas'); s.width = s.height = size;
+    var g = s.getContext('2d'), gr = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    for (var i = 0; i < stops.length; i++) gr.addColorStop(stops[i][0], stops[i][1]);
+    g.fillStyle = gr; g.fillRect(0, 0, size, size);
+    return s;
+  }
+  var DOT = radialSprite(32, [[0, 'rgba(255,255,255,1)'], [0.25, 'rgba(225,238,255,0.55)'], [0.6, 'rgba(190,215,255,0.12)'], [1, 'rgba(190,215,255,0)']]);
+  var GLOW = radialSprite(128, [[0, 'rgba(160,200,255,0.5)'], [0.35, 'rgba(120,170,255,0.16)'], [1, 'rgba(100,150,255,0)']]);
+  var WARM = radialSprite(64, [[0, 'rgba(255,236,190,1)'], [0.18, 'rgba(255,190,110,0.7)'], [0.5, 'rgba(255,150,70,0.18)'], [1, 'rgba(255,140,60,0)']]);
+  var STAR = (function () {
+    var s = document.createElement('canvas'); s.width = s.height = 96;
+    var g = s.getContext('2d'), c = 48, i;
+    g.globalCompositeOperation = 'lighter';
+    g.drawImage(radialSprite(96, [[0, 'rgba(255,255,255,0.9)'], [0.12, 'rgba(220,235,255,0.35)'], [0.4, 'rgba(170,200,255,0.06)'], [1, 'rgba(170,200,255,0)']]), 0, 0);
+    for (i = 0; i < 4; i++) {
+      var a = i * Math.PI / 2, len = i % 2 ? 46 : 46, lg = g.createLinearGradient(c, c, c + Math.cos(a) * len, c + Math.sin(a) * len);
+      lg.addColorStop(0, 'rgba(255,255,255,0.9)'); lg.addColorStop(1, 'rgba(200,225,255,0)');
+      g.strokeStyle = lg; g.lineWidth = 1.6; g.beginPath(); g.moveTo(c, c); g.lineTo(c + Math.cos(a) * len, c + Math.sin(a) * len); g.stroke();
+    }
+    for (i = 0; i < 4; i++) {
+      var a2 = Math.PI / 4 + i * Math.PI / 2, lg2 = g.createLinearGradient(c, c, c + Math.cos(a2) * 22, c + Math.sin(a2) * 22);
+      lg2.addColorStop(0, 'rgba(255,255,255,0.45)'); lg2.addColorStop(1, 'rgba(200,225,255,0)');
+      g.strokeStyle = lg2; g.lineWidth = 1; g.beginPath(); g.moveTo(c, c); g.lineTo(c + Math.cos(a2) * 22, c + Math.sin(a2) * 22); g.stroke();
+    }
+    return s;
+  })();
+  function star(c, x, y, r, a) {
+    var pa = c.globalAlpha, po = c.globalCompositeOperation;
+    c.globalCompositeOperation = 'lighter'; c.globalAlpha = Math.min(1, a);
+    c.drawImage(STAR, x - r, y - r, r * 2, r * 2);
+    c.globalAlpha = pa; c.globalCompositeOperation = po;
+  }
+
+  /* 降る雪用に、結晶を1枚の絵にしておく(はっきり版とぼけ版) */
+  function makeSprites(C, rot) {
+    var ext = C.extent(), S = 224;
+    var hi = document.createElement('canvas'); hi.width = hi.height = S;
+    var c = hi.getContext('2d');
+    c.globalCompositeOperation = 'lighter';
+    c.globalAlpha = 0.5; c.drawImage(GLOW, S * 0.1, S * 0.1, S * 0.8, S * 0.8);
+    drawCrystal(c, C, 1, S / 2, S / 2, S * 0.47 / ext, rot, 1, Math.random() * 10, true, false);
+    var lo = document.createElement('canvas'); lo.width = lo.height = 40;
+    var l = lo.getContext('2d'); l.imageSmoothingEnabled = true; l.imageSmoothingQuality = 'high';
+    l.drawImage(hi, 0, 0, 40, 40);
+    C.sprite = { hi: hi, lo: lo, ext: ext };
+  }
+  /* 空で育ったことにして、ひとつ結晶を作る(最初から降っている雪のため) */
+  function simulate() {
+    var C = new Crystal(0.2 + Math.random() * 0.7, (Math.random() * HABITS.length) | 0), n = 0, calmLeft = 0;
+    while (!C.done() && n < 1500) {
+      if (Math.random() < 0.006) C.gustNow();
+      if (!calmLeft && Math.random() < 0.003) { calmLeft = 30 + Math.random() * 40; C.setCalm(true); }
+      if (calmLeft && --calmLeft <= 0) { calmLeft = 0; C.setCalm(false); }
+      C.hum = Math.max(0.05, Math.min(0.95, C.hum + (Math.random() - 0.5) * 0.02));
+      C.step(0.05); n++;
+    }
+    C.setCalm(false);
+    makeSprites(C, Math.random() * TAU);
+    return C;
+  }
+
+  /* ======== 雪の夜の景色(大きさが変わったときだけ描き直す) ======== */
+  function fir(g, x, base, h, w, col, snow) {
+    var n = 7, i;
+    g.fillStyle = col;
+    g.fillRect(x - w * 0.035, base - h * 0.12, w * 0.07, h * 0.14);
+    for (i = 0; i < n; i++) {
+      var top = base - h * (0.18 + 0.82 * (i + 1) / n), tw = w * (1 - i / n * 0.82), th = h * 0.26 * (1 - i / n * 0.35);
+      g.fillStyle = col;
+      g.beginPath(); g.moveTo(x, top); g.lineTo(x - tw / 2, top + th); g.quadraticCurveTo(x, top + th * 0.82, x + tw / 2, top + th); g.closePath(); g.fill();
+      if (snow) {                                     /* 枝に積もった雪(まだらに) */
+        g.fillStyle = snow;
+        var j, cnt = 3 + ((Math.random() * 3) | 0);
+        for (j = 0; j < cnt; j++) {
+          var u = (Math.random() - 0.5) * 0.8, cx2 = x + u * tw * 0.5, cy2 = top + th * (0.2 + 0.55 * Math.abs(u) + Math.random() * 0.12);
+          var rw = tw * (0.06 + Math.random() * 0.1), rh = th * (0.05 + Math.random() * 0.06);
+          g.beginPath(); g.ellipse(cx2, cy2, rw, rh, u * 0.9, 0, TAU); g.fill();
+        }
+      }
+    }
+  }
+  function rad(g, x, y, r, stops) {
+    var gr = g.createRadialGradient(x, y, 0, x, y, r);
+    for (var i = 0; i < stops.length; i++) gr.addColorStop(stops[i][0], stops[i][1]);
+    g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  function groundY(x) { return YH - H * 0.006 * Math.sin(x * 0.009 + 1.3) - H * 0.004 * Math.sin(x * 0.023); }
+  function paintBG() {
+    var g = bgx, i, x;
+    bg.width = cvs.width; bg.height = cvs.height;
+    g.setTransform(DPR, 0, 0, DPR, 0, 0);
+    var sky = g.createLinearGradient(0, 0, 0, YH);
+    sky.addColorStop(0, '#03050c'); sky.addColorStop(0.5, '#08101f'); sky.addColorStop(1, '#17233a');
+    g.fillStyle = sky; g.fillRect(0, 0, W, YH + 4);
+    for (i = 0; i < 7; i++) rad(g, Math.random() * W, Math.random() * YH * 0.8, MIN * (0.3 + Math.random() * 0.5), [[0, 'rgba(80,100,140,0.07)'], [1, 'rgba(80,100,140,0)']]);
+    rad(g, -W * 0.06, H * 0.05, Math.max(W, H) * 0.95, [[0, 'rgba(255,186,120,0.22)'], [0.25, 'rgba(255,170,110,0.08)'], [0.6, 'rgba(255,160,100,0.02)'], [1, 'rgba(255,160,100,0)']]);
+    /* 遠くの丘 */
+    var s1 = Math.random() * 9, s2 = Math.random() * 9;
+    g.fillStyle = '#0c1527'; g.beginPath(); g.moveTo(0, H);
+    for (x = 0; x <= W + 6; x += 6) g.lineTo(x, YH - H * 0.045 * (0.55 + 0.45 * Math.sin(x * 0.01 + s1)) * (0.6 + 0.4 * Math.sin(x * 0.0037 + s2)));
+    g.lineTo(W, H); g.closePath(); g.fill();
+    /* 遠くの家の灯(ぼけ) */
+    g.globalCompositeOperation = 'lighter';
+    for (i = 0; i < 10; i++) {
+      x = Math.random() * W; var y = YH - H * (0.004 + Math.random() * 0.02), r = 3 + Math.random() * 8;
+      g.globalAlpha = 0.35 + Math.random() * 0.45; g.drawImage(WARM, x - r, y - r, r * 2, r * 2);
+    }
+    g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
+    /* 遠くのもみの木の列 */
+    for (x = -10; x < W + 10; x += 5 + Math.random() * 12) {
+      var hh = H * (0.018 + Math.random() * 0.035);
+      fir(g, x, groundY(x) + 2, hh, hh * 0.5, '#081020', 'rgba(120,140,175,0.18)');
+    }
+    /* 雪の野原 */
+    var gr = g.createLinearGradient(0, YH, 0, H);
+    gr.addColorStop(0, '#22324e'); gr.addColorStop(0.3, '#2f4266'); gr.addColorStop(1, '#4a628c');
+    g.fillStyle = gr; g.beginPath(); g.moveTo(0, H);
+    for (x = 0; x <= W + 6; x += 6) g.lineTo(x, groundY(x));
+    g.lineTo(W, H); g.closePath(); g.fill();
+    g.save(); g.beginPath(); g.moveTo(0, H); for (x = 0; x <= W + 6; x += 6) g.lineTo(x, groundY(x)); g.lineTo(W, H); g.closePath(); g.clip();
+    rad(g, W * 0.12, YH + (H - YH) * 0.35, Math.max(W, H) * 0.55, [[0, 'rgba(255,190,130,0.16)'], [1, 'rgba(255,190,130,0)']]);
+    for (i = 0; i < 6; i++) {                         /* 雪のうねりの影 */
+      var yy = YH + (H - YH) * (0.15 + i * 0.15);
+      g.strokeStyle = 'rgba(10,20,40,' + (0.12 + i * 0.02) + ')'; g.lineWidth = 2 + i * 2;
+      g.beginPath(); for (x = -10; x <= W + 10; x += 10) g.lineTo(x, yy + Math.sin(x * (0.006 + i * 0.001) + i) * (4 + i * 3)); g.stroke();
+    }
+    for (i = 0; i < 900; i++) {                       /* 雪の粒の肌理 */
+      x = Math.random() * W; var y2 = YH + Math.random() * (H - YH);
+      g.fillStyle = Math.random() < 0.5 ? 'rgba(200,220,255,0.10)' : 'rgba(10,20,40,0.12)';
+      g.fillRect(x, y2, 1, 1);
+    }
+    g.restore();
+    /* 手前のもみの木(左右) */
+    fir(g, -W * 0.04, H * 1.01, H * 0.42, H * 0.2, '#03060d', 'rgba(150,170,205,0.26)');
+    fir(g, W * 0.16, H * 1.02, H * 0.26, H * 0.13, '#050a14', 'rgba(150,170,205,0.22)');
+    fir(g, W * 1.03, H * 1.01, H * 0.46, H * 0.22, '#03060d', 'rgba(150,170,205,0.24)');
+    fir(g, W * 0.86, H * 1.03, H * 0.22, H * 0.11, '#050a14', 'rgba(150,170,205,0.2)');
+    /* 周辺を少し暗く */
+    var vg = g.createRadialGradient(W / 2, H * 0.45, MIN * 0.3, W / 2, H * 0.45, Math.hypot(W, H) * 0.62);
+    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,6,0.55)');
+    g.fillStyle = vg; g.fillRect(0, 0, W, H);
+  }
+
+  /* ======== 状態 ======== */
+  var main = null, mainState = 'grow', showT = 0, rot = Math.random() * TAU, habit = 0;
+  var hum = 0.5, humGoal = 0.5, humSeed = Math.random() * 100, holding = false;
+  var pool = [], flakes = [], dots = [], landed = [], blurs = [], twinkles = [];
+  var windImp = 0, windUser = 0, calmF = 1, spawnAcc = 0, blurT = 6;
+  var R = 100, CX = 0, CY = 0, gustFlash = 0;
+
+  function newMain() {
+    main = new Crystal(hum, habit);
+    mainState = 'grow'; showT = 0;
+    if (holding) main.setCalm(true);
+  }
+  function sizeFor(z) { return MIN * (0.02 + 0.115 * z * z); }
+  function pickCrystal() {
+    var mine = [], i;
+    for (i = 0; i < pool.length; i++) if (pool[i].mine) mine.push(pool[i]);
+    if (mine.length && Math.random() < 0.55) return mine[(Math.random() * mine.length) | 0];
+    return pool[(Math.random() * pool.length) | 0];
+  }
+  function newFlake(f, scatter) {
+    f = f || {};
+    f.C = pickCrystal(); f.z = Math.pow(Math.random(), 1.4) * 0.95 + 0.05;
+    f.rad = sizeFor(f.z) * (0.7 + Math.random() * 0.5) * (0.6 + 0.4 * f.C.sprite.ext);
+    f.x = Math.random() * (W + 80) - 40;
+    f.y = scatter ? Math.random() * H * 1.05 - f.rad : -f.rad * 2 - Math.random() * 40;
+    f.vy = (16 + 62 * f.z) * (H / 844) * (0.85 + Math.random() * 0.3);
+    f.ph = Math.random() * TAU; f.fr = 0.5 + Math.random() * 0.9; f.amp = 6 + 26 * f.z;
+    f.spin = Math.random() * TAU; f.spinV = (Math.random() - 0.5) * 1.2;
+    f.tilt = Math.random() * TAU; f.tiltV = (0.4 + Math.random() * 1.1) * (Math.random() < 0.5 ? -1 : 1);
+    f.ax = Math.random() * TAU; f.state = 'fall'; f.t = 0;
+    return f;
+  }
+  function landY(z) { return YH + (H * 0.995 - YH) * Math.max(0, Math.min(1, (z - 0.12) / 0.8)); }
+  function release() {                                 /* 育ちきった結晶を、空から放す */
+    var C = main;
+    makeSprites(C, rot);
+    C.mine = true;
+    pool.push(C);
+    for (var i = 0; i < pool.length && pool.length > 26; i++) if (!pool[i].mine) { pool.splice(i, 1); i--; }
+    while (pool.length > 26) pool.shift();
+    var f = newFlake({});
+    f.C = C; f.state = 'rel'; f.t = 0;
+    f.x0 = CX; f.y0 = CY; f.x = CX; f.y = CY; f.r0 = R * C.sprite.ext; f.z = 0.55 + Math.random() * 0.25;
+    f.rad = sizeFor(f.z) * (0.75 + 0.35 * C.sprite.ext) * 1.15;
+    f.vy = (16 + 62 * f.z) * (H / 844); f.spin = 0; f.spinV = 0.25; f.tilt = 0; f.tiltV = 0.9; f.ax = 0;
+    flakes.push(f);
+    gustFlash = 0.6;
+    newMain();
+  }
+
+  /* ======== 大きさ ======== */
+  var W0 = 0, H0 = 0;
+  function resize() {
+    var w = cvs.clientWidth || window.innerWidth, h = cvs.clientHeight || window.innerHeight;
+    if (w === W && h === H && cvs.width > 1) return;
+    W = w; H = h; MIN = Math.min(W, H);
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    if (w * h * DPR * DPR > RES_CAP) DPR = Math.max(1, Math.sqrt(RES_CAP / (w * h)));
+    cvs.width = Math.max(1, Math.round(w * DPR)); cvs.height = Math.max(1, Math.round(h * DPR));
+    YH = H * (W > H ? 0.74 : 0.8);
+    R = Math.min(W * 0.43, H * 0.28);
+    CX = W / 2; CY = Math.min(H * 0.42, YH - R * 1.05);
+    paintBG();
+    if (W0) {
+      var sx = W / W0, sy = H / H0, i;
+      for (i = 0; i < flakes.length; i++) { flakes[i].x *= sx; flakes[i].y *= sy; }
+      for (i = 0; i < dots.length; i++) { dots[i].x *= sx; dots[i].y *= sy; }
+      landed.length = 0;
+    }
+    W0 = W; H0 = H;
+  }
+
+  /* ======== 操作 ======== */
+  var ptr = { x: 0, y: 0, down: false, drag: false }, pid = null, downAt = 0, sx0 = 0, sy0 = 0, lx = 0, ly = 0;
+  function toXY(e) { var r = cvs.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+  function hideHint() { hint.classList.remove('on'); }
+  cvs.addEventListener('pointerdown', function (e) {
+    if (window.APKit && APKit.isUI(e.clientX, e.clientY)) return;
+    if (pid !== null) return;
+    pid = e.pointerId;
+    try { cvs.setPointerCapture(e.pointerId); } catch (err) {}
+    var q = toXY(e);
+    ptr.x = sx0 = lx = q.x; ptr.y = sy0 = ly = q.y; ptr.down = true; ptr.drag = false;
+    downAt = performance.now();
+    if (now > 1.2) hideHint();
+    e.preventDefault();
+  }, { passive: false });
+  cvs.addEventListener('pointermove', function (e) {
+    if (e.pointerId !== pid) return;
+    var q = toXY(e), dx = q.x - lx, dy = q.y - ly;
+    ptr.x = q.x; ptr.y = q.y;
+    if (!ptr.drag && !holding && Math.hypot(q.x - sx0, q.y - sy0) > 12) ptr.drag = true;
+    if (ptr.drag) {                                     /* 上下=湿り気、左右=風 */
+      humGoal = Math.max(0, Math.min(1, humGoal - dy / (H * 0.45)));
+      hum = humGoal;
+      windUser += dx * 2.2;
+    }
+    lx = q.x; ly = q.y;
+  }, { passive: true });
+  function up(e) {
+    if (e.pointerId !== pid) return;
+    pid = null; ptr.down = false;
+    var q = toXY(e), t = (performance.now() - downAt) / 1000;
+    if (holding) { holding = false; main.setCalm(false); }
+    else if (!ptr.drag && t < 0.4) tap(q.x, q.y);
+    ptr.drag = false;
+  }
+  cvs.addEventListener('pointerup', up);
+  cvs.addEventListener('pointercancel', up);
+  document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
+  document.addEventListener('dblclick', function (e) { e.preventDefault(); });
+  if (window.ResizeObserver) new ResizeObserver(function () { resize(); }).observe(cvs);
+  window.addEventListener('resize', function () { setTimeout(resize, 120); });
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', function () { setTimeout(resize, 120); });
+  document.addEventListener('visibilitychange', function () { last = 0; });
+
+  function tap(x, y) {                                 /* 突風 */
+    if (mainState === 'grow') main.gustNow();
+    var d = (x - CX) / (W * 0.5);
+    windImp += (d > 0 ? -1 : 1) * (60 + 60 * Math.min(1, Math.abs(d))) * (W / 390);
+    gustFlash = 1;
+  }
+
+  /* ======== 動き ======== */
+  function update(dt) {
+    var i, f;
+    if (ptr.down && !ptr.drag && !holding && (performance.now() - downAt) / 1000 >= 0.4) { holding = true; main.setCalm(true); }
+    calmF += ((holding ? 0.22 : 1) - calmF) * Math.min(1, dt * 2.5);
+    /* 空は勝手にもゆっくり変わる(なぞると上書き) */
+    if (!ptr.drag) humGoal += (0.5 + 0.45 * Math.sin(now * 0.05 + humSeed) * Math.sin(now * 0.023 + humSeed * 2) - humGoal) * dt * 0.05;
+    hum += (humGoal - hum) * Math.min(1, dt * 2);
+    main.hum = hum;
+    rot += dt * 0.03;
+    gustFlash = Math.max(0, gustFlash - dt * 1.5);
+
+    if (mainState === 'grow') { main.step(dt); if (main.done()) { mainState = 'show'; showT = 0; } }
+    else if (mainState === 'show') { showT += dt; if (showT > 3.2 && !holding) release(); }
+
+    windImp *= Math.exp(-dt * 1.1); windUser *= Math.exp(-dt * 0.7);
+    var wind = (6 + 10 * Math.sin(now * 0.07) + windImp + windUser) * calmF;
+
+    /* 降る量は湿り気しだい */
+    var target = Math.round((8 + 26 * hum) * (quality === 2 ? 1 : 0.7));
+    var live = 0;
+    for (i = 0; i < flakes.length; i++) if (flakes[i].state !== 'rel') live++;
+    spawnAcc += dt;
+    if (live < target && spawnAcc > 0.25) { spawnAcc = 0; flakes.push(newFlake(null, false)); }
+
+    for (i = flakes.length - 1; i >= 0; i--) {
+      f = flakes[i];
+      f.spin += f.spinV * dt * calmF; f.tilt += f.tiltV * dt * (0.4 + 0.6 * calmF); f.ph += f.fr * dt;
+      if (f.state === 'rel') {
+        f.t += dt / 2.6;
+        var e = f.t < 1 ? f.t * f.t * (3 - 2 * f.t) : 1;
+        f.y0 += f.vy * 0.5 * f.t * dt * 2;
+        f.x0 += wind * 0.3 * dt;
+        f.x = f.x0; f.y = f.y0;
+        f.cur = f.r0 + (f.rad - f.r0) * e;
+        if (f.t >= 1) { f.state = 'fall'; }
+        continue;
+      }
+      f.cur = f.rad;
+      f.x += (wind * (0.3 + 0.7 * f.z) + Math.cos(f.ph) * f.amp * f.fr * calmF) * dt;
+      f.y += f.vy * (0.6 + 0.4 * calmF) * dt;
+      if (f.x < -120) f.x += W + 240; else if (f.x > W + 120) f.x -= W + 240;
+      if (f.z > 0.12 && f.z < 0.92 && f.y > landY(f.z) && f.y > groundY(f.x)) {     /* 野原に着いた */
+        landed.push({ C: f.C, x: f.x, y: f.y, rad: f.rad, spin: f.spin, ax: (Math.random() - 0.5) * 0.3, life: 1, z: f.z, dur: 30 + Math.random() * 30 });
+        if (landed.length > 40) landed.shift();
+        if (live > target) { flakes.splice(i, 1); live--; } else newFlake(f, false);
+        continue;
+      }
+      if (f.y > H + f.rad * 2) { if (live > target) { flakes.splice(i, 1); live--; } else newFlake(f, false); }
+    }
+    for (i = landed.length - 1; i >= 0; i--) { landed[i].life -= dt / landed[i].dur; if (landed[i].life <= 0) landed.splice(i, 1); }
+
+    var dTarget = Math.round((50 + 130 * hum) * (quality === 2 ? 1 : 0.6));
+    while (dots.length < dTarget) dots.push({ x: Math.random() * W, y: Math.random() * H, z: Math.random(), ph: Math.random() * TAU });
+    if (dots.length > dTarget) dots.length = dTarget;
+    for (i = 0; i < dots.length; i++) {
+      var d = dots[i];
+      d.y += (7 + 16 * d.z) * (H / 844) * (0.6 + 0.4 * calmF) * dt;
+      d.x += (wind * 0.25 * (0.3 + d.z) + Math.cos(now * 0.6 + d.ph) * 4 * calmF) * dt;
+      if (d.y > YH + (H - YH) * 0.2 * d.z) { d.y = -4; d.x = Math.random() * W; }
+      if (d.x < -10) d.x += W + 20; else if (d.x > W + 10) d.x -= W + 20;
+    }
+    /* 目の前を横切る、ぼけた大きな雪 */
+    blurT -= dt;
+    if (blurT <= 0 && pool.length) {
+      blurT = 9 + Math.random() * 12;
+      blurs.push({ C: pickCrystal(), x: Math.random() * W, y: -MIN * 0.3, rad: MIN * (0.16 + Math.random() * 0.12), vy: (130 + Math.random() * 70) * (H / 844), ph: Math.random() * TAU, spin: Math.random() * TAU });
+    }
+    for (i = blurs.length - 1; i >= 0; i--) {
+      var b = blurs[i];
+      b.y += b.vy * (0.6 + 0.4 * calmF) * dt; b.x += (wind * 1.4 + Math.cos(now * 0.8 + b.ph) * 30) * dt; b.spin += dt * 0.4;
+      if (b.y > H + b.rad * 2) blurs.splice(i, 1);
+    }
+    /* 野原のきらめき */
+    if (Math.random() < dt * (quality === 2 ? 9 : 5)) twinkles.push({ x: Math.random() * W, y: YH + Math.pow(Math.random(), 0.7) * (H - YH), t: 0, s: 2 + Math.random() * 5 });
+    for (i = twinkles.length - 1; i >= 0; i--) { twinkles[i].t += dt / 0.6; if (twinkles[i].t >= 1) twinkles.splice(i, 1); }
+  }
+
+  /* ======== 描く ======== */
+  function drawFlake(f, rad, img, alpha) {
+    var fc = Math.abs(Math.cos(f.tilt));
+    var flat = 0.18 + 0.82 * fc;
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.translate(f.x, f.y); ctx.rotate(f.ax); ctx.scale(1, flat); ctx.rotate(f.spin);
+    var hw = rad / 0.47;
+    ctx.globalAlpha = alpha * (0.7 + 0.3 * fc);
+    ctx.drawImage(img, -hw / 2 * 1, -hw / 2 * 1, hw, hw);
+    if (fc > 0.975 && f.z > 0.2) {                    /* 光を正面で受けた瞬間に、きらっ */
+      var k = (fc - 0.975) / 0.025;
+      ctx.globalAlpha = alpha * k * 0.7; ctx.drawImage(img, -hw / 2, -hw / 2, hw, hw);
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+      star(ctx, f.x, f.y, rad * 1.2 * k + 4, alpha * k * 0.8);
+    }
+  }
+  function render() {
+    var i, f;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+    ctx.drawImage(bg, 0, 0);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.fillStyle = 'rgba(110,130,170,' + (0.015 + 0.05 * hum).toFixed(3) + ')';     /* 湿った空のもや */
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.globalCompositeOperation = 'lighter';
+    for (i = 0; i < dots.length; i++) {                 /* 遠くの雪(ぼけた粒) */
+      var d = dots[i], r = 0.8 + 2.4 * d.z;
+      var lamp = Math.max(0, 1 - Math.hypot(d.x + W * 0.06, d.y - H * 0.05) / (Math.max(W, H) * 0.9));
+      ctx.globalAlpha = (0.18 + 0.4 * d.z) * (0.7 + 0.6 * lamp);
+      ctx.drawImage(DOT, d.x - r, d.y - r, r * 2, r * 2);
+    }
+    for (i = 0; i < twinkles.length; i++) {
+      var tw = twinkles[i], a = Math.sin(tw.t * Math.PI);
+      star(ctx, tw.x, tw.y, tw.s * (0.6 + a), 0.55 * a);
+    }
+    for (i = 0; i < landed.length; i++) {               /* 野原に降り積もった結晶 */
+      var L = landed[i], la = Math.min(1, L.life * 3) * 0.55;
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+      ctx.translate(L.x, L.y); ctx.rotate(L.ax); ctx.scale(1, 0.26); ctx.rotate(L.spin);
+      var hw = L.rad / 0.47;
+      ctx.globalAlpha = la;
+      ctx.drawImage(L.z < 0.4 ? L.C.sprite.lo : L.C.sprite.hi, -hw / 2, -hw / 2, hw, hw);
+    }
+
+    flakes.sort(function (a, b) { return (a.state === 'rel' ? 2 : a.z) - (b.state === 'rel' ? 2 : b.z); });
+    var split = 0;
+    while (split < flakes.length && flakes[split].state !== 'rel' && flakes[split].z < 0.62) split++;
+    for (i = 0; i < split; i++) {
+      f = flakes[i];
+      drawFlake(f, f.cur || f.rad, f.z < 0.35 ? f.C.sprite.lo : f.C.sprite.hi, 0.4 + 0.55 * f.z);
+    }
+
+    /* いま育っている結晶 */
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    var A = Math.min(1, main.age / 1.5), bob = Math.sin(now * 0.5) * 4;
+    ctx.globalCompositeOperation = 'lighter';
+    var ext = main.extent();
+    ctx.globalAlpha = A * (0.28 + 0.3 * gustFlash);
+    var gr = R * (0.5 + ext) * 1.3;
+    ctx.drawImage(GLOW, CX - gr, CY + bob - gr, gr * 2, gr * 2);
+    drawCrystal(ctx, main, DPR, CX, CY + bob, R, rot, A, now, quality === 2, true);
+
+    for (i = split; i < flakes.length; i++) {
+      f = flakes[i];
+      drawFlake(f, f.cur || f.rad, f.C.sprite.hi, f.state === 'rel' ? 1 : 0.4 + 0.55 * f.z);
+    }
+    for (i = 0; i < blurs.length; i++) {
+      var b = blurs[i], bw = b.rad / 0.47;
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.translate(b.x, b.y); ctx.rotate(b.spin);
+      ctx.globalAlpha = 0.13; ctx.drawImage(b.C.sprite.lo, -bw / 2, -bw / 2, bw, bw);
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+  }
+
+  /* ======== ループ ======== */
+  var last = 0, perfAcc = 0, perfN = 0;
+  function frame(ts) {
+    if (!last) last = ts;
+    var dt = (ts - last) / 1000; last = ts;
+    if (dt > 0.05) dt = 0.05;
+    if (dt < 0.0005) dt = 0.0005;
+    dt *= speedMul;
+    now += dt;
+    update(dt);
+    render();
+    perfAcc += dt * 1000 / speedMul; perfN++;
+    if (perfN >= 90) { if (perfAcc / perfN > 26 && quality === 2) quality = 1; perfAcc = 0; perfN = 0; }
+    requestAnimationFrame(frame);
+  }
+
+  /* 初期化 */
+  resize();
+  for (var i0 = 0; i0 < 12; i0++) pool.push(simulate());
+  humGoal = hum = 0.4 + Math.random() * 0.3;
+  newMain();
+  var first = Math.round(8 + 26 * hum);
+  for (var j0 = 0; j0 < first; j0++) flakes.push(newFlake(null, true));
+  setTimeout(function () { hint.classList.add('on'); }, 550);
+  setTimeout(hideHint, 7500);
+  requestAnimationFrame(frame);
+
+  /* テスト用 */
+  window.__snow = { speed: function (s) { speedMul = s; }, release: function () { if (main.segs.length) release(); }, tap: tap,
+    state: function () { return { flakes: flakes.length, landed: landed.length, pool: pool.length, mine: pool.filter(function (c) { return c.mine; }).length, hum: hum, quality: quality, mainState: mainState, tips: main.tips.length }; } };
+
+  /* ---- 共有コントロール(ap-kit.js) ---- */
+  if (window.APKit) {
+    window.APKit.init({
+      canvas: cvs,
+      gifName: 'snow-ledger',
+      clockFormat: 'spec',
+      dock: true,
+      autoHide: true,
+      fullscreenButton: false,
+      buttons: [
+        { label: '✦', name: 'mutate', onClick: function () {      /* 空の温度を変える: 樹枝→扇形→星形→シダ形(いま育っている結晶にも、この先の枝から効く) */
+          habit = (habit + 1) % HABITS.length; main.habit = habit; gustFlash = 0.5;
+        } },
+        { label: '↻', name: 'reset', onClick: function () {       /* 新しい結晶の芽から。野原の雪も消える */
+          landed.length = 0; humSeed = Math.random() * 100; newMain();
+        } }
+      ]
+    });
+  }
+})();
+</script>
+</body>
+</html>
