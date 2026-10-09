@@ -1,18 +1,17 @@
 <!DOCTYPE html>
 <!-- SNOW LEDGER — Claude(クロちゃん)作。試作SAME WINTER(自然のフラクタル・シリーズ2)を、おっちゃんの希望で単独の作品として作り直した。
      改良: 本物っぽい氷(半透明の体・明るい縁・中心の筋・虹色ににじむ縁・腕ごとに光の当たり方が違う・きらめき)、
-     育ちきった結晶が降る雪になる、雪の夜の景色(街灯の明かり・遠くの家の灯・もみの木・雪の野原)。ap-kit.js統合: Claude -->
+     雪の夜の景色(街灯の明かり・遠くの家の灯・もみの木・雪の野原)。結晶をたくさん降らせる版は、おっちゃん「要らない」で外した。ap-kit.js統合: Claude -->
 <!-- 世界のルール: 雪の結晶の腕は、育つあいだの「空の状態」をそのまま形に刻む。6本の腕は同じ空を通ってきたので、同じ形になる。
      指は空そのもの。タップ=突風(その瞬間、全部の枝先が同時に枝を出す)、上下になぞる=湿り気(湿るほど枝分かれし、雪もたくさん降る)、
      長押し=冷たく静かな空(枝先に六角の板が育ち、風がやむ)。✦=空の温度(樹枝・扇形・星形・シダ形の育ち方)。
-     育ちきった結晶は空から放されて、降る雪の1粒になる。だから降っている雪は、ぜんぶこの空で育った結晶で、
-     触っているうちに、降る雪が自分の育てた結晶に入れ替わっていく(降った雪は帳簿のように野原に積もる)。 -->
+     一度刻んだ形は戻らない。結晶は、触った空の記録(帳簿)。育ちきると、しばらく光ってから溶けて、次の芽が生まれる。 -->
 <html lang="ja">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#03050c">
-<title>SNOW LEDGER — 降っている雪は、みんなこの空で育った結晶</title>
+<title>SNOW LEDGER — 結晶は、育つあいだの空を書き残す</title>
 <script src="../ap-kit.js"></script>
 <style>
   :root { color-scheme: dark; }
@@ -28,7 +27,7 @@
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hint">タップ ＝ 突風（6本の腕に同じ枝）／ 長押し ＝ 六角の板<br>上下になぞる ＝ 湿り気。育ちきった結晶は、降る雪になる</div>
+<div id="hint">タップ ＝ 突風（6本の腕に同じ枝）／ 長押し ＝ 六角の板<br>上下になぞる ＝ 湿り気（湿るほど枝分かれ）</div>
 <script>
 (function () {
   'use strict';
@@ -271,34 +270,6 @@
     c.globalAlpha = pa; c.globalCompositeOperation = po;
   }
 
-  /* 降る雪用に、結晶を1枚の絵にしておく(はっきり版とぼけ版) */
-  function makeSprites(C, rot) {
-    var ext = C.extent(), S = 224;
-    var hi = document.createElement('canvas'); hi.width = hi.height = S;
-    var c = hi.getContext('2d');
-    c.globalCompositeOperation = 'lighter';
-    c.globalAlpha = 0.5; c.drawImage(GLOW, S * 0.1, S * 0.1, S * 0.8, S * 0.8);
-    drawCrystal(c, C, 1, S / 2, S / 2, S * 0.47 / ext, rot, 1, Math.random() * 10, true, false);
-    var lo = document.createElement('canvas'); lo.width = lo.height = 40;
-    var l = lo.getContext('2d'); l.imageSmoothingEnabled = true; l.imageSmoothingQuality = 'high';
-    l.drawImage(hi, 0, 0, 40, 40);
-    C.sprite = { hi: hi, lo: lo, ext: ext };
-  }
-  /* 空で育ったことにして、ひとつ結晶を作る(最初から降っている雪のため) */
-  function simulate() {
-    var C = new Crystal(0.2 + Math.random() * 0.7, (Math.random() * HABITS.length) | 0), n = 0, calmLeft = 0;
-    while (!C.done() && n < 1500) {
-      if (Math.random() < 0.006) C.gustNow();
-      if (!calmLeft && Math.random() < 0.003) { calmLeft = 30 + Math.random() * 40; C.setCalm(true); }
-      if (calmLeft && --calmLeft <= 0) { calmLeft = 0; C.setCalm(false); }
-      C.hum = Math.max(0.05, Math.min(0.95, C.hum + (Math.random() - 0.5) * 0.02));
-      C.step(0.05); n++;
-    }
-    C.setCalm(false);
-    makeSprites(C, Math.random() * TAU);
-    return C;
-  }
-
   /* ======== 雪の夜の景色(大きさが変わったときだけ描き直す) ======== */
   function fir(g, x, base, h, w, col, snow) {
     var n = 7, i;
@@ -382,53 +353,16 @@
   }
 
   /* ======== 状態 ======== */
-  var main = null, mainState = 'grow', showT = 0, rot = Math.random() * TAU, habit = 0;
+  var main = null, mainState = 'grow', showT = 0, meltT = 0, rot = Math.random() * TAU, habit = 0;
   var hum = 0.5, humGoal = 0.5, humSeed = Math.random() * 100, holding = false;
-  var pool = [], flakes = [], dots = [], landed = [], blurs = [], twinkles = [];
-  var windImp = 0, windUser = 0, calmF = 1, spawnAcc = 0, blurT = 6;
+  var dots = [], twinkles = [];
+  var windImp = 0, windUser = 0, calmF = 1;
   var R = 100, CX = 0, CY = 0, gustFlash = 0;
 
   function newMain() {
     main = new Crystal(hum, habit);
-    mainState = 'grow'; showT = 0;
+    mainState = 'grow'; showT = 0; meltT = 0;
     if (holding) main.setCalm(true);
-  }
-  function sizeFor(z) { return MIN * (0.02 + 0.115 * z * z); }
-  function pickCrystal() {
-    var mine = [], i;
-    for (i = 0; i < pool.length; i++) if (pool[i].mine) mine.push(pool[i]);
-    if (mine.length && Math.random() < 0.55) return mine[(Math.random() * mine.length) | 0];
-    return pool[(Math.random() * pool.length) | 0];
-  }
-  function newFlake(f, scatter) {
-    f = f || {};
-    f.C = pickCrystal(); f.z = Math.pow(Math.random(), 1.4) * 0.95 + 0.05;
-    f.rad = sizeFor(f.z) * (0.7 + Math.random() * 0.5) * (0.6 + 0.4 * f.C.sprite.ext);
-    f.x = Math.random() * (W + 80) - 40;
-    f.y = scatter ? Math.random() * H * 1.05 - f.rad : -f.rad * 2 - Math.random() * 40;
-    f.vy = (16 + 62 * f.z) * (H / 844) * (0.85 + Math.random() * 0.3);
-    f.ph = Math.random() * TAU; f.fr = 0.5 + Math.random() * 0.9; f.amp = 6 + 26 * f.z;
-    f.spin = Math.random() * TAU; f.spinV = (Math.random() - 0.5) * 1.2;
-    f.tilt = Math.random() * TAU; f.tiltV = (0.4 + Math.random() * 1.1) * (Math.random() < 0.5 ? -1 : 1);
-    f.ax = Math.random() * TAU; f.state = 'fall'; f.t = 0;
-    return f;
-  }
-  function landY(z) { return YH + (H * 0.995 - YH) * Math.max(0, Math.min(1, (z - 0.12) / 0.8)); }
-  function release() {                                 /* 育ちきった結晶を、空から放す */
-    var C = main;
-    makeSprites(C, rot);
-    C.mine = true;
-    pool.push(C);
-    for (var i = 0; i < pool.length && pool.length > 26; i++) if (!pool[i].mine) { pool.splice(i, 1); i--; }
-    while (pool.length > 26) pool.shift();
-    var f = newFlake({});
-    f.C = C; f.state = 'rel'; f.t = 0;
-    f.x0 = CX; f.y0 = CY; f.x = CX; f.y = CY; f.r0 = R * C.sprite.ext; f.z = 0.55 + Math.random() * 0.25;
-    f.rad = sizeFor(f.z) * (0.75 + 0.35 * C.sprite.ext) * 1.15;
-    f.vy = (16 + 62 * f.z) * (H / 844); f.spin = 0; f.spinV = 0.25; f.tilt = 0; f.tiltV = 0.9; f.ax = 0;
-    flakes.push(f);
-    gustFlash = 0.6;
-    newMain();
   }
 
   /* ======== 大きさ ======== */
@@ -446,9 +380,7 @@
     paintBG();
     if (W0) {
       var sx = W / W0, sy = H / H0, i;
-      for (i = 0; i < flakes.length; i++) { flakes[i].x *= sx; flakes[i].y *= sy; }
       for (i = 0; i < dots.length; i++) { dots[i].x *= sx; dots[i].y *= sy; }
-      landed.length = 0;
     }
     W0 = W; H0 = H;
   }
@@ -506,7 +438,7 @@
 
   /* ======== 動き ======== */
   function update(dt) {
-    var i, f;
+    var i;
     if (ptr.down && !ptr.drag && !holding && (performance.now() - downAt) / 1000 >= 0.4) { holding = true; main.setCalm(true); }
     calmF += ((holding ? 0.22 : 1) - calmF) * Math.min(1, dt * 2.5);
     /* 空は勝手にもゆっくり変わる(なぞると上書き) */
@@ -516,47 +448,15 @@
     rot += dt * 0.03;
     gustFlash = Math.max(0, gustFlash - dt * 1.5);
 
+    /* 育つ → 育ちきったら、しばらく光って見せる → 溶けて、次の芽 */
     if (mainState === 'grow') { main.step(dt); if (main.done()) { mainState = 'show'; showT = 0; } }
-    else if (mainState === 'show') { showT += dt; if (showT > 3.2 && !holding) release(); }
+    else if (mainState === 'show') { showT += dt; if (showT > 9 && !holding) { mainState = 'melt'; meltT = 0; } }
+    else if (mainState === 'melt') { meltT += dt / 3.5; if (meltT >= 1) newMain(); }
 
     windImp *= Math.exp(-dt * 1.1); windUser *= Math.exp(-dt * 0.7);
     var wind = (6 + 10 * Math.sin(now * 0.07) + windImp + windUser) * calmF;
 
-    /* 降る量は湿り気しだい */
-    var target = Math.round((8 + 26 * hum) * (quality === 2 ? 1 : 0.7));
-    var live = 0;
-    for (i = 0; i < flakes.length; i++) if (flakes[i].state !== 'rel') live++;
-    spawnAcc += dt;
-    if (live < target && spawnAcc > 0.25) { spawnAcc = 0; flakes.push(newFlake(null, false)); }
-
-    for (i = flakes.length - 1; i >= 0; i--) {
-      f = flakes[i];
-      f.spin += f.spinV * dt * calmF; f.tilt += f.tiltV * dt * (0.4 + 0.6 * calmF); f.ph += f.fr * dt;
-      if (f.state === 'rel') {
-        f.t += dt / 2.6;
-        var e = f.t < 1 ? f.t * f.t * (3 - 2 * f.t) : 1;
-        f.y0 += f.vy * 0.5 * f.t * dt * 2;
-        f.x0 += wind * 0.3 * dt;
-        f.x = f.x0; f.y = f.y0;
-        f.cur = f.r0 + (f.rad - f.r0) * e;
-        if (f.t >= 1) { f.state = 'fall'; }
-        continue;
-      }
-      f.cur = f.rad;
-      f.x += (wind * (0.3 + 0.7 * f.z) + Math.cos(f.ph) * f.amp * f.fr * calmF) * dt;
-      f.y += f.vy * (0.6 + 0.4 * calmF) * dt;
-      if (f.x < -120) f.x += W + 240; else if (f.x > W + 120) f.x -= W + 240;
-      if (f.z > 0.12 && f.z < 0.92 && f.y > landY(f.z) && f.y > groundY(f.x)) {     /* 野原に着いた */
-        landed.push({ C: f.C, x: f.x, y: f.y, rad: f.rad, spin: f.spin, ax: (Math.random() - 0.5) * 0.3, life: 1, z: f.z, dur: 30 + Math.random() * 30 });
-        if (landed.length > 40) landed.shift();
-        if (live > target) { flakes.splice(i, 1); live--; } else newFlake(f, false);
-        continue;
-      }
-      if (f.y > H + f.rad * 2) { if (live > target) { flakes.splice(i, 1); live--; } else newFlake(f, false); }
-    }
-    for (i = landed.length - 1; i >= 0; i--) { landed[i].life -= dt / landed[i].dur; if (landed[i].life <= 0) landed.splice(i, 1); }
-
-    var dTarget = Math.round((50 + 130 * hum) * (quality === 2 ? 1 : 0.6));
+    var dTarget = Math.round((40 + 90 * hum) * (quality === 2 ? 1 : 0.6));
     while (dots.length < dTarget) dots.push({ x: Math.random() * W, y: Math.random() * H, z: Math.random(), ph: Math.random() * TAU });
     if (dots.length > dTarget) dots.length = dTarget;
     for (i = 0; i < dots.length; i++) {
@@ -566,40 +466,14 @@
       if (d.y > YH + (H - YH) * 0.2 * d.z) { d.y = -4; d.x = Math.random() * W; }
       if (d.x < -10) d.x += W + 20; else if (d.x > W + 10) d.x -= W + 20;
     }
-    /* 目の前を横切る、ぼけた大きな雪 */
-    blurT -= dt;
-    if (blurT <= 0 && pool.length) {
-      blurT = 9 + Math.random() * 12;
-      blurs.push({ C: pickCrystal(), x: Math.random() * W, y: -MIN * 0.3, rad: MIN * (0.16 + Math.random() * 0.12), vy: (130 + Math.random() * 70) * (H / 844), ph: Math.random() * TAU, spin: Math.random() * TAU });
-    }
-    for (i = blurs.length - 1; i >= 0; i--) {
-      var b = blurs[i];
-      b.y += b.vy * (0.6 + 0.4 * calmF) * dt; b.x += (wind * 1.4 + Math.cos(now * 0.8 + b.ph) * 30) * dt; b.spin += dt * 0.4;
-      if (b.y > H + b.rad * 2) blurs.splice(i, 1);
-    }
     /* 野原のきらめき */
     if (Math.random() < dt * (quality === 2 ? 9 : 5)) twinkles.push({ x: Math.random() * W, y: YH + Math.pow(Math.random(), 0.7) * (H - YH), t: 0, s: 2 + Math.random() * 5 });
     for (i = twinkles.length - 1; i >= 0; i--) { twinkles[i].t += dt / 0.6; if (twinkles[i].t >= 1) twinkles.splice(i, 1); }
   }
 
   /* ======== 描く ======== */
-  function drawFlake(f, rad, img, alpha) {
-    var fc = Math.abs(Math.cos(f.tilt));
-    var flat = 0.18 + 0.82 * fc;
-    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-    ctx.translate(f.x, f.y); ctx.rotate(f.ax); ctx.scale(1, flat); ctx.rotate(f.spin);
-    var hw = rad / 0.47;
-    ctx.globalAlpha = alpha * (0.7 + 0.3 * fc);
-    ctx.drawImage(img, -hw / 2 * 1, -hw / 2 * 1, hw, hw);
-    if (fc > 0.975 && f.z > 0.2) {                    /* 光を正面で受けた瞬間に、きらっ */
-      var k = (fc - 0.975) / 0.025;
-      ctx.globalAlpha = alpha * k * 0.7; ctx.drawImage(img, -hw / 2, -hw / 2, hw, hw);
-      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-      star(ctx, f.x, f.y, rad * 1.2 * k + 4, alpha * k * 0.8);
-    }
-  }
   function render() {
-    var i, f;
+    var i;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
     ctx.drawImage(bg, 0, 0);
@@ -618,26 +492,11 @@
       var tw = twinkles[i], a = Math.sin(tw.t * Math.PI);
       star(ctx, tw.x, tw.y, tw.s * (0.6 + a), 0.55 * a);
     }
-    for (i = 0; i < landed.length; i++) {               /* 野原に降り積もった結晶 */
-      var L = landed[i], la = Math.min(1, L.life * 3) * 0.55;
-      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-      ctx.translate(L.x, L.y); ctx.rotate(L.ax); ctx.scale(1, 0.26); ctx.rotate(L.spin);
-      var hw = L.rad / 0.47;
-      ctx.globalAlpha = la;
-      ctx.drawImage(L.z < 0.4 ? L.C.sprite.lo : L.C.sprite.hi, -hw / 2, -hw / 2, hw, hw);
-    }
-
-    flakes.sort(function (a, b) { return (a.state === 'rel' ? 2 : a.z) - (b.state === 'rel' ? 2 : b.z); });
-    var split = 0;
-    while (split < flakes.length && flakes[split].state !== 'rel' && flakes[split].z < 0.62) split++;
-    for (i = 0; i < split; i++) {
-      f = flakes[i];
-      drawFlake(f, f.cur || f.rad, f.z < 0.35 ? f.C.sprite.lo : f.C.sprite.hi, 0.4 + 0.55 * f.z);
-    }
 
     /* いま育っている結晶 */
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-    var A = Math.min(1, main.age / 1.5), bob = Math.sin(now * 0.5) * 4;
+    var m = mainState === 'melt' ? meltT * meltT * (3 - 2 * meltT) : 0;
+    var A = Math.min(1, main.age / 1.5) * (1 - m), bob = Math.sin(now * 0.5) * 4 + m * R * 0.12;
     ctx.globalCompositeOperation = 'lighter';
     var ext = main.extent();
     ctx.globalAlpha = A * (0.28 + 0.3 * gustFlash);
@@ -645,17 +504,6 @@
     ctx.drawImage(GLOW, CX - gr, CY + bob - gr, gr * 2, gr * 2);
     drawCrystal(ctx, main, DPR, CX, CY + bob, R, rot, A, now, quality === 2, true);
 
-    for (i = split; i < flakes.length; i++) {
-      f = flakes[i];
-      drawFlake(f, f.cur || f.rad, f.C.sprite.hi, f.state === 'rel' ? 1 : 0.4 + 0.55 * f.z);
-    }
-    for (i = 0; i < blurs.length; i++) {
-      var b = blurs[i], bw = b.rad / 0.47;
-      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.translate(b.x, b.y); ctx.rotate(b.spin);
-      ctx.globalAlpha = 0.13; ctx.drawImage(b.C.sprite.lo, -bw / 2, -bw / 2, bw, bw);
-    }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
   }
@@ -678,18 +526,15 @@
 
   /* 初期化 */
   resize();
-  for (var i0 = 0; i0 < 12; i0++) pool.push(simulate());
   humGoal = hum = 0.4 + Math.random() * 0.3;
   newMain();
-  var first = Math.round(8 + 26 * hum);
-  for (var j0 = 0; j0 < first; j0++) flakes.push(newFlake(null, true));
   setTimeout(function () { hint.classList.add('on'); }, 550);
   setTimeout(hideHint, 7500);
   requestAnimationFrame(frame);
 
   /* テスト用 */
-  window.__snow = { speed: function (s) { speedMul = s; }, release: function () { if (main.segs.length) release(); }, tap: tap,
-    state: function () { return { flakes: flakes.length, landed: landed.length, pool: pool.length, mine: pool.filter(function (c) { return c.mine; }).length, hum: hum, quality: quality, mainState: mainState, tips: main.tips.length }; } };
+  window.__snow = { speed: function (s) { speedMul = s; }, tap: tap,
+    state: function () { return { hum: hum, quality: quality, mainState: mainState, tips: main.tips.length, segs: main.segs.length }; } };
 
   /* ---- 共有コントロール(ap-kit.js) ---- */
   if (window.APKit) {
@@ -704,8 +549,8 @@
         { label: '✦', name: 'mutate', onClick: function () {      /* 空の温度を変える: 樹枝→扇形→星形→シダ形(いま育っている結晶にも、この先の枝から効く) */
           habit = (habit + 1) % HABITS.length; main.habit = habit; gustFlash = 0.5;
         } },
-        { label: '↻', name: 'reset', onClick: function () {       /* 新しい結晶の芽から。野原の雪も消える */
-          landed.length = 0; humSeed = Math.random() * 100; newMain();
+        { label: '↻', name: 'reset', onClick: function () {       /* 新しい結晶の芽から */
+          humSeed = Math.random() * 100; newMain();
         } }
       ]
     });
