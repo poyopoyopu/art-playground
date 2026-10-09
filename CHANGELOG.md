@@ -1,3 +1,5 @@
+- 2026-10-09 クロード: ROSARYを採用・art-v102として昇格し、CURRENTに設定(おっちゃん「録画も追加してカレントは採用で」)。それまでのCURRENTだったNEST LAW(v90)はLOGのBUD LAW(v91)の下へ移動(LOGの並び順ルール)、Published worksは先頭をROSARYにしてNEST LAWをBUD LAWの直後へ。ap-kit.jsの相対パスをルート用に修正、`META`に操作ヒント「輪をタップして珠を数える。長押しで息を吸う」を1行追加。`REC_WORKS`(録画)に追加: スマホ幅のヘッドレスChromiumで本物の録画ボタン→タップ・長押し→停止まで通し、mp4(約9秒)に作品と透かしが映り、始めと終わりで絵が変わることを確認。**スマホ実機での録画中の重さは未確認**(WebGL2シェーダー、preserveDrawingBuffer有効)。`tools/poster-config.json`に`hide:#hint`を追加し、ポスター(ヒーロー含む)とOGPカードを生成、`gen_posters.py --check`・`gen_og.py --check`とも終了コード0(文字が写っていないことを目視で確認)。試作版`prototypes/rosary.html`は残す。「現在の状態」も更新(art-v102-rosary.html, index.html, posters/, og/, tools/poster-config.json, CHANGELOG.md)
+- 2026-10-09 クロード: ROSARY(試作)の画面の文字を整理(おっちゃん「文字が要らないかな」→「最初の操作説明はいるかな」)。タップ時の「珠 N」と下の「次に生まれる輪 — N方向 · 珠m」を削除、最初の操作説明(#hint)は残す(prototypes/rosary.html)
 - 2026-10-09 クロード: ROSARY(試作)の色合いを作り直し(おっちゃん「色合いがつまらない」)。白っぽい珠+緑のきらめきだけだったのを、①玉虫色の珠=輪を一周するあいだに珠の色相がゆれる(外周のレース・本体・内側2段で位相をずらして重ねる)、中心の珠は暖かい白 ②色にもルール=タップで生まれる代の色は「前の代の色+数えた珠の数ぶん」ずれ、触った歴史が色の縞として外へ流れる ③背景=真っ黒をやめ、深い藍と青緑がゆっくり渦を巻く ④吐き出し(光の尾)は先端が赤・尾が青の虹色ににじむ、に変更。全体を少し明るく。操作説明1行目を短く(prototypes/rosary.html, CHANGELOG.md)
 - 2026-10-09 クロード: ROSARY(試作)の楕円・中心ずれを修正(おっちゃん「中心がズレてない？楕円形だし」)。原因はキャンバスのCSSが100vw/100vhなのに描画サイズをinnerWidth/innerHeightで決めていたこと(iPhoneは100vhとinnerHeightが食い違い、縦に引き伸ばされる)。キャンバスをwidth/height:100%にし、描画サイズ・タップ位置を見えているキャンバスの実寸(clientWidth/Height・getBoundingClientRect)から取るように変更、ResizeObserver/visualViewportでも追従。操作説明の1行目が狭い画面で左右に切れていたので左右16pxの余白を追加(prototypes/rosary.html, CHANGELOG.md)
 - 2026-10-09 クロード: 試作ROSARY(prototypes/rosary.html)を追加(おっちゃんが見せたmesmerizeappのリール「点でできた輪が何重にも並ぶ万華鏡が中心から脈打って湧き出す」動画→「こういう作品は作れる？」)。世界のルール=「数えた珠の数が、次に生まれる輪の数になる」。対数極座標のWebGL2シェーダーで、珠の輪(外周の細かい輪・本体・内側2段・中心の珠)がN個並ぶ帯が中心で生まれ、息に合わせて外へ流れ続ける(どこまで潜っても同じ構造)。タップ=触れた輪の珠の数mが、これから生まれる帯の対称数Nになる(珠の数は(N+m)から決まり、色も一代ずつずれる)。触った順番が同心円の「家系」として外へ流れ、一度流れた帯は変わらない。長押し=息を吸う(中心へ吸い込み光を溜める)、離す=溜めた分だけ放射状の光の尾を引いて吐き出す。✦=次の帯の数と色をランダム、↻=最初に戻す。#hintあり(採用時はposter-configにhide要)。スマホ幅のヘッドレスChromiumでエラーなし・早送りでルールの流れを確認。**スマホ実機の重さは未確認**(prototypes/rosary.html, CHANGELOG.md)
@@ -402,7 +404,7 @@
 
 ## 現在の状態(変わったら書き換える)
 
-- CURRENT: NEST LAW(`art-v90-nest-law.html`)
+- CURRENT: ROSARY(`art-v102-rosary.html`)。それまでのCURRENTだったNEST LAWはLOGのBUD LAW(v91)の下へ
 - LOG先頭: WATERLINE(`art-v101-waterline.html`)。その下にHAIRLINE(`art-v100-hairline.html`)、MORPHING FERN(`art-v99-morphing-fern.html`)、v98〜v94、LIVING REEF(`art-v93-living-reef.html`)
 - 作業ルール: `AGENTS.md`(ギャラリー追加の手順と命名ルールは13章)
 - 表示モード: iPhoneホーム画面から起動するとCURRENT作品を自動表示するstandalone Web App対応済み
