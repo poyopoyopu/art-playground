@@ -25,7 +25,7 @@
 <body>
 <canvas id="c"></canvas>
 <div id="nogl">WebGL2が使えない環境です</div>
-<div id="hint">珠の輪をタップ — 数えた珠の数が、次に生まれる輪の数になる<br>長押しで息を吸い、離すと吐き出す</div>
+<div id="hint">珠の輪をタップ — 数えた珠の数が、次の輪の数になる<br>長押しで息を吸い、離すと吐き出す</div>
 <div id="pick"></div>
 <div id="next"></div>
 <script>
@@ -68,12 +68,16 @@ var FS=[
 '  return (1.0-smoothstep(rr-e,rr+e,d))*min(1.0,rr*rr/(px*px)*2.0);',
 '}',
 // 珠の輪: 半径R、珠m個
-'float bead(vec2 q,float R,float m,float off,float dr,float px){',
+'float bead(vec2 q,float R,float m,float off,float dr,float px,out float an){',
 '  float st=TAU/m;',
 '  float a=atan(q.y,q.x);',
-'  float an=floor((a-off)/st+0.5)*st+off;',
+'  an=floor((a-off)/st+0.5)*st+off;',
 '  float d=length(q-R*vec2(cos(an),sin(an)));',
 '  return cover(d,dr,px)+0.07*exp(-d*d/(dr*dr*6.0))*min(1.0,dr/px);',
+'}',
+'vec3 irid(float t,float a,float sat){',
+'  vec3 c=tintCol(t+0.16*sin(a)+0.07*sin(2.0*a+uT*0.7));',
+'  return mix(vec3(0.92,0.95,1.0),c,sat);',
 '}',
 'vec3 pat(float w,float v,float px){',
 '  float kf=floor(w/HB);',
@@ -89,10 +93,11 @@ var FS=[
 '  vec2 q=vec2(qx,qy);',
 '  float R=0.36*min(cw,HB);',
 '  float dr=min(R*sin(PI/m)*0.36,R*0.10);',
-'  float b0=bead(q,R*1.24,m*2.0,PI*0.5+PI/(m*2.0),dr*0.55,px);',
-'  float b1=bead(q,R,m,PI*0.5,dr,px);',
-'  float b2=bead(q,R*0.6,m,PI*0.5+PI/m,dr*0.62,px);',
-'  float b3=bead(q,R*0.3,max(3.0,floor(m*0.5)),PI*0.5,dr*0.42,px);',
+'  float a0,a1,a2,a3;',
+'  float b0=bead(q,R*1.24,m*2.0,PI*0.5+PI/(m*2.0),dr*0.55,px,a0);',
+'  float b1=bead(q,R,m,PI*0.5,dr,px,a1);',
+'  float b2=bead(q,R*0.6,m,PI*0.5+PI/m,dr*0.62,px,a2);',
+'  float b3=bead(q,R*0.3,max(3.0,floor(m*0.5)),PI*0.5,dr*0.42,px,a3);',
 '  float c0=cover(length(q),dr*0.7,px);',
 // 輪と輪のあいだの放射状の点線
 '  float sz=HB/6.0;',
@@ -108,10 +113,15 @@ var FS=[
 // きらめき(1つおきの輪が対称に光る)
 '  float hs=h1(kf*7.13+mod(ci,2.0)*3.7+N);',
 '  float g1=pow(max(0.0,sin(uT*(1.1+uCharge*1.2)+hs*TAU+kf*0.8)),22.0);',
-'  vec3 tc=tintCol(uTint[idx]);',
-'  vec3 base=mix(vec3(0.74,0.81,0.84),tc,0.10);',
-'  vec3 col=base*(b0*0.45+b1*0.85+b2*0.6+b3*0.5+c0*0.7+sp*0.38+spr*0.5);',
-'  vec3 glc=mix(tc,vec3(1.0),0.3);',
+'  float th=uTint[idx];',
+'  vec3 tc=tintCol(th);',
+'  vec3 c0c=irid(th+0.00,a0,0.75);',
+'  vec3 c1c=irid(th+0.10,a1,0.70);',
+'  vec3 c2c=irid(th+0.24,a2,0.78);',
+'  vec3 c3c=irid(th+0.40,a3,0.85);',
+'  vec3 col=c0c*b0*0.55+c1c*b1*0.95+c2c*b2*0.75+c3c*b3*0.65',
+'    +vec3(1.0,0.93,0.80)*c0*0.85+irid(th+0.55,qy*6.0,0.5)*sp*0.42+vec3(0.80,0.86,1.0)*spr*0.5;',
+'  vec3 glc=mix(tintCol(th+0.5),vec3(1.0),0.45);',
 '  col+=glc*(b1+b2*0.8+b3*0.6+c0*0.5)*g1*3.6;',
 '  float fl=(1.0-step(0.5,abs(kf-uFlashK)))*exp(-uFlashAge*2.0);',
 '  col+=glc*(b1+b2+b3+c0+sp)*fl*2.6;',
@@ -131,14 +141,17 @@ var FS=[
 '    if(i>=uSamp)break;',
 '    float f=float(i)/max(1.0,n-1.0);',
 '    float wt=1.0-0.55*f;',
-'    acc+=pat(u-uScroll+uBlur*f,v,px)*wt; nm+=wt;',
+'    vec3 ch=uSamp>1?mix(vec3(1.25,0.85,0.55),vec3(0.55,0.85,1.30),f):vec3(1.0);',
+'    acc+=pat(u-uScroll+uBlur*f,v,px)*ch*wt; nm+=wt;',
 '  }',
 '  acc/=nm;',
 '  vec3 tc=tintCol(uTint[0]);',
-'  vec3 bg=vec3(0.018,0.034,0.042)+vec3(0.02,0.05,0.045)*exp(-r*1.6);',
+'  float sw=0.5+0.5*sin(v*3.0+u*1.4-uT*0.12);',
+'  vec3 bg=mix(vec3(0.030,0.016,0.060),vec3(0.000,0.050,0.060),sw)*(0.7+0.5*exp(-r*0.8));',
+'  bg+=tintCol(uTint[0]+0.5)*0.025*exp(-r*1.2);',
 '  vec3 col=bg+acc;',
 '  col+=mix(tc,vec3(1.0),0.4)*(0.10+uCharge*0.12)*exp(-r*14.0);',
-'  col=1.0-exp(-col*1.25);',
+'  col=1.0-exp(-col*1.5);',
 '  col*=1.0-0.35*smoothstep(0.9,2.2,r);',
 '  o=vec4(col,1.0);',
 '}'
@@ -257,7 +270,7 @@ function choose(x,y){
   var r=Math.max(Math.hypot(px,py),1e-4);
   var k=Math.floor((Math.log(r)-scroll)/HB);
   var g=geneFor(k);
-  cur={N:g.m,m:((g.N+g.m-3)%18)+4,tint:(g.tint+0.055)%1};
+  cur={N:g.m,m:((g.N+g.m-3)%18)+4,tint:(g.tint+0.09+g.m*0.013)%1};  // 色も数えた珠の数だけずれる
   flashK=k;flashAge=0;
   kick+=0.45;
   showPick(x,y,'珠 '+g.m);
