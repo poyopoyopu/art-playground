@@ -1,14 +1,16 @@
 <!DOCTYPE html>
 <!-- HAIRLINE — クロちゃん(Claude)作。おっちゃんが見せてくれたYMM4プラグイン「I_DistortChroma」(Panko200氏、MITライセンス:
      画像の明暗差からバンプマップを計算し、光の屈折に従ってRGBがずれて描画される)の仕組みを、ブラウザ(WebGL)で一から組み直した作品。
-     プラグインのコードは使っていない。GLASS CLAY(つまらん)の作り直しで、おっちゃんが3案から「割れるほど増える虹」を選んだ。ap-kit.js統合: クロちゃん -->
+     プラグインのコードは使っていない。GLASS CLAY(つまらん)の作り直しで、おっちゃんが3案から「割れるほど増える虹」を選んだ。
+     v2: 「リアルさが足りない」で作り直し。ヒビをギザギザの細い線にし、光の向きで光らせる。割れ目は少しずつ走って伸び、別のヒビに当たると止まる。
+     叩いた中心は粉々に。ガラスの向こうを夜の街の玉ボケに。ap-kit.js統合: クロちゃん -->
 <!-- 世界のルール: この一枚ガラスには色が無い。虹は「割れ目」にだけ宿る。割れ目の縁で光が曲がり、波長ごとに曲がり方が違うから。
      そして、一度入ったヒビは自分で育つ。大きな破片の中に小さなヒビが走り、その破片の中にさらに小さなヒビが走る(最大6階層の入れ子)。
-     ガラスは二度と元に戻らない。割るほど、虹が増える。
-     ・タップ … 叩く。そこを中心に蜘蛛の巣状のヒビ(放射状+同心円)が入り、破片は中心へ向かって少しへこむ(傾く)。
+     走り出したヒビは止まらずにのび続け、別のヒビにぶつかったところで止まる。ガラスは二度と元に戻らない。割るほど、虹が増える。
+     ・タップ … 叩く。そこを中心に蜘蛛の巣状のヒビ(放射状+同心円)が入り、中心は粉々に。破片は中心へ向かって少しへこむ(傾く)。
      ・押さえる/なぞる … 指の下の破片を細かく砕く。割れていない所で押さえると、小さく割れる。
-     ・放っておく … ヒビは時間をかけて勝手に枝分かれし、破片が増えていく。破片はそれぞれ違う向きに傾いているので、光が回るとひとつずつ光る。
-     ・✦ … ガラスの向こうの光(景色)とガラスの種類(虹の幅・色味)を替える。割れ方はそのまま。
+     ・放っておく … ヒビの先がじわじわ走り、破片の中に新しいヒビが入っていく。破片はそれぞれ違う向きに傾いているので、光が回るとひとつずつ光る。
+     ・✦ … ガラスの向こうの景色(夜の街/夕暮れ/曇りの昼)とガラスの種類(虹の幅)を替える。割れ方はそのまま。
      ・↻ … 新しい一枚ガラス(真ん中を一回叩いたところから)。 -->
 <html lang="ja">
 <head>
@@ -19,7 +21,7 @@
 <script src="../ap-kit.js"></script>
 <style>
   :root { color-scheme: dark; }
-  html, body { margin: 0; padding: 0; height: 100%; background: #2a2c31; overflow: hidden; overscroll-behavior: none; }
+  html, body { margin: 0; padding: 0; height: 100%; background: #10131a; overflow: hidden; overscroll-behavior: none; }
   body {
     -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none;
     user-select: none; -webkit-user-select: none;
@@ -30,7 +32,7 @@
     position: fixed; left: 0; right: 0; bottom: calc(78px + env(safe-area-inset-bottom, 0px));
     text-align: center; pointer-events: none; font-size: 12px; line-height: 1.9; letter-spacing: .07em;
     color: #f2f4f8; opacity: 0; transition: opacity 1.6s ease;
-    text-shadow: 0 1px 10px rgba(0, 0, 0, .8);
+    text-shadow: 0 1px 10px rgba(0, 0, 0, .9);
   }
   #hint.on { opacity: .85; }
   #nogl { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; color: #ddd; font-size: 14px; }
@@ -38,7 +40,7 @@
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hint">タップ ＝ 叩いて割る　押さえる・なぞる ＝ 細かく砕く<br>ヒビは勝手に育つ。割れ目にだけ虹が出る</div>
+<div id="hint">タップ ＝ 叩いて割る　押さえる・なぞる ＝ 細かく砕く<br>ヒビは勝手に走る。割れ目にだけ虹が出る</div>
 <div id="nogl">WebGLが使えない環境です</div>
 <script>
 (function () {
@@ -52,50 +54,64 @@
 
   /* ---------- シェーダ ----------
      地図テクスチャ(格子): R,G = 破片の傾き、B = ヒビの線(細い)、A = ヒビのふくらみ(ぼかした線 = バンプ)。
-     1) 破片の傾きの分だけ、ガラスの向こうの景色をずらして読む(破片ごとに景色がずれる)。
-     2) ヒビのふくらみの傾きに沿って、ヒビの線そのものをずらして読む(=プラグインと同じ「明暗からバンプ→屈折」)。
-     どちらも波長(赤→紫)ごとにずらす量を変えて12回読み、波長の色で足し合わせる。割れていない所は12回とも同じ所を読むので灰色のまま。 */
+     1) 破片の傾きと、ヒビのふくらみの傾きの分だけ、ガラスの向こうの景色をずらして読む
+        (=プラグインと同じ「明暗からバンプ→屈折」。波長ごとにずらす量を変えて12回読み、波長の色で足す)。
+     2) ヒビの向きは、ふくらみの曲がり方(2階微分)から求める。光の向きとヒビの向きが合った所だけ、ヒビが白く光る。
+        光はゆっくり回るので、光るヒビが移っていく。 */
   var VS = 'attribute vec2 p;void main(){gl_Position=vec4(p,0.0,1.0);}';
   var FS = [
     'precision highp float;',
     'uniform sampler2D M;uniform sampler2D BG;',
     'uniform vec2 R;uniform vec2 G;uniform vec2 bgS;uniform vec2 drift;',
-    'uniform float S;uniform float S2;uniform float S3;uniform float D;uniform float Dc;uniform float K;',
-    'uniform vec3 tint;uniform vec3 L;',
+    'uniform float S;uniform float S3;uniform float D;uniform float Dc;uniform float K;uniform float sheen;',
+    'uniform vec3 L;',
     'vec3 wave(float t){',
     '  vec3 c=vec3(0.13,0.50,0.87);',
     '  vec3 d=clamp(1.0-abs(t-c)/vec3(0.36,0.33,0.36),0.0,1.0);',
     '  return d*d*(3.0-2.0*d);',
     '}',
+    'float A(vec2 p){return texture2D(M,p).a;}',
     'void main(){',
     '  vec2 uv=vec2(gl_FragCoord.x/R.x,1.0-gl_FragCoord.y/R.y);',
     '  vec2 tx=1.0/G;',
     '  vec4 m=texture2D(M,uv);',
     '  vec2 T=(m.rg-0.5)/K;',
-    '  float aL=texture2D(M,uv-vec2(tx.x,0.0)).a, aR=texture2D(M,uv+vec2(tx.x,0.0)).a;',
-    '  float aU=texture2D(M,uv-vec2(0.0,tx.y)).a, aD=texture2D(M,uv+vec2(0.0,tx.y)).a;',
+    '  float a0=m.a;',
+    '  float aL=A(uv-vec2(tx.x,0.0)), aR=A(uv+vec2(tx.x,0.0)), aU=A(uv-vec2(0.0,tx.y)), aD=A(uv+vec2(0.0,tx.y));',
+    '  float aLU=A(uv-tx), aRD=A(uv+tx), aRU=A(uv+vec2(tx.x,-tx.y)), aLD=A(uv+vec2(-tx.x,tx.y));',
     '  vec2 gA=vec2(aR-aL,aD-aU)*0.5;',
+    '  float hxx=aR+aL-2.0*a0, hyy=aD+aU-2.0*a0, hxy=(aRD-aRU-aLD+aLU)*0.25;',
+    '  float th=0.5*atan(2.0*hxy, hxx-hyy+1e-5);',
+    '  vec2 ld=vec2(cos(th),sin(th));',
     '  vec2 cd=normalize(L.xy+vec2(0.0001));',
+    '  float glint=pow(abs(dot(vec2(-ld.y,ld.x),cd)),5.0);',
     '  vec2 bu=uv*bgS+drift;',
-    '  vec3 acc=vec3(0.0);vec3 ws=vec3(0.0);',
+    '  vec3 acc=vec3(0.0);vec3 cs=vec3(0.0);vec3 ws=vec3(0.0);',
     '  for(int i=0;i<12;i++){',
     '    float t=(float(i)+0.5)/12.0;',
-    '    float f=1.0+D*(t-0.5)*2.0;',
-    '    float fc=1.0+Dc*(t-0.5)*2.0;',
-    '    float b=texture2D(BG,bu+(T*S+gA*S3)*f).r;',
     '    float e=(t-0.5)*2.0;',
-    '    float c=texture2D(M,uv+cd*Dc*1.4*e*tx).b;',
-    '    float h=texture2D(M,uv+cd*S2*Dc*e*tx).a;',
+    '    float f=1.0+D*e;',
+    '    vec3 b=texture2D(BG,bu+(T*S+gA*S3)*f).rgb;',
+    '    float c=texture2D(M,uv+cd*Dc*1.3*e*tx).b;',
     '    vec3 w=wave(t);',
-    '    acc+=w*(b+c*0.8+h*h*0.55);ws+=w;',
+    '    acc+=w*b;cs+=w*c;ws+=w;',
     '  }',
     '  vec3 col=acc/ws;',
-    '  col*=tint;',
+    '  vec3 crack=cs/ws;',
+    /* ヒビ: 光っていない所はうっすら暗い筋、光の向きと合った所は白くきらめく */
+    '  col*=1.0-0.28*crack;',
+    '  col+=crack*(0.07+1.15*glint);',
+    '  col+=a0*a0*0.16*glint*vec3(0.92,0.96,1.0);',
+    /* 破片: 傾いた破片は、向きが光と合うと鏡のように光る */
     '  vec3 n=normalize(vec3(-T*1.5,1.0));',
-    '  float sp=pow(max(dot(n,L),0.0),70.0);',
-    '  col+=sp*0.42*vec3(0.96,0.98,1.0);',
+    '  float tl=min(length(T)*7.0,1.0);',
+    '  float nd=max(dot(n,L),0.0);',
+    '  col+=pow(nd,80.0)*0.55*tl+pow(nd,8.0)*0.06*tl;',
+    /* 割れていないガラスの表面にも、うっすら光の映り込みが流れる */
+    '  float sh=exp(-pow((dot(uv-0.5,cd)*2.0-sheen)*2.4,2.0))*0.045;',
+    '  col+=sh;',
     '  vec2 q=uv-0.5;',
-    '  col*=1.0-0.3*dot(q,q)*2.0;',
+    '  col*=1.0-0.35*dot(q,q)*2.0;',
     '  gl_FragColor=vec4(clamp(col,0.0,1.0),1.0);',
     '}'
   ].join('\n');
@@ -117,7 +133,7 @@
   gl.enableVertexAttribArray(aP);
   gl.vertexAttribPointer(aP, 2, gl.FLOAT, false, 0, 0);
   var U = {};
-  ['M', 'BG', 'R', 'G', 'bgS', 'drift', 'S', 'S2', 'S3', 'D', 'Dc', 'K', 'tint', 'L'].forEach(function (k) { U[k] = gl.getUniformLocation(prog, k); });
+  ['M', 'BG', 'R', 'G', 'bgS', 'drift', 'S', 'S3', 'D', 'Dc', 'K', 'sheen', 'L'].forEach(function (k) { U[k] = gl.getUniformLocation(prog, k); });
   var K = 0.42;   /* 傾きを0..255に詰める倍率(±1.2まで) */
 
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
@@ -133,48 +149,54 @@
   gl.bindTexture(gl.TEXTURE_2D, texBG);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.MIRRORED_REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.MIRRORED_REPEAT);
   gl.activeTexture(gl.TEXTURE0);
 
-  /* ---------- ガラスの向こうの景色(タイル状につながる512px) ---------- */
-  var BGN = 512;
+  /* ---------- ガラスの向こうの景色(ピントの外れた街) ---------- */
+  var BGN = 1024;
   var bgCanvas = document.createElement('canvas');
   bgCanvas.width = bgCanvas.height = BGN;
+  var SCENES = [
+    { name: 'night', sky: ['#070a14', '#121626', '#241d22', '#3a2a1e'], n: 190,
+      cols: [[255, 176, 84], [255, 236, 210], [255, 92, 70], [110, 200, 230], [255, 206, 120]], a: [0.18, 0.62], glow: [255, 150, 70] },
+    { name: 'dusk', sky: ['#162238', '#2c4266', '#7a6a82', '#d29a6e'], n: 120,
+      cols: [[255, 214, 160], [255, 240, 225], [160, 200, 255], [255, 150, 110]], a: [0.14, 0.5], glow: [255, 170, 120] },
+    { name: 'day', sky: ['#c9d1d6', '#b4bec4', '#8d969a', '#5d6462'], n: 70,
+      cols: [[40, 48, 42], [62, 70, 60], [250, 252, 255], [30, 34, 36]], a: [0.12, 0.42], glow: [255, 255, 255] }
+  ];
+  var sceneIdx = 0;
   function buildBG() {
+    var sc = SCENES[sceneIdx];
     var c = bgCanvas.getContext('2d');
-    c.filter = 'none';
-    var img = c.createImageData(BGN, BGN), dd = img.data;
-    var bands = [];
-    for (var bi = 0; bi < 3; bi++) {
-      var kx = 1 + ((Math.random() * 3) | 0), ky = ((Math.random() * 7) | 0) - 3;
-      if (Math.random() < 0.5) { var tk = kx; kx = ky; ky = tk; if (kx === 0 && ky === 0) ky = 1; }
-      bands.push([kx, ky, Math.random() * 6.2832, 0.18 + Math.random() * 0.35, 6 + ((Math.random() * 18) | 0)]);
+    var g = c.createLinearGradient(0, 0, 0, BGN);
+    g.addColorStop(0, sc.sky[0]); g.addColorStop(0.4, sc.sky[1]); g.addColorStop(0.75, sc.sky[2]); g.addColorStop(1, sc.sky[3]);
+    c.fillStyle = g; c.fillRect(0, 0, BGN, BGN);
+    /* 地平の、ぼんやり明るい帯 */
+    var gg = c.createRadialGradient(BGN * 0.5, BGN * 0.95, 0, BGN * 0.5, BGN * 0.95, BGN * 0.8);
+    var gc = sc.glow;
+    gg.addColorStop(0, 'rgba(' + gc[0] + ',' + gc[1] + ',' + gc[2] + ',0.22)');
+    gg.addColorStop(1, 'rgba(' + gc[0] + ',' + gc[1] + ',' + gc[2] + ',0)');
+    c.fillStyle = gg; c.fillRect(0, 0, BGN, BGN);
+    /* 玉ボケ: 縁が少し明るい円。下の方ほど多く、近い(大きい)ものは薄く */
+    for (var i = 0; i < sc.n; i++) {
+      var y = BGN * (0.08 + 0.92 * Math.pow(Math.random(), 0.75));
+      var x = Math.random() * BGN;
+      var r = 5 + Math.pow(Math.random(), 2.6) * 60;
+      var col = sc.cols[(Math.random() * sc.cols.length) | 0];
+      var a = sc.a[0] + Math.random() * (sc.a[1] - sc.a[0]);
+      a *= 1 - Math.min(0.6, r / 140);
+      var rg = c.createRadialGradient(x, y, 0, x, y, r);
+      var cs = col[0] + ',' + col[1] + ',' + col[2];
+      rg.addColorStop(0, 'rgba(' + cs + ',' + (a * 0.75) + ')');
+      rg.addColorStop(0.78, 'rgba(' + cs + ',' + (a * 0.85) + ')');
+      rg.addColorStop(0.93, 'rgba(' + cs + ',' + a + ')');
+      rg.addColorStop(1, 'rgba(' + cs + ',0)');
+      c.globalCompositeOperation = sceneIdx === 2 && col[0] < 100 ? 'source-over' : 'lighter';
+      c.fillStyle = rg;
+      c.beginPath(); c.arc(x, y, r, 0, 6.2832); c.fill();
     }
-    for (var yy = 0; yy < BGN; yy++) for (var xx = 0; xx < BGN; xx++) {
-      var v = 58;
-      for (bi = 0; bi < bands.length; bi++) {
-        var B = bands[bi];
-        var sv = 0.5 + 0.5 * Math.sin(6.2832 * (B[0] * xx + B[1] * yy) / BGN + B[2]);
-        v += B[3] * 110 * Math.pow(sv, B[4]);
-      }
-      var o = (yy * BGN + xx) * 4;
-      dd[o] = dd[o + 1] = dd[o + 2] = v > 255 ? 255 : v; dd[o + 3] = 255;
-    }
-    c.putImageData(img, 0, 0);
-    function blob(x, y, r, v, a) {
-      for (var ox = -1; ox <= 1; ox++) for (var oy = -1; oy <= 1; oy++) {
-        var X = x + ox * BGN, Y = y + oy * BGN;
-        if (X + r < 0 || X - r > BGN || Y + r < 0 || Y - r > BGN) continue;
-        var g = c.createRadialGradient(X, Y, 0, X, Y, r);
-        g.addColorStop(0, 'rgba(' + v + ',' + v + ',' + v + ',' + a + ')');
-        g.addColorStop(1, 'rgba(' + v + ',' + v + ',' + v + ',0)');
-        c.fillStyle = g; c.fillRect(X - r, Y - r, r * 2, r * 2);
-      }
-    }
-    var i;
-    for (i = 0; i < 22; i++) blob(Math.random() * BGN, Math.random() * BGN, 50 + Math.random() * 130, Math.random() < 0.45 ? 255 : 0, 0.12 + Math.random() * 0.2);
-    for (i = 0; i < 90; i++) blob(Math.random() * BGN, Math.random() * BGN, 6 + Math.random() * 30, Math.random() < 0.6 ? 255 : 0, 0.2 + Math.random() * 0.35);
+    c.globalCompositeOperation = 'source-over';
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, texBG);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bgCanvas);
@@ -186,9 +208,7 @@
   var gw = 0, gh = 0, gs = 1, minG = 1, nCells = 0;
   var Tx, Ty, Cs, Ca, px;
   var dirty = null;
-
-  var glass = { D: 0.32, Dc: 0.7, tint: [0.96, 0.99, 1.05] };
-  var TINTS = [[0.96, 0.99, 1.05], [1.05, 0.99, 0.93], [0.96, 1.03, 1.0], [1.03, 0.96, 1.05], [1.0, 1.0, 1.0]];
+  var glass = { D: 0.3, Dc: 0.8 };
 
   function allocGrid() {
     nCells = gw * gh;
@@ -218,11 +238,11 @@
     dirty = null;
   }
 
-  /* ヒビの線を1本、格子に焼く(細い線 = B、ぼかした線 = A) */
-  function crackLine(ax, ay, bx, by, I) {
-    var sig = Math.max(1.5, minG * 0.0058);
-    var wS = 0.75 + I * 0.55;
-    var m = sig * 3 + 2;
+  /* まっすぐな短い線を1本、格子に焼く(細い線 = B、ぼかした線 = A) */
+  function seg(ax, ay, bx, by, I) {
+    var sig = Math.max(1.1, minG * 0.0036);
+    var wS = 0.55 + I * 0.5;
+    var m = sig * 3 + 1.5;
     var x0 = Math.max(0, Math.floor(Math.min(ax, bx) - m)), x1 = Math.min(gw - 1, Math.ceil(Math.max(ax, bx) + m));
     var y0 = Math.max(0, Math.floor(Math.min(ay, by) - m)), y1 = Math.min(gh - 1, Math.ceil(Math.max(ay, by) + m));
     if (x1 < x0 || y1 < y0) return;
@@ -236,19 +256,42 @@
         var d2 = ex * ex + ey * ey;
         if (d2 > m * m) continue;
         var i = y * gw + x;
-        var d = Math.sqrt(d2);
-        var s = I * (1 - d / wS); if (s > Cs[i]) Cs[i] = s;
+        var s = I * (1 - Math.sqrt(d2) / wS); if (s > Cs[i]) Cs[i] = s;
         var a = I * Math.exp(-d2 * inv2s); if (a > Ca[i]) Ca[i] = a;
       }
     }
     markDirty(y0, y1);
   }
+  /* 本物のヒビはまっすぐ走らない: 中点を左右にずらすのをくり返して、ギザギザにする。
+     強さも場所によって少しむらがあるので、光り方がちらつく */
+  function jag(ax, ay, bx, by, I) {
+    var pts = [[ax, ay, I], [bx, by, I]];
+    var amp = 0.05;
+    while (true) {
+      var longest = 0, np = [pts[0]];
+      for (var i = 0; i < pts.length - 1; i++) {
+        var p = pts[i], q = pts[i + 1];
+        var dx = q[0] - p[0], dy = q[1] - p[1], l = Math.sqrt(dx * dx + dy * dy);
+        if (l > 3.2) {
+          var o = (Math.random() - 0.5) * 2 * amp * l;
+          np.push([(p[0] + q[0]) / 2 - dy / l * o, (p[1] + q[1]) / 2 + dx / l * o, I * (0.72 + Math.random() * 0.38)]);
+          if (l / 2 > longest) longest = l / 2;
+        }
+        np.push(q);
+      }
+      pts = np;
+      if (longest <= 3.2) break;
+      amp *= 0.82;
+    }
+    for (var k = 0; k < pts.length - 1; k++) seg(pts[k][0], pts[k][1], pts[k + 1][0], pts[k + 1][1], Math.min(pts[k][2], pts[k + 1][2]));
+  }
 
   /* ---------- 破片(凸多角形) ---------- */
-  var leaves = [];          /* いま一番細かい破片たち */
+  var leaves = [];
   var deadCount = 0;
-  var events = [];          /* {t, fn} これから起きること */
-  var clock = 0;            /* 秒 */
+  var events = [];
+  var runners = [];         /* いま走っているヒビの先 */
+  var clock = 0;
   var MAXD = 6;
 
   function polyArea(v) {
@@ -263,8 +306,9 @@
       if (v[i][0] < x0) x0 = v[i][0]; if (v[i][0] > x1) x1 = v[i][0];
       if (v[i][1] < y0) y0 = v[i][1]; if (v[i][1] > y1) y1 = v[i][1];
     }
+    var ar = polyArea(v);
     return { v: v, depth: depth, cx: cx / v.length, cy: cy / v.length, bb: [x0, y0, x1, y1],
-      area: Math.abs(polyArea(v)), sgn: polyArea(v) >= 0 ? 1 : -1, dead: false };
+      area: Math.abs(ar), sgn: ar >= 0 ? 1 : -1, dead: false };
   }
   function inside(sh, x, y) {
     var b = sh.bb;
@@ -276,7 +320,6 @@
     }
     return true;
   }
-  /* 破片の中だけ、傾きを足す */
   function tiltShard(sh, dx, dy) {
     var b = sh.bb;
     var x0 = Math.max(0, Math.floor(b[0])), x1 = Math.min(gw - 1, Math.ceil(b[2]));
@@ -297,19 +340,14 @@
     }
     markDirty(y0, y1);
   }
-  function addLeaf(sh, tiltX, tiltY) {
-    leaves.push(sh);
-    tiltShard(sh, tiltX, tiltY);
-  }
   var minArea = 40;
-  var SPLIT_P = [1, 0.95, 0.8, 0.6, 0.4, 0.25];
+  var SPLIT_P = [1, 0.92, 0.75, 0.55, 0.38, 0.22];
   function scheduleSplit(sh, base, near) {
     if (sh.depth >= MAXD) return;
     if (Math.random() > SPLIT_P[sh.depth]) return;
-    var delay = (0.5 + Math.random() * 2.6) * Math.pow(1.75, sh.depth) * (1 + (near || 0));
+    var delay = (0.6 + Math.random() * 3) * Math.pow(1.8, sh.depth) * (1 + (near || 0));
     events.push({ t: base + delay, fn: function () { splitShard(sh, false); } });
   }
-  /* 破片を1本のヒビで2つに割る */
   function splitShard(sh, forced) {
     if (sh.dead) return false;
     if (sh.area < (forced ? minArea * 0.45 : minArea)) return false;
@@ -326,7 +364,7 @@
       for (var k = 0; k < n; k++) { var dk = (k - li + n) % n; if (dk !== 0 && dk !== 1 && dk !== n - 1) opts.push(k); }
       j = opts[(Math.random() * opts.length) | 0];
     }
-    var ta = 0.3 + Math.random() * 0.4, tb = 0.3 + Math.random() * 0.4;
+    var ta = 0.25 + Math.random() * 0.5, tb = 0.25 + Math.random() * 0.5;
     var A0 = v[li], A1 = v[(li + 1) % n], B0 = v[j], B1 = v[(j + 1) % n];
     var P = [A0[0] + (A1[0] - A0[0]) * ta, A0[1] + (A1[1] - A0[1]) * ta];
     var Q = [B0[0] + (B1[0] - B0[0]) * tb, B0[1] + (B1[1] - B0[1]) * tb];
@@ -340,30 +378,78 @@
     sh.dead = true; deadCount++;
     var d = sh.depth + 1;
     var a = makeShard(va, d), b = makeShard(vb, d);
-    crackLine(P[0], P[1], Q[0], Q[1], Math.max(0.42, 0.9 * Math.pow(0.86, sh.depth)));
-    /* 割れた片方だけが少し傾く。その段差でも景色がずれる */
-    var mag = 0.16 * Math.pow(0.8, sh.depth) * (0.5 + Math.random());
+    /* 破片の中のヒビは、片方の縁からもう片方へ「走る」 */
+    var I = Math.max(0.35, 0.82 * Math.pow(0.85, sh.depth));
+    runFromTo(P[0], P[1], Q[0], Q[1], I);
+    var mag = 0.12 * Math.pow(0.8, sh.depth) * (0.5 + Math.random());
     var an = Math.random() * 6.2832;
     var who = Math.random() < 0.5 ? a : b;
     leaves.push(a); leaves.push(b);
     tiltShard(who, Math.cos(an) * mag, Math.sin(an) * mag);
-    if (!forced) { scheduleSplit(a, clock); scheduleSplit(b, clock); }
-    else { scheduleSplit(a, clock + 1.5); scheduleSplit(b, clock + 1.5); }
+    scheduleSplit(a, clock + (forced ? 1.5 : 0)); scheduleSplit(b, clock + (forced ? 1.5 : 0));
     if (deadCount > 400) { leaves = leaves.filter(function (s) { return !s.dead; }); deadCount = 0; }
     return true;
   }
+  /* 決まった2点の間を、ギザギザのヒビが数フレームかけて走る */
+  function runFromTo(ax, ay, bx, by, I) {
+    var dx = bx - ax, dy = by - ay, l = Math.sqrt(dx * dx + dy * dy);
+    var n = Math.max(1, Math.min(10, Math.round(l / (minG * 0.03))));
+    for (var s = 1; s <= n; s++) (function (s) {
+      var x0 = ax + dx * (s - 1) / n, y0 = ay + dy * (s - 1) / n;
+      var x1 = ax + dx * s / n, y1 = ay + dy * s / n;
+      events.push({ t: clock + s * 0.012, fn: function () { jag(x0, y0, x1, y1, I); } });
+    })(s);
+  }
 
-  /* 叩く: 放射状のヒビと同心円のヒビ。破片は中心へ向かってへこむ */
+  /* ---------- 走り続けるヒビ ----------
+     先端は、最初は一瞬で走り、だんだん遅くなって、最後はじわじわ這う。
+     ときどき枝分かれし、別のヒビにぶつかったら止まる(本物のガラスと同じ)。 */
+  function spawnRunner(x, y, a, v0, I, maxDist, gen) {
+    if (runners.length > 90) return;
+    runners.push({ x: x, y: y, a: a, v: v0, I: I, dist: 0, maxDist: maxDist, gen: gen || 0, acc: 0, curve: (Math.random() - 0.5) * 0.04, home: [x, y] });
+  }
+  function stepRunners(dt) {
+    var vmin = minG * 0.006;
+    for (var i = runners.length - 1; i >= 0; i--) {
+      var r = runners[i];
+      r.v = Math.max(vmin, r.v * Math.exp(-dt * 3.2));
+      r.acc += r.v * dt;
+      var stop = false;
+      var guard = 0;
+      while (r.acc > 2.6 && !stop && guard++ < 60) {
+        r.acc -= 2.6;
+        r.a += r.curve + (Math.random() - 0.5) * 0.42;
+        var nx = r.x + Math.cos(r.a) * 2.6, ny = r.y + Math.sin(r.a) * 2.6;
+        if (nx < 0 || ny < 0 || nx >= gw || ny >= gh) { stop = true; break; }
+        /* 少し先に別のヒビがあれば、そこまで走って止まる */
+        var lx = nx + Math.cos(r.a) * 1.6, ly = ny + Math.sin(r.a) * 1.6;
+        var hx = r.x - r.home[0], hy = r.y - r.home[1];
+        if (lx >= 0 && ly >= 0 && lx < gw && ly < gh && hx * hx + hy * hy > 36 && Cs[(ly | 0) * gw + (lx | 0)] > 0.3) {
+          seg(r.x, r.y, lx, ly, r.I); stop = true; break;
+        }
+        seg(r.x, r.y, nx, ny, r.I * (0.75 + Math.random() * 0.3));
+        r.x = nx; r.y = ny; r.dist += 2.6;
+        if (r.gen < 3 && Math.random() < 0.012) {
+          var side = Math.random() < 0.5 ? -1 : 1;
+          spawnRunner(r.x, r.y, r.a + side * (0.4 + Math.random() * 0.5), r.v * 0.7, r.I * 0.78, (r.maxDist - r.dist) * (0.3 + Math.random() * 0.4), r.gen + 1);
+        }
+        if (r.dist > r.maxDist) stop = true;
+      }
+      if (stop) runners.splice(i, 1);
+    }
+  }
+
+  /* 叩く: 中心は粉々、放射状のヒビと同心円のヒビ。破片は中心へ向かってへこむ */
   function impact(cx, cy, R) {
     var N = 8 + ((Math.random() * 6) | 0);
     var M = 4 + (Math.random() < 0.5 ? 1 : 0);
-    var r = [R * (0.05 + Math.random() * 0.03)];
-    var steps = [], sum = 0;
-    for (var m = 0; m < M; m++) { var s = 0.55 + Math.random() * 0.9; s *= Math.pow(1.25, m); steps.push(s); sum += s; }
+    var r = [R * (0.06 + Math.random() * 0.03)];
+    var steps = [], sum = 0, m, k;
+    for (m = 0; m < M; m++) { var st = 0.55 + Math.random() * 0.9; st *= Math.pow(1.25, m); steps.push(st); sum += st; }
     for (m = 0; m < M; m++) r.push(r[m] + (R - r[0]) * steps[m] / sum);
     var th0 = Math.random() * 6.2832;
     var ang = [];
-    for (var k = 0; k < N; k++) ang.push(th0 + (k + (Math.random() - 0.5) * 0.55) * 6.2832 / N);
+    for (k = 0; k < N; k++) ang.push(th0 + (k + (Math.random() - 0.5) * 0.55) * 6.2832 / N);
     var V = [];
     for (k = 0; k < N; k++) {
       V.push([]);
@@ -375,37 +461,43 @@
     }
     var t0 = clock;
     function at(dt, fn) { events.push({ t: t0 + dt, fn: fn }); }
-    /* 放射状のヒビ(中心から外へ、一気に走る) */
+    /* 粉々の中心 */
+    at(0, function () {
+      var crush = r[0] * 1.6;
+      for (var q = 0; q < 46; q++) {
+        var ra = Math.random() * 6.2832, rd = Math.sqrt(Math.random()) * crush;
+        var x = cx + Math.cos(ra) * rd, y = cy + Math.sin(ra) * rd;
+        var b2 = Math.random() * 6.2832, ln = crush * (0.15 + Math.random() * 0.5);
+        jag(x, y, x + Math.cos(b2) * ln, y + Math.sin(b2) * ln, 0.55 + Math.random() * 0.4);
+      }
+    });
     for (k = 0; k < N; k++) (function (k) {
-      at(0, function () { crackLine(cx, cy, V[k][0][0], V[k][0][1], 1); });
+      at(0, function () { jag(cx, cy, V[k][0][0], V[k][0][1], 1); });
       for (var m2 = 0; m2 < M; m2++) (function (m2) {
-        at(0.03 * (m2 + 1), function () { crackLine(V[k][m2][0], V[k][m2][1], V[k][m2 + 1][0], V[k][m2 + 1][1], 1 - m2 * 0.05); });
+        at(0.025 * (m2 + 1), function () { jag(V[k][m2][0], V[k][m2][1], V[k][m2 + 1][0], V[k][m2 + 1][1], 1 - m2 * 0.06); });
       })(m2);
-      /* 外へのびる尾 */
-      if (Math.random() < 0.7) {
-        var pts = [[V[k][M][0], V[k][M][1]]], a2 = ang[k], segs = 2 + ((Math.random() * 3) | 0), seg = R * (0.06 + Math.random() * 0.12);
-        for (var s2 = 0; s2 < segs; s2++) {
-          a2 += (Math.random() - 0.5) * 0.35;
-          var lp = pts[pts.length - 1];
-          pts.push([lp[0] + Math.cos(a2) * seg, lp[1] + Math.sin(a2) * seg]);
-        }
-        for (s2 = 0; s2 < segs; s2++) (function (s2) {
-          at(0.03 * (M + 1 + s2), function () { crackLine(pts[s2][0], pts[s2][1], pts[s2 + 1][0], pts[s2 + 1][1], 0.8 - s2 * 0.12); });
-        })(s2);
+      /* 外へは、走り続けるヒビとしてのびていく */
+      if (Math.random() < 0.8) {
+        at(0.025 * (M + 1), function () {
+          spawnRunner(V[k][M][0], V[k][M][1], ang[k] + (Math.random() - 0.5) * 0.2, minG * (2.5 + Math.random() * 2), 0.82,
+            R * (0.25 + Math.pow(Math.random(), 1.5) * 2.4), 0);
+        });
       }
     })(k);
-    /* 同心円のヒビと、へこんだ破片 */
     for (m = 0; m <= M; m++) (function (m) {
       for (var k2 = 0; k2 < N; k2++) (function (k2) {
         var k3 = (k2 + 1) % N;
-        at(0.07 + 0.05 * m + Math.random() * 0.08, function () { crackLine(V[k2][m][0], V[k2][m][1], V[k3][m][0], V[k3][m][1], 0.85 - m * 0.04); });
+        {
+          at(0.06 + 0.045 * m + Math.random() * 0.1, function () { jag(V[k2][m][0], V[k2][m][1], V[k3][m][0], V[k3][m][1], 0.8 - m * 0.05); });
+        }
         var poly = m === 0 ? [[cx, cy], V[k2][0], V[k3][0]] : [V[k2][m - 1], V[k3][m - 1], V[k3][m], V[k2][m]];
-        at(0.1 + 0.05 * m, function () {
+        at(0.09 + 0.045 * m, function () {
           var sh = makeShard(poly, 0);
           var ex = cx - sh.cx, ey = cy - sh.cy, dd = Math.sqrt(ex * ex + ey * ey) || 1;
-          var dent = 0.3 * Math.exp(-dd / R * 1.4);
-          var rnd = 0.07 + 0.08 * Math.random(), ra = Math.random() * 6.2832;
-          addLeaf(sh, ex / dd * dent + Math.cos(ra) * rnd, ey / dd * dent + Math.sin(ra) * rnd);
+          var dent = 0.26 * Math.exp(-dd / R * 1.4);
+          var rnd = 0.05 + 0.07 * Math.random(), ra = Math.random() * 6.2832;
+          leaves.push(sh);
+          tiltShard(sh, ex / dd * dent + Math.cos(ra) * rnd, ey / dd * dent + Math.sin(ra) * rnd);
           scheduleSplit(sh, clock, dd / R * 0.8);
         });
       })(k2);
@@ -418,24 +510,22 @@
     W = window.innerWidth; Hc = window.innerHeight;
     cvs.width = Math.round(W * DPR); cvs.height = Math.round(Hc * DPR);
     gl.viewport(0, 0, cvs.width, cvs.height);
-    var ngs = Math.min(1, Math.sqrt(330000 / (W * Hc)));
+    var ngs = Math.min(1.25, Math.sqrt(420000 / (W * Hc)));
     var nw = Math.max(16, Math.round(W * ngs)), nh = Math.max(16, Math.round(Hc * ngs));
     if (nw === gw && nh === gh && Tx) return;
     gs = ngs; gw = nw; gh = nh; minG = Math.min(gw, gh);
-    minArea = Math.pow(minG * 0.02, 2);
+    minArea = Math.pow(minG * 0.022, 2);
     allocGrid();
     gl.bindTexture(gl.TEXTURE_2D, texM);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gw, gh, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-    /* 向きが変わったら、新しいガラスで最初から(割れ方は格子に焼いてあるので持ち越せない) */
     freshPane();
   }
   function freshPane() {
     Tx.fill(0); Ty.fill(0); Cs.fill(0); Ca.fill(0);
-    leaves = []; events = []; deadCount = 0;
+    leaves = []; events = []; runners = []; deadCount = 0;
     dirty = [0, gh - 1];
-    var started = clock;
-    events.push({ t: started + 0.6, fn: function () {
-      impact(gw * (0.42 + Math.random() * 0.16), gh * (0.38 + Math.random() * 0.14), minG * (0.42 + Math.random() * 0.1));
+    events.push({ t: clock + 0.6, fn: function () {
+      impact(gw * (0.42 + Math.random() * 0.16), gh * (0.38 + Math.random() * 0.14), minG * (0.4 + Math.random() * 0.1));
     } });
   }
 
@@ -449,12 +539,10 @@
     var hit = null, i;
     for (i = leaves.length - 1; i >= 0; i--) { var s = leaves[i]; if (!s.dead && inside(s, x, y)) { hit = s; break; } }
     if (!hit) {
-      /* まだ割れていない所: 小さく割る */
       if (!p.small && clock - lastSmall > 0.45) { p.small = true; lastSmall = clock; impact(x, y, minG * (0.1 + Math.random() * 0.05)); }
       return;
     }
     splitShard(hit, true);
-    /* まわりの破片もひとつ */
     var r = minG * 0.06, r2 = r * r, cand = [];
     for (i = leaves.length - 1; i >= 0 && cand.length < 6; i--) {
       var t = leaves[i]; if (t.dead) continue;
@@ -470,7 +558,7 @@
     hideHint();
     try { cvs.setPointerCapture(e.pointerId); } catch (err) {}
     pointers[e.pointerId] = { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t0: performance.now(),
-      moved: false, active: false, acc: 0 };
+      moved: false, active: false, acc: 0, small: false };
   });
   cvs.addEventListener('pointermove', function (e) {
     var p = pointers[e.pointerId];
@@ -482,9 +570,7 @@
   function up(e) {
     var p = pointers[e.pointerId];
     if (!p) return;
-    if (!p.active && performance.now() - p.t0 < 280) {
-      impact(p.x * gs, p.y * gs, minG * (0.24 + Math.random() * 0.2));
-    }
+    if (!p.active && performance.now() - p.t0 < 280) impact(p.x * gs, p.y * gs, minG * (0.24 + Math.random() * 0.2));
     delete pointers[e.pointerId];
   }
   cvs.addEventListener('pointerup', up);
@@ -506,8 +592,7 @@
       }
     }
 
-    /* 予定の時刻が来たヒビを走らせる(1フレームに走らせる数は抑える) */
-    var budget = 160, keep = [];
+    var budget = 220, keep = [];
     events.sort(function (a, b) { return a.t - b.t; });
     for (var i = 0; i < events.length; i++) {
       var ev = events[i];
@@ -515,36 +600,40 @@
       else keep.push(ev);
     }
     events = keep;
+    stepRunners(dt);
 
-    /* ガラスはひずみを抱えていて、ときどきどこかが勝手にピシッと割れる */
+    /* ガラスはひずみを抱えていて、ときどきどこかのヒビの端から、新しいヒビがじわっと走り出す */
     creep -= dt;
     if (creep <= 0) {
-      creep = 2.2 + Math.random() * 3.5;
-      for (var tries = 0; tries < 8 && leaves.length; tries++) {
+      creep = 3 + Math.random() * 4;
+      for (var tries = 0; tries < 10 && leaves.length; tries++) {
         var s = leaves[(Math.random() * leaves.length) | 0];
-        if (!s.dead && s.area > minArea * 3) { splitShard(s, false); break; }
+        if (s.dead) continue;
+        if (Math.random() < 0.5 && s.area > minArea * 3) { splitShard(s, false); break; }
+        var vv = s.v[(Math.random() * s.v.length) | 0];
+        spawnRunner(vv[0], vv[1], Math.random() * 6.2832, minG * 0.05, 0.6, minG * (0.08 + Math.random() * 0.3), 1);
+        break;
       }
     }
 
     upload();
 
-    var la = clock * 0.21;
+    var la = clock * 0.19;
     var lx = Math.cos(la) * 0.62, ly = Math.sin(la) * 0.62, lz = 1;
     var ll = Math.sqrt(lx * lx + ly * ly + lz * lz);
-    var cover = Math.min(W, Hc) * 0.95;
+    var cover = Math.max(W, Hc) * 1.1;
     gl.uniform1i(U.M, 0);
     gl.uniform1i(U.BG, 1);
     gl.uniform2f(U.R, cvs.width, cvs.height);
     gl.uniform2f(U.G, gw, gh);
     gl.uniform2f(U.bgS, W / cover, Hc / cover);
-    gl.uniform2f(U.drift, clock * 0.0045, clock * 0.0028);
-    gl.uniform1f(U.S, 0.3);
-    gl.uniform1f(U.S2, 5 * minG / 370);
-    gl.uniform1f(U.S3, 0.02);
+    gl.uniform2f(U.drift, 0.03 + 0.025 * Math.sin(clock * 0.031), 0.03 + 0.02 * Math.sin(clock * 0.023 + 1));
+    gl.uniform1f(U.S, 0.06);
+    gl.uniform1f(U.S3, 0.012);
     gl.uniform1f(U.D, glass.D);
     gl.uniform1f(U.Dc, glass.Dc);
     gl.uniform1f(U.K, K);
-    gl.uniform3f(U.tint, glass.tint[0], glass.tint[1], glass.tint[2]);
+    gl.uniform1f(U.sheen, Math.sin(clock * 0.13) * 1.4);
     gl.uniform3f(U.L, lx / ll, ly / ll, lz / ll);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     requestAnimationFrame(frame);
@@ -567,11 +656,11 @@
       autoHide: true,
       fullscreenButton: false,
       buttons: [
-        { label: '✦', name: 'mutate', onClick: function () {   /* ガラスの向こうの光と、ガラスの種類(虹の幅・色味)を替える。割れ方はそのまま */
+        { label: '✦', name: 'mutate', onClick: function () {   /* ガラスの向こうの景色とガラスの種類(虹の幅)を替える。割れ方はそのまま */
+          sceneIdx = (sceneIdx + 1) % SCENES.length;
           buildBG();
-          glass.D = 0.18 + Math.random() * 0.4;
-          glass.Dc = 0.45 + Math.random() * 0.6;
-          glass.tint = TINTS[(Math.random() * TINTS.length) | 0];
+          glass.D = 0.18 + Math.random() * 0.25;
+          glass.Dc = 0.5 + Math.random() * 0.7;
         } },
         { label: '↻', name: 'reset', onClick: function () { freshPane(); } }   /* 新しい一枚ガラス */
       ]
