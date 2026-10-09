@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<!-- SUNWARD — Claude(クロちゃん)作。自然のフラクタル・シリーズ4(木の枝分かれ)。MORPHING FERN の光の粒の描き方を下地にした。ap-kit.js統合: Claude -->
+<!-- 世界のルール: 指は太陽。木の枝は、どれも「2本に分かれ、少し短くなり、太陽の方へ曲がる」という同じきまりで伸びる(10段の入れ子)。
+     ただし覚えている時間が段ごとに違う。小枝はいまの太陽をすぐ追いかけ、幹は何十秒も前の太陽を覚えている。
+     だから太陽を動かすと、木の形にその歴史が残る(幹は昔の太陽へ、枝先はいまの太陽へ)。タップ=突風(根元から枝先へ揺れが伝わる)、
+     長押し=時間の早送り。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>SUNWARD — 指が太陽。幹は昔の太陽を、枝先はいまの太陽を覚えている</title>
+<script src="../ap-kit.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; padding: 0; height: 100%; background: #000; overflow: hidden; overscroll-behavior: none; }
+  body { -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none;
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  #c { position: fixed; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; }
+  #hint { position: fixed; left: 16px; right: 16px; bottom: calc(78px + env(safe-area-inset-bottom, 0px));
+    text-align: center; pointer-events: none; font-size: 11.5px; line-height: 1.85; letter-spacing: .07em;
+    color: #ffe2c4; opacity: 0; transition: opacity 2s ease; text-shadow: 0 0 14px rgba(255, 140, 60, .5); }
+  #hint.on { opacity: .72; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">なぞる ＝ 太陽を動かす。枝先はすぐ、幹はゆっくり太陽を追う<br>タップ ＝ 突風 ／ 長押し ＝ 時間を早送り</div>
+<script>
+/* ======== 光の粒エンジン(自然のフラクタル・シリーズ共通) ========
+   MORPHING FERN の描き方(粒を溜めて少しずつ消す)を作品ごとに使えるようにしたもの。
+   作品側は plot(api) で粒を打つだけ。色は作品ごとのグラデーションを24段に分けて、まとめて描く。 */
+var NF = (function () {
+  'use strict';
+  var TAU = Math.PI * 2;
+
+  function run(work) {
+    var cvs = document.getElementById('c');
+    var hint = document.getElementById('hint');
+    var ctx = cvs.getContext('2d', { alpha: false, desynchronized: true });
+    var acc = document.createElement('canvas');
+    var actx = acc.getContext('2d', { alpha: false, desynchronized: true });
+
+    var W = 0, H = 0, DPR = 1, RES_CAP = 2200000, MAXDT = 0.05;
+    var NB = 24, CAP = 26000;
+    var dx = new Float32Array(CAP), dy = new Float32Array(CAP), dc = new Uint8Array(CAP);
+    var ox = new Float32Array(CAP), oy = new Float32Array(CAP);
+    var cnt = 0, counts = new Int32Array(NB * 2), starts = new Int32Array(NB * 2);
+    var fills = [], fillsHi = [], rgbs = [];
+
+    /* ---- 色: 作品のグラデーションから24段 ---- */
+    function setPalette(stops, alphaLo, alphaHi) {
+      fills = []; fillsHi = []; rgbs = [];
+      for (var i = 0; i < NB; i++) {
+        var t = i / (NB - 1), k = 0;
+        while (k < stops.length - 2 && t > stops[k + 1][0]) k++;
+        var a = stops[k], b = stops[k + 1];
+        var u = Math.max(0, Math.min(1, (t - a[0]) / Math.max(1e-6, b[0] - a[0])));
+        var r = Math.round(a[1] + (b[1] - a[1]) * u), g = Math.round(a[2] + (b[2] - a[2]) * u), bl = Math.round(a[3] + (b[3] - a[3]) * u);
+        rgbs.push([r, g, bl]);
+        fills.push('rgba(' + r + ',' + g + ',' + bl + ',' + alphaLo + ')');
+        fillsHi.push('rgba(' + r + ',' + g + ',' + bl + ',' + alphaHi + ')');
+      }
+    }
+
+    /* ---- 発光スプライト(色ごとに作って使い回す) ---- */
+    var spriteCache = {};
+    function spriteFor(c) {
+      var i = Math.max(0, Math.min(NB - 1, Math.round(c * (NB - 1))));
+      var key = i + ':' + rgbs[i].join(',');
+      if (spriteCache[key]) return spriteCache[key];
+      var s = document.createElement('canvas'); s.width = s.height = 64;
+      var g2 = s.getContext('2d'), rgb = rgbs[i];
+      var gr = g2.createRadialGradient(32, 32, 0, 32, 32, 32);
+      gr.addColorStop(0, 'rgba(255,255,255,0.95)');
+      gr.addColorStop(0.12, 'rgba(' + rgb + ',0.5)');
+      gr.addColorStop(0.34, 'rgba(' + rgb + ',0.13)');
+      gr.addColorStop(0.66, 'rgba(' + rgb + ',0.035)');
+      gr.addColorStop(1, 'rgba(' + rgb + ',0)');
+      g2.fillStyle = gr; g2.fillRect(0, 0, 64, 64);
+      spriteCache[key] = s;
+      return s;
+    }
+
+    var api = {
+      W: 0, H: 0, min: 1, now: 0, dt: 0, quality: 2, TAU: TAU,
+      ptr: { x: 0, y: 0, down: false, held: 0, drag: false },
+      /* 粒を1つ打つ。c=色(0..1)、hi=明るい段 */
+      dot: function (x, y, c, hi) {
+        if (cnt >= CAP) return;
+        if (x < -4 || y < -4 || x > W + 4 || y > H + 4) return;
+        var i = (c * (NB - 1) + 0.5) | 0;
+        if (i < 0) i = 0; else if (i >= NB) i = NB - 1;
+        dx[cnt] = x * DPR; dy[cnt] = y * DPR; dc[cnt] = hi ? i + NB : i; cnt++;
+      },
+      /* にじむ光(溜める層へ) */
+      glow: function (x, y, r, c, a) {
+        var pa = actx.globalAlpha;
+        actx.globalCompositeOperation = 'lighter';
+        actx.globalAlpha = a;
+        actx.drawImage(spriteFor(c), (x - r) * DPR, (y - r) * DPR, r * 2 * DPR, r * 2 * DPR);
+        actx.globalAlpha = pa;
+      },
+      /* にじむ光(その場だけ、溜めない) */
+      flare: function (x, y, r, c, a) {
+        var pa = ctx.globalAlpha;
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = a;
+        ctx.drawImage(spriteFor(c), x - r, y - r, r * 2, r * 2);
+        ctx.globalAlpha = pa;
+      },
+      clear: function () {
+        actx.setTransform(1, 0, 0, 1, 0, 0);
+        actx.globalCompositeOperation = 'source-over'; actx.globalAlpha = 1;
+        actx.fillStyle = '#000'; actx.fillRect(0, 0, acc.width, acc.height);
+      },
+      palette: setPalette,
+      rand: Math.random,
+      hideHint: function () { hint.classList.remove('on'); }
+    };
+
+    function resize() {
+      var w = cvs.clientWidth || window.innerWidth;
+      var h = cvs.clientHeight || window.innerHeight;
+      if (w === W && h === H && cvs.width > 1) return;
+      W = w; H = h;
+      DPR = Math.min(window.devicePixelRatio || 1, 2);
+      if (w * h * DPR * DPR > RES_CAP) DPR = Math.max(1, Math.sqrt(RES_CAP / (w * h)));
+      cvs.width = Math.max(1, Math.round(w * DPR));
+      cvs.height = Math.max(1, Math.round(h * DPR));
+      acc.width = cvs.width; acc.height = cvs.height;
+      api.W = W; api.H = H; api.min = Math.min(W, H);
+      api.clear();
+      if (work.resize) work.resize(api);
+    }
+
+    /* ---- 操作: 押した瞬間 / 短く離す=タップ / 押したまま=長押し / 動かす=なぞる ---- */
+    var p = api.ptr, downAt = 0, sx = 0, sy = 0, lx = 0, ly = 0, pid = null, holding = false;
+    function toXY(e) { var r = cvs.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+    cvs.addEventListener('pointerdown', function (e) {
+      if (window.APKit && APKit.isUI(e.clientX, e.clientY)) return;
+      if (pid !== null) return;
+      pid = e.pointerId;
+      try { cvs.setPointerCapture(e.pointerId); } catch (err) {}
+      var q = toXY(e);
+      p.x = sx = lx = q.x; p.y = sy = ly = q.y; p.down = true; p.held = 0; p.drag = false; holding = false;
+      downAt = performance.now();
+      if (api.now > 1.2) api.hideHint();
+      if (work.down) work.down(api, q.x, q.y);
+      e.preventDefault();
+    }, { passive: false });
+    cvs.addEventListener('pointermove', function (e) {
+      if (e.pointerId !== pid) return;
+      var q = toXY(e);
+      p.x = q.x; p.y = q.y;
+      if (!p.drag && !holding && Math.hypot(q.x - sx, q.y - sy) > 12) p.drag = true;
+      if (p.drag && work.drag) work.drag(api, q.x, q.y, q.x - lx, q.y - ly);
+      lx = q.x; ly = q.y;
+    }, { passive: true });
+    function up(e) {
+      if (e.pointerId !== pid) return;
+      pid = null;
+      var q = toXY(e), t = (performance.now() - downAt) / 1000;
+      p.down = false;
+      if (holding) { if (work.release) work.release(api, q.x, q.y, p.held); }
+      else if (!p.drag && t < 0.4) { if (work.tap) work.tap(api, q.x, q.y); }
+      else if (p.drag && work.dragEnd) work.dragEnd(api, q.x, q.y);
+      holding = false; p.drag = false; p.held = 0;
+    }
+    cvs.addEventListener('pointerup', up);
+    cvs.addEventListener('pointercancel', up);
+    document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
+    document.addEventListener('dblclick', function (e) { e.preventDefault(); });
+    if (window.ResizeObserver) new ResizeObserver(function () { resize(); }).observe(cvs);
+    window.addEventListener('resize', function () { setTimeout(resize, 120); });
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', function () { setTimeout(resize, 120); });
+    document.addEventListener('visibilitychange', function () { last = 0; });
+
+    /* ---- 描画 ---- */
+    var floorT = 0;
+    function clearResidue() {
+      actx.save();
+      actx.setTransform(1, 0, 0, 1, 0, 0);
+      actx.globalAlpha = 1;
+      actx.globalCompositeOperation = 'difference'; actx.fillStyle = '#fff'; actx.fillRect(0, 0, acc.width, acc.height);
+      actx.globalCompositeOperation = 'lighter'; actx.fillStyle = 'rgb(1,1,1)'; actx.fillRect(0, 0, acc.width, acc.height);
+      actx.globalCompositeOperation = 'difference'; actx.fillStyle = '#fff'; actx.fillRect(0, 0, acc.width, acc.height);
+      actx.restore();
+    }
+    function flush() {
+      var i, k;
+      counts.fill(0);
+      for (i = 0; i < cnt; i++) counts[dc[i]]++;
+      var s = 0;
+      for (k = 0; k < NB * 2; k++) { starts[k] = s; s += counts[k]; }
+      var pos = starts.slice();
+      for (i = 0; i < cnt; i++) { var b = dc[i], j = pos[b]++; ox[j] = dx[i]; oy[j] = dy[i]; }
+      actx.globalCompositeOperation = 'lighter';
+      actx.globalAlpha = 1;
+      var sz = Math.max(1, DPR * 1.05), szH = Math.max(1.4, DPR * 1.45);
+      for (k = 0; k < NB * 2; k++) {
+        if (!counts[k]) continue;
+        var hi = k >= NB, z = hi ? szH : sz;
+        actx.fillStyle = hi ? fillsHi[k - NB] : fills[k];
+        var e = starts[k] + counts[k];
+        for (i = starts[k]; i < e; i++) actx.fillRect(ox[i], oy[i], z, z);
+      }
+      cnt = 0;
+    }
+
+    var last = 0, perfAcc = 0, perfN = 0;
+    function frame(ts) {
+      if (!last) last = ts;
+      var dt = (ts - last) / 1000; last = ts;
+      if (dt > MAXDT) dt = MAXDT;
+      if (dt < 0.0005) dt = 0.0005;
+      api.now += dt; api.dt = dt;
+      if (p.down && !p.drag) {
+        var t = (performance.now() - downAt) / 1000;
+        if (!holding && t >= 0.4) { holding = true; if (work.holdStart) work.holdStart(api, p.x, p.y); }
+        if (holding) { p.held += dt; if (work.hold) work.hold(api, p.x, p.y, dt); }
+      }
+      if (work.update) work.update(api, dt);
+
+      var fadeA = 1 - Math.exp(-(work.fade || 1.25) * dt);
+      if (fadeA < 0.001) fadeA = 0.001;
+      actx.setTransform(1, 0, 0, 1, 0, 0);
+      actx.globalCompositeOperation = 'source-over'; actx.globalAlpha = 1;
+      actx.fillStyle = 'rgba(0,0,0,' + fadeA.toFixed(5) + ')';
+      actx.fillRect(0, 0, acc.width, acc.height);
+      floorT += dt;
+      if (floorT >= 0.05) { floorT = 0; clearResidue(); }
+
+      work.plot(api);
+      flush();
+
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+      ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+      if (work.background) work.background(api, ctx); else { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); }
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.drawImage(acc, 0, 0, acc.width, acc.height, 0, 0, W, H);
+      if (work.overlay) work.overlay(api, ctx);
+      ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+
+      perfAcc += dt * 1000; perfN++;
+      if (perfN >= 90) { if (perfAcc / perfN > 26 && api.quality === 2) api.quality = 1; perfAcc = 0; perfN = 0; }
+      requestAnimationFrame(frame);
+    }
+
+    api.ctx = ctx;
+    if (work.init) work.init(api);
+    resize();
+    setTimeout(function () { hint.classList.add('on'); }, 550);
+    setTimeout(api.hideHint, 7500);
+    requestAnimationFrame(frame);
+    window.__api = api;
+
+    if (window.APKit) {
+      window.APKit.init({
+        canvas: cvs,
+        gifName: work.name,
+        clockFormat: 'spec',
+        dock: true,
+        autoHide: true,
+        fullscreenButton: false,
+        buttons: [
+          { label: '✦', name: 'mutate', onClick: function () { work.mutate(api); } },
+          { label: '↻', name: 'reset', onClick: function () { api.clear(); work.reset(api); } }
+        ]
+      });
+    }
+    return api;
+  }
+  return { run: run };
+})();
+
+(function () {
+  'use strict';
+  var D = 10, NN = 1 << (D + 1);
+  var sx = new Float32Array(NN), sy = new Float32Array(NN), ex = new Float32Array(NN), ey = new Float32Array(NN), ang = new Float32Array(NN);
+  var jit = new Float32Array(NN), jl = new Float32Array(NN), lit = new Float32Array(NN);
+  var sun = { x: 0, y: 0 }, mem = [], TAU_L = [], grow, speed, gusts, spread, ratio, rootX, rootY, L0, W0 = 1, H0 = 1;
+
+  function seedTree() {
+    for (var n = 1; n < NN; n++) { jit[n] = (Math.random() - 0.5) * 0.7; jl[n] = 0.82 + Math.random() * 0.3; }
+    spread = 0.30 + Math.random() * 0.12; ratio = 0.72 + Math.random() * 0.04;
+  }
+  function resetAll(api) {
+    seedTree(); grow = 0.6; gusts = [];
+    sun.x = api.W * 0.26; sun.y = api.H * 0.2;
+    mem = []; TAU_L = [];
+    for (var L = 0; L <= D; L++) { mem.push({ x: sun.x, y: sun.y }); TAU_L.push(40 * Math.pow(0.66, L) + 0.6); }   /* 幹は約40秒、小枝は1秒弱 */
+  }
+
+  function build(api) {
+    var now = api.now, n, L;
+    /* 根元 */
+    for (n = 1; n < NN; n++) {
+      L = 31 - Math.clz32(n);                         /* 段(0=幹) */
+      var vis = Math.max(0, Math.min(1, grow - L));
+      var px, py, pa;
+      if (n === 1) { px = rootX; py = rootY; pa = -Math.PI / 2; }
+      else { var p = n >> 1; px = ex[p]; py = ey[p]; pa = ang[p]; }
+      var side = n === 1 ? 0 : (n & 1 ? 1 : -1);
+      var a = pa + side * spread * (1 + jit[n]);
+      /* その段が覚えている太陽の方へ曲がる */
+      var m = mem[L], ta = Math.atan2(m.y - py, m.x - px), d = ta - a;
+      d = Math.atan2(Math.sin(d), Math.cos(d));
+      a += d * (0.13 + 0.07 * L / D);
+      /* 揺れ: いつもの風 + 突風(根元から枝先へ遅れて伝わる) */
+      var sw = Math.sin(now * (1.1 + L * 0.07) + n * 0.61) * 0.012 * L / D;
+      for (var g = 0; g < gusts.length; g++) {
+        var e = now - gusts[g].t - L * 0.09;
+        if (e > 0) sw += gusts[g].a * Math.exp(-e * 1.6) * Math.sin(e * 7 + n * 0.3) * (0.03 + 0.05 * L / D);
+      }
+      a += sw;
+      var len = L0 * Math.pow(ratio, L) * jl[n] * vis;
+      ang[n] = a; sx[n] = px; sy[n] = py; ex[n] = px + Math.cos(a) * len; ey[n] = py + Math.sin(a) * len;
+      var la = Math.atan2(sun.y - ey[n], sun.x - ex[n]) - a;
+      lit[n] = 0.5 + 0.5 * Math.cos(la);               /* 太陽を向いている枝ほど明るい */
+    }
+  }
+
+  var LW = [];
+  var work = {
+    name: 'sunward',
+    fade: 2.6,
+    init: function (api) {
+      api.palette([[0, 50, 8, 18], [0.25, 140, 26, 30], [0.48, 232, 80, 38], [0.68, 255, 150, 52], [0.85, 255, 206, 120], [1, 255, 244, 214]], 0.36, 0.7);
+      speed = 1;
+    },
+    resize: function (api) {
+      var first = W0 === 1;
+      rootX = api.W * 0.5; rootY = api.H * 0.86; L0 = Math.min(api.H * 0.2, api.W * 0.33);
+      if (first) resetAll(api);
+      else { sun.x *= api.W / W0; sun.y *= api.H / H0; for (var L = 0; L <= D; L++) { mem[L].x *= api.W / W0; mem[L].y *= api.H / H0; } }
+      W0 = api.W; H0 = api.H;
+    },
+    down: function (api, x, y) { },
+    drag: function (api, x, y) { sun.x = x; sun.y = y; },
+    tap: function (api, x, y) { gusts.push({ t: api.now, a: x < api.W / 2 ? -1 : 1 }); if (gusts.length > 4) gusts.shift(); },
+    holdStart: function () { speed = 7; },
+    release: function () { speed = 1; },
+    mutate: function (api) { seedTree(); grow = Math.min(grow, 3); },      /* 別の木の種から育て直す(太陽の記憶はそのまま) */
+    reset: function (api) { resetAll(api); },
+    update: function (api, dt) {
+      var t = dt * speed;
+      grow = Math.min(D + 1, grow + t * 0.45);
+      for (var L = 0; L <= D; L++) { var k = 1 - Math.exp(-t / TAU_L[L]); mem[L].x += (sun.x - mem[L].x) * k; mem[L].y += (sun.y - mem[L].y) * k; }
+      for (var g = gusts.length - 1; g >= 0; g--) if (api.now - gusts[g].t > 5) gusts.splice(g, 1);
+      build(api);
+    },
+    plot: function (api) {
+      var n = (api.quality === 2 ? 9000 : 5200) * Math.min(1, 0.04 + Math.pow(grow / D, 2)), k, L;
+      if (!LW.length) for (L = 0; L <= D; L++) LW.push(Math.pow(2 * ratio, L) * (1 + 7 * Math.pow(0.62, L)));
+      var tot = 0, cum = [];
+      for (L = 0; L <= D; L++) { tot += LW[L] * Math.max(0, Math.min(1, grow - L)); cum.push(tot); }
+      if (tot <= 0) return;
+      for (k = 0; k < n; k++) {
+        var q = Math.random() * tot;
+        for (L = 0; L < D && cum[L] < q; L++);
+        var node = (1 << L) + ((Math.random() * (1 << L)) | 0);
+        var t = Math.random(), x = sx[node] + (ex[node] - sx[node]) * t, y = sy[node] + (ey[node] - sy[node]) * t;
+        var w = L0 * 0.07 * Math.pow(0.68, L) * (1.15 - t * 0.3);
+        var o = (Math.random() - 0.5) * 2 * w, a = ang[node];
+        x += -Math.sin(a) * o; y += Math.cos(a) * o;
+        var side = o * Math.cos(a + Math.PI / 2 - Math.atan2(sun.y - y, sun.x - x));   /* 太陽側の面 */
+        var c = 0.06 + 0.5 * L / D + 0.32 * lit[node] * (0.4 + 0.6 * L / D) + (side < 0 ? 0.08 : -0.04);
+        api.dot(x, y, c, L === D && t > 0.85 && Math.random() < 0.5);
+      }
+      /* 枝先の花(葉) */
+      for (k = 0; k < 40; k++) {
+        if (grow < D + 0.5) break;
+        var tip = (1 << D) + ((Math.random() * (1 << D)) | 0);
+        api.glow(ex[tip], ey[tip], 3 + Math.random() * 4, 0.7 + 0.3 * lit[tip], 0.12);
+      }
+    },
+    overlay: function (api, ctx) {
+      api.flare(sun.x, sun.y, api.min * 0.13, 0.9, 0.85);
+      api.flare(sun.x, sun.y, api.min * 0.32, 0.72, 0.4);
+      api.flare(sun.x, sun.y, api.min * 0.9, 0.55, 0.14);
+    }
+  };
+  NF.run(work);
+})();
+</script>
+</body>
+</html>
