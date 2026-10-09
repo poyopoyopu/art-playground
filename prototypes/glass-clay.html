@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<!-- GLASS CLAY — クロちゃん(Claude)作。おっちゃんが見せてくれたYMM4プラグイン「I_DistortChroma」(Panko200氏、MITライセンス:
+     画像の明暗差からバンプマップを計算し、光の屈折に従ってRGBがずれて描画される)の仕組みを、ブラウザ(WebGL)で一から組み直した作品。
+     プラグインのコードは使っていない。ap-kit.js統合: クロちゃん -->
+<!-- 世界のルール: このガラスには色が無い。色は、光がガラスの「斜面」で曲がるとき、波長ごとに曲がり方が違うせいでだけ生まれる。
+     だから平らな所は灰色のまま、斜面(細胞の壁)にだけ虹が立つ。ガラスはやわらかく、指で動かせる。
+     ・なぞる … ガラスを押し流す。壁ごと動くので、虹も一緒についてくる。
+     ・タップ … 泡をひとつ吹き込む。まわりの細胞は押しのけられて詰まり、新しい泡の壁に虹の輪が立つ。
+     ・押さえる(約0.3秒じっと) … そこが溶けて平らになる。平らになった所からは色が消え、透明な窓になる。溶けた所は自分では戻らない。
+     ・✦ … ガラスの種類を替える(屈折の強さ・虹の幅・光の色)。形はそのまま。
+     ・↻ … 新しいガラス(別の細胞模様)。
+     細胞は3階層(大きな細胞の壁の間に、小さな細胞、その間にさらに小さな細胞)を重ねている。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>GLASS CLAY — 色はガラスの斜面にだけ生まれる</title>
+<script src="../ap-kit.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; padding: 0; height: 100%; background: #2a2c31; overflow: hidden; overscroll-behavior: none; }
+  body {
+    -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none;
+    user-select: none; -webkit-user-select: none;
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  }
+  #c { position: fixed; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; }
+  #hint {
+    position: fixed; left: 0; right: 0; bottom: calc(78px + env(safe-area-inset-bottom, 0px));
+    text-align: center; pointer-events: none; font-size: 12px; line-height: 1.9; letter-spacing: .07em;
+    color: #f2f4f8; opacity: 0; transition: opacity 1.6s ease;
+    text-shadow: 0 1px 10px rgba(0, 0, 0, .7);
+  }
+  #hint.on { opacity: .85; }
+  #nogl { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; color: #ddd; font-size: 14px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">なぞる ＝ ガラスを押し流す　タップ ＝ 泡を吹き込む<br>押さえる ＝ 溶かして平らに（そこから色が消える）</div>
+<div id="nogl">WebGLが使えない環境です</div>
+<script>
+(function () {
+  'use strict';
+
+  var cvs = document.getElementById('c');
+  var hint = document.getElementById('hint');
+  var gl = cvs.getContext('webgl', { antialias: false, alpha: false, depth: false, stencil: false,
+    premultipliedAlpha: false, preserveDrawingBuffer: true, powerPreference: 'high-performance' });
+  if (!gl) { document.getElementById('nogl').style.display = 'flex'; return; }
+
+  /* ---------- シェーダ ----------
+     テクスチャ(格子)の R,G = 高さの傾き(x,y)、B = 明るさ(高さから作った「元の絵」)。
+     各画素で、傾きに沿って「元の絵」を少しずらして読む。ずらす量を波長(赤→紫)ごとに少しずつ変えて
+     12回読み、波長の色で足し合わせる。平らな所(傾き0)は12回とも同じ所を読むので灰色のまま、
+     斜面では読む場所が波長ごとにずれて、虹のにじみになる。 */
+  var VS = 'attribute vec2 p;void main(){gl_Position=vec4(p,0.0,1.0);}';
+  var FS = [
+    'precision highp float;',
+    'uniform sampler2D T;uniform vec2 R;uniform vec2 G;',
+    'uniform float S;uniform float D;uniform vec3 tint;uniform vec3 L;uniform float K;',
+    'vec3 wave(float t){',
+    '  vec3 c=vec3(0.13,0.50,0.87);',
+    '  vec3 d=clamp(1.0-abs(t-c)/vec3(0.36,0.33,0.36),0.0,1.0);',
+    '  return d*d*(3.0-2.0*d);',
+    '}',
+    'void main(){',
+    '  vec2 uv=vec2(gl_FragCoord.x/R.x,1.0-gl_FragCoord.y/R.y);',
+    '  vec4 c0=texture2D(T,uv);',
+    '  vec2 g=(c0.rg-0.5)/K;',
+    '  vec2 st=g*S/G;',
+    '  vec3 acc=vec3(0.0);vec3 ws=vec3(0.0);',
+    '  for(int i=0;i<12;i++){',
+    '    float t=(float(i)+0.5)/12.0;',
+    '    float f=1.0+D*(t-0.5)*2.0;',
+    '    float b=texture2D(T,uv-st*f).b;',
+    '    vec3 w=wave(t);',
+    '    acc+=w*b;ws+=w;',
+    '  }',
+    '  vec3 col=acc/ws;',
+    '  col=0.2+0.8*pow(col,vec3(0.92));',
+    '  col*=tint;',
+    '  vec3 n=normalize(vec3(-g*1.6,1.0));',
+    '  float sp=pow(max(dot(n,L),0.0),48.0);',
+    '  col+=sp*0.28*vec3(0.95,0.97,1.0);',
+    '  vec2 q=uv-0.5;',
+    '  col*=1.0-0.28*dot(q,q)*2.0;',
+    '  gl_FragColor=vec4(clamp(col,0.0,1.0),1.0);',
+    '}'
+  ].join('\n');
+
+  function sh(type, src) {
+    var s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) { console.error(gl.getShaderInfoLog(s)); }
+    return s;
+  }
+  var prog = gl.createProgram();
+  gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS));
+  gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
+  gl.linkProgram(prog);
+  gl.useProgram(prog);
+  var buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+  var aP = gl.getAttribLocation(prog, 'p');
+  gl.enableVertexAttribArray(aP);
+  gl.vertexAttribPointer(aP, 2, gl.FLOAT, false, 0, 0);
+  var U = {};
+  ['T', 'R', 'G', 'S', 'D', 'tint', 'L', 'K'].forEach(function (k) { U[k] = gl.getUniformLocation(prog, k); });
+  var K = 0.42;   /* 傾きを0..255に詰めるときの倍率(±1.2まで) */
+
+  var tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+
+  /* ---------- ガラス(高さの格子) ---------- */
+  var W = 0, Hc = 0, DPR = 1;       /* CSS px */
+  var gw = 0, gh = 0, gs = 1;       /* 格子の大きさ、CSS px → 格子 の倍率 */
+  var Hh = null, scratch = null, px = null;
+  var minG = 1;
+  var dirty = null;                 /* [y0, y1] 書き直しが要る行 */
+
+  /* ガラスの種類(✦で替わる) */
+  var glass = { S: 19, D: 1.05, tint: [0.93, 0.96, 1.04] };
+  var TINTS = [[0.93, 0.96, 1.04], [1.02, 0.98, 0.93], [0.95, 1.0, 0.98], [1.0, 0.95, 1.03], [0.97, 0.97, 0.97]];
+  var seed = (Math.random() * 1e9) | 0;
+
+  function hash(ix, iy, s) {
+    var h = (ix * 374761393 + iy * 668265263 + s * 2246822519) | 0;
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    h = h ^ (h >>> 16);
+    return (h >>> 0) / 4294967296;
+  }
+
+  /* 3階層の細胞の壁(ボロノイの境界)を重ねて、高さを作る */
+  function buildGlass() {
+    var c0 = minG * (0.11 + hash(1, 2, seed) * 0.04);
+    var ratio = 2.3 + hash(3, 4, seed) * 0.5;
+    var sizes = [c0, c0 / ratio, c0 / ratio / ratio];
+    var amps = [1.0, 0.45, 0.18];
+    var A = c0 * 0.22;
+    var f1 = 6.2831 / (c0 * 3.3), f2 = 6.2831 / (c0 * 2.1);
+    var p1 = hash(5, 6, seed) * 6.28, p2 = hash(7, 8, seed) * 6.28, p3 = hash(9, 1, seed) * 6.28, p4 = hash(2, 9, seed) * 6.28;
+    for (var y = 0; y < gh; y++) {
+      for (var x = 0; x < gw; x++) {
+        var wx = x + A * (Math.sin(y * f1 + p1) + 0.6 * Math.sin((x + y) * f2 + p2));
+        var wy = y + A * (Math.sin(x * f1 + p3) + 0.6 * Math.sin((x - y) * f2 + p4));
+        var hsum = 0;
+        for (var o = 0; o < 3; o++) {
+          var c = sizes[o];
+          var gx = wx / c, gy = wy / c;
+          var ix = Math.floor(gx), iy = Math.floor(gy);
+          var F1 = 9, F2 = 9;
+          for (var j = -1; j <= 1; j++) {
+            for (var k = -1; k <= 1; k++) {
+              var cx = ix + j, cy = iy + k;
+              var sx = cx + 0.1 + 0.8 * hash(cx, cy, seed + o * 101);
+              var sy = cy + 0.1 + 0.8 * hash(cy, cx, seed + o * 211 + 7);
+              var dx = sx - gx, dy = sy - gy;
+              var d = Math.sqrt(dx * dx + dy * dy);
+              if (d < F1) { F2 = F1; F1 = d; } else if (d < F2) { F2 = d; }
+            }
+          }
+          var e = (F2 - F1) * c;
+          var w = c * 0.07 + 1.0;
+          /* 壁(境界)は細く高く、細胞の中はゆるいドーム。ドームの斜面が、細胞の中にも淡い虹を出す */
+          var dome = 1 - F1 * 1.15; if (dome < 0) dome = 0;
+          hsum += amps[o] * (Math.exp(-e / w) + 0.32 * dome * dome);
+        }
+        Hh[y * gw + x] = hsum;
+      }
+    }
+    dirty = [0, gh - 1];
+  }
+
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth; Hc = window.innerHeight;
+    cvs.width = Math.round(W * DPR); cvs.height = Math.round(Hc * DPR);
+    gl.viewport(0, 0, cvs.width, cvs.height);
+    gs = Math.min(1, Math.sqrt(330000 / (W * Hc)));
+    var nw = Math.max(16, Math.round(W * gs)), nh = Math.max(16, Math.round(Hc * gs));
+    if (nw === gw && nh === gh && Hh) return;
+    var old = Hh, ow = gw, oh = gh;
+    gw = nw; gh = nh; minG = Math.min(gw, gh);
+    Hh = new Float32Array(gw * gh);
+    scratch = new Float32Array(gw * gh);
+    px = new Uint8Array(gw * gh * 4);
+    if (old) {
+      /* 向きが変わっても、作ったガラスは引き伸ばして持ち越す */
+      for (var y = 0; y < gh; y++) for (var x = 0; x < gw; x++) {
+        var sx = Math.min(ow - 1, Math.floor(x * ow / gw)), sy = Math.min(oh - 1, Math.floor(y * oh / gh));
+        Hh[y * gw + x] = old[sy * ow + sx];
+      }
+      dirty = [0, gh - 1];
+    } else {
+      buildGlass();
+    }
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gw, gh, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    dirty = [0, gh - 1];
+  }
+
+  function markDirty(y0, y1) {
+    y0 = Math.max(0, y0 | 0); y1 = Math.min(gh - 1, y1 | 0);
+    if (!dirty) dirty = [y0, y1];
+    else { dirty[0] = Math.min(dirty[0], y0); dirty[1] = Math.max(dirty[1], y1); }
+  }
+
+  /* 書き直しが要る行だけ、傾きと明るさを詰めてGPUへ送る */
+  function upload() {
+    if (!dirty) return;
+    var y0 = Math.max(0, dirty[0] - 1), y1 = Math.min(gh - 1, dirty[1] + 1);
+    for (var y = y0; y <= y1; y++) {
+      var ym = y > 0 ? y - 1 : y, yp = y < gh - 1 ? y + 1 : y;
+      for (var x = 0; x < gw; x++) {
+        var xm = x > 0 ? x - 1 : x, xp = x < gw - 1 ? x + 1 : x;
+        var i = y * gw + x;
+        var gx = (Hh[y * gw + xp] - Hh[y * gw + xm]) * 0.5;
+        var gy = (Hh[yp * gw + x] - Hh[ym * gw + x]) * 0.5;
+        var h = Hh[i];
+        var t = (h - 0.05) / 1.25; t = t < 0 ? 0 : (t > 1 ? 1 : t);
+        t = t * t * (3 - 2 * t);
+        var r = 128 + gx * K * 255, g = 128 + gy * K * 255;
+        var o = i * 4;
+        px[o] = r < 0 ? 0 : (r > 255 ? 255 : r);
+        px[o + 1] = g < 0 ? 0 : (g > 255 ? 255 : g);
+        px[o + 2] = t * 255;
+        px[o + 3] = 255;
+      }
+    }
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y0, gw, y1 - y0 + 1, gl.RGBA, gl.UNSIGNED_BYTE,
+      px.subarray(y0 * gw * 4, (y1 + 1) * gw * 4));
+    dirty = null;
+  }
+
+  function sampleScratch(x, y) {
+    if (x < 0) x = 0; else if (x > gw - 1.001) x = gw - 1.001;
+    if (y < 0) y = 0; else if (y > gh - 1.001) y = gh - 1.001;
+    var ix = x | 0, iy = y | 0, fx = x - ix, fy = y - iy;
+    var i = iy * gw + ix;
+    var a = scratch[i], b = scratch[i + 1], c = scratch[i + gw], d = scratch[i + gw + 1];
+    return (a + (b - a) * fx) + ((c + (d - c) * fx) - (a + (b - a) * fx)) * fy;
+  }
+  function copyBox(x0, y0, x1, y1) {
+    for (var y = y0; y <= y1; y++) {
+      var o = y * gw;
+      for (var x = x0; x <= x1; x++) scratch[o + x] = Hh[o + x];
+    }
+  }
+  function clampBox(cx, cy, r, m) {
+    return [Math.max(0, Math.floor(cx - r - m)), Math.max(0, Math.floor(cy - r - m)),
+            Math.min(gw - 1, Math.ceil(cx + r + m)), Math.min(gh - 1, Math.ceil(cy + r + m))];
+  }
+
+  /* なぞる: 指のまわりのガラスを、指の動いた分だけ押し流す(中心ほど強く) */
+  function smear(cx, cy, dx, dy) {
+    var R = minG * 0.085;
+    var len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 0.01) return;
+    var n = Math.ceil(len / (R * 0.22));
+    var sx = dx / n, sy = dy / n;
+    for (var s = 0; s < n; s++) {
+      var px0 = cx - dx + sx * (s + 1), py0 = cy - dy + sy * (s + 1);
+      var bb = clampBox(px0, py0, R, Math.abs(sx) + Math.abs(sy) + 2);
+      copyBox(bb[0], bb[1], bb[2], bb[3]);
+      var bx = clampBox(px0, py0, R, 0);
+      for (var y = bx[1]; y <= bx[3]; y++) {
+        for (var x = bx[0]; x <= bx[2]; x++) {
+          var ex = x - px0, ey = y - py0;
+          var q = (ex * ex + ey * ey) / (R * R);
+          if (q >= 1) continue;
+          var f = (1 - q); f = f * f;
+          Hh[y * gw + x] = sampleScratch(x - sx * f, y - sy * f);
+        }
+      }
+      markDirty(bx[1], bx[3]);
+    }
+  }
+
+  /* 押さえる: そこのガラスが溶けて、壁がならされていく(高さの合計はほぼ変わらない) */
+  function melt(cx, cy, R, k) {
+    var bb = clampBox(cx, cy, R, 2);
+    for (var it = 0; it < 5; it++) {
+      copyBox(bb[0], bb[1], bb[2], bb[3]);
+      for (var y = bb[1] + 1; y < bb[3]; y++) {
+        for (var x = bb[0] + 1; x < bb[2]; x++) {
+          var ex = x - cx, ey = y - cy;
+          var q = (ex * ex + ey * ey) / (R * R);
+          if (q >= 1) continue;
+          var f = (1 - q); f = f * f * k;
+          var i = y * gw + x;
+          var avg = (scratch[i - 1] + scratch[i + 1] + scratch[i - gw] + scratch[i + gw]) * 0.25;
+          Hh[i] = scratch[i] + (avg - scratch[i]) * f;
+        }
+      }
+    }
+    markDirty(bb[1], bb[3]);
+  }
+
+  /* タップ: 泡をひとつ吹き込む。泡は数フレームかけてふくらみ、まわりの細胞を外へ押しのけて詰める */
+  var bubbles = [];
+  function blowBubble(cx, cy) {
+    var rmax = minG * (0.045 + Math.random() * 0.045);
+    var w = Math.max(1.1, rmax * 0.07);
+    bubbles.push({ x: cx, y: cy, r: 0, rmax: rmax, w: w, born: false });
+  }
+  function stepBubble(b) {
+    var rNew = Math.min(b.rmax, b.r + Math.max(1.2, (b.rmax - b.r) * 0.28));
+    var w = b.w;
+    var R2 = rNew * 1.9 + minG * 0.03;
+    var inner = 0.3;
+    var bb = clampBox(b.x, b.y, R2, 2);
+    copyBox(bb[0], bb[1], bb[2], bb[3]);
+    if (!b.born) {
+      /* 生まれた瞬間: 小さな泡の壁を置く */
+      var r0 = Math.max(2, w * 2.5);
+      for (var y = bb[1]; y <= bb[3]; y++) for (var x = bb[0]; x <= bb[2]; x++) {
+        var dx = x - b.x, dy = y - b.y, r = Math.sqrt(dx * dx + dy * dy);
+        if (r > r0 + w * 4) continue;
+        var wall = Math.exp(-Math.abs(r - r0) / w);
+        var keep = r < r0 ? 0 : Math.min(1, (r - r0) / (w * 4));
+        Hh[y * gw + x] = (r < r0 ? inner : scratch[y * gw + x] * keep) + wall;
+      }
+      b.r = r0; b.born = true;
+      markDirty(bb[1], bb[3]);
+      return;
+    }
+    var a0 = b.r - w * 3, a1 = rNew - w * 3;
+    if (a0 < 0) a0 = 0;
+    for (var y2 = bb[1]; y2 <= bb[3]; y2++) for (var x2 = bb[0]; x2 <= bb[2]; x2++) {
+      var ex = x2 - b.x, ey = y2 - b.y, rr = Math.sqrt(ex * ex + ey * ey);
+      if (rr >= R2) continue;
+      var i = y2 * gw + x2;
+      if (rr < a1) {
+        /* 泡の中は平らで静か。壁の内側のすそだけ残す */
+        Hh[i] = inner + Math.exp(-(rNew - rr) / w);
+      } else {
+        /* [a1, R2] には [a0, R2] にあったものを押し込む */
+        var rs = a0 + (rr - a1) * (R2 - a0) / (R2 - a1);
+        var k = rs / rr;
+        Hh[i] = sampleScratch(b.x + ex * k, b.y + ey * k);
+      }
+    }
+    b.r = rNew;
+    markDirty(bb[1], bb[3]);
+  }
+
+  /* ---------- 操作 ---------- */
+  var pointers = {};
+  var hintHidden = false;
+  function hideHint() { if (hintHidden) return; hintHidden = true; hint.classList.remove('on'); }
+
+  cvs.addEventListener('pointerdown', function (e) {
+    if (window.APKit && APKit.isUI(e.clientX, e.clientY)) return;
+    e.preventDefault();
+    hideHint();
+    try { cvs.setPointerCapture(e.pointerId); } catch (err) {}
+    pointers[e.pointerId] = { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t0: performance.now(),
+      moved: false, holding: false, holdT: 0 };
+  });
+  cvs.addEventListener('pointermove', function (e) {
+    var p = pointers[e.pointerId];
+    if (!p) return;
+    e.preventDefault();
+    var dx = e.clientX - p.x, dy = e.clientY - p.y;
+    if (!p.moved && Math.hypot(e.clientX - p.sx, e.clientY - p.sy) > 7) p.moved = true;
+    if (p.moved && !p.holding) smear(e.clientX * gs, e.clientY * gs, dx * gs, dy * gs);
+    p.x = e.clientX; p.y = e.clientY;
+  });
+  function up(e) {
+    var p = pointers[e.pointerId];
+    if (!p) return;
+    if (!p.moved && !p.holding && performance.now() - p.t0 < 320) blowBubble(p.x * gs, p.y * gs);
+    delete pointers[e.pointerId];
+  }
+  cvs.addEventListener('pointerup', up);
+  cvs.addEventListener('pointercancel', function (e) { delete pointers[e.pointerId]; });
+
+  /* ---------- ループ ---------- */
+  var last = performance.now(), T0 = last;
+  function frame(now) {
+    var dt = Math.min(0.05, (now - last) / 1000); last = now;
+    var t = (now - T0) / 1000;
+    for (var id in pointers) {
+      var p = pointers[id];
+      if (!p.moved && !p.holding && now - p.t0 > 300) p.holding = true;
+      if (p.holding) {
+        p.holdT += dt;
+        var R = minG * (0.06 + Math.min(1, p.holdT / 2.2) * 0.07);
+        melt(p.x * gs, p.y * gs, R, 1.0);
+      }
+    }
+    for (var b = bubbles.length - 1; b >= 0; b--) {
+      stepBubble(bubbles[b]);
+      if (bubbles[b].r >= bubbles[b].rmax) bubbles.splice(b, 1);
+    }
+    upload();
+
+    /* 光はゆっくり回り、屈折の強さは呼吸するように揺れる */
+    var la = t * 0.23;
+    var lx = Math.cos(la) * 0.55, ly = Math.sin(la) * 0.55, lz = 1;
+    var ll = Math.sqrt(lx * lx + ly * ly + lz * lz);
+    gl.uniform1i(U.T, 0);
+    gl.uniform2f(U.R, cvs.width, cvs.height);
+    gl.uniform2f(U.G, gw, gh);
+    gl.uniform1f(U.S, glass.S * (1 + 0.16 * Math.sin(t * 0.45)) * minG / 390);
+    gl.uniform1f(U.D, glass.D);
+    gl.uniform3f(U.tint, glass.tint[0], glass.tint[1], glass.tint[2]);
+    gl.uniform3f(U.L, lx / ll, ly / ll, lz / ll);
+    gl.uniform1f(U.K, K);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    requestAnimationFrame(frame);
+  }
+
+  window.addEventListener('resize', resize);
+  resize();
+  setTimeout(function () { if (!hintHidden) hint.classList.add('on'); }, 600);
+  setTimeout(hideHint, 8000);
+  requestAnimationFrame(frame);
+
+  /* ---- 共有コントロール(ap-kit.js) ---- */
+  if (window.APKit) {
+    window.APKit.init({
+      canvas: cvs,
+      gifName: 'glass-clay',
+      clockFormat: 'spec',
+      dock: true,
+      autoHide: true,
+      fullscreenButton: false,
+      buttons: [
+        { label: '✦', name: 'mutate', onClick: function () {   /* ガラスの種類を替える(屈折・虹の幅・光の色)。形はそのまま */
+          glass.S = 12 + Math.random() * 14;
+          glass.D = 0.6 + Math.random() * 0.9;
+          glass.tint = TINTS[(Math.random() * TINTS.length) | 0];
+        } },
+        { label: '↻', name: 'reset', onClick: function () {    /* 新しいガラス(別の細胞模様) */
+          seed = (Math.random() * 1e9) | 0; bubbles.length = 0; buildGlass();
+        } }
+      ]
+    });
+  }
+})();
+</script>
+</body>
+</html>
