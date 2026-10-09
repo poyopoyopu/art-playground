@@ -1,0 +1,1222 @@
+<!DOCTYPE html>
+<!-- WATERLINE — クロちゃん(Claude)作。HAIRLINEの「割れるガラス」を土台に、おっちゃんの「割れたら液体がもれ出す表現」を別作品として作った。
+     ヒビの描き方(ギザギザの線・走り続けるヒビ・入れ子の破片)はHAIRLINEから持ってきている。ap-kit.js統合: クロちゃん -->
+<!-- 世界のルール: この大きな水槽のガラスの向こうは、液体でいっぱい。割れ目から漏れる勢いは「その上にある液の重さ」だけで決まる
+     (トリチェリの法則。深い穴ほど強く噴き、水面より上の穴からは一滴も出ない)。漏れるほど水位は下がり、噴き出しは弱まっていく。
+     そして水圧はヒビを育てる。水面より下のヒビだけが勝手にのび、ガラスにひずみがたまる。限界を超えると、ガラスごと決壊する。
+     ・タップ … 叩いて割る。水面より下なら、そこから漏れ出す(深いほど強く、手前へ噴き出す)。
+     ・押さえる … 指で穴をふさぐ。漏れは止まるが、そのぶん水圧がたまり、ヒビの育ちが早くなる。離すと一気に噴く。
+     ・なぞる … ガラスを伝う液を指でぬぐう。
+     ・放っておく … 水面より下のヒビからは、液がにじみ出て玉になり、大きくなると流れ落ちる。
+     ・✦ … 液を替える: 水 → 蜂蜜 → 水銀 → 蛍光液(URLの#water #honey #mercury #neonで固定して開ける)。流れ方も変わる。
+     ・↻ … 新しいガラスにして、液を満たし直す。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>WATERLINE — 深い穴ほど、強く噴き出す水槽</title>
+<script src="../ap-kit.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; padding: 0; height: 100%; background: #070a0d; overflow: hidden; overscroll-behavior: none; }
+  body {
+    -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none;
+    user-select: none; -webkit-user-select: none;
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  }
+  #c { position: fixed; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; }
+  #hint {
+    position: fixed; left: 0; right: 0; bottom: calc(78px + env(safe-area-inset-bottom, 0px));
+    text-align: center; pointer-events: none; font-size: 12px; line-height: 1.9; letter-spacing: .07em;
+    color: #f2f4f8; opacity: 0; transition: opacity 1.6s ease;
+    text-shadow: 0 1px 10px rgba(0, 0, 0, .9);
+  }
+  #hint.on { opacity: .85; }
+  #nogl { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; color: #ddd; font-size: 14px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">ガラスの向こうは、液でいっぱい。深い穴ほど強く噴く<br>タップ ＝ 叩く　押さえる ＝ ふさぐ　なぞる ＝ ぬぐう</div>
+<div id="nogl">WebGLが使えない環境です</div>
+<script>
+(function () {
+  'use strict';
+
+  var cvs = document.getElementById('c');
+  var hint = document.getElementById('hint');
+  var gl = cvs.getContext('webgl', { antialias: false, alpha: false, depth: false, stencil: false,
+    premultipliedAlpha: false, preserveDrawingBuffer: true, powerPreference: 'high-performance' });
+  if (!gl) { document.getElementById('nogl').style.display = 'flex'; return; }
+
+  function sh(type, src) {
+    var s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) { console.error(gl.getShaderInfoLog(s)); }
+    return s;
+  }
+  function mkProg(vs, fs) {
+    var p = gl.createProgram();
+    gl.attachShader(p, sh(gl.VERTEX_SHADER, vs));
+    gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) console.error(gl.getProgramInfoLog(p));
+    return p;
+  }
+  function unis(p, names) { var o = {}; names.forEach(function (k) { o[k] = gl.getUniformLocation(p, k); }); return o; }
+
+  var VS = 'attribute vec2 p;void main(){gl_Position=vec4(p,0.0,1.0);}';
+
+  /* ---------- 1) 水槽の中(毎フレーム、小さめの解像度で描く) ----------
+     水面より下は液。水面より上は空になった水槽(奥の壁と、上から照らすランプ)。
+     穴の真上まで水位が下がると、水面に渦のくぼみができる。穴のまわりは吸い込まれてねじれる。 */
+  var SFS = [
+    'precision highp float;',
+    'uniform vec2 R;uniform float t;uniform float mode;uniform float lv;uniform float lv0;uniform float slosh;uniform float fill;uniform float drain;',
+    'uniform vec4 Wd[8];',
+    'float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}',
+    'float noise(vec2 p){vec2 i=floor(p),f=fract(p);vec2 u=f*f*(3.0-2.0*f);',
+    '  return mix(mix(hash(i),hash(i+vec2(1.0,0.0)),u.x),mix(hash(i+vec2(0.0,1.0)),hash(i+vec2(1.0,1.0)),u.x),u.y);}',
+    'float fbm(vec2 p){float v=0.0,a=0.5;mat2 m=mat2(1.6,1.2,-1.2,1.6);',
+    '  for(int i=0;i<4;i++){v+=a*noise(p);p=m*p;a*=0.5;}return v;}',
+    /* 水の底の揺らめく光(コースティクス) */
+    'float caus(vec2 uv,float sp){',
+    '  vec2 p=mod(uv*6.2831,6.2831)-250.0;vec2 i=p;float c=1.0;float inten=0.005;',
+    '  for(int n=0;n<4;n++){float tt=t*sp*(1.0-(3.5/float(n+1)));',
+    '    i=p+vec2(cos(tt-i.x)+sin(tt+i.y),sin(tt-i.y)+cos(tt+i.x));',
+    '    c+=1.0/length(vec2(p.x/(sin(i.x+tt)/inten),p.y/(cos(i.y+tt)/inten)));}',
+    '  c/=4.0;c=1.17-pow(c,1.4);return pow(abs(c),8.0);}',
+    /* 奥の壁(水が無いところ) */
+    'vec3 wall(vec2 uv,float asp){',
+    '  vec3 base=mode<0.5?vec3(0.035,0.045,0.05):mode<1.5?vec3(0.05,0.035,0.02):mode<2.5?vec3(0.04,0.04,0.045):vec3(0.012,0.016,0.014);',
+    '  float lamp=exp(-pow((uv.x-0.5)*asp*1.6,2.0)-uv.y*2.2);',
+    '  vec3 c=base*(0.6+0.8*fbm(uv*vec2(3.0,8.0)))+vec3(1.0,0.94,0.82)*lamp*(mode>2.5?0.05:0.16);',
+    /* 奥の壁の目地 */
+    '  vec2 g=fract(vec2(uv.x*asp,uv.y)*vec2(7.0,7.0));',
+    '  float j=max(smoothstep(0.03,0.0,g.x),smoothstep(0.03,0.0,g.y));',
+    '  c*=1.0-0.35*j;',
+    '  return c;',
+    '}',
+    /* 水銀に映る部屋(ガラスに貼りついた水銀は鏡になる) */
+    'vec3 room(vec2 q){',
+    '  vec3 c=mix(vec3(0.62,0.64,0.68),vec3(0.07,0.07,0.08),smoothstep(-0.2,0.7,q.y));',
+    '  c+=vec3(1.0,0.96,0.88)*exp(-pow((q.x-0.5)*3.0,2.0)-pow((q.y+0.05)*5.0,2.0))*0.9;',
+    '  float win=smoothstep(0.02,0.0,abs(q.x-0.18)-0.08)*smoothstep(0.02,0.0,abs(q.y-0.32)-0.14);',
+    '  c=mix(c,vec3(0.75,0.85,0.95),win*0.6);',
+    '  c*=0.85+0.3*noise(q*vec2(2.0,30.0));',
+    '  return c;',
+    '}',
+    'void main(){',
+    '  vec2 uv=vec2(gl_FragCoord.x/R.x,1.0-gl_FragCoord.y/R.y);',
+    '  float asp=R.x/R.y;',
+    /* 水面の高さ(揺れ + 穴の真上の渦のくぼみ) */
+    '  float s=lv+slosh*(0.0045*sin(uv.x*9.0+t*2.1)+0.003*sin(uv.x*23.0-t*3.3)+0.0018*sin(uv.x*41.0+t*5.0));',
+    '  vec2 sw=vec2(0.0);',
+    '  for(int i=0;i<8;i++){vec4 w=Wd[i];if(w.z<=0.0)continue;',
+    '    float dx=(uv.x-w.x)*asp;float hd=w.y-lv;',
+    '    float near=smoothstep(0.18,0.0,hd)*step(0.0,hd);',
+    '    s+=w.z*near*0.045*exp(-dx*dx*500.0);',
+    /* 穴のまわりは吸い込まれてねじれる */
+    '    vec2 d=vec2(dx,uv.y-w.y);float r=length(d)+0.02;',
+    '    float a=w.z*0.012/(r*r+0.004)*step(0.0,hd);',
+    '    sw+=vec2(-d.y,d.x)*a*0.08+(-d/r)*w.z*0.004/(r+0.05);',
+    '  }',
+    '  float below=uv.y-s;',
+    '  vec3 col;',
+    '  vec3 air=wall(uv,asp);',
+    /* 水位が下がったあとの濡れたガラス(内側): 縦の筋とぽつぽつの水滴 */
+    '  float wet=step(lv0,uv.y)*smoothstep(0.0,0.03,-below)*(mode>1.5&&mode<2.5?0.0:1.0);',
+    '  float streak=pow(noise(vec2(uv.x*asp*70.0,uv.y*2.0+floor(uv.x*asp*70.0)*0.37)),6.0);',
+    '  vec2 dg=fract(vec2(uv.x*asp,uv.y)*38.0)-0.5;vec2 di=floor(vec2(uv.x*asp,uv.y)*38.0);',
+    '  float dot1=smoothstep(0.18,0.1,length(dg-0.25*(vec2(hash(di),hash(di+3.0))-0.5)))*step(0.72,hash(di+7.0));',
+    '  vec3 tint=mode<0.5?vec3(0.6,0.85,0.95):mode<1.5?vec3(1.0,0.6,0.15):vec3(0.4,1.0,0.25);',
+    '  air+=tint*(streak*0.05+dot1*0.07)*wet*(mode>2.5?2.0:1.0);',
+    '  vec2 p=vec2(uv.x*asp,uv.y)+sw;',
+    '  if(below<0.0){',
+    '    col=air;',
+    '  }else{',
+    '    float dep=below;',
+    '    if(mode<0.5){',
+    /* 水: 深いほど暗く青く。底の壁に揺らめく光、水面から差し込む光の筋、浮遊物 */
+    '      col=mix(vec3(0.05,0.30,0.36),vec3(0.008,0.05,0.09),smoothstep(0.0,0.75,dep));',
+    '      col+=vec3(0.55,0.85,0.9)*caus(p*0.9,0.45)*0.42*exp(-dep*1.6);',
+    '      float ray=pow(noise(vec2((p.x+dep*0.4)*9.0,t*0.12)),3.0);',
+    '      col+=vec3(0.4,0.75,0.8)*ray*0.22*exp(-dep*2.4);',
+    '      vec2 mp=p*vec2(1.0,1.0)*55.0+vec2(t*0.6,-t*1.2);vec2 mi=floor(mp);',
+    '      float mote=smoothstep(0.12,0.0,length(fract(mp)-0.5-0.3*(vec2(hash(mi),hash(mi+1.0))-0.5)))*step(0.86,hash(mi+5.0));',
+    '      col+=vec3(0.6,0.85,0.85)*mote*0.25*exp(-dep*1.5);',
+    '    }else if(mode<1.5){',
+    /* 蜂蜜: うしろから照らされて琥珀色に光る。中に止まった泡 */
+    '      float back=0.55+0.6*exp(-pow((uv.x-0.5)*asp*1.4,2.0))*exp(-dep*0.8);',
+    '      col=vec3(0.95,0.52,0.07)*back*exp(-vec3(0.2,0.9,2.6)*dep*1.2);',
+    '      col+=vec3(1.0,0.75,0.3)*caus(p*0.5,0.08)*0.12*exp(-dep*2.0);',
+    '      vec2 bp=p*14.0+vec2(0.0,-t*0.02);vec2 bi=floor(bp);vec2 bf=fract(bp)-0.5-0.3*(vec2(hash(bi),hash(bi+2.0))-0.5);',
+    '      float br=0.05+0.12*hash(bi+4.0);float bd=length(bf);',
+    '      float bub=step(0.62,hash(bi+9.0))*(smoothstep(br,br-0.02,bd)-smoothstep(br-0.02,br-0.05,bd)*0.8);',
+    '      col+=vec3(1.0,0.85,0.5)*bub*0.5*exp(-dep*0.8);',
+    '      col*=0.8+0.2*fbm(p*2.0+t*0.02);',
+    '    }else if(mode<2.5){',
+    /* 水銀: 鏡。部屋が映る。水面近くと穴のまわりは揺れてゆがむ */
+    '      vec2 q=vec2(uv.x,uv.y)+sw*3.0+vec2(0.0,0.012*sin(uv.x*20.0+t*2.0)*exp(-dep*12.0));',
+    '      col=room(q)*vec3(0.82,0.84,0.87);',
+    '      col*=1.0-0.25*smoothstep(0.0,0.9,dep);',
+    '    }else{',
+    /* 蛍光液: 自分で光る。中でゆっくり渦を巻く光の筋 */
+    '      float f=fbm(p*3.0+vec2(0.0,-t*0.08)+fbm(p*1.5-t*0.05));',
+    '      float fil=pow(1.0-abs(f*2.0-1.0),6.0);',
+    '      col=vec3(0.18,0.55,0.08)*(0.55+0.5*fbm(p*1.2+t*0.03))+vec3(0.7,1.0,0.35)*fil*0.6;',
+    '      col*=0.75+0.35*exp(-dep*1.5);',
+    '      col+=vec3(0.6,1.0,0.3)*caus(p*0.8,0.25)*0.18;',
+    '    }',
+    /* 水面: 下から見上げると水面は銀色に光る(全反射)。そのすぐ上に明るい縁 */
+    '    float tir=smoothstep(0.03,0.0,dep);',
+    '    vec3 tc=mode<1.5?vec3(0.75,0.9,0.95):mode<2.5?vec3(1.0):vec3(0.75,1.0,0.5);',
+    '    if(mode>0.5&&mode<1.5)tc=vec3(1.0,0.8,0.4);',
+    '    col=mix(col,tc*(0.45+0.4*noise(vec2(uv.x*60.0,t*2.0))),tir*0.45);',
+    '  }',
+    '  col+=vec3(1.0)*exp(-pow(below/0.0022,2.0))*0.5;',
+    /* 注ぎ直し: 上から液の柱が落ちて、水面で泡立つ */
+    '  if(fill>0.0){',
+    '    float cx=(uv.x-0.5)*asp+0.0025*sin(uv.y*30.0-t*12.0)*uv.y;',
+    '    float wdt=0.014+0.012*uv.y+0.004*noise(vec2(uv.y*10.0,t*3.0));',
+    '    float inS=smoothstep(wdt,wdt-0.006,abs(cx))*step(uv.y,s+0.02);',
+    '    vec3 sc=mode<0.5?vec3(0.6,0.85,0.95):mode<1.5?vec3(1.0,0.62,0.12):mode<2.5?vec3(0.8,0.82,0.85):vec3(0.55,1.0,0.3);',
+    '    float stk=0.7+0.5*noise(vec2(cx*90.0,uv.y*6.0-t*14.0));',
+    '    col=mix(col,sc*stk,inS*fill*0.85);',
+    '    float foam=smoothstep(0.12,0.0,abs(cx))*smoothstep(0.05,0.0,abs(below));',
+    '    col+=vec3(1.0)*foam*fill*0.6*noise(vec2(uv.x*80.0,uv.y*80.0-t*6.0));',
+    '  }',
+    '  gl_FragColor=vec4(clamp(col,0.0,1.0),1.0);',
+    '}'
+  ].join('\n');
+
+  /* ---------- 2) ガラスの外を伝う液(粒を、ぼかした点として足し込む) ---------- */
+  var PVS = [
+    'attribute vec4 a;uniform vec2 V;uniform float ps;varying float vw;',
+    'void main(){gl_Position=vec4(a.x/V.x*2.0-1.0,1.0-a.y/V.y*2.0,0.0,1.0);gl_PointSize=a.z*ps;vw=a.w;}'
+  ].join('\n');
+  var PFS = [
+    'precision mediump float;varying float vw;',
+    'void main(){vec2 d=gl_PointCoord-0.5;float r2=dot(d,d)*4.0;if(r2>1.0)discard;',
+    '  gl_FragColor=vec4(vec3(exp(-r2*3.5)*vw),1.0);}'
+  ].join('\n');
+
+  /* ---------- 3) 仕上げ: 液(いちばん手前)→ ガラス(ヒビで光が曲がり、波長ごとにずれる)→ 水槽の中 ---------- */
+  var FS = [
+    'precision highp float;',
+    'uniform sampler2D M;uniform sampler2D BG;uniform sampler2D LQ;',
+    'uniform vec2 R;uniform vec2 G;uniform vec2 LR;uniform vec2 shake;',
+    'uniform float gone;uniform float black;uniform float S;uniform float S3;uniform float D;uniform float Dc;uniform float K;uniform float sheen;',
+    'uniform float mode;uniform float th;uniform float frW;uniform float frB;',
+    'uniform vec3 L;',
+    'vec3 wave(float t){',
+    '  vec3 c=vec3(0.13,0.50,0.87);',
+    '  vec3 d=clamp(1.0-abs(t-c)/vec3(0.36,0.33,0.36),0.0,1.0);',
+    '  return d*d*(3.0-2.0*d);',
+    '}',
+    'float A(vec2 p){return texture2D(M,p).a;}',
+    'float Q(vec2 p){return texture2D(LQ,vec2(p.x,1.0-p.y)).r;}',
+    /* 液の表面に映るもの(ランプ・部屋・窓) */
+    'vec3 env(vec3 n){',
+    '  vec3 c=mix(vec3(0.5,0.52,0.56),vec3(0.03,0.03,0.035),smoothstep(-0.7,0.6,n.y));',
+    '  c+=vec3(1.0,0.96,0.88)*pow(max(dot(n,normalize(vec3(0.15,-0.7,0.7))),0.0),30.0)*1.4;',
+    '  c+=vec3(0.55,0.65,0.8)*smoothstep(0.35,0.7,-n.x)*smoothstep(0.7,0.2,abs(n.y+0.1))*0.45;',
+    '  return c;',
+    '}',
+    'void main(){',
+    '  vec2 uv=vec2(gl_FragCoord.x/R.x,1.0-gl_FragCoord.y/R.y)+shake;',
+    /* 液: 粒の濃さの地図から、形(しきい値)と表面の傾き(濃さの勾配)を作る */
+    '  vec2 lt=1.0/LR;',
+    '  float q0=Q(uv);',
+    '  vec2 gq=vec2(Q(uv+vec2(lt.x,0.0))-Q(uv-vec2(lt.x,0.0)),Q(uv+vec2(0.0,lt.y))-Q(uv-vec2(0.0,lt.y)));',
+    /* 大きな玉(手前に飛んできたしぶき)は、玉全体がレンズになるように、広い範囲の傾きも足す */
+    '  vec2 l4=lt*4.0;',
+    '  vec2 gq4=vec2(Q(uv+vec2(l4.x,0.0))-Q(uv-vec2(l4.x,0.0)),Q(uv+vec2(0.0,l4.y))-Q(uv-vec2(0.0,l4.y)));',
+    '  gq+=gq4*0.35;',
+    '  float cov=smoothstep(th-0.045,th+0.035,q0);',
+    '  float thick=clamp((q0-th)/(1.0-th),0.0,1.0);',
+    '  vec3 N=normalize(vec3(-gq*5.0,1.0));',
+    '  vec2 ug=uv+N.xy*0.05*cov;',
+    /* ガラス: 破片の傾きとヒビのふくらみの分だけ、水槽の中をずらして読む(HAIRLINEと同じ仕組み) */
+    '  vec2 tx=1.0/G;',
+    '  vec4 m=texture2D(M,ug);',
+    '  vec2 T=(m.rg-0.5)/K*(1.0-gone);',
+    '  float a0=m.a*(1.0-gone);',
+    '  float aL=A(ug-vec2(tx.x,0.0)), aR=A(ug+vec2(tx.x,0.0)), aU=A(ug-vec2(0.0,tx.y)), aD=A(ug+vec2(0.0,tx.y));',
+    '  float aLU=A(ug-tx), aRD=A(ug+tx), aRU=A(ug+vec2(tx.x,-tx.y)), aLD=A(ug+vec2(-tx.x,tx.y));',
+    '  vec2 gA=vec2(aR-aL,aD-aU)*0.5*(1.0-gone);',
+    '  float hxx=aR+aL-2.0*a0, hyy=aD+aU-2.0*a0, hxy=(aRD-aRU-aLD+aLU)*0.25;',
+    '  float th2=0.5*atan(2.0*hxy, hxx-hyy+1e-5);',
+    '  vec2 ld=vec2(cos(th2),sin(th2));',
+    '  vec2 cd=normalize(L.xy+vec2(0.0001));',
+    '  float glint=pow(abs(dot(vec2(-ld.y,ld.x),cd)),5.0);',
+    '  vec2 su=vec2(ug.x,1.0-ug.y);',
+    '  vec3 acc=vec3(0.0);vec3 cs=vec3(0.0);vec3 ws=vec3(0.0);',
+    '  for(int i=0;i<12;i++){',
+    '    float t=(float(i)+0.5)/12.0;',
+    '    float e=(t-0.5)*2.0;',
+    '    float f=1.0+D*e;',
+    '    vec2 o=(T*S+gA*S3)*f;',
+    '    vec3 b=texture2D(BG,su+vec2(o.x,-o.y)).rgb;',
+    '    float c=texture2D(M,ug+cd*Dc*1.3*e*tx).b;',
+    '    vec3 w=wave(t);',
+    '    acc+=w*b;cs+=w*c;ws+=w;',
+    '  }',
+    '  vec3 col=acc/ws;',
+    '  vec3 crack=cs/ws*(1.0-gone);',
+    '  vec3 sc=texture2D(BG,su).rgb;',
+    '  float lum=dot(sc,vec3(0.3,0.55,0.15));',
+    '  col*=1.0-0.25*crack;',
+    '  col+=crack*(0.06+1.0*glint+lum*0.9);',
+    '  col+=a0*a0*(0.16*glint+lum*0.14)*vec3(0.92,0.96,1.0);',
+    '  vec3 n=normalize(vec3(-T*1.5,1.0));',
+    '  float tl=min(length(T)*7.0,1.0);',
+    '  float nd=max(dot(n,L),0.0);',
+    '  col+=pow(nd,80.0)*0.25*tl+pow(nd,8.0)*0.02*tl;',
+    '  float shn=exp(-pow((dot(uv-0.5,cd)*2.0-sheen)*2.4,2.0))*0.05;',
+    '  col+=shn*(1.0-gone);',
+    /* 水槽の枠(左右と底)。液はその上も伝って落ちる */
+    '  float fx=min(ug.x,1.0-ug.x);',
+    '  float fy=1.0-ug.y;',
+    '  if(fx<frW||fy<frB){',
+    '    float k=fx<frW?fx/frW:fy/frB;',
+    '    vec3 st=vec3(0.075,0.08,0.09)*(0.7+0.6*smoothstep(0.0,0.6,k))*(1.0-0.4*smoothstep(0.8,1.0,k));',
+    '    st+=vec3(0.22)*exp(-pow((k-0.35)*8.0,2.0))*0.45;',
+    '    col=st;',
+    '  }',
+    /* 液の色: 水 / 蜂蜜 / 水銀 / 蛍光液 */
+    '  if(cov>0.001){',
+    '    vec3 Hh=normalize(L+vec3(0.0,0.0,1.0));',
+    '    float sp=pow(max(dot(N,Hh),0.0),90.0);',
+    '    float sp2=pow(max(dot(N,normalize(vec3(0.15,-0.7,0.7))),0.0),40.0);',
+    '    float fr=1.0-N.z;',
+    '    vec3 lc;',
+    '    if(mode<0.5){',
+    '      lc=col*vec3(0.88,0.96,1.0)*(1.0-0.5*smoothstep(0.05,0.45,fr))+env(N)*(0.06+smoothstep(0.1,0.6,fr)*0.3)+vec3(0.06,0.16,0.19)*(0.4+thick)+(sp+sp2)*1.1;',
+    '    }else if(mode<1.5){',
+    '      vec3 ab=exp(-vec3(0.12,0.6,2.2)*(0.35+thick*1.3));',
+    '      lc=col*ab*1.35+vec3(0.9,0.42,0.05)*0.06*(1.0-thick)+env(N)*smoothstep(0.1,0.6,fr)*0.2+(sp+sp2)*0.9;',
+    '      lc*=1.0-0.4*smoothstep(0.1,0.5,fr);',
+    '    }else if(mode<2.5){',
+    '      lc=env(vec3(N.xy*1.6,N.z))*vec3(0.82,0.84,0.87)+(sp+sp2)*1.3+col*0.04;',
+    '      lc*=0.65+0.35*smoothstep(0.0,0.35,thick+0.15);',
+    '    }else{',
+    '      lc=col*0.3+vec3(0.42,1.0,0.22)*(0.5+0.8*thick)*(1.0-0.3*smoothstep(0.1,0.5,fr))+(sp+sp2)*0.7;',
+    '    }',
+    '    col=mix(col,lc,cov);',
+    '  }',
+    '  if(mode>2.5){float halo=smoothstep(0.02,th,q0)*(1.0-cov);col+=vec3(0.25,0.85,0.12)*halo*0.4;}',
+    '  vec2 qv=uv-0.5;',
+    '  col*=1.0-0.3*dot(qv,qv)*2.0;',
+    '  col*=1.0-black;',
+    '  gl_FragColor=vec4(clamp(col,0.0,1.0),1.0);',
+    '}'
+  ].join('\n');
+
+  var prog = mkProg(VS, FS);
+  var sprog = mkProg(VS, SFS);
+  var pprog = mkProg(PVS, PFS);
+  var U = unis(prog, ['M', 'BG', 'LQ', 'R', 'G', 'LR', 'shake', 'gone', 'black', 'S', 'S3', 'D', 'Dc', 'K', 'sheen', 'mode', 'th', 'frW', 'frB', 'L']);
+  var SU = unis(sprog, ['R', 't', 'mode', 'lv', 'lv0', 'slosh', 'fill', 'drain', 'Wd']);
+  var PU = unis(pprog, ['V', 'ps']);
+  var aP = gl.getAttribLocation(prog, 'p');
+  var aPs = gl.getAttribLocation(sprog, 'p');
+  var aPt = gl.getAttribLocation(pprog, 'a');
+
+  var vb = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, vb);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+  var pb = gl.createBuffer();
+  var PMAX = 2200;
+  var pdata = new Float32Array(PMAX * 4);
+  gl.bindBuffer(gl.ARRAY_BUFFER, pb);
+  gl.bufferData(gl.ARRAY_BUFFER, pdata.byteLength, gl.DYNAMIC_DRAW);
+  var maxPoint = gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE)[1] || 64;
+
+  var K = 0.42;
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  function mkTex() {
+    var tx = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tx);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    return tx;
+  }
+  var texM = mkTex(), texScene = mkTex(), texLq = mkTex();
+  var fbo = gl.createFramebuffer(), fboL = gl.createFramebuffer();
+  var sw = 0, shh = 0, lw = 0, lh = 0;
+  function sizeTargets() {
+    sw = Math.max(64, Math.round(W * 0.75)); shh = Math.max(64, Math.round(Hc * 0.75));
+    gl.bindTexture(gl.TEXTURE_2D, texScene);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, sw, shh, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texScene, 0);
+    lw = Math.max(64, Math.round(W * 0.6)); lh = Math.max(64, Math.round(Hc * 0.6));
+    gl.bindTexture(gl.TEXTURE_2D, texLq);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, lw, lh, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fboL);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texLq, 0);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
+
+  /* ---------- 液の種類 ----------
+     流れ方はすべて「粒どうしの押し合い・引き合い」の強さと、ガラスとの摩擦で決まる(1コマ=1/60秒、長さはCSSのpx)。
+     h=粒が影響しあう距離 g=重力 drag=ガラスとの摩擦 rho0/k/kn=粒の詰まり方(表面張力) sig/beta=ねばり
+     slide=これより少ない仲間しかいない小さな玉はガラスに貼りついて動かない life=貼りついた玉が乾くまでの秒 */
+  var LIQ = [
+    { name: 'water',   g: 0.30, drag: 0.075, rho0: 3.2, k: 0.30, kn: 1.4, sig: 0.05, beta: 0.12, slide: 3, life: 8,  flow: 1.0,  seep: 1.0,  spray: 1.0,  splat: 9 },
+    { name: 'honey',   g: 0.30, drag: 0.30,  rho0: 3.2, k: 0.22, kn: 1.2, sig: 0.7,  beta: 0.3,  slide: 4, life: 40, flow: 0.55, seep: 0.5,  spray: 0,    splat: 10.5 },
+    { name: 'mercury', g: 0.36, drag: 0.035, rho0: 4.2, k: 0.55, kn: 2.6, sig: 0.08, beta: 0.1,  slide: 0, life: 30, flow: 0.85, seep: 0.25, spray: 0.7,  splat: 8.5 },
+    { name: 'neon',    g: 0.30, drag: 0.10,  rho0: 3.2, k: 0.30, kn: 1.4, sig: 0.12, beta: 0.15, slide: 3, life: 10, flow: 0.9,  seep: 1.0,  spray: 0.9,  splat: 9 }
+  ];
+  var HR = 12;           /* 粒が影響しあう距離(px) */
+  var mode = (Math.random() * 2) | 0 ? 0 : 3;
+  var MH = { water: 0, honey: 1, mercury: 2, neon: 3 };
+  for (var mk in MH) if (location.hash.indexOf(mk) >= 0) mode = MH[mk];
+
+  /* ---------- 地図(格子)とヒビ: HAIRLINEと同じ仕組み ---------- */
+  var W = 0, Hc = 0, DPR = 1;
+  var gw = 0, gh = 0, gs = 1, minG = 1, nCells = 0;
+  var Tx, Ty, Cs, Ca, px;
+  var dirty = null;
+  var glass = { D: 0.3, Dc: 0.8 };
+  var crackPts = new Float32Array(2 * 3000), nCP = 0, cpHead = 0;   /* にじみ出しに使う、ヒビの上の点(CSS px) */
+
+  function allocGrid() {
+    nCells = gw * gh;
+    Tx = new Float32Array(nCells); Ty = new Float32Array(nCells);
+    Cs = new Float32Array(nCells); Ca = new Float32Array(nCells);
+    px = new Uint8Array(nCells * 4);
+  }
+  function markDirty(y0, y1) {
+    y0 = Math.max(0, Math.floor(y0)); y1 = Math.min(gh - 1, Math.ceil(y1));
+    if (y1 < y0) return;
+    if (!dirty) dirty = [y0, y1];
+    else { if (y0 < dirty[0]) dirty[0] = y0; if (y1 > dirty[1]) dirty[1] = y1; }
+  }
+  function upload() {
+    if (!dirty) return;
+    var y0 = dirty[0], y1 = dirty[1];
+    for (var i = y0 * gw, e = (y1 + 1) * gw; i < e; i++) {
+      var r = 128 + Tx[i] * K * 255, g = 128 + Ty[i] * K * 255, o = i * 4;
+      px[o] = r < 0 ? 0 : (r > 255 ? 255 : r);
+      px[o + 1] = g < 0 ? 0 : (g > 255 ? 255 : g);
+      px[o + 2] = Cs[i] > 1 ? 255 : Cs[i] * 255;
+      px[o + 3] = Ca[i] > 1 ? 255 : Ca[i] * 255;
+    }
+    gl.bindTexture(gl.TEXTURE_2D, texM);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y0, gw, y1 - y0 + 1, gl.RGBA, gl.UNSIGNED_BYTE,
+      px.subarray(y0 * gw * 4, (y1 + 1) * gw * 4));
+    dirty = null;
+  }
+  function addCrackPt(x, y) {
+    crackPts[cpHead * 2] = x / gs; crackPts[cpHead * 2 + 1] = y / gs;
+    cpHead = (cpHead + 1) % 3000; if (nCP < 3000) nCP++;
+  }
+  function seg(ax, ay, bx, by, I) {
+    var sig = Math.max(1.1, minG * 0.0036);
+    var wS = 0.55 + I * 0.5;
+    var m = sig * 3 + 1.5;
+    var x0 = Math.max(0, Math.floor(Math.min(ax, bx) - m)), x1 = Math.min(gw - 1, Math.ceil(Math.max(ax, bx) + m));
+    var y0 = Math.max(0, Math.floor(Math.min(ay, by) - m)), y1 = Math.min(gh - 1, Math.ceil(Math.max(ay, by) + m));
+    if (x1 < x0 || y1 < y0) return;
+    var dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy || 1e-6;
+    var inv2s = 1 / (2 * sig * sig);
+    for (var y = y0; y <= y1; y++) {
+      for (var x = x0; x <= x1; x++) {
+        var t = ((x - ax) * dx + (y - ay) * dy) / L2;
+        t = t < 0 ? 0 : (t > 1 ? 1 : t);
+        var ex = x - (ax + dx * t), ey = y - (ay + dy * t);
+        var d2 = ex * ex + ey * ey;
+        if (d2 > m * m) continue;
+        var i = y * gw + x;
+        var s = I * (1 - Math.sqrt(d2) / wS); if (s > Cs[i]) Cs[i] = s;
+        var a = I * Math.exp(-d2 * inv2s); if (a > Ca[i]) Ca[i] = a;
+      }
+    }
+    if (Math.random() < 0.3) addCrackPt((ax + bx) / 2, (ay + by) / 2);
+    markDirty(y0, y1);
+  }
+  function jag(ax, ay, bx, by, I) {
+    var pts = [[ax, ay, I], [bx, by, I]];
+    var amp = 0.05;
+    while (true) {
+      var longest = 0, np = [pts[0]];
+      for (var i = 0; i < pts.length - 1; i++) {
+        var p = pts[i], q = pts[i + 1];
+        var dx = q[0] - p[0], dy = q[1] - p[1], l = Math.sqrt(dx * dx + dy * dy);
+        if (l > 3.2) {
+          var o = (Math.random() - 0.5) * 2 * amp * l;
+          np.push([(p[0] + q[0]) / 2 - dy / l * o, (p[1] + q[1]) / 2 + dx / l * o, I * (0.72 + Math.random() * 0.38)]);
+          if (l / 2 > longest) longest = l / 2;
+        }
+        np.push(q);
+      }
+      pts = np;
+      if (longest <= 3.2) break;
+      amp *= 0.82;
+    }
+    for (var k = 0; k < pts.length - 1; k++) seg(pts[k][0], pts[k][1], pts[k + 1][0], pts[k + 1][1], Math.min(pts[k][2], pts[k + 1][2]));
+  }
+
+  var leaves = [], deadCount = 0, events = [], runners = [], clock = 0, MAXD = 6;
+  function polyArea(v) {
+    var a = 0;
+    for (var i = 0, n = v.length; i < n; i++) { var p = v[i], q = v[(i + 1) % n]; a += p[0] * q[1] - q[0] * p[1]; }
+    return a * 0.5;
+  }
+  function makeShard(v, depth) {
+    var cx = 0, cy = 0, x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    for (var i = 0; i < v.length; i++) {
+      cx += v[i][0]; cy += v[i][1];
+      if (v[i][0] < x0) x0 = v[i][0]; if (v[i][0] > x1) x1 = v[i][0];
+      if (v[i][1] < y0) y0 = v[i][1]; if (v[i][1] > y1) y1 = v[i][1];
+    }
+    var ar = polyArea(v);
+    return { v: v, depth: depth, cx: cx / v.length, cy: cy / v.length, bb: [x0, y0, x1, y1],
+      area: Math.abs(ar), sgn: ar >= 0 ? 1 : -1, dead: false };
+  }
+  function tiltShard(sh, dx, dy) {
+    var b = sh.bb;
+    var x0 = Math.max(0, Math.floor(b[0])), x1 = Math.min(gw - 1, Math.ceil(b[2]));
+    var y0 = Math.max(0, Math.floor(b[1])), y1 = Math.min(gh - 1, Math.ceil(b[3]));
+    if (x1 < x0 || y1 < y0) return;
+    var v = sh.v, n = v.length, s = sh.sgn;
+    for (var y = y0; y <= y1; y++) {
+      for (var x = x0; x <= x1; x++) {
+        var ok = true;
+        for (var k = 0; k < n; k++) {
+          var p = v[k], q = v[(k + 1) % n];
+          if (((q[0] - p[0]) * (y - p[1]) - (q[1] - p[1]) * (x - p[0])) * s < 0) { ok = false; break; }
+        }
+        if (!ok) continue;
+        var i = y * gw + x;
+        Tx[i] += dx; Ty[i] += dy;
+      }
+    }
+    markDirty(y0, y1);
+  }
+  var minArea = 40;
+  var SPLIT_P = [1, 0.92, 0.75, 0.55, 0.38, 0.22];
+  function scheduleSplit(sh, base, near) {
+    if (sh.depth >= MAXD) return;
+    if (Math.random() > SPLIT_P[sh.depth]) return;
+    var delay = (0.6 + Math.random() * 3) * Math.pow(1.8, sh.depth) * (1 + (near || 0));
+    events.push({ t: base + delay, fn: function () { splitShard(sh, false); } });
+  }
+  function splitShard(sh, forced) {
+    if (sh.dead) return false;
+    if (sh.area < (forced ? minArea * 0.45 : minArea)) return false;
+    var v = sh.v, n = v.length;
+    var li = 0, best = -1;
+    for (var i = 0; i < n; i++) {
+      var p = v[i], q = v[(i + 1) % n], l = (q[0] - p[0]) * (q[0] - p[0]) + (q[1] - p[1]) * (q[1] - p[1]);
+      if (l > best) { best = l; li = i; }
+    }
+    var j;
+    if (n === 3) j = (li + 1 + (Math.random() < 0.5 ? 0 : 1)) % 3;
+    else {
+      var opts = [];
+      for (var k = 0; k < n; k++) { var dk = (k - li + n) % n; if (dk !== 0 && dk !== 1 && dk !== n - 1) opts.push(k); }
+      j = opts[(Math.random() * opts.length) | 0];
+    }
+    var ta = 0.25 + Math.random() * 0.5, tb = 0.25 + Math.random() * 0.5;
+    var A0 = v[li], A1 = v[(li + 1) % n], B0 = v[j], B1 = v[(j + 1) % n];
+    var P = [A0[0] + (A1[0] - A0[0]) * ta, A0[1] + (A1[1] - A0[1]) * ta];
+    var Q = [B0[0] + (B1[0] - B0[0]) * tb, B0[1] + (B1[1] - B0[1]) * tb];
+    var va = [P], vb2 = [Q], idx;
+    idx = (li + 1) % n;
+    while (true) { va.push(v[idx]); if (idx === j) break; idx = (idx + 1) % n; }
+    va.push(Q);
+    idx = (j + 1) % n;
+    while (true) { vb2.push(v[idx]); if (idx === li) break; idx = (idx + 1) % n; }
+    vb2.push(P);
+    sh.dead = true; deadCount++;
+    var d = sh.depth + 1;
+    var a = makeShard(va, d), b = makeShard(vb2, d);
+    var I = Math.max(0.35, 0.82 * Math.pow(0.85, sh.depth));
+    runFromTo(P[0], P[1], Q[0], Q[1], I);
+    var mag = 0.12 * Math.pow(0.8, sh.depth) * (0.5 + Math.random());
+    var an = Math.random() * 6.2832;
+    var who = Math.random() < 0.5 ? a : b;
+    leaves.push(a); leaves.push(b);
+    tiltShard(who, Math.cos(an) * mag, Math.sin(an) * mag);
+    scheduleSplit(a, clock + (forced ? 1.5 : 0)); scheduleSplit(b, clock + (forced ? 1.5 : 0));
+    if (deadCount > 400) { leaves = leaves.filter(function (s) { return !s.dead; }); deadCount = 0; }
+    return true;
+  }
+  function runFromTo(ax, ay, bx, by, I) {
+    var dx = bx - ax, dy = by - ay, l = Math.sqrt(dx * dx + dy * dy);
+    var n = Math.max(1, Math.min(10, Math.round(l / (minG * 0.03))));
+    for (var s = 1; s <= n; s++) (function (s) {
+      var x0 = ax + dx * (s - 1) / n, y0 = ay + dy * (s - 1) / n;
+      var x1 = ax + dx * s / n, y1 = ay + dy * s / n;
+      events.push({ t: clock + s * 0.012, fn: function () { jag(x0, y0, x1, y1, I); } });
+    })(s);
+  }
+  function spawnRunner(x, y, a, v0, I, maxDist, gen) {
+    if (runners.length > 90) return;
+    runners.push({ x: x, y: y, a: a, v: v0, I: I, dist: 0, maxDist: maxDist, gen: gen || 0, acc: 0, curve: (Math.random() - 0.5) * 0.04, home: [x, y] });
+  }
+  function stepRunners(dt) {
+    var vmin = minG * 0.006;
+    for (var i = runners.length - 1; i >= 0; i--) {
+      var r = runners[i];
+      r.v = Math.max(vmin, r.v * Math.exp(-dt * 3.2));
+      r.acc += r.v * dt;
+      var stop = false, guard = 0;
+      while (r.acc > 2.6 && !stop && guard++ < 60) {
+        r.acc -= 2.6;
+        r.a += r.curve + (Math.random() - 0.5) * 0.42;
+        var nx = r.x + Math.cos(r.a) * 2.6, ny = r.y + Math.sin(r.a) * 2.6;
+        if (nx < 0 || ny < 0 || nx >= gw || ny >= gh) { stop = true; break; }
+        var lx = nx + Math.cos(r.a) * 1.6, ly = ny + Math.sin(r.a) * 1.6;
+        var hx = r.x - r.home[0], hy = r.y - r.home[1];
+        if (lx >= 0 && ly >= 0 && lx < gw && ly < gh && hx * hx + hy * hy > 36 && Cs[(ly | 0) * gw + (lx | 0)] > 0.3) {
+          seg(r.x, r.y, lx, ly, r.I); stop = true; break;
+        }
+        seg(r.x, r.y, nx, ny, r.I * (0.75 + Math.random() * 0.3));
+        r.x = nx; r.y = ny; r.dist += 2.6;
+        if (r.gen < 3 && Math.random() < 0.012) {
+          var side = Math.random() < 0.5 ? -1 : 1;
+          spawnRunner(r.x, r.y, r.a + side * (0.4 + Math.random() * 0.5), r.v * 0.7, r.I * 0.78, (r.maxDist - r.dist) * (0.3 + Math.random() * 0.4), r.gen + 1);
+        }
+        if (r.dist > r.maxDist) stop = true;
+      }
+      if (stop) runners.splice(i, 1);
+    }
+  }
+  /* 叩く: 中心は粉々(=穴)、放射状と同心円のヒビ */
+  function impact(cx, cy, R) {
+    var N = 8 + ((Math.random() * 6) | 0);
+    var M = 4 + (Math.random() < 0.5 ? 1 : 0);
+    var r = [R * (0.06 + Math.random() * 0.03)];
+    var steps = [], sum = 0, m, k;
+    for (m = 0; m < M; m++) { var st = 0.55 + Math.random() * 0.9; st *= Math.pow(1.25, m); steps.push(st); sum += st; }
+    for (m = 0; m < M; m++) r.push(r[m] + (R - r[0]) * steps[m] / sum);
+    var th0 = Math.random() * 6.2832;
+    var ang = [];
+    for (k = 0; k < N; k++) ang.push(th0 + (k + (Math.random() - 0.5) * 0.55) * 6.2832 / N);
+    var V = [];
+    for (k = 0; k < N; k++) {
+      V.push([]);
+      for (m = 0; m <= M; m++) {
+        var a = ang[k] + (m ? (Math.random() - 0.5) * 0.16 : 0);
+        var rr = r[m] * (1 + (Math.random() - 0.5) * 0.14);
+        V[k].push([cx + Math.cos(a) * rr, cy + Math.sin(a) * rr]);
+      }
+    }
+    var t0 = clock;
+    function at(dt, fn) { events.push({ t: t0 + dt, fn: fn }); }
+    at(0, function () {
+      var crush = r[0] * 1.6;
+      for (var q = 0; q < 46; q++) {
+        var ra = Math.random() * 6.2832, rd = Math.sqrt(Math.random()) * crush;
+        var x = cx + Math.cos(ra) * rd, y = cy + Math.sin(ra) * rd;
+        var b2 = Math.random() * 6.2832, ln = crush * (0.15 + Math.random() * 0.5);
+        jag(x, y, x + Math.cos(b2) * ln, y + Math.sin(b2) * ln, 0.55 + Math.random() * 0.4);
+      }
+    });
+    for (k = 0; k < N; k++) (function (k) {
+      at(0, function () { jag(cx, cy, V[k][0][0], V[k][0][1], 1); });
+      for (var m2 = 0; m2 < M; m2++) (function (m2) {
+        at(0.025 * (m2 + 1), function () { jag(V[k][m2][0], V[k][m2][1], V[k][m2 + 1][0], V[k][m2 + 1][1], 1 - m2 * 0.06); });
+      })(m2);
+      if (Math.random() < 0.8) {
+        at(0.025 * (M + 1), function () {
+          spawnRunner(V[k][M][0], V[k][M][1], ang[k] + (Math.random() - 0.5) * 0.2, minG * (2.5 + Math.random() * 2), 0.82,
+            R * (0.25 + Math.pow(Math.random(), 1.5) * 2.4), 0);
+        });
+      }
+    })(k);
+    for (m = 0; m <= M; m++) (function (m) {
+      for (var k2 = 0; k2 < N; k2++) (function (k2) {
+        var k3 = (k2 + 1) % N;
+        at(0.06 + 0.045 * m + Math.random() * 0.1, function () { jag(V[k2][m][0], V[k2][m][1], V[k3][m][0], V[k3][m][1], 0.8 - m * 0.05); });
+        var poly = m === 0 ? [[cx, cy], V[k2][0], V[k3][0]] : [V[k2][m - 1], V[k3][m - 1], V[k3][m], V[k2][m]];
+        at(0.09 + 0.045 * m, function () {
+          var sh = makeShard(poly, 0);
+          var ex = cx - sh.cx, ey = cy - sh.cy, dd = Math.sqrt(ex * ex + ey * ey) || 1;
+          var dent = 0.26 * Math.exp(-dd / R * 1.4);
+          var rnd = 0.05 + 0.07 * Math.random(), ra = Math.random() * 6.2832;
+          leaves.push(sh);
+          tiltShard(sh, ex / dd * dent + Math.cos(ra) * rnd, ey / dd * dent + Math.sin(ra) * rnd);
+          scheduleSplit(sh, clock, dd / R * 0.8);
+        });
+      })(k2);
+    })(m);
+  }
+
+  /* ---------- 穴(叩いた所)と水位 ----------
+     漏れる勢いは sqrt(穴の上の液の高さ)。漏れた分だけ水位が下がる。 */
+  var wounds = [];
+  var lv = 0, lvFull = 0, lvBot = 0;   /* 水面の高さ(CSS px、上から)。満タン / 底 */
+  var dPer = 0.3;                       /* 粒1つ漏れると水位がどれだけ下がるか */
+  function addWound(x, y, size) {
+    for (var i = 0; i < wounds.length; i++) {
+      var w = wounds[i];
+      if (Math.hypot(w.x - x, w.y - y) < 26) { w.size = Math.min(1.5, w.size + size * 0.45); return w; }
+    }
+    var nw = { x: x, y: y, size: size, plug: false, boost: 0, grow: Math.random() * 0.4, acc: 0, sacc: 0, jk: 0, jv: 0 };
+    wounds.push(nw);
+    return nw;
+  }
+
+  /* ---------- ガラスの外を伝う液(粒) ----------
+     粒どうしは近いと押し合い、少し離れると引き合う(=表面張力で玉になる)。ガラスとの摩擦で、流れは一定の速さで落ちる。
+     仲間の少ない小さな玉はガラスに貼りついて動かない。玉が集まって大きくなると、流れ落ちる。 */
+  var NF = 1300;
+  var fx = new Float32Array(NF), fy = new Float32Array(NF), fvx = new Float32Array(NF), fvy = new Float32Array(NF);
+  var fpx = new Float32Array(NF), fpy = new Float32Array(NF), fage = new Float32Array(NF), fsz = new Float32Array(NF);
+  var fden = new Float32Array(NF), fdn = new Float32Array(NF), fnb = new Uint8Array(NF);
+  var nF = 0;
+  function addF(x, y, vx, vy, s) {
+    if (nF >= NF) return false;
+    fx[nF] = x; fy[nF] = y; fvx[nF] = vx; fvy[nF] = vy; fpx[nF] = x; fpy[nF] = y; fage[nF] = 0; fsz[nF] = s || 1;
+    nF++; return true;
+  }
+  function delF(i) {
+    nF--;
+    fx[i] = fx[nF]; fy[i] = fy[nF]; fvx[i] = fvx[nF]; fvy[i] = fvy[nF]; fpx[i] = fpx[nF]; fpy[i] = fpy[nF];
+    fage[i] = fage[nF]; fsz[i] = fsz[nF];
+  }
+  var gcw = 0, gch = 0, ghead = null, gnext = new Int32Array(NF);
+  var MAXPAIR = 40000, pI = new Int32Array(MAXPAIR), pJ = new Int32Array(MAXPAIR), nPair = 0;
+  function buildPairs() {
+    var cols = gcw, rows = gch;
+    ghead.fill(-1);
+    for (var i = 0; i < nF; i++) {
+      var cx = Math.floor(fx[i] / HR), cy = Math.floor(fy[i] / HR);
+      if (cx < 0) cx = 0; else if (cx >= cols) cx = cols - 1;
+      if (cy < 0) cy = 0; else if (cy >= rows) cy = rows - 1;
+      var c = cy * cols + cx;
+      gnext[i] = ghead[c]; ghead[c] = i;
+    }
+    nPair = 0;
+    var h2 = HR * HR;
+    for (var i2 = 0; i2 < nF; i2++) {
+      var ax = fx[i2], ay = fy[i2];
+      var cx2 = Math.floor(ax / HR), cy2 = Math.floor(ay / HR);
+      for (var oy = -1; oy <= 1; oy++) {
+        var yy = cy2 + oy; if (yy < 0 || yy >= rows) continue;
+        for (var ox = -1; ox <= 1; ox++) {
+          var xx = cx2 + ox; if (xx < 0 || xx >= cols) continue;
+          for (var j = ghead[yy * cols + xx]; j >= 0; j = gnext[j]) {
+            if (j <= i2) continue;
+            var dx = fx[j] - ax, dy = fy[j] - ay;
+            if (dx * dx + dy * dy < h2 && nPair < MAXPAIR) { pI[nPair] = i2; pJ[nPair] = j; nPair++; }
+          }
+        }
+      }
+    }
+  }
+  var fingers = [];   /* 指(押さえている・なぞっている所) */
+  function stepFluid(P) {
+    var i, k, a, b, dx, dy, r, q, w;
+    var drag = 1 - P.drag;
+    for (i = 0; i < nF; i++) { fvy[i] += P.g * (gone > 0 ? 0.6 : 1); fvx[i] *= drag; fvy[i] *= drag; }
+    buildPairs();
+    /* ねばり: 近づいている粒どうしの速さをならす */
+    for (k = 0; k < nPair; k++) {
+      a = pI[k]; b = pJ[k];
+      dx = fx[b] - fx[a]; dy = fy[b] - fy[a]; r = Math.sqrt(dx * dx + dy * dy) || 0.001;
+      q = 1 - r / HR; if (q <= 0) continue;
+      dx /= r; dy /= r;
+      var u = (fvx[a] - fvx[b]) * dx + (fvy[a] - fvy[b]) * dy;
+      if (u > 0) {
+        var I = q * (P.sig * u + P.beta * u * u) * 0.5;
+        fvx[a] -= I * dx; fvy[a] -= I * dy; fvx[b] += I * dx; fvy[b] += I * dy;
+      }
+    }
+    for (i = 0; i < nF; i++) { fpx[i] = fx[i]; fpy[i] = fy[i]; fx[i] += fvx[i]; fy[i] += fvy[i]; fden[i] = 0; fdn[i] = 0; fnb[i] = 0; }
+    /* 押し合い・引き合い(二重密度緩和) */
+    for (k = 0; k < nPair; k++) {
+      a = pI[k]; b = pJ[k];
+      dx = fx[b] - fx[a]; dy = fy[b] - fy[a]; r = Math.sqrt(dx * dx + dy * dy);
+      q = 1 - r / HR; if (q <= 0) continue;
+      w = q * q;
+      fden[a] += w; fden[b] += w; fdn[a] += w * q; fdn[b] += w * q;
+      if (fnb[a] < 250) fnb[a]++; if (fnb[b] < 250) fnb[b]++;
+    }
+    for (k = 0; k < nPair; k++) {
+      a = pI[k]; b = pJ[k];
+      dx = fx[b] - fx[a]; dy = fy[b] - fy[a]; r = Math.sqrt(dx * dx + dy * dy) || 0.001;
+      q = 1 - r / HR; if (q <= 0) continue;
+      var Pp = P.k * (fden[a] + fden[b] - 2 * P.rho0) * 0.5;
+      var Pn = P.kn * (fdn[a] + fdn[b]) * 0.5;
+      var Dd = (Pp * q + Pn * q * q) * 0.5;
+      if (Dd > 2.5) Dd = 2.5; else if (Dd < -1.2) Dd = -1.2;
+      dx /= r; dy /= r;
+      fx[a] -= Dd * dx; fy[a] -= Dd * dy; fx[b] += Dd * dx; fy[b] += Dd * dy;
+    }
+    var fr = 26, fr2 = fr * fr;
+    for (i = 0; i < nF; i++) {
+      /* 小さな玉はガラスに貼りつく(大きい玉は流れる) */
+      if (fnb[i] < P.slide && gone <= 0) { fx[i] = fpx[i]; fy[i] = fpy[i]; }
+      /* 指: 液を押しのける。なぞっているときは、指の動きに液を引きずる */
+      for (var f = 0; f < fingers.length; f++) {
+        var F = fingers[f];
+        dx = fx[i] - F.x; dy = fy[i] - F.y; var d2 = dx * dx + dy * dy;
+        if (d2 < fr2 * 1.8 && F.moving) { fx[i] += F.vx * 0.5; fy[i] += F.vy * 0.5; }
+        if (d2 < fr2) { var d = Math.sqrt(d2) || 0.01; fx[i] = F.x + dx / d * fr; fy[i] = F.y + dy / d * fr; }
+      }
+      if (fx[i] < 1) fx[i] = 1; else if (fx[i] > W - 1) fx[i] = W - 1;
+      if (fy[i] < 1) fy[i] = 1;
+      var vx = fx[i] - fpx[i], vy = fy[i] - fpy[i];
+      var sp = vx * vx + vy * vy;
+      if (sp > 36) { var kk = 6 / Math.sqrt(sp); vx *= kk; vy *= kk; }
+      fvx[i] = vx; fvy[i] = vy;
+    }
+  }
+  /* 手前へ噴き出すしぶき(ガラスから離れて飛ぶので、遠近法で大きくなりながら落ちる) */
+  var NS = 1000;
+  var sx = new Float32Array(NS), sy = new Float32Array(NS), sz = new Float32Array(NS);
+  var svx = new Float32Array(NS), svy = new Float32Array(NS), svz = new Float32Array(NS), ssz = new Float32Array(NS);
+  var nS = 0, Dcam = 900, eyeX = 0, eyeY = 0;
+  function addS(x, y, vx, vy, vz, s) {
+    if (nS >= NS) return false;
+    sx[nS] = x; sy[nS] = y; sz[nS] = 0; svx[nS] = vx; svy[nS] = vy; svz[nS] = vz; ssz[nS] = s; nS++; return true;
+  }
+  function stepSpray(dt) {
+    for (var i = nS - 1; i >= 0; i--) {
+      svy[i] += 900 * dt;
+      sx[i] += svx[i] * dt; sy[i] += svy[i] * dt; sz[i] += svz[i] * dt;
+      var s = Dcam / (Dcam - sz[i]);
+      var py = eyeY + (sy[i] - eyeY) * s;
+      if (sz[i] > Dcam * 0.9 || py > Hc + 200 || s * ssz[i] * 9 > 700) {
+        /* カメラ(見ている人の目の前)まで来たしぶきは、ときどきレンズに付く */
+        if (sz[i] > Dcam * 0.82 && Math.random() < lensP) {
+          var lx = eyeX + (sx[i] - eyeX) * s, ly = py;
+          if (lx > 0 && lx < W && ly > 0 && ly < Hc) addF(lx, ly, 0, 0, 2.2 + Math.random() * 1.5);
+        }
+        nS--;
+        sx[i] = sx[nS]; sy[i] = sy[nS]; sz[i] = sz[nS]; svx[i] = svx[nS]; svy[i] = svy[nS]; svz[i] = svz[nS]; ssz[i] = ssz[nS];
+      }
+    }
+  }
+  var lensP = 0.04;
+
+  /* ---------- ひずみ・決壊・注ぎ直し ---------- */
+  var stress = 0, STRESS_MAX = 7;
+  var state = 'live', stT = 0;     /* live / burst / swap / refill */
+  var gone = 0, black = 0, fill = 0, shakeAmt = 0, creak = 2, fadeIn = 0;
+  function addStress(v) {
+    if (state !== 'live') return;
+    stress += v;
+    if (stress >= STRESS_MAX) { state = 'burst'; stT = clock; shakeAmt = 1; }
+  }
+  window.__burst = function () { addStress(99); };
+  var timeScale = 1;
+  window.__speed = function (k) { timeScale = k; };
+  window.__state = function () { return { clock: clock, lv: lv, lvFull: lvFull, nF: nF, nS: nS, stress: stress, state: state, wounds: wounds.length }; };
+  window.__tap = function (x, y) { strike(x, y); };
+
+  function freshPane() {
+    Tx.fill(0); Ty.fill(0); Cs.fill(0); Ca.fill(0);
+    leaves = []; events = []; runners = []; deadCount = 0;
+    wounds = []; nCP = 0; cpHead = 0;
+    stress = 0; dirty = [0, gh - 1];
+  }
+  function strike(x, y) {
+    if (state !== 'live') return;
+    var R = minG * (0.22 + Math.random() * 0.2);
+    impact(x * gs, y * gs, R);
+    var head = y - lv;
+    addWound(x, y, 0.5 + Math.random() * 0.45);
+    addStress(head > 0 ? 0.8 + 0.4 * head / (lvBot - lvFull) : 0.45);
+    shakeAmt = Math.max(shakeAmt, 0.35);
+  }
+
+  /* ---------- 大きさ ---------- */
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    var oW = W, oH = Hc;
+    W = window.innerWidth; Hc = window.innerHeight;
+    cvs.width = Math.round(W * DPR); cvs.height = Math.round(Hc * DPR);
+    gl.viewport(0, 0, cvs.width, cvs.height);
+    sizeTargets();
+    gcw = Math.ceil(W / HR) + 1; gch = Math.ceil((Hc + 60) / HR) + 1;
+    ghead = new Int32Array(gcw * gch);
+    Dcam = Hc * 1.15; eyeX = W / 2; eyeY = Hc * 0.55;
+    var frac = oH ? (lv - lvFull) / Math.max(1, lvBot - lvFull) : 0;
+    lvFull = Hc * 0.1; lvBot = Hc - frameB();
+    lv = lvFull + frac * (lvBot - lvFull);
+    dPer = (lvBot - lvFull) / 9000;
+    var ngs = Math.min(1.25, Math.sqrt(420000 / (W * Hc)));
+    var nw = Math.max(16, Math.round(W * ngs)), nh = Math.max(16, Math.round(Hc * ngs));
+    if (nw === gw && nh === gh && Tx) return;
+    gs = ngs; gw = nw; gh = nh; minG = Math.min(gw, gh);
+    minArea = Math.pow(minG * 0.022, 2);
+    allocGrid();
+    gl.bindTexture(gl.TEXTURE_2D, texM);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gw, gh, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    freshPane();
+    if (!oW) {
+      /* 最初は、ガラスの下のほうに小さなヒビが一つ。そこから液がじわっとにじんでいる */
+      events.push({ t: clock + 0.5, fn: function () {
+        var x = W * (0.4 + Math.random() * 0.2), y = Hc * (0.56 + Math.random() * 0.1);
+        impact(x * gs, y * gs, minG * 0.1);
+        addWound(x, y, 0.22); stress += 0.5;
+      } });
+    }
+  }
+  function frameB() { return Math.max(10, Math.min(18, Hc * 0.018)); }
+
+  /* ---------- 操作 ---------- */
+  var pointers = {};
+  var hintHidden = false;
+  function hideHint() { if (hintHidden) return; hintHidden = true; hint.classList.remove('on'); }
+  cvs.addEventListener('pointerdown', function (e) {
+    if (window.APKit && APKit.isUI(e.clientX, e.clientY)) return;
+    e.preventDefault();
+    hideHint();
+    try { cvs.setPointerCapture(e.pointerId); } catch (err) {}
+    pointers[e.pointerId] = { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, lx: e.clientX, ly: e.clientY,
+      t0: performance.now(), moved: false, hold: false, plug: null };
+  });
+  cvs.addEventListener('pointermove', function (e) {
+    var p = pointers[e.pointerId];
+    if (!p) return;
+    e.preventDefault();
+    if (!p.moved && Math.hypot(e.clientX - p.sx, e.clientY - p.sy) > 8) p.moved = true;
+    p.x = e.clientX; p.y = e.clientY;
+  });
+  function up(e) {
+    var p = pointers[e.pointerId];
+    if (!p) return;
+    if (!p.moved && !p.hold && performance.now() - p.t0 < 280) strike(p.x, p.y);
+    if (p.plug) { p.plug.plug = false; p.plug.boost = Math.min(4, p.plug.boost + 1.5); }
+    delete pointers[e.pointerId];
+  }
+  cvs.addEventListener('pointerup', up);
+  cvs.addEventListener('pointercancel', function (e) { var p = pointers[e.pointerId]; if (p && p.plug) p.plug.plug = false; delete pointers[e.pointerId]; });
+
+  /* ---------- ループ ---------- */
+  var last = performance.now();
+  var wd = new Float32Array(32);
+  var stepAcc = 0;
+  function frame(now) {
+    var dt = Math.min(0.05, (now - last) / 1000) * timeScale; last = now;
+    clock += dt;
+    var P = LIQ[mode];
+    var H0 = lvBot - lvFull;
+
+    /* 指 */
+    fingers.length = 0;
+    for (var id in pointers) {
+      var p = pointers[id];
+      if (!p.moved && !p.hold && now - p.t0 > 280) {
+        p.hold = true;
+        /* 押さえた所に穴があれば、ふさぐ */
+        var best = null, bd = 34;
+        for (var wi = 0; wi < wounds.length; wi++) { var d0 = Math.hypot(wounds[wi].x - p.x, wounds[wi].y - p.y); if (d0 < bd) { bd = d0; best = wounds[wi]; } }
+        if (best) { best.plug = true; p.plug = best; }
+      }
+      if (p.plug && Math.hypot(p.plug.x - p.x, p.plug.y - p.y) > 40) { p.plug.plug = false; p.plug.boost += 1; p.plug = null; }
+      if (p.hold || p.moved) fingers.push({ x: p.x, y: p.y, vx: (p.x - p.lx), vy: (p.y - p.ly), moving: p.moved });
+      p.lx = p.x; p.ly = p.y;
+    }
+
+    /* ヒビ */
+    var budget = 220, keep = [];
+    events.sort(function (a, b) { return a.t - b.t; });
+    for (var i = 0; i < events.length; i++) {
+      var ev = events[i];
+      if (ev.t <= clock && budget > 0) { ev.fn(); budget--; }
+      else keep.push(ev);
+    }
+    events = keep;
+    stepRunners(dt);
+
+    /* 漏れ: 穴ごとに sqrt(上にある液の高さ) の勢いで。手前へのしぶきは、深い穴・大きい穴ほど多く速い */
+    var totalRate = 0;
+    if (state === 'live' || (state === 'burst' && clock - stT < 0.45)) {
+      var bm = state === 'burst' ? 3 : 1;
+      for (var k = 0; k < wounds.length; k++) {
+        var w = wounds[k];
+        var head = w.y - lv;
+        w.jk = 0;
+        if (head <= 0) { w.boost = Math.max(0, w.boost - dt * 2); continue; }
+        var hf = head / H0;
+        if (w.plug) {
+          w.grow += dt * Math.sqrt(hf) * 0.5;
+        } else {
+          var rate = P.flow * w.size * Math.sqrt(hf) * 70 * (1 + w.boost) * bm;
+          /* 水面すれすれの穴は、空気を吸いこんでごぼごぼ途切れる */
+          if (head < 18) rate *= 0.5 + 0.5 * Math.sin(clock * 23 + k * 2.1);
+          totalRate += rate;
+          w.acc += rate * dt;
+          while (w.acc >= 1) {
+            w.acc -= 1;
+            var ra = Math.random() * 6.2832, rr = Math.sqrt(Math.random()) * (2 + w.size * 4);
+            addF(w.x + Math.cos(ra) * rr, w.y + Math.sin(ra) * rr, (Math.random() - 0.5) * 1.2, Math.random() * 0.6 + 0.3, 1);
+            lv += dPer;
+          }
+          /* 手前への噴き出し(ジェット): 深い穴・大きい穴ほど太く速い。先のほうはちぎれて、しぶきになる */
+          var jk = P.spray * Math.max(0, Math.sqrt(hf) - 0.18) / 0.7 * Math.min(1, w.size * 1.3);
+          if (head < 18) jk *= 0.5 + 0.5 * Math.sin(clock * 23 + k * 2.1);
+          w.jk = jk; w.jv = Dcam * (0.3 + 0.9 * Math.sqrt(hf)) * (1 + w.boost * 0.3);
+          if (jk > 0) {
+            lv += dPer * jk * 120 * (1 + w.boost) * bm * dt;
+            w.sacc += jk * 30 * dt * (1 + w.boost);
+            while (w.sacc >= 1) {
+              w.sacc -= 1;
+              var tb = 0.12 + Math.random() * 0.3;
+              addS(w.x + (Math.random() - 0.5) * 4, w.y + (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 50, (Math.random() - 0.5) * 40,
+                w.jv * (0.9 + Math.random() * 0.2), 0.35 + Math.random() * 0.4);
+            }
+          }
+          w.boost = Math.max(0, w.boost - dt * 1.6);
+        }
+        /* 水圧がヒビを育てる */
+        w.grow += dt * Math.sqrt(hf) * 0.14;
+        if (w.grow >= 1 && state === 'live') {
+          w.grow -= 1;
+          spawnRunner(w.x * gs, w.y * gs, Math.random() * 6.2832, minG * 1.5, 0.78, minG * (0.12 + Math.random() * 0.25), 1);
+          w.size = Math.min(1.4, w.size + 0.06);
+          addStress(0.3 + 0.3 * hf);
+        }
+      }
+      /* ヒビからのにじみ出し: 水面より下のヒビの上に、ぽつぽつと玉ができる */
+      if (nCP > 0 && state === 'live') {
+        var nSeep = dt * Math.min(40, nCP * 0.05) * P.seep;
+        var tries = Math.floor(nSeep) + (Math.random() < nSeep % 1 ? 1 : 0);
+        for (var s = 0; s < tries; s++) {
+          var ci = (Math.random() * nCP) | 0;
+          var cx = crackPts[ci * 2], cy = crackPts[ci * 2 + 1];
+          var hd = cy - lv;
+          if (hd <= 0 || Math.random() > Math.sqrt(hd / H0) * 1.4) continue;
+          addF(cx, cy, 0, 0, 1);
+          lv += dPer * 0.5;
+        }
+      }
+    }
+    if (lv > lvBot) lv = lvBot;
+
+    /* 液の粒を進める(1/60秒きざみ) */
+    stepAcc += dt * 60;
+    var nStep = 0;
+    while (stepAcc >= 1 && nStep < 3) { stepFluid(P); stepAcc -= 1; nStep++; }
+    if (stepAcc > 3) stepAcc = 0;
+    /* 乾く・落ちきる */
+    for (i = nF - 1; i >= 0; i--) {
+      if (fy[i] > Hc + 12) { delF(i); continue; }
+      if (fnb[i] < 2) { fage[i] += dt; if (fage[i] > P.life * (fsz[i] > 1.5 ? 0.6 : 1)) delF(i); }
+      else fage[i] = Math.max(0, fage[i] - dt);
+    }
+    stepSpray(dt);
+
+    /* きしみ・決壊・注ぎ直し */
+    if (state === 'live') {
+      if (stress > STRESS_MAX * 0.6) {
+        creak -= dt;
+        if (creak <= 0) {
+          creak = 0.8 + Math.random() * 1.6;
+          shakeAmt = Math.max(shakeAmt, 0.22);
+          var lvs = leaves.length ? leaves[(Math.random() * leaves.length) | 0] : null;
+          if (lvs && !lvs.dead) { var v0 = lvs.v[0]; spawnRunner(v0[0], v0[1], Math.random() * 6.2832, minG * 1.2, 0.75, minG * (0.15 + Math.random() * 0.3), 1); }
+        }
+      }
+      /* ガラスはひずみを抱えていて、ときどきヒビがじわっと走る */
+      if (Math.random() < dt * 0.25 && leaves.length) {
+        var s2 = leaves[(Math.random() * leaves.length) | 0];
+        if (!s2.dead && s2.area > minArea * 3) splitShard(s2, false);
+      }
+    } else if (state === 'burst') {
+      var fs = clock - stT;
+      if (fs < 0.45) {
+        if (Math.random() < 0.6 && leaves.length) { var lf = leaves[(Math.random() * leaves.length) | 0]; if (!lf.dead) splitShard(lf, true); }
+        shakeAmt = Math.max(shakeAmt, 0.6);
+      } else {
+        if (gone === 0) {
+          /* 決壊: ガラスが消え、水面より下の液がまるごと手前へなだれ込む */
+          var head0 = Math.max(0, lvBot - lv);
+          var n0 = Math.round(150 + 650 * head0 / H0);
+          for (var b = 0; b < n0; b++) {
+            var yb = lv + Math.pow(Math.random(), 0.7) * head0, hfb = (yb - lv) / H0;
+            addS(Math.random() * W, yb, (Math.random() - 0.5) * 160, -60 - Math.random() * 160,
+              Dcam * (0.3 + 0.9 * Math.sqrt(hfb)) * (0.55 + Math.random() * 0.6), 1.2 + Math.random() * 2.2);
+          }
+          lensP = 0.5;
+          wounds = [];
+        }
+        gone = Math.min(1, (fs - 0.45) / 0.2);
+        lv += (lvBot - lv) * Math.min(1, dt * 1.6);
+        shakeAmt = Math.max(shakeAmt, 0.4 * (1 - Math.min(1, (fs - 0.45) / 1.2)));
+        if (fs > 4.6) black = Math.min(1, (fs - 4.6) / 0.6);
+        if (fs > 5.3) beginRefill();
+      }
+    } else if (state === 'swap') {
+      black = Math.min(1, (clock - stT) / 0.35);
+      if (clock - stT > 0.4) beginRefill();
+    } else if (state === 'refill') {
+      var ft = clock - stT;
+      var e = Math.min(1, ft / 3.2);
+      e = 1 - Math.pow(1 - e, 2.2);
+      lv = lvBot + (lvFull - lvBot) * e;
+      fill = ft < 3.2 ? Math.min(1, ft * 4) : Math.max(0, 1 - (ft - 3.2) * 3);
+      if (ft > 3.6) { state = 'live'; fill = 0; lv = lvFull; }
+    }
+    if (state === 'live' || state === 'refill') black = 0;
+    if (fadeIn > 0) { black = Math.max(black, fadeIn); fadeIn = Math.max(0, fadeIn - dt / 0.8); }
+    shakeAmt = Math.max(0, shakeAmt - dt * 1.4);
+    var shx = (Math.random() - 0.5) * shakeAmt * 0.012, shy = (Math.random() - 0.5) * shakeAmt * 0.012;
+
+    upload();
+
+    /* --- 描く: 水槽の中 --- */
+    var order = wounds.slice().sort(function (a, b) { return b.size - a.size; });
+    for (k = 0; k < 8; k++) {
+      var ww = order[k];
+      if (ww && ww.y > lv && !ww.plug) { wd[k * 4] = ww.x / W; wd[k * 4 + 1] = ww.y / Hc; wd[k * 4 + 2] = Math.min(1.2, ww.size * (1 + ww.boost * 0.3)); wd[k * 4 + 3] = 0; }
+      else { wd[k * 4] = 0; wd[k * 4 + 1] = 0; wd[k * 4 + 2] = 0; wd[k * 4 + 3] = 0; }
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.viewport(0, 0, sw, shh);
+    gl.useProgram(sprog);
+    gl.bindBuffer(gl.ARRAY_BUFFER, vb);
+    gl.enableVertexAttribArray(aPs);
+    gl.vertexAttribPointer(aPs, 2, gl.FLOAT, false, 0, 0);
+    gl.uniform2f(SU.R, sw, shh);
+    gl.uniform1f(SU.t, clock);
+    gl.uniform1f(SU.mode, mode);
+    gl.uniform1f(SU.lv, lv / Hc);
+    gl.uniform1f(SU.lv0, lvFull / Hc);
+    gl.uniform1f(SU.slosh, 0.4 + Math.min(1.6, totalRate / 120) + fill * 2.5 + (state === 'burst' ? 3 : 0));
+    gl.uniform1f(SU.fill, fill);
+    gl.uniform1f(SU.drain, 0);
+    gl.uniform4fv(SU.Wd, wd);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+    /* --- 描く: ガラスの外の液(粒を点で足し込む) --- */
+    var n = 0;
+    var spl = P.splat;
+    for (i = 0; i < nF && n < PMAX; i++) {
+      var life = P.life * (fsz[i] > 1.5 ? 0.6 : 1);
+      var shrink = fnb[i] < 2 ? Math.min(1, Math.max(0, (life - fage[i]) / 1.5)) : 1;
+      pdata[n * 4] = fx[i]; pdata[n * 4 + 1] = fy[i]; pdata[n * 4 + 2] = spl * fsz[i] * (0.55 + 0.45 * shrink); pdata[n * 4 + 3] = 0.55 * (0.4 + 0.6 * shrink);
+      n++;
+    }
+    /* ジェット: 穴から手前へ、放物線で落ちながら近づいてくる液の柱。近いほど太く見える */
+    for (k = 0; k < wounds.length; k++) {
+      var jw = wounds[k];
+      if (!jw.jk || jw.plug || state !== 'live') continue;
+      var r0 = (1.2 + 2.4 * jw.size) * (0.45 + 0.55 * Math.min(1, jw.jk));
+      var lxp = -1e9, lyp = -1e9, tau = 0, tEnd = 0;
+      for (var it = 0; it < 260 && n < PMAX; it++) {
+        tau += 0.004;
+        var zz = jw.jv * tau;
+        if (zz > Dcam * 0.86) break;
+        var s3 = Dcam / (Dcam - zz);
+        var wob = Math.sin(tau * 31 - clock * 37 + k * 1.7) * tau * 16 + Math.sin(tau * 13 + clock * 11) * tau * 10;
+        var X = eyeX + (jw.x + wob - eyeX) * s3, Y = eyeY + (jw.y + 0.5 * 900 * tau * tau - eyeY) * s3;
+        if (Y > Hc + 80 || X < -80 || X > W + 80) break;
+        var rad = r0 * s3 * (1 + tau * 0.8);
+        var ddx = X - lxp, ddy = Y - lyp;
+        if (ddx * ddx + ddy * ddy < rad * rad * 0.2) continue;
+        /* 先のほうは、ちぎれて玉の列になる */
+        if (tau > 0.28 && ((tau * 22 - clock * 9 + k) % 1 + 1) % 1 > 0.66 - 0.2 * Math.min(1, (tau - 0.28) * 3)) continue;
+        lxp = X; lyp = Y;
+        pdata[n * 4] = X; pdata[n * 4 + 1] = Y; pdata[n * 4 + 2] = rad * 3.4; pdata[n * 4 + 3] = 0.6;
+        n++;
+      }
+    }
+    for (i = 0; i < nS && n < PMAX; i++) {
+      var ps = Dcam / (Dcam - sz[i]);
+      pdata[n * 4] = eyeX + (sx[i] - eyeX) * ps; pdata[n * 4 + 1] = eyeY + (sy[i] - eyeY) * ps;
+      pdata[n * 4 + 2] = spl * ssz[i] * ps; pdata[n * 4 + 3] = 0.6;
+      n++;
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fboL);
+    gl.viewport(0, 0, lw, lh);
+    gl.clearColor(0, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    if (n > 0) {
+      gl.useProgram(pprog);
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.ONE, gl.ONE);
+      gl.bindBuffer(gl.ARRAY_BUFFER, pb);
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, pdata.subarray(0, n * 4));
+      gl.enableVertexAttribArray(aPt);
+      gl.vertexAttribPointer(aPt, 4, gl.FLOAT, false, 0, 0);
+      gl.uniform2f(PU.V, W, Hc);
+      gl.uniform1f(PU.ps, Math.min(2 * lw / W, maxPoint / 60));
+      gl.drawArrays(gl.POINTS, 0, n);
+      gl.disable(gl.BLEND);
+      gl.disableVertexAttribArray(aPt);
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, cvs.width, cvs.height);
+
+    /* --- 描く: 仕上げ --- */
+    gl.useProgram(prog);
+    gl.bindBuffer(gl.ARRAY_BUFFER, vb);
+    gl.enableVertexAttribArray(aP);
+    gl.vertexAttribPointer(aP, 2, gl.FLOAT, false, 0, 0);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, texLq);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, texScene);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, texM);
+    var la = clock * 0.19;
+    var lx = Math.cos(la) * 0.62, ly = Math.sin(la) * 0.62 - 0.3, lz = 1;
+    var ll = Math.sqrt(lx * lx + ly * ly + lz * lz);
+    gl.uniform1i(U.M, 0); gl.uniform1i(U.BG, 1); gl.uniform1i(U.LQ, 2);
+    gl.uniform2f(U.R, cvs.width, cvs.height);
+    gl.uniform2f(U.G, gw, gh);
+    gl.uniform2f(U.LR, lw, lh);
+    gl.uniform2f(U.shake, shx, shy);
+    gl.uniform1f(U.gone, gone);
+    gl.uniform1f(U.black, black);
+    gl.uniform1f(U.S, 0.04);
+    gl.uniform1f(U.S3, 0.01);
+    gl.uniform1f(U.D, glass.D);
+    gl.uniform1f(U.Dc, glass.Dc);
+    gl.uniform1f(U.K, K);
+    gl.uniform1f(U.sheen, Math.sin(clock * 0.13) * 1.4);
+    gl.uniform1f(U.mode, mode);
+    gl.uniform1f(U.th, 0.3);
+    gl.uniform1f(U.frW, Math.min(0.03, 7 / W));
+    gl.uniform1f(U.frB, frameB() / Hc);
+    gl.uniform3f(U.L, lx / ll, ly / ll, lz / ll);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    requestAnimationFrame(frame);
+  }
+  function beginRefill() {
+    freshPane();
+    nF = 0; nS = 0; lensP = 0.04; gone = 0;
+    state = 'refill'; stT = clock; lv = lvBot; fadeIn = 1; black = 0;
+  }
+
+  window.addEventListener('resize', resize);
+  resize();
+  setTimeout(function () { if (!hintHidden) hint.classList.add('on'); }, 900);
+  setTimeout(hideHint, 8500);
+  requestAnimationFrame(frame);
+
+  /* ---- 共有コントロール(ap-kit.js) ---- */
+  if (window.APKit) {
+    window.APKit.init({
+      canvas: cvs,
+      gifName: 'waterline',
+      clockFormat: 'spec',
+      dock: true,
+      autoHide: true,
+      fullscreenButton: false,
+      buttons: [
+        { label: '✦', name: 'mutate', onClick: function () {   /* 液を 水→蜂蜜→水銀→蛍光液 と替える。流れ方も変わる。ガラスの種類(虹の幅)も替える */
+          mode = (mode + 1) % 4;
+          glass.D = 0.18 + Math.random() * 0.25;
+          glass.Dc = 0.5 + Math.random() * 0.7;
+        } },
+        { label: '↻', name: 'reset', onClick: function () { if (state === 'live') { state = 'swap'; stT = clock; } } }   /* 新しいガラスにして、液を満たし直す */
+      ]
+    });
+  }
+})();
+</script>
+</body>
+</html>
