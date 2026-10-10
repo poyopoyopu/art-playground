@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>PRISM SHELL — 圧力で変わる虹色の殻</title>
+<title>PRISM SHELL — 触れるたび、光の法則が変わる</title>
 <script src="../ap-kit.js"></script>
 <style>
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#f5f1ed}
@@ -14,7 +14,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 </style>
 </head>
 <body>
-<canvas id="c"></canvas><div id="hint">触れるとガラスが深く凹み、虹色の衝撃波が内部を走る</div><div id="error">この端末では WebGL2 を利用できません。</div>
+<canvas id="c"></canvas><div id="hint">触れて、虹色のガラスに新しい歪みを刻む</div><div id="error">この端末では WebGL2 を利用できません。</div>
 <script>
 'use strict';
 /* PRISM SHELL — ChatGPT作。ap-kit.js統合: ChatGPT
@@ -105,8 +105,28 @@ vec3 shellColor(vec3 p,float mat){
  return c;
 }
 vec3 sky(vec3 d){
+ // A luminous mineral atmosphere: pearl horizon, slow aurora veils and a prismatic reflection pool.
  float t=clamp(d.y*.5+.5,0.,1.);
- return mix(vec3(.91,.87,.86),vec3(1.,.99,.97),smoothstep(0.,1.,t));
+ vec3 c=mix(vec3(.72,.68,.75),vec3(.99,.91,.91),smoothstep(.0,.72,t));
+ c=mix(c,vec3(.68,.86,.91),smoothstep(.20,.82,t)*.34);
+ float veil1=exp(-pow((d.y-(.12+.075*sin(d.x*4.2+uTime*.10))),2.)*180.);
+ float veil2=exp(-pow((d.y-(-.02+.055*sin(d.x*6.0-uTime*.075))),2.)*260.);
+ vec3 aurora=mix(vec3(.22,.88,.91),vec3(1.,.30,.72),.5+.5*sin(d.x*3.4+uTime*.08));
+ c+=aurora*(veil1*.15+veil2*.12);
+ float halo=exp(-length(vec2(d.x*.82,d.y-.06))*3.4);
+ c+=vec3(1.,.70,.82)*halo*.16;
+ // The lower horizon behaves like a glossy surface catching stretched rainbow caustics.
+ float floorMask=1.-smoothstep(-.38,.10,d.y);
+ float horizonGlow=exp(-pow(d.y+.18,2.)*95.);
+ float caustic=pow(.5+.5*sin(d.x*17.+sin(d.x*5.-uTime*.12)*2.2+d.y*12.),14.);
+ float caustic2=pow(.5+.5*sin(d.x*29.-d.y*18.+uTime*.09),22.);
+ vec3 spectral=mix(vec3(.18,.90,1.),vec3(1.,.34,.72),.5+.5*sin(d.x*4.8+uTime*.06));
+ c+=floorMask*(spectral*(caustic*.22+caustic2*.12)+vec3(1.,.67,.43)*horizonGlow*.18);
+ // Fine distant bokeh; deliberately sparse so the glass remains the focus.
+ float b1=exp(-length(vec2(d.x-.48,d.y-.14))*190.);
+ float b2=exp(-length(vec2(d.x+.57,d.y+.02))*150.);
+ c+=vec3(.75,.98,1.)*(b1+b2)*.24;
+ return c;
 }
 vec3 shade(vec3 ro,vec3 rd,vec3 p,vec3 n,float mat){
  vec3 v=normalize(ro-p);
