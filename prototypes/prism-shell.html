@@ -40,33 +40,32 @@ uniform float uTouchPower;
 uniform float uHasTouch;
 uniform float uFlip;
 const float PI=3.14159265359;
-float sdRoundBox(vec3 p,vec3 b,float r){
- vec3 q=abs(p)-b+r;
- return length(max(q,0.))+min(max(q.x,max(q.y,q.z)),0.)-r;
+float sdEllipsoid(vec3 p,vec3 r){
+ float k0=length(p/r);
+ float k1=length(p/(r*r));
+ return k0*(k0-1.)/max(k1,.0001);
 }
-float sdRoundBox2(vec2 p,vec2 b,float r){
- vec2 q=abs(p)-b+r;
- return length(max(q,0.))+min(max(q.x,q.y),0.)-r;
-}
-float sdExtrudedCapsule(vec3 p,float radius,float halfSegment,float depth){
- float closestY=clamp(p.y,-halfSegment,halfSegment);
- float d2=length(vec2(p.x,p.y-closestY))-radius;
- vec2 d=vec2(d2,abs(p.z)-depth);
- return min(max(d.x,d.y),0.)+length(max(d,0.));
+float smin(float a,float b,float k){
+ float h=clamp(.5+.5*(b-a)/k,0.,1.);
+ return mix(b,a,h)-k*h*(1.-h);
 }
 vec2 scene(vec3 p){
- // A tall, organically rounded shell with a broad face and a thin, rolled glass edge.
- float dOuter=sdExtrudedCapsule(p,mix(.635,.56,uFlip),mix(.275,.20,uFlip),.215);
- vec3 qCut=p-vec3(0.,.255,.14);
- float dCavity=sdExtrudedCapsule(qCut,.455,.05,.19);
- float dCut=max(dOuter,-dCavity);
- vec3 qLens=p-vec3(0.,.255,mix(-.02,.37,uFlip));
- float dLens=sdExtrudedCapsule(qLens,.425,.045,mix(.105,.18,uFlip));
- float d=min(dCut,dLens);
+ // No inset capsule: one continuous, asymmetric melted-glass mass.
+ // The silhouette changes its balance when touched; folds are part of the volume.
+ vec3 q=p;
+ q.x+=sin(q.y*3.1+uTime*.17)*.055+sin(q.y*6.2-q.x*2.0)*.018;
+ q.y+=sin(q.x*3.4-uTime*.13)*.038;
+ float d=sdEllipsoid(q,vec3(.66,.82,.39));
+ vec3 crown=q-vec3(mix(-.25,.23,uFlip),.43,.015);
+ d=smin(d,sdEllipsoid(crown,vec3(.48,.48,.35)),.31);
+ vec3 shoulder=q-vec3(mix(.39,-.28,uFlip),.02,.045);
+ d=smin(d,sdEllipsoid(shoulder,vec3(.43,.53,.37)),.29);
+ vec3 lower=q-vec3(-.12,-.57,.055);
+ d=smin(d,sdEllipsoid(lower,vec3(.51,.39,.34)),.30);
+ // Touch leaves a temporary dimple, while the overall silhouette keeps its new balance.
  float touchD=length(p.xy-uTouch);
- float dent=exp(-touchD*8.0)*uTouchPower*uHasTouch*.04;
- d+=dent;
- return vec2(d,dLens<dCut?2.:1.);
+ d+=exp(-touchD*7.0)*uTouchPower*uHasTouch*.035;
+ return vec2(d,1.);
 }
 vec3 normalAt(vec3 p){
  vec2 e=vec2(.0015,0.);
@@ -78,24 +77,16 @@ vec3 normalAt(vec3 p){
 float hash(vec3 p){return fract(sin(dot(p,vec3(127.1,311.7,74.7)))*43758.5453);}
 vec3 shellColor(vec3 p,float mat){
  float pal=mod(uPalette,4.);
- if(mat>1.5){
-   float f=clamp((p.y+.25)*.78+.5,0.,1.);
-   vec3 cyan=vec3(.12,.82,.94),blue=vec3(.20,.48,1.),violet=vec3(.73,.25,.96),pink=vec3(1.,.25,.62);
-   vec3 c=mix(cyan,blue,smoothstep(.05,.62,f));
-   c=mix(c,mix(violet,pink,smoothstep(.25,.95,f)),smoothstep(.48,.98,f));
-   if(pal>0.5&&pal<1.5)c=mix(c,vec3(.38,.98,.76),.42);
-   if(pal>1.5&&pal<2.5)c=mix(c,vec3(1.,.43,.74),.32);
-   if(pal>2.5)c=mix(c,vec3(.52,.82,1.),.34);
-   return c;
- }
- float f=clamp((p.y+.68)*.75,0.,1.);
- vec3 amber=vec3(1.,.69,.12),orange=vec3(1.,.25,.035),coral=vec3(1.,.12,.27),magenta=vec3(.85,.08,.67);
- vec3 c=mix(amber,orange,smoothstep(.0,.48,f));
- c=mix(c,coral,smoothstep(.34,.77,f));
- c=mix(c,magenta,smoothstep(.74,1.,f));
- if(pal>.5&&pal<1.5)c=mix(c,vec3(.04,.78,.95),.65);
- if(pal>1.5&&pal<2.5)c=mix(c,vec3(.8,.25,1.),.32);
- if(pal>2.5)c=mix(c,vec3(1.,.76,.32),.42);
+ float y=clamp((p.y+.92)/1.85,0.,1.);
+ float x=clamp((p.x+.75)/1.5,0.,1.);
+ vec3 c=mix(vec3(1.,.66,.10),vec3(1.,.25,.045),smoothstep(.0,.42,y));
+ c=mix(c,vec3(1.,.12,.31),smoothstep(.28,.68,y));
+ c=mix(c,vec3(.84,.12,.72),smoothstep(.57,.96,y));
+ c=mix(c,vec3(.12,.78,.98),smoothstep(.12,.88,x)*.48);
+ c=mix(c,vec3(.48,.30,1.),smoothstep(.36,.98,y)*.32);
+ if(pal>.5&&pal<1.5)c=mix(c,vec3(.03,.78,.95),.48);
+ if(pal>1.5&&pal<2.5)c=mix(c,vec3(.91,.18,.72),.38);
+ if(pal>2.5)c=mix(c,vec3(1.,.75,.30),.38);
  return c;
 }
 vec3 sky(vec3 d){
