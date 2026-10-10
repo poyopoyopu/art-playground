@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>PRISM SHELL — 触れるたび、光の法則が変わる</title>
+<script src="ap-kit.js"></script>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#f5f1ed}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#hint{position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top) + 18px);text-align:center;color:rgba(74,62,74,.6);font:500 11px/1.5 system-ui,sans-serif;letter-spacing:.12em;pointer-events:none;transition:opacity 1s}
+#hint.off{opacity:0}
+#error{position:fixed;left:18px;right:18px;bottom:24px;text-align:center;color:#8d485d;font:12px/1.5 system-ui,sans-serif;display:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas><div id="hint">触れて、虹色のガラスに新しい歪みを刻む</div><div id="error">この端末では WebGL2 を利用できません。</div>
+<script>
+'use strict';
+/* PRISM SHELL — ChatGPT作。ap-kit.js統合: ChatGPT
+   Render: WebGL2 ray-marched iridescent glass with a trapped inner glow.
+   World law: touch indents the shell; a shockwave travels through its material.
+*/
+const canvas=document.getElementById('c'),hint=document.getElementById('hint');
+const gl=canvas.getContext('webgl2',{alpha:false,antialias:true,powerPreference:'high-performance'});
+if(!gl){document.getElementById('error').style.display='block';throw new Error('WebGL2 unavailable')}
+const vs=`#version 300 es
+in vec2 aPos;
+out vec2 vUv;
+void main(){vUv=aPos*.5+.5;gl_Position=vec4(aPos,0.,1.);}`;
+const fs=`#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 fragColor;
+uniform vec2 uRes;
+uniform float uTime;
+uniform float uPalette;
+uniform vec2 uTouch;
+uniform float uTouchPower;
+uniform float uHasTouch;
+uniform float uFlip;
+uniform float uDrain;
+const float PI=3.14159265359;
+float sdEllipsoid(vec3 p,vec3 r){
+ float k0=length(p/r);
+ float k1=length(p/(r*r));
+ return k0*(k0-1.)/max(k1,.0001);
+}
+float smin(float a,float b,float k){
+ float h=clamp(.5+.5*(b-a)/k,0.,1.);
+ return mix(b,a,h)-k*h*(1.-h);
+}
+float sdCylinderZ(vec3 p,vec2 center,float radius,float zCenter,float halfDepth){
+ vec2 d=vec2(length(p.xy-center)-radius,abs(p.z-zCenter)-halfDepth);
+ return min(max(d.x,d.y),0.)+length(max(d,0.));
+}
+float sdTaperedSegment3(vec3 p,vec3 a,vec3 b,float ra,float rb){
+ vec3 ba=b-a,pa=p-a;
+ float h=clamp(dot(pa,ba)/max(dot(ba,ba),.00001),0.,1.);
+ return length(pa-ba*h)-mix(ra,rb,h);
+}
+vec2 scene(vec3 p){
+ vec3 q=p;
+ q.x+=sin(q.y*3.1+uTime*.17)*.045+sin(q.y*6.2-q.x*2.)*.014;
+ q.y+=sin(q.x*3.4-uTime*.13)*.03;
+
+ // Touch is a force, not a hole: it dents the near surface and sends a shockwave through the glass.
+ vec2 touchPoint=uTouch*.90;
+ float radius=length(q.xy-touchPoint);
+ float frontWeight=smoothstep(-.08,.25,p.z);
+ float dentDepth=(.035+.19*uDrain)*exp(-radius*radius/.012)*uHasTouch;
+ float shock=sin(radius*31.-uTime*8.5)*exp(-radius*4.1)*uTouchPower;
+ q.z+=frontWeight*(dentDepth+shock*.055);
+
+ float body=sdEllipsoid(q,vec3(.53,.67,.34));
+ vec3 crown=q-vec3(mix(-.18,.18,uFlip),.34,.01);
+ body=smin(body,sdEllipsoid(crown,vec3(.39,.39,.30)),.26);
+ vec3 shoulder=q-vec3(mix(.30,-.22,uFlip),-.015,.025);
+ body=smin(body,sdEllipsoid(shoulder,vec3(.34,.41,.30)),.25);
+ vec3 lower=q-vec3(-.08,-.45,.035);
+ body=smin(body,sdEllipsoid(lower,vec3(.40,.31,.29)),.25);
+ return vec2(body,1.);
+}
+vec3 normalAt(vec3 p){
+ vec2 e=vec2(.0015,0.);
+ return normalize(vec3(
+ scene(p+e.xyy).x-scene(p-e.xyy).x,
+ scene(p+e.yxy).x-scene(p-e.yxy).x,
+ scene(p+e.yyx).x-scene(p-e.yyx).x));
+}
+float hash(vec3 p){return fract(sin(dot(p,vec3(127.1,311.7,74.7)))*43758.5453);}
+vec3 shellColor(vec3 p,float mat){
+ float pal=mod(uPalette,4.);
+ float y=clamp((p.y+.92)/1.85,0.,1.);
+ float x=clamp((p.x+.75)/1.5,0.,1.);
+ vec3 c=mix(vec3(1.,.66,.10),vec3(1.,.25,.045),smoothstep(.0,.42,y));
+ c=mix(c,vec3(1.,.12,.31),smoothstep(.28,.68,y));
+ c=mix(c,vec3(.84,.12,.72),smoothstep(.57,.96,y));
+ c=mix(c,vec3(.12,.78,.98),smoothstep(.12,.88,x)*.48);
+ c=mix(c,vec3(.48,.30,1.),smoothstep(.36,.98,y)*.32);
+ if(pal>.5&&pal<1.5)c=mix(c,vec3(.03,.78,.95),.48);
+ if(pal>1.5&&pal<2.5)c=mix(c,vec3(.91,.18,.72),.38);
+ if(pal>2.5)c=mix(c,vec3(1.,.75,.30),.38);
+ if(mat>1.5){vec3 f=mix(vec3(1.,.42,.07),vec3(.05,.84,1.),smoothstep(-.35,.45,p.y));f=mix(f,vec3(.96,.08,.56),smoothstep(.05,.6,p.x)*.68);f=mix(f,vec3(.62,.25,1.),smoothstep(.1,.7,p.y)*.35);return f;}
+ return c;
+}
+vec3 sky(vec3 d,vec2 uv){
+ // A bright pearl chamber with unmistakable flowing color architecture.
+ // Warp the background coordinates themselves: motion remains obvious even on a small phone.
+ float x0=uv.x;
+ float y0=uv.y;
+ float x=x0+.055*sin(y0*4.1+uTime*.46)+.018*sin(y0*9.0-uTime*.31);
+ float y=y0+.032*sin(x0*3.4-uTime*.38)+.014*sin(x0*8.0+uTime*.27);
+ vec3 c=mix(vec3(.89,.83,.86),vec3(1.0,.96,.91),smoothstep(-.55,.72,y));
+ c=mix(c,vec3(.77,.88,.94),smoothstep(-.05,.70,y)*.38);
+
+ // Broad aurora bands visibly travel across the background, with a slower secondary curl.
+ float bend1=y-(.25+.19*sin(x*2.8-uTime*.48)+.065*sin(x*6.0+uTime*.30));
+ float bend2=y-(-.02+.16*sin(x*3.6+uTime*.39+.9));
+ float bend3=y-(-.32+.13*sin(x*2.5-uTime*.34+2.0));
+ float ribbon1=exp(-bend1*bend1*34.);
+ float ribbon2=exp(-bend2*bend2*48.);
+ float ribbon3=exp(-bend3*bend3*40.);
+ vec3 r1=mix(vec3(.22,.83,1.),vec3(1.,.36,.73),.5+.5*sin(x*3.0+uTime*.42));
+ vec3 r2=mix(vec3(1.,.62,.34),vec3(.56,.40,1.),.5+.5*sin(x*3.8-uTime*.09));
+ vec3 r3=mix(vec3(.30,.91,.83),vec3(1.,.74,.43),.5+.5*cos(x*4.2+uTime*.32));
+ c=mix(c,r1,clamp(ribbon1*.42,0.,.42));
+ c=mix(c,r2,clamp(ribbon2*.34,0.,.34));
+ c=mix(c,r3,clamp(ribbon3*.27,0.,.27));
+
+ // A clear reflective pool occupies the lower third; stretched caustics drift laterally.
+ float pool=1.-smoothstep(-.48,-.18,y);
+ float poolY=y+.48+.025*sin(x*5.0+uTime*.43);
+ float causticA=pow(.5+.5*cos(x*12.0+sin(x*3.5-uTime*.39)*2.0+poolY*18.0+uTime*.55),8.);
+ float causticB=pow(.5+.5*sin(x*21.0-poolY*13.0-uTime*.48),12.);
+ vec3 spectral=mix(vec3(.14,.79,1.),vec3(1.,.29,.67),.5+.5*sin(x*3.8+uTime*.28));
+ c+=pool*(spectral*(causticA*.34+causticB*.22)+vec3(1.,.72,.49)*exp(-poolY*poolY*65.)*.22);
+ // Broad light columns and a soft luminous horizon give the object spatial depth.
+ float horizon=exp(-pow(y+.13,2.)*20.);
+ float column1=exp(-pow(x-.66-.045*sin(y*4.+uTime*.28),2.)*34.);
+ float column2=exp(-pow(x+.72+.06*cos(y*3.-uTime*.24),2.)*25.);
+ c+=vec3(1.,.69,.79)*horizon*.28;
+ c+=vec3(.38,.85,1.)*column1*.12+vec3(1.,.55,.47)*column2*.10;
+
+ // Sparse large bokeh, visible but subordinate to the sculpture.
+ float b1=exp(-length(vec2(x-.58,y-.46))*70.);
+ float b2=exp(-length(vec2(x+.62,y+.08))*55.);
+ float b3=exp(-length(vec2(x-.48,y+.53))*90.);
+ c+=vec3(.75,.96,1.)*(b1+b3)*.24+vec3(1.,.72,.82)*b2*.20;
+ return c;
+}
+vec3 shade(vec3 ro,vec3 rd,vec3 p,vec3 n,float mat){
+ vec3 v=normalize(ro-p);
+ vec3 l1=normalize(vec3(-.48,.72,.72));
+ vec3 l2=normalize(vec3(.65,-.25,.62));
+ float ndl=max(dot(n,l1),0.);
+ float ndl2=max(dot(n,l2),0.);
+ vec3 base=shellColor(p,mat);
+ vec3 inv=mix(vec3(.04,.83,.96),vec3(.83,.12,.82),smoothstep(-.85,.8,p.y));
+ base=mix(base,inv,uFlip*.72);
+ float fres=pow(1.-max(dot(n,v),0.),mat>1.5?1.65:2.25);
+ vec3 half1=normalize(l1+v),half2=normalize(l2+v);
+ float spec=pow(max(dot(n,half1),0.),mat>1.5?150.:100.);
+ float broad=pow(max(dot(n,half2),0.),mat>1.5?42.:28.);
+ float rim=pow(1.-abs(dot(n,v)),2.2);
+ float bands=.5+.5*cos(5.2*fres+atan(n.y,n.x)*1.6+p.y*1.5+uTime*.12);
+ vec3 irid=mix(vec3(.02,.82,1.),vec3(1.,.035,.48),bands);
+ irid=mix(irid,vec3(1.,.68,.04),smoothstep(.35,.95,.5+.5*sin(atan(n.x,n.y)*1.4+p.y*2.)));
+ vec3 col=base*(mat>1.5?.50:.72)+base*(.38*ndl+.18*ndl2);
+ col+=vec3(1.)*(spec*(mat>1.5?1.25:.95)+broad*.32);
+ col=mix(col,irid,clamp(fres*(mat>1.5?.72:1.08),0.,.94));
+ col+=vec3(1.)*rim*(mat>1.5?.30:.18);
+ col+=base*pow(1.-max(dot(n,v),0.),1.55)*.48;
+ // A trapped rainbow core is pulled toward the dent; the transient shockwave lights its edge.
+ vec2 td=p.xy-uTouch*.90;
+ float core=exp(-dot(td,td)*8.)*uHasTouch;
+ float pulse=exp(-length(td)*4.0)*uTouchPower;
+ vec3 innerLight=mix(vec3(.05,.88,1.),vec3(1.,.08,.55),.5+.5*sin(uTime*2.2+length(td)*9.));
+ col+=innerLight*(core*.34+pulse*.62);
+ col+=vec3(1.,.88,1.)*exp(-dot(td,td)*85.)*uTouchPower*.72;
+ return col;
+}
+void main(){
+ vec2 uv=(gl_FragCoord.xy-.5*uRes)/min(uRes.x,uRes.y);
+ // Screen-filling composition: bring the glass close to the viewer while preserving proportions.
+ vec2 viewUV=uv*.86;
+ vec3 ro=vec3(viewUV,3.25);
+ vec3 rd=normalize(vec3(viewUV,-2.65));
+ // Keep the shell upright. Only a slight breathing tilt remains; no in-plane spin.
+ float a=sin(uTime*.19)*.025;
+ mat2 rx=mat2(cos(a),-sin(a),sin(a),cos(a));
+ ro.yz=rx*ro.yz;rd.yz=rx*rd.yz;
+ float t=0.;float mat=0.;vec3 p=ro;bool hit=false;
+ for(int i=0;i<112;i++){
+   p=ro+rd*t;vec2 d=scene(p);
+   if(d.x<.0018){mat=d.y;hit=true;break;}
+   t+=max(d.x*.78,.002);
+   if(t>7.)break;
+ }
+ vec3 col=sky(rd,uv);
+ if(hit){
+   vec3 n=normalAt(p);
+   col=shade(ro,rd,p,n,mat);
+   // Small optical aberration only at the grazing edge; broad body remains smooth.
+   float fres=pow(1.-max(dot(n,normalize(ro-p)),0.),2.8);
+   col+=vec3(.18,.55,1.)*fres*.22;
+   float fog=1.-exp(-t*.018);col=mix(col,vec3(.96,.93,.91),fog*.22);
+ }else{
+   // Quiet studio halo around the object.
+   float halo=exp(-length(uv*vec2(.82,1.0)-vec2(0.,-.03))*2.2)*.08;
+   col+=vec3(1.,.88,.84)*halo;
+ }
+ col=pow(max(col,vec3(0.)),vec3(.88));
+ col=col/(vec3(1.)+col*.13);
+ fragColor=vec4(col,1.);
+}`;
+function shader(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){const m=gl.getShaderInfoLog(s);console.error(m);throw new Error(m)}return s}
+const program=gl.createProgram();gl.attachShader(program,shader(gl.VERTEX_SHADER,vs));gl.attachShader(program,shader(gl.FRAGMENT_SHADER,fs));gl.linkProgram(program);
+if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(program));
+gl.useProgram(program);
+const buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);
+const loc=gl.getAttribLocation(program,'aPos');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+const uniforms={res:gl.getUniformLocation(program,'uRes'),time:gl.getUniformLocation(program,'uTime'),palette:gl.getUniformLocation(program,'uPalette'),touch:gl.getUniformLocation(program,'uTouch'),power:gl.getUniformLocation(program,'uTouchPower'),has:gl.getUniformLocation(program,'uHasTouch'),flip:gl.getUniformLocation(program,'uFlip'),drain:gl.getUniformLocation(program,'uDrain')};
+let palette=0,flip=0,targetFlip=0,drain=0,targetDrain=0,touch={x:0,y:0,power:0,has:0},last=performance.now();
+function resize(){const d=Math.min(devicePixelRatio||1,1.5);canvas.width=Math.round(innerWidth*d);canvas.height=Math.round(innerHeight*d);canvas.style.width=innerWidth+'px';canvas.style.height=innerHeight+'px';gl.viewport(0,0,canvas.width,canvas.height);gl.uniform2f(uniforms.res,canvas.width,canvas.height)}
+addEventListener('resize',resize,{passive:true});resize();
+function draw(now){const dt=Math.min(.04,(now-last)/1000);last=now;touch.power=Math.max(0,touch.power-dt*1.05);flip+=(targetFlip-flip)*Math.min(1,dt*2.8);drain+=(targetDrain-drain)*Math.min(1,dt*1.25);gl.uniform1f(uniforms.time,now*.001);gl.uniform1f(uniforms.palette,palette);gl.uniform2f(uniforms.touch,touch.x,touch.y);gl.uniform1f(uniforms.power,touch.power);gl.uniform1f(uniforms.has,touch.has);gl.uniform1f(uniforms.flip,flip);gl.uniform1f(uniforms.drain,drain);gl.drawArrays(gl.TRIANGLES,0,6);requestAnimationFrame(draw)}
+function touchAt(e){if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;const d=Math.min(innerWidth,innerHeight);touch.x=(e.clientX-innerWidth/2)/d;touch.y=-(e.clientY-innerHeight/2)/d;touch.power=1;touch.has=1;targetFlip=1-targetFlip;targetDrain=Math.min(1,targetDrain+.34);palette=(palette+1)%4;hint.classList.add('off')}
+canvas.addEventListener('pointerdown',touchAt,{passive:true});
+APKit.init({canvas:canvas,gifName:'prism-shell-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,buttons:[
+ {label:'✦',name:'mutate',onClick:function(){palette=(palette+1+Math.floor(Math.random()*3))%4;targetFlip=1-targetFlip;touch.power=1;touch.has=1}},
+ {label:'↻',name:'reset',onClick:function(){palette=0;flip=0;targetFlip=0;drain=0;targetDrain=0;touch.power=0;touch.has=0;hint.classList.remove('off')}}
+]});
+requestAnimationFrame(draw);
+</script></body></html>
