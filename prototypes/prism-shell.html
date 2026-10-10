@@ -14,7 +14,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 </style>
 </head>
 <body>
-<canvas id="c"></canvas><div id="hint">突くと虹色の粘液が垂れ出す。繰り返すほど流れが伸びる</div><div id="error">この端末では WebGL2 を利用できません。</div>
+<canvas id="c"></canvas><div id="hint">突いた穴から、中の虹色の液体がドロっと流れ出す</div><div id="error">この端末では WebGL2 を利用できません。</div>
 <script>
 'use strict';
 /* PRISM SHELL — ChatGPT作。ap-kit.js統合: ChatGPT
@@ -55,8 +55,12 @@ float sdCapsule2(vec2 p,vec2 a,vec2 b,float r){
  float h=clamp(dot(pa,ba)/max(dot(ba,ba),.00001),0.,1.);
  return length(pa-ba*h)-r;
 }
+float sdCylinderZ(vec3 p,vec2 center,float radius,float zCenter,float halfDepth){
+ vec2 d=vec2(length(p.xy-center)-radius,abs(p.z-zCenter)-halfDepth);
+ return min(max(d.x,d.y),0.)+length(max(d,0.));
+}
 vec2 scene(vec3 p){
- // A palm-sized, soft glass organism: no rings, no inset capsule.
+ // A soft iridescent shell contains a second, visibly different liquid volume.
  vec3 q=p;
  q.x+=sin(q.y*3.1+uTime*.17)*.045+sin(q.y*6.2-q.x*2.)*.014;
  q.y+=sin(q.x*3.4-uTime*.13)*.03;
@@ -67,29 +71,36 @@ vec2 scene(vec3 p){
  body=smin(body,sdEllipsoid(shoulder,vec3(.34,.41,.30)),.25);
  vec3 lower=q-vec3(-.08,-.45,.035);
  body=smin(body,sdEllipsoid(lower,vec3(.40,.31,.29)),.25);
- float touchD=length(p.xy-uTouch*.78);
- body+=exp(-touchD*8.)*uTouchPower*uHasTouch*.045;
- // Each poke releases a few thick, curved streams of viscous glass.
- // Drain amount accumulates; the streams lengthen and hang under gravity.
- vec2 a=clamp(uTouch*.78,vec2(-.40,-.22),vec2(.40,.52));
- float len=.10+.92*uDrain;
- float sway=sin(uTime*.8+a.x*5.)*.045;
- vec2 a1=a+vec2(-.055,.015),b1=a+vec2(-.11+sway,-len);
- vec2 a2=a+vec2(.005,.005),b2=a+vec2(.025-sway*.7,-len*.82);
- vec2 a3=a+vec2(.055,.012),b3=a+vec2(.10+sway*.6,-len*.62);
- float g1=sdCapsule2(p.xy,a1,b1,.042);
- float g2=sdCapsule2(p.xy,a2,b2,.052);
- float g3=sdCapsule2(p.xy,a3,b3,.034);
- // Rounded hanging drops at the ends make the material read as liquid, not string.
- g1=smin(g1,length(p.xy-b1)-.058,.035);
- g2=smin(g2,length(p.xy-b2)-.067,.04);
- g3=smin(g3,length(p.xy-b3)-.048,.03);
- float goo=min(g1,min(g2,g3));
- vec2 ext=vec2(goo,abs(p.z)-.095);
+
+ // A poke opens a real aperture through the front wall at the exact touch point.
+ vec2 a=clamp(uTouch*.90,vec2(-.43,-.54),vec2(.43,.58));
+ float holeRadius=mix(-.10,.022+.060*uDrain,uHasTouch);
+ float hole=sdCylinderZ(p,a,holeRadius,.37,.38);
+ float shell=max(body,-hole);
+
+ // The reservoir remains inside the shell; it becomes visible through the puncture.
+ vec3 inside=p-vec3(0.,-.01,.015);
+ float reservoir=sdEllipsoid(inside,vec3(.355,.475,.205));
+ float d=shell;
+ float material=1.;
+ if(uHasTouch>.5&&reservoir<d){d=reservoir;material=2.;}
+
+ // The same liquid pushes through the puncture, then sags and stretches under gravity.
+ float len=.07+.86*uDrain;
+ float sway=sin(uTime*.85+a.x*4.)*.045;
+ vec2 start=a+vec2(0.,-.008);
+ vec2 bend=a+vec2(sway*.45,-len*.46);
+ vec2 end=a+vec2(sway,-len);
+ float g1=sdCapsule2(p.xy,start,bend,.052+.018*uDrain);
+ float g2=sdCapsule2(p.xy,bend,end,.067+.012*uDrain);
+ float goo=smin(g1,g2,.055);
+ goo=smin(goo,length(p.xy-end)-(.073+.018*uDrain),.04);
+ // Match the stream's depth to the front of the shell at the puncture.
+ float zFront=.34*sqrt(max(.08,1.-pow(a.x/.68,2.)-pow(a.y/.82,2.)));
+ vec2 ext=vec2(goo,abs(p.z-(zFront+.035))-.075);
  float goo3=min(max(ext.x,ext.y),0.)+length(max(ext,0.));
- goo3+=(1.-uDrain)*.12; // Hide the ooze until the first poke.
- float d=smin(body,goo3,.075);
- float material=goo3<body?2.:1.;
+ goo3+=(1.-uHasTouch)*.20;
+ if(goo3<d){d=goo3;material=2.;}
  return vec2(d,material);
 }
 vec3 normalAt(vec3 p){
@@ -112,6 +123,7 @@ vec3 shellColor(vec3 p,float mat){
  if(pal>.5&&pal<1.5)c=mix(c,vec3(.03,.78,.95),.48);
  if(pal>1.5&&pal<2.5)c=mix(c,vec3(.91,.18,.72),.38);
  if(pal>2.5)c=mix(c,vec3(1.,.75,.30),.38);
+ if(mat>1.5){vec3 f=mix(vec3(1.,.42,.07),vec3(.05,.84,1.),smoothstep(-.35,.45,p.y));f=mix(f,vec3(.96,.08,.56),smoothstep(.05,.6,p.x)*.68);f=mix(f,vec3(.62,.25,1.),smoothstep(.1,.7,p.y)*.35);return f;}
  return c;
 }
 vec3 sky(vec3 d){
