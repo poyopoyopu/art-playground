@@ -47,22 +47,25 @@ float sdRoundBox2(vec2 p,vec2 b,float r){
  vec2 q=abs(p)-b+r;
  return length(max(q,0.))+min(max(q.x,q.y),0.)-r;
 }
-float sdShell(vec3 p,vec2 b,float corner,float depth){
- vec2 d=vec2(sdRoundBox2(p.xy,b,corner),abs(p.z)-depth);
+float sdExtrudedCapsule(vec3 p,float radius,float halfSegment,float depth){
+ float closestY=clamp(p.y,-halfSegment,halfSegment);
+ float d2=length(vec2(p.x,p.y-closestY))-radius;
+ vec2 d=vec2(d2,abs(p.z)-depth);
  return min(max(d.x,d.y),0.)+length(max(d,0.));
 }
 vec2 scene(vec3 p){
  // A tall, organically rounded shell with a broad face and a thin, rolled glass edge.
- float dOuter=sdShell(p,vec2(.635,.91),.43,.215);
- // A broad inset pocket is carved into the front face, leaving a thick continuous rim.
- vec3 q=p-vec3(0.,.255,.285);
- float dPocket=-sdShell(q,vec2(.455,.505),.31,.315);
- float d=max(dOuter,dPocket);
- // A fingertip leaves a shallow permanent crease in the shell surface.
+ float dOuter=sdExtrudedCapsule(p,mix(.635,.56,uFlip),mix(.275,.20,uFlip),.215);
+ vec3 qCut=p-vec3(0.,.255,.14);
+ float dCavity=sdExtrudedCapsule(qCut,.455,.05,.19);
+ float dCut=max(dOuter,-dCavity);
+ vec3 qLens=p-vec3(0.,.255,mix(-.02,.37,uFlip));
+ float dLens=sdExtrudedCapsule(qLens,.425,.045,mix(.105,.18,uFlip));
+ float d=min(dCut,dLens);
  float touchD=length(p.xy-uTouch);
- float dent=exp(-touchD*8.0)*uTouchPower*uHasTouch*.055;
+ float dent=exp(-touchD*8.0)*uTouchPower*uHasTouch*.04;
  d+=dent;
- return vec2(d,dPocket>dOuter?2.:1.);
+ return vec2(d,dLens<dCut?2.:1.);
 }
 vec3 normalAt(vec3 p){
  vec2 e=vec2(.0015,0.);
