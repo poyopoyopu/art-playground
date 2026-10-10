@@ -104,28 +104,46 @@ vec3 shellColor(vec3 p,float mat){
  if(mat>1.5){vec3 f=mix(vec3(1.,.42,.07),vec3(.05,.84,1.),smoothstep(-.35,.45,p.y));f=mix(f,vec3(.96,.08,.56),smoothstep(.05,.6,p.x)*.68);f=mix(f,vec3(.62,.25,1.),smoothstep(.1,.7,p.y)*.35);return f;}
  return c;
 }
-vec3 sky(vec3 d){
- // A luminous mineral atmosphere: pearl horizon, slow aurora veils and a prismatic reflection pool.
- float t=clamp(d.y*.5+.5,0.,1.);
- vec3 c=mix(vec3(.72,.68,.75),vec3(.99,.91,.91),smoothstep(.0,.72,t));
- c=mix(c,vec3(.68,.86,.91),smoothstep(.20,.82,t)*.34);
- float veil1=exp(-pow((d.y-(.12+.075*sin(d.x*4.2+uTime*.10))),2.)*180.);
- float veil2=exp(-pow((d.y-(-.02+.055*sin(d.x*6.0-uTime*.075))),2.)*260.);
- vec3 aurora=mix(vec3(.22,.88,.91),vec3(1.,.30,.72),.5+.5*sin(d.x*3.4+uTime*.08));
- c+=aurora*(veil1*.15+veil2*.12);
- float halo=exp(-length(vec2(d.x*.82,d.y-.06))*3.4);
- c+=vec3(1.,.70,.82)*halo*.16;
- // The lower horizon behaves like a glossy surface catching stretched rainbow caustics.
- float floorMask=1.-smoothstep(-.38,.10,d.y);
- float horizonGlow=exp(-pow(d.y+.18,2.)*95.);
- float caustic=pow(.5+.5*sin(d.x*17.+sin(d.x*5.-uTime*.12)*2.2+d.y*12.),14.);
- float caustic2=pow(.5+.5*sin(d.x*29.-d.y*18.+uTime*.09),22.);
- vec3 spectral=mix(vec3(.18,.90,1.),vec3(1.,.34,.72),.5+.5*sin(d.x*4.8+uTime*.06));
- c+=floorMask*(spectral*(caustic*.22+caustic2*.12)+vec3(1.,.67,.43)*horizonGlow*.18);
- // Fine distant bokeh; deliberately sparse so the glass remains the focus.
- float b1=exp(-length(vec2(d.x-.48,d.y-.14))*190.);
- float b2=exp(-length(vec2(d.x+.57,d.y+.02))*150.);
- c+=vec3(.75,.98,1.)*(b1+b2)*.24;
+vec3 sky(vec3 d,vec2 uv){
+ // A bright pearl chamber with unmistakable flowing color architecture.
+ float y=uv.y;
+ float x=uv.x;
+ vec3 c=mix(vec3(.89,.83,.86),vec3(1.0,.96,.91),smoothstep(-.55,.72,y));
+ c=mix(c,vec3(.77,.88,.94),smoothstep(-.05,.70,y)*.38);
+
+ // Wide translucent aurora ribbons sweep behind the glass instead of disappearing into blur.
+ float bend1=y-(.25+.16*sin(x*2.8-uTime*.12)+.055*sin(x*6.0+uTime*.08));
+ float bend2=y-(-.02+.13*sin(x*3.6+uTime*.095+.9));
+ float bend3=y-(-.32+.105*sin(x*2.5-uTime*.08+2.0));
+ float ribbon1=exp(-bend1*bend1*34.);
+ float ribbon2=exp(-bend2*bend2*48.);
+ float ribbon3=exp(-bend3*bend3*40.);
+ vec3 r1=mix(vec3(.22,.83,1.),vec3(1.,.36,.73),.5+.5*sin(x*3.0+uTime*.10));
+ vec3 r2=mix(vec3(1.,.62,.34),vec3(.56,.40,1.),.5+.5*sin(x*3.8-uTime*.09));
+ vec3 r3=mix(vec3(.30,.91,.83),vec3(1.,.74,.43),.5+.5*cos(x*4.2+uTime*.07));
+ c=mix(c,r1,clamp(ribbon1*.42,0.,.42));
+ c=mix(c,r2,clamp(ribbon2*.34,0.,.34));
+ c=mix(c,r3,clamp(ribbon3*.27,0.,.27));
+
+ // A clear reflective pool occupies the lower third; stretched caustics drift laterally.
+ float pool=1.-smoothstep(-.48,-.18,y);
+ float poolY=y+.48+.025*sin(x*5.0+uTime*.13);
+ float causticA=pow(.5+.5*cos(x*12.0+sin(x*3.5-uTime*.12)*2.0+poolY*18.0),8.);
+ float causticB=pow(.5+.5*sin(x*21.0-poolY*13.0+uTime*.10),12.);
+ vec3 spectral=mix(vec3(.14,.79,1.),vec3(1.,.29,.67),.5+.5*sin(x*3.8+uTime*.06));
+ c+=pool*(spectral*(causticA*.34+causticB*.22)+vec3(1.,.72,.49)*exp(-poolY*poolY*65.)*.22);
+ // Broad light columns and a soft luminous horizon give the object spatial depth.
+ float horizon=exp(-pow(y+.13,2.)*20.);
+ float column1=exp(-pow(x-.66-.045*sin(y*4.),2.)*34.);
+ float column2=exp(-pow(x+.72+.06*cos(y*3.),2.)*25.);
+ c+=vec3(1.,.69,.79)*horizon*.28;
+ c+=vec3(.38,.85,1.)*column1*.12+vec3(1.,.55,.47)*column2*.10;
+
+ // Sparse large bokeh, visible but subordinate to the sculpture.
+ float b1=exp(-length(vec2(x-.58,y-.46))*70.);
+ float b2=exp(-length(vec2(x+.62,y+.08))*55.);
+ float b3=exp(-length(vec2(x-.48,y+.53))*90.);
+ c+=vec3(.75,.96,1.)*(b1+b3)*.24+vec3(1.,.72,.82)*b2*.20;
  return c;
 }
 vec3 shade(vec3 ro,vec3 rd,vec3 p,vec3 n,float mat){
@@ -176,7 +194,7 @@ void main(){
    t+=max(d.x*.78,.002);
    if(t>7.)break;
  }
- vec3 col=sky(rd);
+ vec3 col=sky(rd,uv);
  if(hit){
    vec3 n=normalAt(p);
    col=shade(ro,rd,p,n,mat);
