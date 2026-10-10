@@ -1,3 +1,4 @@
+- 2026-10-10 チャッピー: PRISM SHELL(v104)をREC_WORKSに登録し、ギャラリーの録画ボタンを有効化。実機録画・黒画面でないこと・透かし・iPhone負荷の検証は未実施(index.html)
 - 2026-10-10 チャッピー: PRISM SHELLを採用作品としてv104へ昇格。ap-kit.jsのパスをルート用に修正し、ギャラリーLOG先頭とPublished worksへ追加。ポスター/OGP画像の生成・目視確認は未実施(art-v104-prism-shell.html, index.html, CHANGELOG.md)
 - 2026-10-10 チャッピー: PRISM SHELL背景の動きを強化。背景座標自体を時間変形し、オーロラ帯の移動速度・うねり幅・反射プールのコースティクス速度を上げてスマホで動きを認識しやすく調整(prototypes/prism-shell.html)
 - 2026-10-10 チャッピー: PRISM SHELLの背景を再設計。画面座標ベースの幅広いオーロラリボン、下部の虹色反射プール、動く光柱と大きめのボケを追加し、スマホでも背景の動きが見えるようコントラストを強化(prototypes/prism-shell.html)
@@ -433,7 +434,7 @@
 - 表示モード: iPhoneホーム画面から起動するとCURRENT作品を自動表示するstandalone Web App対応済み
 - 一言説明: ヒーロー/タイルの一言は各作品の`<title>`(`NAME — 日本語の一言`)から自動取得。上書き・ヒントは`index.html`の`META`(ルールはAGENTS.md 13章)
 - 運用メモ: `NOTES.md`(GitHub操作は可能性を確認してから実行)
-- 採用作品作業: PRISM SHELL(v104)のギャラリー登録済み。`posters/`と`og/`の生成・目視確認は未完了。クロちゃんに`python3 tools/gen_posters.py`と`python3 tools/gen_og.py`の実行、`--check`、画像目視を依頼する。
+- 採用作品作業: PRISM SHELL(v104)のギャラリー登録済み。録画ボタンをREC_WORKSに登録済みだが、実機録画・透かし・iPhone負荷の検証は未完了。`posters/`と`og/`の生成・目視確認は未完了。クロちゃんに`python3 tools/gen_posters.py`と`python3 tools/gen_og.py`の実行、`--check`、画像目視を依頼する。
 - ポスター: ギャラリーのタイルの静止画。`posters/`と`tools/gen_posters.py`、ルールはAGENTS.md 14章。作品追加・作品修正・CURRENT変更のたびに`python3 tools/gen_posters.py`(`--check`で点検)
 
 ---
