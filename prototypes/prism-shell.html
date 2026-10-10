@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>PRISM SHELL — 光を抱く虹色の殻</title>
+<title>PRISM SHELL — 裏返る虹色の殻</title>
 <script src="../ap-kit.js"></script>
 <style>
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#f5f1ed}
@@ -14,7 +14,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 </style>
 </head>
 <body>
-<canvas id="c"></canvas><div id="hint">殻に触れると、光の層が組み替わり、その形を覚える</div><div id="error">この端末では WebGL2 を利用できません。</div>
+<canvas id="c"></canvas><div id="hint">触れるたび、内側のレンズが殻を突き破って裏返る</div><div id="error">この端末では WebGL2 を利用できません。</div>
 <script>
 'use strict';
 /* PRISM SHELL — ChatGPT作。ap-kit.js統合: ChatGPT
@@ -38,6 +38,7 @@ uniform float uPalette;
 uniform vec2 uTouch;
 uniform float uTouchPower;
 uniform float uHasTouch;
+uniform float uFlip;
 const float PI=3.14159265359;
 float sdRoundBox(vec3 p,vec3 b,float r){
  vec3 q=abs(p)-b+r;
@@ -108,6 +109,7 @@ vec3 shade(vec3 ro,vec3 rd,vec3 p,vec3 n,float mat){
  float ndl=max(dot(n,l1),0.);
  float ndl2=max(dot(n,l2),0.);
  vec3 base=shellColor(p,mat);
+ if(mat>1.5){vec3 inv=mix(vec3(.02,.78,1.),vec3(.96,.08,.63),smoothstep(-.45,.55,p.y));base=mix(base,inv,uFlip*.78);}else{vec3 inv=mix(vec3(.04,.83,.96),vec3(.83,.12,.82),smoothstep(-.85,.8,p.y));base=mix(base,inv,uFlip*.72);}
  float fres=pow(1.-max(dot(n,v),0.),2.25);
  vec3 half1=normalize(l1+v),half2=normalize(l2+v);
  float spec=pow(max(dot(n,half1),0.),100.);
@@ -162,16 +164,16 @@ if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw new Error(gl.getProgram
 gl.useProgram(program);
 const buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);
 const loc=gl.getAttribLocation(program,'aPos');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
-const uniforms={res:gl.getUniformLocation(program,'uRes'),time:gl.getUniformLocation(program,'uTime'),palette:gl.getUniformLocation(program,'uPalette'),touch:gl.getUniformLocation(program,'uTouch'),power:gl.getUniformLocation(program,'uTouchPower'),has:gl.getUniformLocation(program,'uHasTouch')};
-let palette=0,touch={x:0,y:0,power:0,has:0},last=performance.now();
+const uniforms={res:gl.getUniformLocation(program,'uRes'),time:gl.getUniformLocation(program,'uTime'),palette:gl.getUniformLocation(program,'uPalette'),touch:gl.getUniformLocation(program,'uTouch'),power:gl.getUniformLocation(program,'uTouchPower'),has:gl.getUniformLocation(program,'uHasTouch'),flip:gl.getUniformLocation(program,'uFlip')};
+let palette=0,flip=0,targetFlip=0,touch={x:0,y:0,power:0,has:0},last=performance.now();
 function resize(){const d=Math.min(devicePixelRatio||1,1.5);canvas.width=Math.round(innerWidth*d);canvas.height=Math.round(innerHeight*d);canvas.style.width=innerWidth+'px';canvas.style.height=innerHeight+'px';gl.viewport(0,0,canvas.width,canvas.height);gl.uniform2f(uniforms.res,canvas.width,canvas.height)}
 addEventListener('resize',resize,{passive:true});resize();
-function draw(now){const dt=Math.min(.04,(now-last)/1000);last=now;touch.power=Math.max(0,touch.power-dt*.045);gl.uniform1f(uniforms.time,now*.001);gl.uniform1f(uniforms.palette,palette);gl.uniform2f(uniforms.touch,touch.x,touch.y);gl.uniform1f(uniforms.power,touch.power);gl.uniform1f(uniforms.has,touch.has);gl.drawArrays(gl.TRIANGLES,0,6);requestAnimationFrame(draw)}
-function touchAt(e){if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;const d=Math.min(innerWidth,innerHeight);touch.x=(e.clientX-innerWidth/2)/d;touch.y=-(e.clientY-innerHeight/2)/d;touch.power=1;touch.has=1;palette=(palette+1)%4;hint.classList.add('off')}
+function draw(now){const dt=Math.min(.04,(now-last)/1000);last=now;touch.power=Math.max(0,touch.power-dt*.045);flip+=(targetFlip-flip)*Math.min(1,dt*2.8);gl.uniform1f(uniforms.time,now*.001);gl.uniform1f(uniforms.palette,palette);gl.uniform2f(uniforms.touch,touch.x,touch.y);gl.uniform1f(uniforms.power,touch.power);gl.uniform1f(uniforms.has,touch.has);gl.uniform1f(uniforms.flip,flip);gl.drawArrays(gl.TRIANGLES,0,6);requestAnimationFrame(draw)}
+function touchAt(e){if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;const d=Math.min(innerWidth,innerHeight);touch.x=(e.clientX-innerWidth/2)/d;touch.y=-(e.clientY-innerHeight/2)/d;touch.power=1;touch.has=1;targetFlip=1-targetFlip;palette=(palette+1)%4;hint.classList.add('off')}
 canvas.addEventListener('pointerdown',touchAt,{passive:true});
 APKit.init({canvas:canvas,gifName:'prism-shell-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,buttons:[
- {label:'✦',name:'mutate',onClick:function(){palette=(palette+1)%4;touch.power=1;touch.has=1}},
- {label:'↻',name:'reset',onClick:function(){palette=0;touch.power=0;touch.has=0;hint.classList.remove('off')}}
+ {label:'✦',name:'mutate',onClick:function(){palette=(palette+1+Math.floor(Math.random()*3))%4;targetFlip=1-targetFlip;touch.power=1;touch.has=1}},
+ {label:'↻',name:'reset',onClick:function(){palette=0;flip=0;targetFlip=0;touch.power=0;touch.has=0;hint.classList.remove('off')}}
 ]});
 requestAnimationFrame(draw);
 </script></body></html>
