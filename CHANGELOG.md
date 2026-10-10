@@ -1,3 +1,4 @@
+- 2026-10-10 チャッピー: PRISM SHELLの造形を押し出しカプセルSDFに変更。タップで内側レンズが前方へ移動し、形状と色が滑らかに切り替わる操作を追加(prototypes/prism-shell.html)
 - 2026-10-10 チャッピー: PRISM SHELLの形状を3D角丸箱から2D輪郭を押し出すSDFへ変更し、縦長で丸みの強い外殻と深い内側ポケットを形成。陰影を明るくし、視線角に応じた高彩度の虹色反射を強化(prototypes/prism-shell.html)
 - 2026-10-10 チャッピー: PRISM SHELLのWebGL2シェーダーで画面内回転を除去し、縦長の殻が菱形に傾いて見える問題を修正。微小な傾きだけ残して造形を正面に維持(prototypes/prism-shell.html)
 - 2026-10-10 チャッピー: PRISM SHELLの描画方式をCanvas 2Dの疑似グラデーションからWebGL2のレイマーチングへ変更。丸みのある一体型ガラス殻に深い内側レンズを切り込み、フレネル反射・鏡面ハイライト・虹色の縁をシェーダーで計算(prototypes/prism-shell.html)
