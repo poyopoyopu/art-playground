@@ -3,158 +3,131 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>PRISM SHELL — 光を抱えた殻が、触れた場所から別の法則を覚える</title>
+<title>PRISM SHELL — ひとつのガラスの殻が、触れた場所から形を変えて覚える</title>
 <script src="../ap-kit.js"></script>
 <style>
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#f5f1ed}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#f6f2ee}
 canvas{display:block;width:100%;height:100%;touch-action:none}
-#hint{position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top) + 18px);text-align:center;color:rgba(72,58,76,.66);font:500 11px/1.6 system-ui,sans-serif;letter-spacing:.13em;pointer-events:none;transition:opacity 1.2s}
+#hint{position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top) + 18px);text-align:center;color:rgba(62,54,69,.62);font:500 11px/1.5 system-ui,sans-serif;letter-spacing:.12em;pointer-events:none;transition:opacity 1s}
 #hint.off{opacity:0}
 </style>
 </head>
 <body>
-<canvas id="c"></canvas><div id="hint">触れると、殻はその場所の光を覚える</div>
+<canvas id="c"></canvas><div id="hint">殻をタップすると、その場所が折れ曲がり、元には戻らない</div>
 <script>
 'use strict';
 /* PRISM SHELL — ChatGPT作。ap-kit.js統合: ChatGPT
-   World law: 光を抱えた入れ子の殻は、触れた場所の屈折を記憶する。
-   その歪みは内側へ伝わるが、離しても消えず、殻の系譜として残る。
+   World law: ひとつながりのガラス殻は、触れられた場所を恒久的な折り目として記憶する。
+   触れた歪みは殻を伝い、次の呼吸にも残る。
 */
 const canvas=document.getElementById('c'),ctx=canvas.getContext('2d',{alpha:false});
 const hint=document.getElementById('hint');
-let W=0,H=0,DPR=1,last=performance.now(),time=0;
-let seed=Math.random()*1000,palette=0,pressure=0;
-let pointer={x:.5,y:.5,tx:.5,ty:.5,down:false};
+let W=0,H=0,DPR=1,last=performance.now(),time=0,seed=Math.random()*1000,palette=0;
 const scars=[];
-const palettes=[
- {outer:[25,94,66],mid:[8,98,56],inner:[192,94,63],edge:[320,95,66]},
- {outer:[48,100,60],mid:[190,94,54],inner:[172,70,68],edge:[260,90,65]},
- {outer:[330,90,67],mid:[200,96,60],inner:[35,100,67],edge:[285,88,68]},
- {outer:[190,96,56],mid:[265,90,63],inner:[320,92,70],edge:[45,100,65]}
+const colors=[
+ {h:18,h2:188,h3:318},
+ {h:45,h2:205,h3:270},
+ {h:330,h2:175,h3:42},
+ {h:195,h2:285,h3:48}
 ];
 function resize(){DPR=Math.min(devicePixelRatio||1,1.7);W=innerWidth;H=innerHeight;canvas.width=Math.round(W*DPR);canvas.height=Math.round(H*DPR);ctx.setTransform(DPR,0,0,DPR,0,0)}
 addEventListener('resize',resize,{passive:true});resize();
-function hs(h,s,l,a=1){return 'hsla('+h+','+s+'%,'+l+'%,'+a+')'}
-function smooth(a,b,x){x=Math.max(0,Math.min(1,(x-a)/(b-a)));return x*x*(3-2*x)}
-function roundedPath(x,y,w,h,r){ctx.beginPath();ctx.roundRect(x,y,w,h,r)}
-function drawShell(cx,cy,w,h,r,idx,now,lightX,lightY){
- const p=palettes[palette],phase=idx*.83;
- const distort=scars.reduce((sum,s)=>sum+Math.exp(-Math.pow((idx-s.depth)*.9,2))*s.strength*Math.exp(-Math.pow((Math.atan2(cy-s.y,cx-s.x)-s.angle+Math.PI*3)%(Math.PI*2)-Math.PI,2)*3),0);
- const breathing=1+Math.sin(now*.48+phase)*.012;
- w*=breathing;h*=breathing;
- const x=cx-w/2,y=cy-h/2;
- ctx.save();
- // The inner surface has a persistent local warp where the viewer touched it.
- for(let k=0;k<scars.length;k++){
-   const s=scars[k];if(Math.abs(idx-s.depth)>1.6)continue;
-   const d=Math.hypot((cx-s.x)*W,(cy-s.y)*H);
-   if(d<Math.max(w,h)*.85){ctx.translate((s.x-.5)*w*.16*s.strength,(s.y-.5)*h*.16*s.strength)}
- }
- roundedPath(x,y,w,h,r);
- const base=ctx.createLinearGradient(x,y,x+w,y+h);
- const a=p.outer,b=p.mid,c=p.inner;
- base.addColorStop(0,hs(a[0]+idx*5,92,78));
- base.addColorStop(.22,hs(b[0]+idx*7,94,57));
- base.addColorStop(.5,hs(c[0]+idx*4,90,76));
- base.addColorStop(.78,hs(b[0]+25,96,52));
- base.addColorStop(1,hs(p.edge[0]+idx*9,92,74));
- ctx.fillStyle=base;ctx.fill();
- // Broad, milky volume inside the glass.
- roundedPath(x+w*.065,y+h*.035,w*.87,h*.91,r*.84);
- const volume=ctx.createRadialGradient(x+w*(.38+lightX*.04),y+h*(.3+lightY*.04),w*.015,cx,cy,Math.max(w,h)*.72);
- volume.addColorStop(0,'rgba(255,255,255,.9)');
- volume.addColorStop(.24,hs(c[0]+idx*7,70,83,.73));
- volume.addColorStop(.58,hs(b[0]-12,92,62,.38));
- volume.addColorStop(.82,hs(a[0]+45,100,58,.34));
- volume.addColorStop(1,'rgba(255,255,255,.04)');
- ctx.fillStyle=volume;ctx.fill();
- // Iridescent rim: a thin chromatic edge, not a neon outline.
- roundedPath(x+w*.012,y+h*.012,w*.976,h*.976,r*.98);
- const rim=ctx.createLinearGradient(x,y,x+w,y+h);
- rim.addColorStop(0,hs(p.edge[0],98,58,.92));
- rim.addColorStop(.18,hs(p.inner[0]+32,100,74,.9));
- rim.addColorStop(.43,'rgba(255,255,255,.95)');
- rim.addColorStop(.62,hs(p.mid[0]+95,100,61,.92));
- rim.addColorStop(.82,hs(p.edge[0]-18,98,62,.88));
- rim.addColorStop(1,hs(p.outer[0]+35,100,54,.9));
- ctx.strokeStyle=rim;ctx.lineWidth=Math.max(1.1,Math.min(3.2,w*.006));ctx.stroke();
- // Shadowed underside and a sharp specular glint create the glass thickness.
- ctx.save();ctx.globalCompositeOperation='multiply';
- roundedPath(x+w*.025,y+h*.02,w*.95,h*.96,r*.95);
- const shade=ctx.createLinearGradient(x,y,x+w*.2,y+h);
- shade.addColorStop(0,'rgba(30,20,70,.02)');shade.addColorStop(.72,'rgba(30,10,60,.02)');shade.addColorStop(1,'rgba(25,10,45,.27)');
- ctx.fillStyle=shade;ctx.fill();ctx.restore();
- ctx.beginPath();ctx.moveTo(x+w*.24,y+h*.055);ctx.bezierCurveTo(x+w*.38,y+h*.005,x+w*.65,y+h*.005,x+w*.77,y+h*.07);
- ctx.strokeStyle='rgba(255,255,255,.88)';ctx.lineWidth=Math.max(1.2,w*.009);ctx.lineCap='round';ctx.stroke();
- ctx.beginPath();ctx.moveTo(x+w*.045,y+h*.24);ctx.bezierCurveTo(x+w*.01,y+h*.4,x+w*.015,y+h*.61,x+w*.065,y+h*.73);
- ctx.strokeStyle=hs(p.edge[0]+40,100,82,.68);ctx.lineWidth=Math.max(1,w*.006);ctx.stroke();
- // Refraction seam shifts according to the shell's remembered touch.
- if(Math.abs(distort)>.025){
-   ctx.beginPath();ctx.moveTo(x+w*.08,y+h*(.5+distort*.08));ctx.bezierCurveTo(x+w*.28,y+h*(.46+distort*.13),x+w*.7,y+h*(.54-distort*.1),x+w*.92,y+h*(.5-distort*.05));
-   ctx.strokeStyle=hs(p.edge[0]+idx*22,100,60,Math.min(.75,Math.abs(distort)*.45));ctx.lineWidth=2+Math.abs(distort)*3;ctx.stroke();
- }
- ctx.restore();
+function hs(h,s,l,a=1){return 'hsla('+((h%360+360)%360)+','+s+'%,'+l+'%,'+a+')'}
+function wrap(a){while(a>Math.PI)a-=Math.PI*2;while(a< -Math.PI)a+=Math.PI*2;return a}
+function deform(a){
+ let d=0;
+ for(const s of scars){const q=wrap(a-s.a),influence=Math.exp(-(q*q)/(s.width*s.width));d+=influence*s.amount}
+ return d;
+}
+function project(p,rx,ry,rz,scale,cx,cy){
+ let x=p.x*Math.cos(ry)+p.z*Math.sin(ry),z=-p.x*Math.sin(ry)+p.z*Math.cos(ry);
+ let y=p.y*Math.cos(rx)-z*Math.sin(rx);z=p.y*Math.sin(rx)+z*Math.cos(rx);
+ const xx=x*Math.cos(rz)-y*Math.sin(rz),yy=x*Math.sin(rz)+y*Math.cos(rz);
+ const perspective=1/(1-z*.16);
+ return {x:cx+xx*scale*perspective,y:cy+yy*scale*perspective,z};
+}
+function centerline(a,t,layer){
+ const d=deform(a+layer*.11);
+ const major=1.03+layer*.035+.13*Math.cos(3*a+t*.25);
+ const minor=.48+.07*Math.sin(2*a-t*.31);
+ const twist=2*a+layer*.8;
+ let x=(major+minor*Math.cos(3*a+twist*.18))*Math.cos(2*a+layer*.24);
+ let y=(.82*major+.78*minor*Math.cos(3*a+twist*.18))*Math.sin(2*a+layer*.24);
+ let z=minor*Math.sin(3*a+twist*.18)+.18*Math.sin(5*a+t*.2+layer);
+ // A touch is a persistent crease in the glass, not a painted mark.
+ x+=d*Math.cos(a*2+layer*.3);y+=d*Math.sin(a*2+layer*.3);z+=d*.8*Math.sin(a*3+layer);
+ return {x,y,z};
 }
 function render(){
- time+=Math.min(.04,(performance.now()-last)/1000);last=performance.now();
- pointer.x+=(pointer.tx-pointer.x)*.035;pointer.y+=(pointer.ty-pointer.y)*.035;
- pressure+=( (pointer.down?1:0)-pressure)*.12;
- ctx.fillStyle='#f5f1ed';ctx.fillRect(0,0,W,H);
- const bg=ctx.createRadialGradient(W*.5,H*.42,0,W*.5,H*.48,Math.max(W,H)*.72);
- bg.addColorStop(0,'rgba(255,255,255,.55)');bg.addColorStop(1,'rgba(229,219,217,.08)');ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
- const base=Math.min(W*.86,H*.82),cx=W*.5,cy=H*.49;
- // Three nested shells: each layer has its own scale, tint and delayed pulse.
- const dims=[
-  [base*.98,base*1.19,base*.25],
-  [base*.82,base*.99,base*.22],
-  [base*.64,base*.77,base*.19],
-  [base*.47,base*.56,base*.16]
- ];
- for(let i=0;i<dims.length;i++){
-   const [w,h,r]=dims[i],delay=i*.21;
-   const shiftX=Math.sin(time*.32+delay)*base*.006;
-   const shiftY=Math.cos(time*.27+delay)*base*.005;
-   drawShell(cx+shiftX,cy+shiftY,w*(1+pressure*.006),h,r,i,time+delay,pointer.x-.5,pointer.y-.5);
+ const now=performance.now(),dt=Math.min(.04,(now-last)/1000);last=now;time+=dt;
+ ctx.fillStyle='#f6f2ee';ctx.fillRect(0,0,W,H);
+ const base=Math.min(W,H),cx=W*.5,cy=H*.49,p=colors[palette];
+ const bg=ctx.createRadialGradient(cx,cy-base*.08,base*.03,cx,cy,base*.74);
+ bg.addColorStop(0,'rgba(255,255,255,.9)');bg.addColorStop(.58,'rgba(244,235,229,.34)');bg.addColorStop(1,'rgba(232,224,221,0)');
+ ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
+ const rx=.18+Math.sin(time*.23)*.16,ry=time*.19,rz=Math.sin(time*.14)*.1;
+ const scale=base*.235*(1+.012*Math.sin(time*.8));
+ const segments=[],N=260,layers=3;
+ for(let layer=0;layer<layers;layer++){
+   const pts=[];
+   for(let i=0;i<=N;i++){
+     const a=i/N*Math.PI*2;
+     pts.push(project(centerline(a,time,layer),rx+layer*.025,ry+layer*.14,rz,scale,cx,cy));
+   }
+   for(let i=0;i<N;i++){
+     const a=pts[i],b=pts[i+1],ang=(i+.5)/N*Math.PI*2;
+     segments.push({a,b,layer,depth:(a.z+b.z)*.5,ang});
+   }
  }
- // Touch scars remain at their actual positions as local refraction lenses.
- ctx.save();ctx.globalCompositeOperation='screen';
+ segments.sort((a,b)=>a.depth-b.depth);
+ ctx.lineCap='round';ctx.lineJoin='round';
+ for(const s of segments){
+   const z=Math.max(0,Math.min(1,(s.depth+1.45)/2.9)),p=s.layer;
+   const hue=p.h+(s.ang/(Math.PI*2))*72+z*46+12*Math.sin(time*.3+s.ang*2);
+   const width=(13+z*15)*(1-p*.12);
+   const x1=s.a.x,y1=s.a.y,x2=s.b.x,y2=s.b.y;
+   // Soft contact shadow gives the tube volume against the pale ground.
+   ctx.globalCompositeOperation='multiply';
+   ctx.strokeStyle='rgba(78,53,70,.12)';ctx.lineWidth=width*1.65;
+   ctx.beginPath();ctx.moveTo(x1+2,y1+4);ctx.lineTo(x2+2,y2+4);ctx.stroke();
+   ctx.globalCompositeOperation='source-over';
+   // Refractive body, chromatic rim and a narrow specular highlight.
+   const body=ctx.createLinearGradient(x1-width,y1-width,x2+width,y2+width);
+   body.addColorStop(0,hs(hue-30,94,71,.93));
+   body.addColorStop(.24,hs(p.h2+z*25,88,56,.96));
+   body.addColorStop(.48,hs(hue+70,100,82,.98));
+   body.addColorStop(.72,hs(p.h3+z*40,96,65,.96));
+   body.addColorStop(1,hs(hue+22,95,48,.92));
+   ctx.strokeStyle=body;ctx.lineWidth=width;ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+   ctx.strokeStyle=hs(hue+65,95,78,.86);ctx.lineWidth=Math.max(1.1,width*.23);
+   ctx.beginPath();ctx.moveTo(x1-width*.1,y1-width*.16);ctx.lineTo(x2-width*.1,y2-width*.16);ctx.stroke();
+   ctx.strokeStyle='rgba(255,255,255,.88)';ctx.lineWidth=Math.max(1,width*.075);
+   ctx.beginPath();ctx.moveTo(x1-width*.2,y1-width*.27);ctx.lineTo(x2-width*.2,y2-width*.27);ctx.stroke();
+ }
+ // Fine, stationary caustic rings reveal where the material remembers each touch.
  for(const s of scars){
-   const sx=s.x*W,sy=s.y*H,rad=base*(.035+.012*s.strength);
-   const fade=Math.min(.72,.18+s.strength*.16);
-   const lens=ctx.createRadialGradient(sx,sy,rad*.05,sx,sy,rad*2.8);
-   lens.addColorStop(0,'rgba(255,255,255,0)');
-   lens.addColorStop(.34,hs(palettes[palette].inner[0]+45,100,72,fade*.45));
-   lens.addColorStop(.52,'rgba(255,255,255,'+(fade*.62)+')');
-   lens.addColorStop(.63,hs(palettes[palette].edge[0],100,62,fade*.75));
-   lens.addColorStop(.78,hs(palettes[palette].outer[0]+70,100,70,fade*.32));
-   lens.addColorStop(1,'rgba(255,255,255,0)');
-   ctx.fillStyle=lens;ctx.beginPath();ctx.ellipse(sx,sy,rad*2.8,rad*1.6,Math.atan2(s.y-.5,s.x-.5),0,Math.PI*2);ctx.fill();
+   const a=s.a,pt=project(centerline(a,time,0),rx,ry,rz,scale,cx,cy),r=base*(.018+s.amount*.008);
+   ctx.globalCompositeOperation='screen';
+   const g=ctx.createRadialGradient(pt.x,pt.y,1,pt.x,pt.y,r*3.2);
+   g.addColorStop(0,'rgba(255,255,255,0)');g.addColorStop(.42,hs(p.h2,95,68,.24));g.addColorStop(.62,'rgba(255,255,255,.72)');g.addColorStop(.74,hs(p.h3,100,62,.6));g.addColorStop(1,'rgba(255,255,255,0)');
+   ctx.fillStyle=g;ctx.beginPath();ctx.ellipse(pt.x,pt.y,r*3.2,r*1.5, a*.3,0,Math.PI*2);ctx.fill();
  }
- ctx.restore();
- // A quiet caustic halo moves over the central glass, always attached to the form.
- ctx.save();ctx.globalCompositeOperation='screen';
- const halo=ctx.createRadialGradient(cx+Math.sin(time*.24)*base*.13,cy+Math.cos(time*.29)*base*.15,1,cx,cy,base*.56);
- halo.addColorStop(0,'rgba(255,255,255,.22)');halo.addColorStop(.35,hs(palettes[palette].edge[0],95,75,.10));halo.addColorStop(1,'rgba(255,255,255,0)');
- ctx.fillStyle=halo;ctx.fillRect(0,0,W,H);ctx.restore();
+ ctx.globalCompositeOperation='source-over';
  requestAnimationFrame(render);
 }
-function hit(x,y){
+function touch(x,y){
  if(window.APKit&&APKit.isUI(x,y))return true;
- const rect=canvas.getBoundingClientRect(),nx=(x-rect.left)/rect.width,ny=(y-rect.top)/rect.height;
- pointer.tx=nx;pointer.ty=ny;pointer.down=true;
- const depth=Math.max(0,Math.min(3,Math.floor((ny>.5?ny-.5:.5-ny)*7)));
- scars.push({x:nx,y:ny,depth,angle:Math.atan2(ny-.5,nx-.5),strength:.8+Math.random()*.7});
- if(scars.length>22)scars.shift();
+ const a=Math.atan2(y-H*.49,x-W*.5);
+ scars.push({a,width:.26,amount:.13+Math.random()*.07});
+ if(scars.length>18)scars.shift();
  hint.classList.add('off');return true;
 }
-canvas.addEventListener('pointerdown',e=>{hit(e.clientX,e.clientY);canvas.setPointerCapture?.(e.pointerId)},{passive:true});
-canvas.addEventListener('pointermove',e=>{if(e.buttons||pointer.down){pointer.tx=e.clientX/W;pointer.ty=e.clientY/H}},{passive:true});
-addEventListener('pointerup',()=>{pointer.down=false},{passive:true});
-addEventListener('pointercancel',()=>{pointer.down=false},{passive:true});
+canvas.addEventListener('pointerdown',e=>{touch(e.clientX,e.clientY);canvas.setPointerCapture?.(e.pointerId)},{passive:true});
 APKit.init({canvas:canvas,gifName:'prism-shell-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,buttons:[
- {label:'✦',name:'mutate',onClick:function(){palette=(palette+1)%palettes.length;seed=Math.random()*1000;scars.push({x:.5,y:.5,depth:1,angle:Math.random()*Math.PI*2,strength:1.2})}},
- {label:'↻',name:'reset',onClick:function(){scars.length=0;palette=0;pointer={x:.5,y:.5,tx:.5,ty:.5,down:false};pressure=0;hint.classList.remove('off')}}
+ {label:'✦',name:'mutate',onClick:function(){palette=(palette+1)%colors.length;seed=Math.random()*1000;scars.push({a:Math.random()*Math.PI*2,width:.4,amount:.18})}},
+ {label:'↻',name:'reset',onClick:function(){scars.length=0;palette=0;hint.classList.remove('off')}}
 ]});
 requestAnimationFrame(render);
 </script>
-</body></html>
+</body>
+</html>
