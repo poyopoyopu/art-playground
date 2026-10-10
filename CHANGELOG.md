@@ -428,7 +428,7 @@
 ## 現在の状態(変わったら書き換える)
 
 - CURRENT: ROSARY(`art-v102-rosary.html`)。それまでのCURRENTだったNEST LAWはLOGのBUD LAW(v91)の下へ
-- LOG先頭: PRISM SHELL(`art-v104-prism-shell.html`)、その下にSNOW LEDGER(`art-v103-snow-ledger.html`)、WATERLINE(`art-v101-waterline.html`)、HAIRLINE(`art-v100-hairline.html`)、MORPHING FERN(`art-v99-morphing-fern.html`)、v98〜v94、LIVING REEF(`art-v93-living-reef.html`)。その下にWATERLINE(`art-v101-waterline.html`)、HAIRLINE(`art-v100-hairline.html`)、MORPHING FERN(`art-v99-morphing-fern.html`)、v98〜v94、LIVING REEF(`art-v93-living-reef.html`)
+- LOG先頭: PRISM SHELL(`art-v104-prism-shell.html`)、その下にSNOW LEDGER(`art-v103-snow-ledger.html`)、WATERLINE(`art-v101-waterline.html`)、HAIRLINE(`art-v100-hairline.html`)、MORPHING FERN(`art-v99-morphing-fern.html`)、v98〜v94、LIVING REEF(`art-v93-living-reef.html`)
 - 作業ルール: `AGENTS.md`(ギャラリー追加の手順と命名ルールは13章)
 - 表示モード: iPhoneホーム画面から起動するとCURRENT作品を自動表示するstandalone Web App対応済み
 - 一言説明: ヒーロー/タイルの一言は各作品の`<title>`(`NAME — 日本語の一言`)から自動取得。上書き・ヒントは`index.html`の`META`(ルールはAGENTS.md 13章)
