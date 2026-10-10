@@ -59,8 +59,12 @@ float sdCylinderZ(vec3 p,vec2 center,float radius,float zCenter,float halfDepth)
  vec2 d=vec2(length(p.xy-center)-radius,abs(p.z-zCenter)-halfDepth);
  return min(max(d.x,d.y),0.)+length(max(d,0.));
 }
+float sdTaperedSegment(vec2 p,vec2 a,vec2 b,float ra,float rb){
+ vec2 ba=b-a,pa=p-a;
+ float h=clamp(dot(pa,ba)/max(dot(ba,ba),.00001),0.,1.);
+ return length(pa-ba*h)-mix(ra,rb,h);
+}
 vec2 scene(vec3 p){
- // A soft iridescent shell contains a second, visibly different liquid volume.
  vec3 q=p;
  q.x+=sin(q.y*3.1+uTime*.17)*.045+sin(q.y*6.2-q.x*2.)*.014;
  q.y+=sin(q.x*3.4-uTime*.13)*.03;
@@ -72,35 +76,55 @@ vec2 scene(vec3 p){
  vec3 lower=q-vec3(-.08,-.45,.035);
  body=smin(body,sdEllipsoid(lower,vec3(.40,.31,.29)),.25);
 
- // A poke opens a real aperture through the front wall at the exact touch point.
+ // The puncture is cut through the front shell at the actual touched point.
  vec2 a=clamp(uTouch*.90,vec2(-.43,-.54),vec2(.43,.58));
- float holeRadius=mix(-.10,.022+.060*uDrain,uHasTouch);
- float hole=sdCylinderZ(p,a,holeRadius,.37,.38);
- float shell=max(body,-hole);
+ float holeRadius=max(.0,.027+.047*uDrain)*uHasTouch;
+ float hole=sdCylinderZ(p,a,holeRadius,.37,.42);
+ float shell=body;
+ if(uHasTouch>.5){
+   // A raised, thickened lip catches a sharp highlight around the tear.
+   float radial=length(p.xy-a);
+   float lip=abs(radial-(holeRadius+.014))-.012;
+   float lipDepth=abs(p.z-.345)-.055;
+   float lip3=min(max(lip,lipDepth),0.)+length(max(vec2(lip,lipDepth),0.));
+   shell=smin(max(body,-hole),lip3,.009);
+ } 
 
- // The reservoir remains inside the shell; it becomes visible through the puncture.
- vec3 inside=p-vec3(0.,-.01,.015);
- float reservoir=sdEllipsoid(inside,vec3(.355,.475,.205));
+ // Reservoir: a full volume behind the shell, not a decal on its surface.
+ vec3 rp=p-vec3(0.,-.015,-.005);
+ float reservoir=sdEllipsoid(rp,vec3(.355,.475,.205));
  float d=shell;
  float material=1.;
  if(uHasTouch>.5&&reservoir<d){d=reservoir;material=2.;}
 
- // The same liquid pushes through the puncture, then sags and stretches under gravity.
- float len=.07+.86*uDrain;
- float sway=sin(uTime*.85+a.x*4.)*.045;
- vec2 start=a+vec2(0.,-.008);
- vec2 bend=a+vec2(sway*.45,-len*.46);
- vec2 end=a+vec2(sway,-len);
- float g1=sdCapsule2(p.xy,start,bend,.052+.018*uDrain);
- float g2=sdCapsule2(p.xy,bend,end,.067+.012*uDrain);
- float goo=smin(g1,g2,.055);
- goo=smin(goo,length(p.xy-end)-(.073+.018*uDrain),.04);
- // Match the stream's depth to the front of the shell at the puncture.
+ // A curved, gravity-loaded liquid neck, tapered at the aperture and swollen at its drop.
+ float amount=clamp(uDrain,0.,1.);
+ float len=.035+.83*amount;
+ float sway=sin(uTime*.65+a.x*4.)*.035;
+ vec2 p0=a+vec2(0.,-.005);
+ vec2 p1=a+vec2(sway*.22,-len*.20);
+ vec2 p2=a+vec2(sway*.72,-len*.69);
+ vec2 p3=a+vec2(sway,-len);
+ // Quadratic Bezier approximation through short tapered segments; radius varies along the flow.
+ vec2 prev=p0;
+ float flow=1e3;
+ for(int i=1;i<=10;i++){
+   float t=float(i)/10.;
+   float omt=1.-t;
+   vec2 cur=omt*omt*p0+2.*omt*t*p2+t*t*p3;
+   float r0=mix(.018,.052,clamp(float(i-1)/10.,0.,1.));
+   float r1=mix(.018,.052,t);
+   flow=min(flow,sdTaperedSegment(p.xy,prev,cur,r0,r1));
+   prev=cur;
+ }
+ // A hanging terminal drop swells with the amount released.
+ float dropR=.025+.038*amount;
+ flow=smin(flow,length(p.xy-p3)-dropR,.025);
  float zFront=.34*sqrt(max(.08,1.-pow(a.x/.68,2.)-pow(a.y/.82,2.)));
- vec2 ext=vec2(goo,abs(p.z-(zFront+.035))-.075);
- float goo3=min(max(ext.x,ext.y),0.)+length(max(ext,0.));
- goo3+=(1.-uHasTouch)*.20;
- if(goo3<d){d=goo3;material=2.;}
+ vec2 ext=vec2(flow,abs(p.z-(zFront+.035))-.067);
+ float liquid=min(max(ext.x,ext.y),0.)+length(max(ext,0.));
+ liquid+=(1.-uHasTouch)*.22;
+ if(liquid<d){d=liquid;material=2.;}
  return vec2(d,material);
 }
 vec3 normalAt(vec3 p){
@@ -137,21 +161,27 @@ vec3 shade(vec3 ro,vec3 rd,vec3 p,vec3 n,float mat){
  float ndl=max(dot(n,l1),0.);
  float ndl2=max(dot(n,l2),0.);
  vec3 base=shellColor(p,mat);
- if(mat>1.5){vec3 inv=mix(vec3(.02,.78,1.),vec3(.96,.08,.63),smoothstep(-.45,.55,p.y));base=mix(base,inv,uFlip*.78);}else{vec3 inv=mix(vec3(.04,.83,.96),vec3(.83,.12,.82),smoothstep(-.85,.8,p.y));base=mix(base,inv,uFlip*.72);}
- float fres=pow(1.-max(dot(n,v),0.),2.25);
+ if(mat>1.5){
+   // Liquid has deeper body color, tighter wet highlights, and a bright transmitted rim.
+   base=mix(base,vec3(.03,.78,.96),.20+.18*sin(p.y*5.));
+   base=mix(base,vec3(1.,.12,.52),smoothstep(-.45,.48,p.x)*.45);
+ }else{
+   vec3 inv=mix(vec3(.04,.83,.96),vec3(.83,.12,.82),smoothstep(-.85,.8,p.y));
+   base=mix(base,inv,uFlip*.72);
+ }
+ float fres=pow(1.-max(dot(n,v),0.),mat>1.5?1.65:2.25);
  vec3 half1=normalize(l1+v),half2=normalize(l2+v);
- float spec=pow(max(dot(n,half1),0.),100.);
- float broad=pow(max(dot(n,half2),0.),28.);
- float rim=pow(1.-abs(dot(n,v)),2.2);
+ float spec=pow(max(dot(n,half1),0.),mat>1.5?150.:100.);
+ float broad=pow(max(dot(n,half2),0.),mat>1.5?42.:28.);
+ float rim=pow(1.-abs(dot(n,v),0.),2.2);
  float bands=.5+.5*cos(5.2*fres+atan(n.y,n.x)*1.6+p.y*1.5+uTime*.12);
  vec3 irid=mix(vec3(.02,.82,1.),vec3(1.,.035,.48),bands);
  irid=mix(irid,vec3(1.,.68,.04),smoothstep(.35,.95,.5+.5*sin(atan(n.x,n.y)*1.4+p.y*2.)));
- vec3 col=base*(.72+.38*ndl+.18*ndl2);
- col+=vec3(1.)*(spec*.95+broad*.32);
- col=mix(col,irid,clamp(fres*1.08,0.,.94));
- col+=vec3(1.)*rim*.18;
- // Soft internal transmission tint makes the thick edge glow without outlining every contour.
- col+=base*pow(1.-max(dot(n,v),0.),1.55)*.48;
+ vec3 col=base*(mat>1.5?.50:.72)+base*(.38*ndl+.18*ndl2);
+ col+=vec3(1.)*(spec*(mat>1.5?1.25:.95)+broad*.32);
+ col=mix(col,irid,clamp(fres*(mat>1.5?.72:1.08),0.,.94));
+ col+=vec3(1.)*rim*(mat>1.5?.30:.18);
+ col+=base*pow(1.-max(dot(n,v),0.),1.55)*(mat>1.5?.72:.48);
  return col;
 }
 void main(){
