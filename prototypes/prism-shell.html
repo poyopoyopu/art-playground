@@ -1,28 +1,168 @@
 <!doctype html>
-<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>PRISM SHELL</title><script src="../ap-kit.js"></script>
-<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#f5f1ed}canvas{display:block;width:100%;height:100%;touch-action:none}#hint{position:fixed;top:calc(env(safe-area-inset-top) + 18px);left:0;right:0;text-align:center;color:#786d78;font:500 11px system-ui;letter-spacing:.12em;pointer-events:none;transition:opacity 1s}#hint.off{opacity:0}</style></head>
-<body><canvas id="c"></canvas><div id="hint">殻に触れると、光の層がゆっくり組み替わる</div><script>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>PRISM SHELL — 光を抱く虹色の殻</title>
+<script src="../ap-kit.js"></script>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#f5f1ed}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#hint{position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top) + 18px);text-align:center;color:rgba(74,62,74,.6);font:500 11px/1.5 system-ui,sans-serif;letter-spacing:.12em;pointer-events:none;transition:opacity 1s}
+#hint.off{opacity:0}
+#error{position:fixed;left:18px;right:18px;bottom:24px;text-align:center;color:#8d485d;font:12px/1.5 system-ui,sans-serif;display:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas><div id="hint">殻に触れると、光の層が組み替わり、その形を覚える</div><div id="error">この端末では WebGL2 を利用できません。</div>
+<script>
 'use strict';
-/* PRISM SHELL — one continuous iridescent glass shell. Touch changes the remembered light. */
-const c=document.getElementById('c'),g=c.getContext('2d',{alpha:false}),hint=document.getElementById('hint');
-let W,H,D=1,t=0,last=performance.now(),pal=0,pulse=0;const marks=[];
-const P=[{o:24,l:18,i:195,e:322,a:42},{o:192,l:47,i:177,e:252,a:28},{o:330,l:24,i:205,e:278,a:48},{o:46,l:196,i:188,e:320,a:65}];
-function resize(){D=Math.min(devicePixelRatio||1,1.7);W=innerWidth;H=innerHeight;c.width=W*D;c.height=H*D;g.setTransform(D,0,0,D,0,0)}addEventListener('resize',resize,{passive:true});resize();
-function hs(h,s,l,a=1){return 'hsla('+((h%360+360)%360)+','+s+'%,'+l+'%,'+a+')'}
-function path(x,y,w,h){let l=x-w/2,r=x+w/2,u=y-h/2,b=y+h/2;g.beginPath();g.moveTo(x,u);g.bezierCurveTo(l+w*.2,u-h*.01,l,u+h*.07,l,y-h*.16);g.bezierCurveTo(l,y+h*.16,l+w*.02,b-h*.12,x-w*.2,b-h*.025);g.bezierCurveTo(x-w*.07,b+.01*h,x+w*.07,b+.01*h,x+w*.2,b-h*.025);g.bezierCurveTo(r-w*.02,b-h*.12,r,y+h*.16,r,y-h*.16);g.bezierCurveTo(r,u+h*.07,r-w*.2,u-h*.01,x,u);g.closePath()}
-function render(){let n=performance.now(),dt=Math.min(.04,(n-last)/1000);last=n;t+=dt;pulse*=.985;g.fillStyle='#f5f1ed';g.fillRect(0,0,W,H);let x=W/2,y=H*.49,b=Math.min(W*.88,H*.83),p=P[pal],breath=1+.009*Math.sin(t*.72)+pulse*.01,w=b*.84*breath,h=b*1.12*breath,top=y-h/2;
-let ambient=g.createRadialGradient(x,y-b*.08,b*.02,x,y,b*.78);ambient.addColorStop(0,'rgba(255,255,255,.8)');ambient.addColorStop(1,'rgba(231,220,219,0)');g.fillStyle=ambient;g.fillRect(0,0,W,H);
-// One broad outer shell, with warm transmitted light.
-g.save();g.shadowColor='rgba(107,57,82,.17)';g.shadowBlur=b*.025;g.shadowOffsetY=b*.014;
-let outer=g.createLinearGradient(x-w/2,top,x+w/2,top+h);outer.addColorStop(0,hs(p.o+5,95,65));outer.addColorStop(.18,hs(p.e,92,61));outer.addColorStop(.34,hs(p.o+28,100,72));outer.addColorStop(.56,hs(p.l,98,57));outer.addColorStop(.76,hs(p.a,100,70));outer.addColorStop(.92,hs(p.o+8,100,58));outer.addColorStop(1,hs(p.e+12,95,53));path(x,y,w,h);g.fillStyle=outer;g.fill();g.restore();
-// The single inset lens occupies the upper half; no extra rings or tubes.
-let iw=w*.72,ih=h*.61,ix=x+Math.sin(t*.31)*b*.004,iy=y-h*.16,ix0=ix-iw/2,iy0=iy-ih/2;
-let rim=g.createLinearGradient(ix0,iy0,ix0+iw,iy0+ih);rim.addColorStop(0,hs(p.e+8,92,78));rim.addColorStop(.18,hs(p.e,96,67));rim.addColorStop(.36,hs(p.i+35,90,77));rim.addColorStop(.58,hs(p.i,95,66));rim.addColorStop(.8,hs(p.e+48,94,62));rim.addColorStop(1,hs(p.o+300,100,58));path(ix,iy,iw,ih);g.fillStyle=rim;g.fill();
-path(ix,iy,iw*.965,ih*.978);g.save();g.clip();let inner=g.createRadialGradient(ix-iw*.16,iy-ih*.08,iw*.015,ix,iy,iw*.76);inner.addColorStop(0,'rgba(255,255,255,.98)');inner.addColorStop(.25,hs(p.i+28,75,83,.96));inner.addColorStop(.52,hs(p.i,92,66,.82));inner.addColorStop(.77,hs(p.e+25,95,65,.76));inner.addColorStop(1,hs(p.o+290,100,52,.9));g.fillStyle=inner;g.fillRect(ix0,iy0,iw,ih);
-let lx=ix+Math.sin(t*.38)*iw*.24,ly=iy+Math.cos(t*.32)*ih*.2,glow=g.createRadialGradient(lx,ly,1,lx,ly,iw*.42);glow.addColorStop(0,'rgba(255,255,255,.28)');glow.addColorStop(1,'rgba(255,255,255,0)');g.fillStyle=glow;g.fillRect(ix0,iy0,iw,ih);g.restore();
-let edge=g.createLinearGradient(ix0,iy0,ix0+iw,iy0+ih);edge.addColorStop(0,hs(p.e,100,58,.94));edge.addColorStop(.24,'rgba(255,255,255,.92)');edge.addColorStop(.45,hs(p.i+70,100,70,.96));edge.addColorStop(.68,hs(p.o+305,100,60,.95));edge.addColorStop(.86,hs(p.a,100,72,.96));edge.addColorStop(1,hs(p.e+24,100,55,.92));path(ix,iy,iw,ih);g.strokeStyle=edge;g.lineWidth=Math.max(1.4,b*.004);g.stroke();
-path(x,y,w,h);g.strokeStyle='rgba(255,255,255,.42)';g.lineWidth=Math.max(1,b*.002);g.stroke();g.beginPath();g.moveTo(x-w*.27,top+h*.045);g.bezierCurveTo(x-w*.04,top-h*.008,x+w*.23,top+.005*h,x+w*.34,top+h*.075);g.strokeStyle='rgba(255,255,255,.9)';g.lineWidth=Math.max(2,b*.008);g.lineCap='round';g.stroke();
-for(const m of marks){let px=m.x*W,py=m.y*H,r=b*.1,light=g.createRadialGradient(px,py,1,px,py,r);light.addColorStop(0,'rgba(255,255,255,0)');light.addColorStop(.5,hs(p.i+45,100,76,.12));light.addColorStop(.72,hs(p.e,100,66,.24));light.addColorStop(1,'rgba(255,255,255,0)');g.globalCompositeOperation='screen';g.fillStyle=light;g.fillRect(px-r,py-r,r*2,r*2)}g.globalCompositeOperation='source-over';requestAnimationFrame(render)}
-c.addEventListener('pointerdown',e=>{if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;marks.push({x:e.clientX/W,y:e.clientY/H});if(marks.length>12)marks.shift();pal=(pal+1)%P.length;pulse=1;hint.classList.add('off');c.setPointerCapture?.(e.pointerId)},{passive:true});
-APKit.init({canvas:c,gifName:'prism-shell-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,buttons:[{label:'✦',name:'mutate',onClick:()=>{pal=(pal+1)%P.length;pulse=1}},{label:'↻',name:'reset',onClick:()=>{marks.length=0;pal=0;pulse=0;hint.classList.remove('off')}}]});requestAnimationFrame(render);
+/* PRISM SHELL — ChatGPT作。ap-kit.js統合: ChatGPT
+   Render: WebGL2 ray-marched rounded glass shell with a recessed lens.
+   World law: touching the shell leaves a persistent optical deformation.
+*/
+const canvas=document.getElementById('c'),hint=document.getElementById('hint');
+const gl=canvas.getContext('webgl2',{alpha:false,antialias:true,powerPreference:'high-performance'});
+if(!gl){document.getElementById('error').style.display='block';throw new Error('WebGL2 unavailable')}
+const vs=`#version 300 es
+in vec2 aPos;
+out vec2 vUv;
+void main(){vUv=aPos*.5+.5;gl_Position=vec4(aPos,0.,1.);}`;
+const fs=`#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 fragColor;
+uniform vec2 uRes;
+uniform float uTime;
+uniform float uPalette;
+uniform vec2 uTouch;
+uniform float uTouchPower;
+uniform float uHasTouch;
+const float PI=3.14159265359;
+float sdRoundBox(vec3 p,vec3 b,float r){
+ vec3 q=abs(p)-b+r;
+ return length(max(q,0.))+min(max(q.x,max(q.y,q.z)),0.)-r;
+}
+vec2 scene(vec3 p){
+ float dOuter=sdRoundBox(p,vec3(.635,.91,.215),.285);
+ // A deep pocket cut into the upper face; its floor remains part of the same glass body.
+ vec3 q=p-vec3(0.,.255,.225);
+ float dPocket=-sdRoundBox(q,vec3(.455,.505,.355),.205);
+ float d=max(dOuter,dPocket);
+ // A fingertip leaves a shallow permanent crease in the shell surface.
+ float touchD=length(p.xy-uTouch);
+ float dent=exp(-touchD*8.0)*uTouchPower*uHasTouch*.055;
+ d+=dent;
+ return vec2(d,dPocket>dOuter?2.:1.);
+}
+vec3 normalAt(vec3 p){
+ vec2 e=vec2(.0015,0.);
+ return normalize(vec3(
+ scene(p+e.xyy).x-scene(p-e.xyy).x,
+ scene(p+e.yxy).x-scene(p-e.yxy).x,
+ scene(p+e.yyx).x-scene(p-e.yyx).x));
+}
+float hash(vec3 p){return fract(sin(dot(p,vec3(127.1,311.7,74.7)))*43758.5453);}
+vec3 shellColor(vec3 p,float mat){
+ float pal=mod(uPalette,4.);
+ if(mat>1.5){
+   float f=clamp((p.y+.25)*.78+.5,0.,1.);
+   vec3 cyan=vec3(.12,.82,.94),blue=vec3(.20,.48,1.),violet=vec3(.73,.25,.96),pink=vec3(1.,.25,.62);
+   vec3 c=mix(cyan,blue,smoothstep(.05,.62,f));
+   c=mix(c,mix(violet,pink,smoothstep(.25,.95,f)),smoothstep(.48,.98,f));
+   if(pal>0.5&&pal<1.5)c=mix(c,vec3(.38,.98,.76),.42);
+   if(pal>1.5&&pal<2.5)c=mix(c,vec3(1.,.43,.74),.32);
+   if(pal>2.5)c=mix(c,vec3(.52,.82,1.),.34);
+   return c;
+ }
+ float f=clamp((p.y+.68)*.75,0.,1.);
+ vec3 amber=vec3(1.,.69,.12),orange=vec3(1.,.25,.035),coral=vec3(1.,.12,.27),magenta=vec3(.85,.08,.67);
+ vec3 c=mix(amber,orange,smoothstep(.0,.48,f));
+ c=mix(c,coral,smoothstep(.34,.77,f));
+ c=mix(c,magenta,smoothstep(.74,1.,f));
+ if(pal>.5&&pal<1.5)c=mix(c,vec3(.04,.78,.95),.65);
+ if(pal>1.5&&pal<2.5)c=mix(c,vec3(.8,.25,1.),.32);
+ if(pal>2.5)c=mix(c,vec3(1.,.76,.32),.42);
+ return c;
+}
+vec3 sky(vec3 d){
+ float t=clamp(d.y*.5+.5,0.,1.);
+ return mix(vec3(.91,.87,.86),vec3(1.,.99,.97),smoothstep(0.,1.,t));
+}
+vec3 shade(vec3 ro,vec3 rd,vec3 p,vec3 n,float mat){
+ vec3 v=normalize(ro-p);
+ vec3 l1=normalize(vec3(-.48,.72,.72));
+ vec3 l2=normalize(vec3(.65,-.25,.62));
+ float ndl=max(dot(n,l1),0.);
+ float ndl2=max(dot(n,l2),0.);
+ vec3 base=shellColor(p,mat);
+ float fres=pow(1.-max(dot(n,v),0.),3.);
+ vec3 half1=normalize(l1+v),half2=normalize(l2+v);
+ float spec=pow(max(dot(n,half1),0.),100.);
+ float broad=pow(max(dot(n,half2),0.),28.);
+ float rim=pow(1.-abs(dot(n,v)),2.2);
+ float bands=.5+.5*cos(8.0*fres+uTime*.22+p.y*2.5+atan(n.y,n.x)*.8);
+ vec3 irid=mix(vec3(.1,.9,1.),vec3(1.,.12,.63),bands);
+ irid=mix(irid,vec3(.95,.7,.2),.5+.5*sin(uTime*.12+p.x*3.));
+ vec3 col=base*(.42+.52*ndl+.22*ndl2);
+ col+=vec3(1.)*(spec*.95+broad*.32);
+ col=mix(col,irid,clamp(fres*.8,0.,.82));
+ col+=vec3(1.)*rim*.18;
+ // Soft internal transmission tint makes the thick edge glow without outlining every contour.
+ col+=base*pow(1.-max(dot(n,v),0.),1.8)*.35;
+ return col;
+}
+void main(){
+ vec2 uv=(gl_FragCoord.xy-.5*uRes)/min(uRes.x,uRes.y);
+ vec3 ro=vec3(uv*1.0,3.25);
+ vec3 rd=normalize(vec3(uv,-2.65));
+ // Slow, restrained movement: rotate the entire solid rather than animate decorative lines.
+ float a=sin(uTime*.19)*.075;
+ float b=uTime*.12;
+ mat2 rz=mat2(cos(b),-sin(b),sin(b),cos(b));
+ ro.xy=rz*ro.xy;rd.xy=rz*rd.xy;
+ mat2 rx=mat2(cos(a),-sin(a),sin(a),cos(a));
+ ro.yz=rx*ro.yz;rd.yz=rx*rd.yz;
+ float t=0.;float mat=0.;vec3 p=ro;bool hit=false;
+ for(int i=0;i<112;i++){
+   p=ro+rd*t;vec2 d=scene(p);
+   if(d.x<.0018){mat=d.y;hit=true;break;}
+   t+=max(d.x*.78,.002);
+   if(t>7.)break;
+ }
+ vec3 col=sky(rd);
+ if(hit){
+   vec3 n=normalAt(p);
+   col=shade(ro,rd,p,n,mat);
+   // Small optical aberration only at the grazing edge; broad body remains smooth.
+   float fres=pow(1.-max(dot(n,normalize(ro-p)),0.),2.8);
+   col+=vec3(.18,.55,1.)*fres*.22;
+   float fog=1.-exp(-t*.018);col=mix(col,vec3(.96,.93,.91),fog*.22);
+ }else{
+   // Quiet studio halo around the object.
+   float halo=exp(-length(uv*vec2(.82,1.0)-vec2(0.,-.03))*2.2)*.08;
+   col+=vec3(1.,.88,.84)*halo;
+ }
+ col=pow(max(col,vec3(0.)),vec3(.88));
+ col=col/(vec3(1.)+col*.13);
+ fragColor=vec4(col,1.);
+}`;
+function shader(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){const m=gl.getShaderInfoLog(s);console.error(m);throw new Error(m)}return s}
+const program=gl.createProgram();gl.attachShader(program,shader(gl.VERTEX_SHADER,vs));gl.attachShader(program,shader(gl.FRAGMENT_SHADER,fs));gl.linkProgram(program);
+if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(program));
+gl.useProgram(program);
+const buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);
+const loc=gl.getAttribLocation(program,'aPos');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+const uniforms={res:gl.getUniformLocation(program,'uRes'),time:gl.getUniformLocation(program,'uTime'),palette:gl.getUniformLocation(program,'uPalette'),touch:gl.getUniformLocation(program,'uTouch'),power:gl.getUniformLocation(program,'uTouchPower'),has:gl.getUniformLocation(program,'uHasTouch')};
+let palette=0,touch={x:0,y:0,power:0,has:0},last=performance.now();
+function resize(){const d=Math.min(devicePixelRatio||1,1.5);canvas.width=Math.round(innerWidth*d);canvas.height=Math.round(innerHeight*d);canvas.style.width=innerWidth+'px';canvas.style.height=innerHeight+'px';gl.viewport(0,0,canvas.width,canvas.height);gl.uniform2f(uniforms.res,canvas.width,canvas.height)}
+addEventListener('resize',resize,{passive:true});resize();
+function draw(now){const dt=Math.min(.04,(now-last)/1000);last=now;touch.power=Math.max(0,touch.power-dt*.045);gl.uniform1f(uniforms.time,now*.001);gl.uniform1f(uniforms.palette,palette);gl.uniform2f(uniforms.touch,touch.x,touch.y);gl.uniform1f(uniforms.power,touch.power);gl.uniform1f(uniforms.has,touch.has);gl.drawArrays(gl.TRIANGLES,0,6);requestAnimationFrame(draw)}
+function touchAt(e){if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;const d=Math.min(innerWidth,innerHeight);touch.x=(e.clientX-innerWidth/2)/d;touch.y=-(e.clientY-innerHeight/2)/d;touch.power=1;touch.has=1;palette=(palette+1)%4;hint.classList.add('off')}
+canvas.addEventListener('pointerdown',touchAt,{passive:true});
+APKit.init({canvas:canvas,gifName:'prism-shell-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,buttons:[
+ {label:'✦',name:'mutate',onClick:function(){palette=(palette+1)%4;touch.power=1;touch.has=1}},
+ {label:'↻',name:'reset',onClick:function(){palette=0;touch.power=0;touch.has=0;hint.classList.remove('off')}}
+]});
+requestAnimationFrame(draw);
 </script></body></html>
