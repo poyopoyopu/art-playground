@@ -1,133 +1,28 @@
 <!doctype html>
-<html lang="ja">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>PRISM SHELL — ひとつのガラスの殻が、触れた場所から形を変えて覚える</title>
-<script src="../ap-kit.js"></script>
-<style>
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#f6f2ee}
-canvas{display:block;width:100%;height:100%;touch-action:none}
-#hint{position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top) + 18px);text-align:center;color:rgba(62,54,69,.62);font:500 11px/1.5 system-ui,sans-serif;letter-spacing:.12em;pointer-events:none;transition:opacity 1s}
-#hint.off{opacity:0}
-</style>
-</head>
-<body>
-<canvas id="c"></canvas><div id="hint">殻をタップすると、その場所が折れ曲がり、元には戻らない</div>
-<script>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>PRISM SHELL</title><script src="../ap-kit.js"></script>
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#f5f1ed}canvas{display:block;width:100%;height:100%;touch-action:none}#hint{position:fixed;top:calc(env(safe-area-inset-top) + 18px);left:0;right:0;text-align:center;color:#786d78;font:500 11px system-ui;letter-spacing:.12em;pointer-events:none;transition:opacity 1s}#hint.off{opacity:0}</style></head>
+<body><canvas id="c"></canvas><div id="hint">殻に触れると、光の層がゆっくり組み替わる</div><script>
 'use strict';
-/* PRISM SHELL — ChatGPT作。ap-kit.js統合: ChatGPT
-   World law: ひとつながりのガラス殻は、触れられた場所を恒久的な折り目として記憶する。
-   触れた歪みは殻を伝い、次の呼吸にも残る。
-*/
-const canvas=document.getElementById('c'),ctx=canvas.getContext('2d',{alpha:false});
-const hint=document.getElementById('hint');
-let W=0,H=0,DPR=1,last=performance.now(),time=0,seed=Math.random()*1000,palette=0;
-const scars=[];
-const colors=[
- {h:18,h2:188,h3:318},
- {h:45,h2:205,h3:270},
- {h:330,h2:175,h3:42},
- {h:195,h2:285,h3:48}
-];
-function resize(){DPR=Math.min(devicePixelRatio||1,1.7);W=innerWidth;H=innerHeight;canvas.width=Math.round(W*DPR);canvas.height=Math.round(H*DPR);ctx.setTransform(DPR,0,0,DPR,0,0)}
-addEventListener('resize',resize,{passive:true});resize();
+/* PRISM SHELL — one continuous iridescent glass shell. Touch changes the remembered light. */
+const c=document.getElementById('c'),g=c.getContext('2d',{alpha:false}),hint=document.getElementById('hint');
+let W,H,D=1,t=0,last=performance.now(),pal=0,pulse=0;const marks=[];
+const P=[{o:24,l:18,i:195,e:322,a:42},{o:192,l:47,i:177,e:252,a:28},{o:330,l:24,i:205,e:278,a:48},{o:46,l:196,i:188,e:320,a:65}];
+function resize(){D=Math.min(devicePixelRatio||1,1.7);W=innerWidth;H=innerHeight;c.width=W*D;c.height=H*D;g.setTransform(D,0,0,D,0,0)}addEventListener('resize',resize,{passive:true});resize();
 function hs(h,s,l,a=1){return 'hsla('+((h%360+360)%360)+','+s+'%,'+l+'%,'+a+')'}
-function wrap(a){while(a>Math.PI)a-=Math.PI*2;while(a< -Math.PI)a+=Math.PI*2;return a}
-function deform(a){
- let d=0;
- for(const s of scars){const q=wrap(a-s.a),influence=Math.exp(-(q*q)/(s.width*s.width));d+=influence*s.amount}
- return d;
-}
-function project(p,rx,ry,rz,scale,cx,cy){
- let x=p.x*Math.cos(ry)+p.z*Math.sin(ry),z=-p.x*Math.sin(ry)+p.z*Math.cos(ry);
- let y=p.y*Math.cos(rx)-z*Math.sin(rx);z=p.y*Math.sin(rx)+z*Math.cos(rx);
- const xx=x*Math.cos(rz)-y*Math.sin(rz),yy=x*Math.sin(rz)+y*Math.cos(rz);
- const perspective=1/(1-z*.16);
- return {x:cx+xx*scale*perspective,y:cy+yy*scale*perspective,z};
-}
-function centerline(a,t,layer){
- const d=deform(a+layer*.11);
- const major=1.03+layer*.035+.13*Math.cos(3*a+t*.25);
- const minor=.48+.07*Math.sin(2*a-t*.31);
- const twist=2*a+layer*.8;
- let x=(major+minor*Math.cos(3*a+twist*.18))*Math.cos(2*a+layer*.24);
- let y=(.82*major+.78*minor*Math.cos(3*a+twist*.18))*Math.sin(2*a+layer*.24);
- let z=minor*Math.sin(3*a+twist*.18)+.18*Math.sin(5*a+t*.2+layer);
- // A touch is a persistent crease in the glass, not a painted mark.
- x+=d*Math.cos(a*2+layer*.3);y+=d*Math.sin(a*2+layer*.3);z+=d*.8*Math.sin(a*3+layer);
- return {x,y,z};
-}
-function render(){
- const now=performance.now(),dt=Math.min(.04,(now-last)/1000);last=now;time+=dt;
- ctx.fillStyle='#f6f2ee';ctx.fillRect(0,0,W,H);
- const base=Math.min(W,H),cx=W*.5,cy=H*.49,p=colors[palette];
- const bg=ctx.createRadialGradient(cx,cy-base*.08,base*.03,cx,cy,base*.74);
- bg.addColorStop(0,'rgba(255,255,255,.9)');bg.addColorStop(.58,'rgba(244,235,229,.34)');bg.addColorStop(1,'rgba(232,224,221,0)');
- ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
- const rx=.18+Math.sin(time*.23)*.16,ry=time*.19,rz=Math.sin(time*.14)*.1;
- const scale=base*.235*(1+.012*Math.sin(time*.8));
- const segments=[],N=260,layers=3;
- for(let layer=0;layer<layers;layer++){
-   const pts=[];
-   for(let i=0;i<=N;i++){
-     const a=i/N*Math.PI*2;
-     pts.push(project(centerline(a,time,layer),rx+layer*.025,ry+layer*.14,rz,scale,cx,cy));
-   }
-   for(let i=0;i<N;i++){
-     const a=pts[i],b=pts[i+1],ang=(i+.5)/N*Math.PI*2;
-     segments.push({a,b,layer,depth:(a.z+b.z)*.5,ang});
-   }
- }
- segments.sort((a,b)=>a.depth-b.depth);
- ctx.lineCap='round';ctx.lineJoin='round';
- for(const s of segments){
-   const z=Math.max(0,Math.min(1,(s.depth+1.45)/2.9)),layer=s.layer,pal=colors[palette];
-   const hue=pal.h+(s.ang/(Math.PI*2))*72+z*46+12*Math.sin(time*.3+s.ang*2);
-   const width=(13+z*15)*(1-layer*.12);
-   const x1=s.a.x,y1=s.a.y,x2=s.b.x,y2=s.b.y;
-   // Soft contact shadow gives the tube volume against the pale ground.
-   ctx.globalCompositeOperation='multiply';
-   ctx.strokeStyle='rgba(78,53,70,.12)';ctx.lineWidth=width*1.65;
-   ctx.beginPath();ctx.moveTo(x1+2,y1+4);ctx.lineTo(x2+2,y2+4);ctx.stroke();
-   ctx.globalCompositeOperation='source-over';
-   // Refractive body, chromatic rim and a narrow specular highlight.
-   const body=ctx.createLinearGradient(x1-width,y1-width,x2+width,y2+width);
-   body.addColorStop(0,hs(hue-30,94,71,.93));
-   body.addColorStop(.24,hs(pal.h2+z*25,88,56,.96));
-   body.addColorStop(.48,hs(hue+70,100,82,.98));
-   body.addColorStop(.72,hs(pal.h3+z*40,96,65,.96));
-   body.addColorStop(1,hs(hue+22,95,48,.92));
-   ctx.strokeStyle=body;ctx.lineWidth=width;ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
-   ctx.strokeStyle=hs(hue+65,95,78,.86);ctx.lineWidth=Math.max(1.1,width*.23);
-   ctx.beginPath();ctx.moveTo(x1-width*.1,y1-width*.16);ctx.lineTo(x2-width*.1,y2-width*.16);ctx.stroke();
-   ctx.strokeStyle='rgba(255,255,255,.88)';ctx.lineWidth=Math.max(1,width*.075);
-   ctx.beginPath();ctx.moveTo(x1-width*.2,y1-width*.27);ctx.lineTo(x2-width*.2,y2-width*.27);ctx.stroke();
- }
- // Fine, stationary caustic rings reveal where the material remembers each touch.
- for(const s of scars){
-   const a=s.a,pt=project(centerline(a,time,0),rx,ry,rz,scale,cx,cy),r=base*(.018+s.amount*.008);
-   ctx.globalCompositeOperation='screen';
-   const g=ctx.createRadialGradient(pt.x,pt.y,1,pt.x,pt.y,r*3.2);
-   g.addColorStop(0,'rgba(255,255,255,0)');g.addColorStop(.42,hs(p.h2,95,68,.24));g.addColorStop(.62,'rgba(255,255,255,.72)');g.addColorStop(.74,hs(p.h3,100,62,.6));g.addColorStop(1,'rgba(255,255,255,0)');
-   ctx.fillStyle=g;ctx.beginPath();ctx.ellipse(pt.x,pt.y,r*3.2,r*1.5, a*.3,0,Math.PI*2);ctx.fill();
- }
- ctx.globalCompositeOperation='source-over';
- requestAnimationFrame(render);
-}
-function touch(x,y){
- if(window.APKit&&APKit.isUI(x,y))return true;
- const a=Math.atan2(y-H*.49,x-W*.5);
- scars.push({a,width:.26,amount:.13+Math.random()*.07});
- if(scars.length>18)scars.shift();
- hint.classList.add('off');return true;
-}
-canvas.addEventListener('pointerdown',e=>{touch(e.clientX,e.clientY);canvas.setPointerCapture?.(e.pointerId)},{passive:true});
-APKit.init({canvas:canvas,gifName:'prism-shell-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,buttons:[
- {label:'✦',name:'mutate',onClick:function(){palette=(palette+1)%colors.length;seed=Math.random()*1000;scars.push({a:Math.random()*Math.PI*2,width:.4,amount:.18})}},
- {label:'↻',name:'reset',onClick:function(){scars.length=0;palette=0;hint.classList.remove('off')}}
-]});
-requestAnimationFrame(render);
-</script>
-</body>
-</html>
+function path(x,y,w,h){let l=x-w/2,r=x+w/2,u=y-h/2,b=y+h/2;g.beginPath();g.moveTo(x,u);g.bezierCurveTo(l+w*.2,u-h*.01,l,u+h*.07,l,y-h*.16);g.bezierCurveTo(l,y+h*.16,l+w*.02,b-h*.12,x-w*.2,b-h*.025);g.bezierCurveTo(x-w*.07,b+.01*h,x+w*.07,b+.01*h,x+w*.2,b-h*.025);g.bezierCurveTo(r-w*.02,b-h*.12,r,y+h*.16,r,y-h*.16);g.bezierCurveTo(r,u+h*.07,r-w*.2,u-h*.01,x,u);g.closePath()}
+function render(){let n=performance.now(),dt=Math.min(.04,(n-last)/1000);last=n;t+=dt;pulse*=.985;g.fillStyle='#f5f1ed';g.fillRect(0,0,W,H);let x=W/2,y=H*.49,b=Math.min(W*.88,H*.83),p=P[pal],breath=1+.009*Math.sin(t*.72)+pulse*.01,w=b*.84*breath,h=b*1.12*breath,top=y-h/2;
+let ambient=g.createRadialGradient(x,y-b*.08,b*.02,x,y,b*.78);ambient.addColorStop(0,'rgba(255,255,255,.8)');ambient.addColorStop(1,'rgba(231,220,219,0)');g.fillStyle=ambient;g.fillRect(0,0,W,H);
+// One broad outer shell, with warm transmitted light.
+g.save();g.shadowColor='rgba(107,57,82,.17)';g.shadowBlur=b*.025;g.shadowOffsetY=b*.014;
+let outer=g.createLinearGradient(x-w/2,top,x+w/2,top+h);outer.addColorStop(0,hs(p.o+5,95,65));outer.addColorStop(.18,hs(p.e,92,61));outer.addColorStop(.34,hs(p.o+28,100,72));outer.addColorStop(.56,hs(p.l,98,57));outer.addColorStop(.76,hs(p.a,100,70));outer.addColorStop(.92,hs(p.o+8,100,58));outer.addColorStop(1,hs(p.e+12,95,53));path(x,y,w,h);g.fillStyle=outer;g.fill();g.restore();
+// The single inset lens occupies the upper half; no extra rings or tubes.
+let iw=w*.72,ih=h*.61,ix=x+Math.sin(t*.31)*b*.004,iy=y-h*.16,ix0=ix-iw/2,iy0=iy-ih/2;
+let rim=g.createLinearGradient(ix0,iy0,ix0+iw,iy0+ih);rim.addColorStop(0,hs(p.e+8,92,78));rim.addColorStop(.18,hs(p.e,96,67));rim.addColorStop(.36,hs(p.i+35,90,77));rim.addColorStop(.58,hs(p.i,95,66));rim.addColorStop(.8,hs(p.e+48,94,62));rim.addColorStop(1,hs(p.o+300,100,58));path(ix,iy,iw,ih);g.fillStyle=rim;g.fill();
+path(ix,iy,iw*.965,ih*.978);g.save();g.clip();let inner=g.createRadialGradient(ix-iw*.16,iy-ih*.08,iw*.015,ix,iy,iw*.76);inner.addColorStop(0,'rgba(255,255,255,.98)');inner.addColorStop(.25,hs(p.i+28,75,83,.96));inner.addColorStop(.52,hs(p.i,92,66,.82));inner.addColorStop(.77,hs(p.e+25,95,65,.76));inner.addColorStop(1,hs(p.o+290,100,52,.9));g.fillStyle=inner;g.fillRect(ix0,iy0,iw,ih);
+let lx=ix+Math.sin(t*.38)*iw*.24,ly=iy+Math.cos(t*.32)*ih*.2,glow=g.createRadialGradient(lx,ly,1,lx,ly,iw*.42);glow.addColorStop(0,'rgba(255,255,255,.28)');glow.addColorStop(1,'rgba(255,255,255,0)');g.fillStyle=glow;g.fillRect(ix0,iy0,iw,ih);g.restore();
+let edge=g.createLinearGradient(ix0,iy0,ix0+iw,iy0+ih);edge.addColorStop(0,hs(p.e,100,58,.94));edge.addColorStop(.24,'rgba(255,255,255,.92)');edge.addColorStop(.45,hs(p.i+70,100,70,.96));edge.addColorStop(.68,hs(p.o+305,100,60,.95));edge.addColorStop(.86,hs(p.a,100,72,.96));edge.addColorStop(1,hs(p.e+24,100,55,.92));path(ix,iy,iw,ih);g.strokeStyle=edge;g.lineWidth=Math.max(1.4,b*.004);g.stroke();
+path(x,y,w,h);g.strokeStyle='rgba(255,255,255,.42)';g.lineWidth=Math.max(1,b*.002);g.stroke();g.beginPath();g.moveTo(x-w*.27,top+h*.045);g.bezierCurveTo(x-w*.04,top-h*.008,x+w*.23,top+.005*h,x+w*.34,top+h*.075);g.strokeStyle='rgba(255,255,255,.9)';g.lineWidth=Math.max(2,b*.008);g.lineCap='round';g.stroke();
+for(const m of marks){let px=m.x*W,py=m.y*H,r=b*.1,light=g.createRadialGradient(px,py,1,px,py,r);light.addColorStop(0,'rgba(255,255,255,0)');light.addColorStop(.5,hs(p.i+45,100,76,.12));light.addColorStop(.72,hs(p.e,100,66,.24));light.addColorStop(1,'rgba(255,255,255,0)');g.globalCompositeOperation='screen';g.fillStyle=light;g.fillRect(px-r,py-r,r*2,r*2)}g.globalCompositeOperation='source-over';requestAnimationFrame(render)}
+c.addEventListener('pointerdown',e=>{if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;marks.push({x:e.clientX/W,y:e.clientY/H});if(marks.length>12)marks.shift();pal=(pal+1)%P.length;pulse=1;hint.classList.add('off');c.setPointerCapture?.(e.pointerId)},{passive:true});
+APKit.init({canvas:c,gifName:'prism-shell-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,buttons:[{label:'✦',name:'mutate',onClick:()=>{pal=(pal+1)%P.length;pulse=1}},{label:'↻',name:'reset',onClick:()=>{marks.length=0;pal=0;pulse=0;hint.classList.remove('off')}}]});requestAnimationFrame(render);
+</script></body></html>
