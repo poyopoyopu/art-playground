@@ -12,7 +12,7 @@
 </head>
 <body>
 <canvas id="c" aria-label="虹色のホログラフィック・ガラスキューブ。タップして格子を変化させる"></canvas>
-<div id="hint">INDIVIDUAL CUBES · SLOW ROTATION</div>
+<div id="hint">GLASS CUBES · SLOW ORBIT</div>
 <script>
 /* HOLO GRID — ChatGPT作。ホログラフィック・ガラスキューブのリアルタイム生成試作。 */
 const canvas=document.getElementById('c'),hint=document.getElementById('hint');
@@ -29,25 +29,14 @@ vec3 rotate3(vec3 p,vec3 axis,float a){float c=cos(a),s=sin(a);return p*c-cross(
 vec3 spectral(float x){return .5+.5*cos(6.2831853*(x+vec3(0.,.3333,.6667)));}
 float sdRoundBox(vec3 p,vec3 b,float r){vec3 q=abs(p)-b;return length(max(q,0.))+min(max(q.x,max(q.y,q.z)),0.)-r;}
 float scene(vec3 p,out float ident){
-  // Evaluate neighbouring cells independently so rotated cubes never get sliced
-  // by the discontinuous boundaries of a single repeated-cell SDF.
+  // Fixed cell centres + unrotated box SDF: each cell stays a literal cube.
   const float pitch=.205;
-  vec3 base=floor(p/pitch+.5);
-  float best=10.,bestId=0.;
-  for(int z=-1;z<=1;z++)for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){
-    vec3 cell=base+vec3(float(x),float(y),float(z));
-    float id=dot(cell,vec3(1.,17.,113.));
-    vec3 local=p-cell*pitch;
-    vec3 axis=normalize(vec3(sin(id*1.31+uSeed),cos(id*.83+uSeed*.7),sin(id*.47+uSeed*1.9)));
-    // Small, independent rigid rotations: each object remains a true cube.
-    float phase=sin(uSpin*1.5707963+id*.37);
-    local=rotate3(local,axis,.30*phase);
-    float d=sdRoundBox(local,vec3(.086),.0035);
-    if(d<best){best=d;bestId=id;}
-  }
-  ident=bestId;
+  vec3 cell=floor(p/pitch+.5);
+  vec3 local=p-cell*pitch;
+  ident=dot(cell,vec3(1.,17.,113.));
+  float d=sdRoundBox(local,vec3(.091),.0018);
   float shell=sdRoundBox(p,vec3(1.13),.025);
-  return max(best,shell);
+  return max(d,shell);
 }
 vec3 getNormal(vec3 p){float id;float e=.0015;return normalize(vec3(scene(p+vec3(e,0,0),id)-scene(p-vec3(e,0,0),id),scene(p+vec3(0,e,0),id)-scene(p-vec3(0,e,0),id),scene(p+vec3(0,0,e),id)-scene(p-vec3(0,0,e),id)));}
 void main(){
@@ -55,8 +44,11 @@ void main(){
   float t=uTime;
   vec3 ro=vec3(uv*1.52,4.15);
   vec3 rd=normalize(vec3(uv,-2.45));
-  float angle=t*.115;
+  float angle=t*.20;
+  // Orbit the view around the whole rigid block, with a gentle vertical tilt.
   ro.xz=rot(angle)*ro.xz; rd.xz=rot(angle)*rd.xz;
+  float tilt=.16*sin(t*.13)+.10;
+  ro.yz=rot(tilt)*ro.yz; rd.yz=rot(tilt)*rd.yz;
   float travel=0.,ident=0.; bool hit=false; vec3 p=ro;
   for(int i=0;i<120;i++){
     p=ro+rd*travel;
@@ -70,9 +62,9 @@ void main(){
   col+=vec3(.025,.018,.07)*vignette;
   if(hit){
     vec3 n=getNormal(p),v=normalize(ro-p);
-    vec3 light=normalize(vec3(-.45,.72,1.));
+    vec3 light=normalize(vec3(-.55,.78,1.2));
     float ndl=max(dot(n,light),0.);
-    float fres=pow(1.-max(dot(n,v),0.),3.);
+    float fres=pow(1.-max(dot(n,v),0.),4.);
     float facing=dot(n,v);
     // Each voxel gets its own stable hue; the surface angle adds a moving iridescent sheen.
     float cubeHue=fract(sin(ident*127.1+uSeed*19.7)*43758.5453);
@@ -84,18 +76,18 @@ void main(){
     float sharpSpec=pow(max(dot(reflect(-light,n),v),0.),120.);
     float rim=pow(1.-abs(dot(n,v)),2.2);
     float faceTint=.72+.28*sin(ident*.071+uSeed);
-    col=blockColor*(.43+ndl*.42+fres*.18)*faceTint;
-    col+=film*(.045+fres*.13);
-    col+=film2*(.035+rim*.12);
-    col+=vec3(.82,.91,1.)*(broadSpec*.82+sharpSpec*.55);
-    col+=vec3(.045,.075,.13)*(.08+fres*.16);
+    col=blockColor*(.22+ndl*.36)*faceTint;
+    col+=film*(.10+fres*.24);
+    col+=film2*(.07+rim*.18);
+    col+=vec3(.92,.97,1.)*(broadSpec*1.45+sharpSpec*1.2);
+    col+=vec3(.10,.18,.28)*(.16+fres*.55);
     // Fine spectral edge, but dark gaps remain legible between blocks.
     float edge=min(min(abs(fract((p.x/.205)+.5)-.5),abs(fract((p.y/.205)+.5)-.5)),abs(fract((p.z/.205)+.5)-.5));
     col*=.92+.08*smoothstep(0.,.018,edge);
     col+=film*pow(max(dot(n,normalize(vec3(.4,-.2,1.))),0.),10.)*.12;
   }
-  col=col/(1.+col*.22);
-  col=pow(max(col,0.),vec3(.78));
+  col=col/(1.+col*.16);
+  col=pow(max(col,0.),vec3(.86));
   outColor=vec4(col,1.);
 }`;
 function compile(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(s));return s}
