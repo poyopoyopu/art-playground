@@ -11,8 +11,8 @@
 </style>
 </head>
 <body>
-<canvas id="c" aria-label="小さなガラスキューブが集まった大きな立方体。タップしたキューブが光る"></canvas>
-<div id="hint">TOUCH A CUBE · CHANGE ITS LIGHT</div>
+<canvas id="c" aria-label="小さなガラスキューブが集まった大きな立方体。タップしたキューブがその場で回転する"></canvas>
+<div id="hint">TAP A CUBE · SPIN IT IN PLACE</div>
 <script>
 /* HOLO GRID — ChatGPT作。小さな実ジオメトリのキューブを組み合わせたガラス立方体。 */
 const canvas=document.getElementById('c'),hint=document.getElementById('hint');
@@ -20,7 +20,7 @@ const gl=canvas.getContext('webgl2',{alpha:false,antialias:true,powerPreference:
 if(!gl){document.body.innerHTML='<p style="padding:2rem">この端末ではWebGL2を利用できません。</p>';throw Error('WebGL2 unavailable')}
 const vs=`#version 300 es
 in vec3 aPos; in vec3 aNormal; in vec3 aCenter; in float aId;
-uniform vec2 uRes; uniform float uTime; uniform float uSeed; uniform float uSelected; uniform float uImpact; uniform float uYaw; uniform float uPitch;
+uniform vec2 uRes; uniform float uTime; uniform float uSeed; uniform float uSelected; uniform float uImpact; uniform float uSpin; uniform float uYaw; uniform float uPitch;
 out vec3 vNormal; out vec3 vPos; out vec3 vColor; out float vSelected; out float vFresnel;
 vec3 rotX(vec3 p,float a){return vec3(p.x,p.y*cos(a)-p.z*sin(a),p.y*sin(a)+p.z*cos(a));}
 vec3 rotY(vec3 p,float a){return vec3(p.x*cos(a)+p.z*sin(a),p.y,-p.x*sin(a)+p.z*cos(a));}
@@ -81,17 +81,17 @@ for(let z=0;z<N;z++)for(let y=0;y<N;y++)for(let x=0;x<N;x++){
 }
 function attrib(name,data,n){const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(data),gl.STATIC_DRAW);const loc=gl.getAttribLocation(program,name);gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,n,gl.FLOAT,false,0,0)}
 attrib('aPos',verts,3);attrib('aNormal',norms,3);attrib('aCenter',centers,3);attrib('aId',ids,1);
-const U={res:gl.getUniformLocation(program,'uRes'),time:gl.getUniformLocation(program,'uTime'),seed:gl.getUniformLocation(program,'uSeed'),selected:gl.getUniformLocation(program,'uSelected'),impact:gl.getUniformLocation(program,'uImpact'),yaw:gl.getUniformLocation(program,'uYaw'),pitch:gl.getUniformLocation(program,'uPitch')};
-let seed=Math.random()*20,selected=-1,impact=0,yaw=0,pitchAngle=-.22,alive=true,last=0;
+const U={res:gl.getUniformLocation(program,'uRes'),time:gl.getUniformLocation(program,'uTime'),seed:gl.getUniformLocation(program,'uSeed'),selected:gl.getUniformLocation(program,'uSelected'),impact:gl.getUniformLocation(program,'uImpact'),spin:gl.getUniformLocation(program,'uSpin'),yaw:gl.getUniformLocation(program,'uYaw'),pitch:gl.getUniformLocation(program,'uPitch')};
+let seed=Math.random()*20,selected=-1,impact=0,spinProgress=1,yaw=0,pitchAngle=-.22,alive=true,last=0;
 function resize(){const d=Math.min(devicePixelRatio||1,1.5);canvas.width=Math.max(1,Math.round(innerWidth*d));canvas.height=Math.max(1,Math.round(innerHeight*d));gl.viewport(0,0,canvas.width,canvas.height);gl.uniform2f(U.res,canvas.width,canvas.height)}
 addEventListener('resize',resize,{passive:true});resize();
-function draw(now){if(!alive)return;const dt=Math.min(.04,(now-last)/1000||0);last=now;yaw+=dt*.19;pitchAngle=-.22+.12*Math.sin(now*.00017);impact*=Math.exp(-dt*1.8);gl.clearColor(.025,.03,.065,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);gl.enable(gl.DEPTH_TEST);gl.depthFunc(gl.LEQUAL);gl.enable(gl.CULL_FACE);gl.cullFace(gl.BACK);gl.uniform2f(U.res,canvas.width,canvas.height);gl.uniform1f(U.time,now*.001);gl.uniform1f(U.seed,seed);gl.uniform1f(U.selected,selected);gl.uniform1f(U.impact,impact);gl.uniform1f(U.yaw,yaw);gl.uniform1f(U.pitch,pitchAngle);gl.drawArrays(gl.TRIANGLES,0,verts.length/3);requestAnimationFrame(draw)}
-function touch(e){if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;const rect=canvas.getBoundingClientRect();const nx=(e.clientX-rect.left)/rect.width,ny=(e.clientY-rect.top)/rect.height;const gx=Math.max(0,Math.min(N-1,Math.floor(nx*N))),gy=Math.max(0,Math.min(N-1,Math.floor((1-ny)*N)));const gz=Math.floor(N/2);selected=1+gx+gy*N+gz*N*N;impact=1;hint.classList.add('off')}
+function draw(now){if(!alive)return;const dt=Math.min(.04,(now-last)/1000||0);last=now;yaw+=dt*.19;pitchAngle=-.22+.12*Math.sin(now*.00017);impact*=Math.exp(-dt*1.8);spinProgress=Math.min(1,spinProgress+dt/0.68);gl.clearColor(.025,.03,.065,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);gl.enable(gl.DEPTH_TEST);gl.depthFunc(gl.LEQUAL);gl.enable(gl.CULL_FACE);gl.cullFace(gl.BACK);gl.uniform2f(U.res,canvas.width,canvas.height);gl.uniform1f(U.time,now*.001);gl.uniform1f(U.seed,seed);gl.uniform1f(U.selected,selected);gl.uniform1f(U.impact,impact);gl.uniform1f(U.spin,spinProgress<1?spinProgress*(2-spinProgress):1);gl.uniform1f(U.yaw,yaw);gl.uniform1f(U.pitch,pitchAngle);gl.drawArrays(gl.TRIANGLES,0,verts.length/3);requestAnimationFrame(draw)}
+function touch(e){if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;const rect=canvas.getBoundingClientRect();const nx=(e.clientX-rect.left)/rect.width,ny=(e.clientY-rect.top)/rect.height;const gx=Math.max(0,Math.min(N-1,Math.floor(nx*N))),gy=Math.max(0,Math.min(N-1,Math.floor((1-ny)*N)));const gz=Math.floor(N/2);selected=1+gx+gy*N+gz*N*N;impact=1;spinProgress=0;hint.classList.add('off')}
 canvas.addEventListener('pointerdown',touch,{passive:true});
 document.addEventListener('visibilitychange',()=>{if(document.hidden)alive=false;else if(!alive){alive=true;last=performance.now();requestAnimationFrame(draw)}});
 APKit.init({canvas:canvas,gifName:'holo-grid-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,buttons:[
- {label:'✦',name:'mutate',onClick:function(){seed=Math.random()*40;selected=1+Math.floor(Math.random()*N*N*N);impact=1;hint.classList.add('off')}},
- {label:'↻',name:'reset',onClick:function(){selected=-1;impact=0;seed=0;yaw=0;pitchAngle=-.22;hint.classList.remove('off')}}
+ {label:'✦',name:'mutate',onClick:function(){seed=Math.random()*40;selected=1+Math.floor(Math.random()*N*N*N);impact=1;spinProgress=0;hint.classList.add('off')}},
+ {label:'↻',name:'reset',onClick:function(){selected=-1;impact=0;spinProgress=1;seed=0;yaw=0;pitchAngle=-.22;hint.classList.remove('off')}}
 ]});
 requestAnimationFrame(draw);
 </script>
