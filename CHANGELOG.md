@@ -1,3 +1,4 @@
+- 2026-10-14 クロちゃん: STRATA SAND(試作名MOON SAND)を採用・art-v105として昇格し、CURRENTに設定(おっちゃん「採用でカレントへ、録画もつけてね」)。それまでのCURRENTだったROSARY(v102)はLOGのSNOW LEDGER(v103)の下へ移動(LOGの並び順ルール)、Published worksは先頭をSTRATA SANDにしてROSARYをSNOW LEDGERの直後へ。ap-kit.jsの相対パスをルート用に修正、`<title>`は「STRATA SAND — 砂は、落ちた順に層を重ねて山を描く」、動作確認用のデバッグ用フックは外した。`META`に操作ヒント「左右になぞって傾ける。長押しで早送り」を1行追加。`REC_WORKS`(録画)に追加: スマホ幅のヘッドレスChromiumで、ギャラリーの全画面から本物の録画ボタン→なぞって傾ける・長押し→停止まで通し、mp4(約15秒・幅720px)に作品と透かしが映り、始めと終わりで砂の積もり方が変わることを確認。**スマホ実機での録画中の重さは未確認**(Canvas 2D。砂は毎フレーム全マスを計算し画像化する作品なので、重ければ録画対象から外すか砂のマス数を減らす)。`tools/poster-config.json`にSTRATA SAND(`hide:#hint`・待ち9秒)を追加し、ポスター(ヒーロー含む)とOGPカードを生成。あわせて依頼が残っていたPRISM SHELL(v104)のポスター/OGPも生成し、ポスターに操作文字が写っていたので`hide:#hint`を追加して撮り直した。`gen_posters.py --check`・`gen_og.py --check`とも終了コード0(STRATA SAND・PRISM SHELLとも文字が写っていないことを目視で確認)。試作版`prototypes/moon-sand.html`は残す(art-v105-strata-sand.html, index.html, posters/, og/, tools/poster-config.json, CHANGELOG.md)
 - 2026-10-14 クロちゃん: STRATA SAND(prototypes/moon-sand.html)を改修。石の棚を45°の斜面の「◇の砂時計の首」にして、上の砂が石の上に残らず最後まで落ち切るように(落ち切ったら自動でひっくり返る)。砂の色を連続グラデーション化して縞を太くし、斜面をなだらかにして山のV字縞をくっきり表示。ザラつきを抑え、砂のまわりにやわらかい光を追加
 - 2026-10-14 クロちゃん: MOON SAND(prototypes/moon-sand.html)を改修しSTRATA SANDに。タップで回転を廃止(傾き=横ドラッグ/長押し=早送りのみ)、背景の月を削除、砂粒を細かくして粒感・きらめきを強化、層を滑らかなグラデーション配色に変更(5テーマ)。上の砂が減ると自動でひっくり返る(70秒で強制)
 - 2026-10-14 クロちゃん: MOON SAND(prototypes/moon-sand.html)を新規追加。背景付きサンドピクチャー風の作品。砂は落ちた順に層になって積もり、タップで絵がひっくり返ると山が崩れて次の山の材料になる(縞は二度と同じ形に戻らない)。左右になぞる=傾ける、長押し=早送り、✦=色の組み合わせ(青/琥珀/翡翠/紫)、↻=砂を入れ直す。落ち切ると自動でひっくり返る。試作のみ(ルート昇格・ギャラリー追加はしていない)
@@ -448,13 +449,13 @@
 
 ## 現在の状態(変わったら書き換える)
 
-- CURRENT: ROSARY(`art-v102-rosary.html`)。それまでのCURRENTだったNEST LAWはLOGのBUD LAW(v91)の下へ
-- LOG先頭: PRISM SHELL(`art-v104-prism-shell.html`)、その下にSNOW LEDGER(`art-v103-snow-ledger.html`)、WATERLINE(`art-v101-waterline.html`)、HAIRLINE(`art-v100-hairline.html`)、MORPHING FERN(`art-v99-morphing-fern.html`)、v98〜v94、LIVING REEF(`art-v93-living-reef.html`)
+- CURRENT: STRATA SAND(`art-v105-strata-sand.html`)。それまでのCURRENTだったROSARY(v102)はLOGのSNOW LEDGER(v103)の下へ
+- LOG先頭: PRISM SHELL(`art-v104-prism-shell.html`)、その下にSNOW LEDGER(`art-v103-snow-ledger.html`)、ROSARY(`art-v102-rosary.html`)、WATERLINE(`art-v101-waterline.html`)、HAIRLINE(`art-v100-hairline.html`)、MORPHING FERN(`art-v99-morphing-fern.html`)、v98〜v94、LIVING REEF(`art-v93-living-reef.html`)
 - 作業ルール: `AGENTS.md`(ギャラリー追加の手順と命名ルールは13章)
 - 表示モード: iPhoneホーム画面から起動するとCURRENT作品を自動表示するstandalone Web App対応済み
 - 一言説明: ヒーロー/タイルの一言は各作品の`<title>`(`NAME — 日本語の一言`)から自動取得。上書き・ヒントは`index.html`の`META`(ルールはAGENTS.md 13章)
 - 運用メモ: `NOTES.md`(GitHub操作は可能性を確認してから実行)
-- 採用作品作業: PRISM SHELL(v104)のギャラリー登録済み。録画ボタンをREC_WORKSに登録済みだが、実機録画・透かし・iPhone負荷の検証は未完了。`posters/`と`og/`の生成・目視確認は未完了。クロちゃんに`python3 tools/gen_posters.py`と`python3 tools/gen_og.py`の実行、`--check`、画像目視を依頼する。
+- 採用作品作業: STRATA SAND(v105)をCURRENTに登録済み(ポスター・OGP生成と目視確認、ヘッドレスでの録画確認は完了)。PRISM SHELL(v104)もポスター・OGPを生成・目視確認済み。どちらも録画のスマホ実機での重さ・iPhone負荷の検証は未完了。
 - ポスター: ギャラリーのタイルの静止画。`posters/`と`tools/gen_posters.py`、ルールはAGENTS.md 14章。作品追加・作品修正・CURRENT変更のたびに`python3 tools/gen_posters.py`(`--check`で点検)
 
 ---

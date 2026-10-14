@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<!-- STRATA SAND(採用: art-v105として昇格。試作版は prototypes/moon-sand.html に残す) — Claude(クロちゃん)作。おっちゃんが見せてくれた「背景付きサンドピクチャー」(砂が砂時計のように流れ落ち、二度と同じ絵にならない)を、ブラウザの中で再現した作品。ap-kit.js統合: Claude
+     改訂1(2026-10-14): タップで回転は紛らわしいので廃止、背景の月は削除、砂は粒を細かく+陰影+きらめきで砂っぽく、色は「隣どうしが似た色」のグラデーションの縞に。
+     改訂2(2026-10-14): 石の棚を45°の斜面(◇の砂時計の首)にして、上の砂が残らず落ち切るように。砂の色を連続グラデーション化、ザラつきを抑え、砂のまわりにやわらかい光を追加。 -->
+<!-- 世界のルール: 砂は、落ちた順に層になって積もる。細い隙間を通った砂は、山の中心から外側へ向かって、V字の縞を刻んでいく。
+     左右になぞる=絵を傾ける(砂が斜めに流れ、山が傾いて積もる)。長押し=時間の早送り。
+     ✦=砂と背景の色を変える(海の青・夕暮れの砂丘・翡翠・菫・薔薇)。↻=砂を入れ直して、隙間の位置も新しくする。
+     砂が落ち切ってしばらくすると、放っておいても絵がひっくり返り、これまでの山が崩れて次の山の材料になる(縞は二度と同じ形には戻らない)。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#02040a">
+<title>STRATA SAND — 砂は、落ちた順に層を重ねて山を描く</title>
+<script src="ap-kit.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; padding: 0; height: 100%; background: #02040a; overflow: hidden; overscroll-behavior: none; }
+  body { -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none;
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  #c { position: fixed; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; }
+  #hint { position: fixed; left: 16px; right: 16px; bottom: calc(78px + env(safe-area-inset-bottom, 0px));
+    text-align: center; pointer-events: none; font-size: 11.5px; line-height: 1.85; letter-spacing: .07em;
+    color: #e6f2ff; opacity: 0; transition: opacity 2s ease; text-shadow: 0 0 10px rgba(0, 10, 30, .9), 0 0 16px rgba(120, 170, 255, .45); }
+  #hint.on { opacity: .8; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">左右になぞる ＝ 傾ける ／ 長押し ＝ 時間の早送り<br>砂が落ち切ると、自然にひっくり返ります</div>
+<script>
+(function () {
+  'use strict';
+  var cvs = document.getElementById('c'), hint = document.getElementById('hint');
+  var ctx = cvs.getContext('2d', { alpha: false });
+  var W = 0, H = 0, DPR = 1;
+  var fx = 0, fy = 0, fw = 0, fh = 0;           /* 額縁の外形 */
+  var ix = 0, iy = 0, iw = 0, ih = 0;           /* 額縁の内側(砂と背景の領域) */
+  var GW = 0, GH = 0, N = 0, CW = 1, CH = 1, K = 1, BM = 0, stepRate = 1.5;   /* 砂のマス目(K=粗さに対する細かさの倍率) */
+  var WALL = 200, ACC = 101;
+  var a = null, throat = null;                  /* a: 下位8bit=種類(0空/1-100砂の色(連続)/101きらめき砂/200石)、上位8bit=粒の個性 */
+  var sandCv = document.createElement('canvas'), sandCtx = null, sandImg = null, sandU32 = null;
+  var bgCv = document.createElement('canvas');
+  var glowCv = [], glowCtx = [];                /* 砂のまわりのやわらかい光(段階的に縮小してぼかす) */
+  var bgSeed = 1;
+  var gaps = [], gapOpen = new Float32Array(32);
+  var tilt = 0, tiltT = 0, fast = false;
+  var phase = 0, flipStart = 0, flipP = 0, FLIP_MS = 1600;
+  var lowBest = 1, lowAt = 0;
+  var stepAcc = 0, stepCount = 0, settled = 0, now = 0, last = 0, started = 0, pdown = false, cycleStart = 0, topFrac = 1, checkT = 0;
+  var stars = [];
+
+  /* ======== 色の組み合わせ: 6段のグラデーション(濃→淡) + きらめきの1色 ======== */
+  var THEMES = [
+    { /* 海の青 */
+      ramp: [[12, 34, 78], [22, 70, 132], [36, 112, 172], [70, 156, 198], [148, 204, 222], [226, 238, 232]], acc: [224, 182, 98],
+      edge: [3, 8, 22], mid: [12, 40, 92], cl: [120, 176, 226], cd: [8, 26, 66], halo: [90, 150, 230]
+    },
+    { /* 夕暮れの砂丘 */
+      ramp: [[70, 26, 38], [132, 50, 52], [192, 86, 56], [230, 136, 70], [246, 188, 118], [252, 230, 190]], acc: [255, 222, 140],
+      edge: [20, 6, 16], mid: [92, 34, 48], cl: [240, 150, 110], cd: [50, 16, 34], halo: [255, 150, 90]
+    },
+    { /* 翡翠 */
+      ramp: [[8, 44, 48], [16, 86, 82], [30, 134, 114], [88, 182, 144], [168, 214, 168], [232, 242, 216]], acc: [228, 198, 110],
+      edge: [2, 12, 14], mid: [8, 58, 64], cl: [110, 210, 190], cd: [4, 30, 36], halo: [80, 220, 180]
+    },
+    { /* 菫 */
+      ramp: [[36, 20, 80], [76, 42, 136], [126, 74, 176], [180, 118, 204], [222, 170, 216], [248, 224, 236]], acc: [255, 216, 170],
+      edge: [8, 3, 24], mid: [48, 20, 98], cl: [200, 140, 240], cd: [20, 8, 52], halo: [190, 120, 250]
+    },
+    { /* 薔薇 */
+      ramp: [[84, 26, 60], [146, 54, 90], [204, 94, 122], [236, 146, 154], [246, 198, 190], [252, 234, 224]], acc: [236, 204, 120],
+      edge: [20, 4, 16], mid: [96, 28, 72], cl: [240, 150, 170], cd: [50, 12, 38], halo: [250, 130, 160]
+    }
+  ];
+  var theme = 0;
+  var pr = new Float32Array(256), pg = new Float32Array(256), pb = new Float32Array(256), stone = [30, 30, 40], stoneHi = [200, 220, 255];
+  function setPalette() {
+    var T = THEMES[theme], t, u, k, f, c0, c1;
+    /* 砂の色は1〜100の連続値(0=最も濃い色、100=最も淡い色)。6色のグラデーションをなめらかに補間する */
+    for (t = 1; t <= 100; t++) {
+      u = (t - 1) / 99 * 5; k = Math.min(4, Math.floor(u)); f = u - k; c0 = T.ramp[k]; c1 = T.ramp[k + 1];
+      pr[t] = c0[0] + (c1[0] - c0[0]) * f; pg[t] = c0[1] + (c1[1] - c0[1]) * f; pb[t] = c0[2] + (c1[2] - c0[2]) * f;
+    }
+    pr[ACC] = T.acc[0]; pg[ACC] = T.acc[1]; pb[ACC] = T.acc[2];
+    stone = [T.ramp[0][0] * 0.45 + 14, T.ramp[0][1] * 0.45 + 16, T.ramp[0][2] * 0.45 + 22];
+    stoneHi = [T.ramp[3][0], T.ramp[3][1], T.ramp[3][2]];
+  }
+
+  /* ======== ノイズ(背景の雲用) ======== */
+  function hash2(x, y, s) {
+    var h = (Math.imul(x, 374761393) + Math.imul(y, 668265263) + Math.imul(s, 1442695041)) | 0;
+    h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16;
+    return (h >>> 0) / 4294967296;
+  }
+  function vnoise(x, y, s) {
+    var xi = Math.floor(x), yi = Math.floor(y), fx_ = x - xi, fy_ = y - yi;
+    fx_ = fx_ * fx_ * (3 - 2 * fx_); fy_ = fy_ * fy_ * (3 - 2 * fy_);
+    var p = hash2(xi, yi, s), q = hash2(xi + 1, yi, s), r = hash2(xi, yi + 1, s), t = hash2(xi + 1, yi + 1, s);
+    var top = p + (q - p) * fx_, bot = r + (t - r) * fx_;
+    return top + (bot - top) * fy_;
+  }
+  function fbm(x, y, s) {
+    var v = 0, amp = 0.5;
+    for (var o = 0; o < 5; o++) { v += amp * vnoise(x, y, s + o * 17); x = x * 2.03 + 11.3; y = y * 2.03 + 7.1; amp *= 0.5; }
+    return v;
+  }
+  function sstep(e0, e1, x) { var t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); }
+
+  /* ======== 背景(雲と星): 180°回しても同じに見えるよう、点対称に作る ======== */
+  function makeBackdrop() {
+    var bw = Math.max(64, Math.round(iw / 2)), bh = Math.max(64, Math.round(ih / 2));
+    bgCv.width = bw; bgCv.height = bh;
+    var bctx = bgCv.getContext('2d');
+    var img = bctx.createImageData(bw, bh), d = img.data;
+    var T = THEMES[theme], asp = ih / iw, S = bgSeed;
+    for (var y = 0; y < bh; y++) {
+      for (var x = 0; x < bw; x++) {
+        var u = (x + 0.5) / bw, v = (y + 0.5) / bh;
+        var k = Math.pow(1 - Math.abs(2 * v - 1), 1.25);
+        var r = T.edge[0] + (T.mid[0] - T.edge[0]) * k, g = T.edge[1] + (T.mid[1] - T.edge[1]) * k, b = T.edge[2] + (T.mid[2] - T.edge[2]) * k;
+        var dx = x + 0.5 - bw / 2, dy = y + 0.5 - bh / 2, dd = Math.sqrt(dx * dx + dy * dy);
+        var gl = Math.exp(-dd / (0.6 * bw));
+        /* 雲(点対称) */
+        var nx = u * 3.4, ny = v * 3.4 * asp;
+        var n = 0.5 * (fbm(nx, ny, S) + fbm(3.4 - nx, 3.4 * asp - ny, S));
+        var c = sstep(0.42, 0.78, n) * 0.85;
+        var lit = 0.2 + 0.8 * gl;
+        r += (T.cd[0] + (T.cl[0] - T.cd[0]) * lit - r) * c;
+        g += (T.cd[1] + (T.cl[1] - T.cd[1]) * lit - g) * c;
+        b += (T.cd[2] + (T.cl[2] - T.cd[2]) * lit - b) * c;
+        /* 中心のやわらかい光(月ではなく、ただの明るみ) */
+        var hl = gl * 0.2;
+        r += T.halo[0] * hl; g += T.halo[1] * hl; b += T.halo[2] * hl;
+        var o = (y * bw + x) * 4;
+        d[o] = r > 255 ? 255 : r; d[o + 1] = g > 255 ? 255 : g; d[o + 2] = b > 255 ? 255 : b; d[o + 3] = 255;
+      }
+    }
+    bctx.putImageData(img, 0, 0);
+    stars = [];
+    for (var s = 0; s < 70; s++) {
+      var su = Math.random(), sv = Math.random(), sp = Math.random() * 6.28, sb = 0.4 + Math.random() * 0.6;
+      stars.push({ u: su, v: sv, p: sp, b: sb }); stars.push({ u: 1 - su, v: 1 - sv, p: sp + 1.7, b: sb });
+    }
+  }
+
+  /* ======== 砂の入れ物(石の棚・隙間・層) ======== */
+  /* 層: 色(1〜100)をゆるやかに行き来しながら、帯ごとに内側がなめらかなグラデーションになるよう重ねる。ときどき、うすいきらめきの層 */
+  /* 淡い色(白っぽい色)は少なめに。深い青〜中間色を主役にして、淡い色は縞のアクセントにする */
+  function biasTone(val) { var u = Math.max(0, Math.min(99, val - 1)) / 99; return 1 + Math.round(99 * Math.pow(u, 1.2)); }
+  function makeLayers(total) {
+    var arr = [], v = 6 + Math.random() * 88, dir = Math.random() < 0.5 ? 1 : -1, q, th, v1;
+    while (arr.length < total) {
+      if (arr.length > 0 && Math.random() < 0.1) {
+        th = Math.max(1, Math.round((1 + (Math.random() < 0.4 ? 1 : 0)) * K));
+        for (q = 0; q < th; q++) arr.push(ACC);
+      } else {
+        th = Math.max(4, Math.round((5 + Math.random() * 11) * K));
+        v1 = v + dir * (8 + Math.random() * 26);
+        if (v1 > 99) { v1 = 198 - v1; dir = -1; }
+        if (v1 < 2) { v1 = 4 - v1; dir = 1; }
+        for (q = 0; q < th; q++) arr.push(biasTone(v + (v1 - v) * (q / th)));
+        v = Math.max(2, Math.min(99, v1));
+        if (Math.random() < 0.3) dir = -dir;
+        if (Math.random() < 0.18) v = Math.max(2, Math.min(99, v + (Math.random() - 0.5) * 44));   /* ときどきくっきりした境目 */
+      }
+    }
+    return arr;
+  }
+  function rnd8() { return (Math.random() * 255) | 0; }
+  /* 入れ物: 隙間のまわりは「◇の砂時計の首」。石は45°の斜面になっていて、上の砂は残らず隙間へ滑り落ちる。
+     ひっくり返しても同じ形になるよう、中心(行・列とも)について点対称に作る。 */
+  function fillSand() {
+    var i, x, y, g, q;
+    for (i = 0; i < N; i++) { a[i] = 0; throat[i] = 0; }
+    gaps = [];
+    var n = Math.max(4, Math.round(GW / (52 * K)));
+    for (var gi = 0; gi < n; gi++) {
+      var gx = Math.round((gi + 0.5) / n * GW + (Math.random() - 0.5) * 0.5 * GW / n);
+      var gwid = Math.max(3, Math.round((4.6 + (Math.random() < 0.35 ? 1 : 0)) * K));
+      gx = Math.max(Math.round(4 * K), Math.min(GW - 1 - Math.round(4 * K), gx));
+      gaps.push({ x: gx, w: gwid, ph: Math.random() * 6.28, om: 0.6 + Math.random() * 0.9 });
+    }
+    var th = Math.max(3, Math.round(4 * K)), tr = Math.round(4 * K), cc = (GH - 1) / 2;
+    var Hh = new Int32Array(GW), isGap = new Int32Array(GW), avgH = 0, maxH = 0;
+    for (x = 0; x < GW; x++) {
+      var dmin = 1e9;
+      for (g = 0; g < gaps.length; g++) {
+        var dx = Math.abs(x - gaps[g].x), ed = dx - gaps[g].w / 2;
+        if (ed <= 0) isGap[x] = g + 1;
+        if (ed < dmin) dmin = ed;
+      }
+      Hh[x] = isGap[x] ? 0 : Math.max(1, Math.ceil(dmin));
+      avgH += Hh[x]; if (Hh[x] > maxH) maxH = Hh[x];
+    }
+    avgH /= GW;
+    FUN_TOP = Math.round(cc - maxH - th - 6);
+    /* 石(上の斜面と、点対称な下の斜面)と、隙間の喉(開閉の弁がかかる範囲) */
+    var yTop = new Int32Array(GW), tA = Math.round(cc - tr - th / 2);
+    for (x = 0; x < GW; x++) {
+      if (isGap[x]) { for (y = tA; y <= GH - 1 - tA; y++) throat[y * GW + x] = isGap[x]; yTop[x] = Math.round(cc - tr - th / 2); continue; }
+      var ut = Math.round(cc - Hh[x] - th / 2);
+      yTop[x] = ut;
+      for (q = 0; q < th; q++) {
+        y = ut + q;
+        a[y * GW + x] = WALL | (rnd8() << 8);
+        a[(GH - 1 - y) * GW + x] = WALL | (rnd8() << 8);
+      }
+    }
+    /* 砂の層 */
+    var rows = Math.min(Math.round(0.17 * iw / CH), Math.round((cc - maxH - 10) / 1.5));
+    var topRow = Math.max(1, Math.round(cc - avgH - rows));
+    var layers = makeLayers(rows + Math.round(avgH + maxH) + Math.round(60 * K));
+    var ph2 = Math.random() * 6.28, ph3 = Math.random() * 6.28;
+    for (x = 0; x < GW; x++) {
+      var warp = K * (3.2 * Math.sin(x * 0.045 / K + ph2) + 2 * Math.sin(x * 0.11 / K + ph3));
+      for (y = topRow; y < yTop[x]; y++) {
+        var li = Math.round(y - topRow + warp + (Math.random() - 0.5) * 2.4 * K);
+        if (li < 0) li = 0; if (li >= layers.length) li = layers.length - 1;
+        a[y * GW + x] = layers[li] | (rnd8() << 8);
+      }
+    }
+    /* 床の砂(うすく) */
+    var fl = Math.round(4 * K);
+    for (x = 0; x < GW; x++) {
+      for (y = GH - fl; y < GH; y++) {
+        var tt = 10 + (Math.floor((GH - 1 - y) / (K * 1.4)) % 3) * 9;
+        a[y * GW + x] = tt | (rnd8() << 8);
+      }
+    }
+  }
+
+  /* ======== 砂のシミュレーション(下へ落ちる/斜めに崩れる。隙間は開いたり閉じたりする) ======== */
+  var SLIDE_P = 0.9, SLIDE_UP = 0.14, STEEP = 0.07, FUN_TOP = 0;   /* FUN_TOP: これより下(石の斜面のあたり)では砂が速くすべる */
+  function step() {
+    var moved = 0, tl = tilt, atl = Math.abs(tl), sg = tl > 0 ? 1 : -1, pr_ = 0.5 + 0.5 * tl;
+    stepCount++;
+    for (var y = GH - 2; y >= 0; y--) {
+      var row = y * GW, rev = ((y + stepCount) & 1) === 0, top = y < BM ? 1 : 0;   /* 動きを数えるのは隙間の上(給砂側)だけ。空中の筋は数えない */
+      for (var k = 0; k < GW; k++) {
+        var x = rev ? GW - 1 - k : k, i = row + x, v = a[i], t = v & 255;
+        if (t === 0 || t === WALL) continue;
+        var b = i + GW, th;
+        if (a[b] === 0) {
+          if ((th = throat[b]) !== 0 && Math.random() >= gapOpen[th]) continue;
+          var xs = 0;
+          if (atl > 0.05 && Math.random() < atl * 0.55) xs = sg;
+          else if (Math.random() < 0.006 && (i < GW || a[i - GW] === 0)) xs = Math.random() < 0.5 ? -1 : 1;   /* ばらけて落ちる粒 */
+          if (xs !== 0) {
+            var xx = x + xs;
+            if (xx >= 0 && xx < GW && a[b + xs] === 0 && a[i + xs] !== WALL && !(throat[b + xs] !== 0 && Math.random() >= gapOpen[throat[b + xs]])) {
+              a[b + xs] = v; a[i] = 0; moved += top; continue;
+            }
+          }
+          a[b] = v; a[i] = 0; moved += top; continue;
+        }
+        /* 下がふさがっている → 斜めに崩れる(隙間の上は崩れにくく、中心から順に落ちて縞が保たれる) */
+        var onWall = a[b] === WALL;                                   /* 石の斜面に乗っている粒は、迷わず滑り落ちる */
+        if (Math.random() >= (onWall ? 0.85 : (y < BM ? (y >= FUN_TOP && topFrac < 0.14 ? 0.5 : SLIDE_UP) : SLIDE_P))) continue;
+        var d = Math.random() < pr_ ? 1 : -1, done = false;
+        for (var tr = 0; tr < 2 && !done; tr++, d = -d) {
+          var xd = x + d;
+          if (xd < 0 || xd >= GW) continue;
+          if (a[b + d] !== 0 || a[i + d] === WALL) continue;
+          if (!onWall && Math.random() < STEEP && a[b + d + GW] !== 0) continue;
+          if ((th = throat[b + d]) !== 0 && Math.random() >= gapOpen[th]) continue;
+          a[b + d] = v; a[i] = 0; moved += top; done = true;
+        }
+        /* 強く傾けたときは、表面を横にもすべる */
+        if (!done && atl > 0.55 && Math.random() < (atl - 0.55) * 0.5) {
+          var xh = x + sg;
+          if (xh >= 0 && xh < GW && a[i + sg] === 0) { a[i + sg] = v; a[i] = 0; moved += top; }
+        }
+      }
+    }
+    return moved;
+  }
+
+  /* ======== 描画 ======== */
+  function renderSand(tm) {
+    var tt = (tm * 0.009) | 0, d = sandU32, i = 0, v, t, j, lit, rr, gg, bb, h, ew, ti, up, dn, kk, G = GW, G2 = GW * 2, G3 = GW * 3;
+    var s0 = stone[0], s1 = stone[1], s2 = stone[2], h0 = stoneHi[0], h1 = stoneHi[1], h2 = stoneHi[2];
+    for (var y = 0; y < GH; y++) {
+      for (var x = 0; x < GW; x++, i++) {
+        v = a[i]; t = v & 255;
+        if (t === 0) { d[i] = 0; continue; }
+        j = v >> 8;
+        if (t === WALL) {                                                       /* 石: 磨いた黒曜石。上を向いた縁だけがすっと光る */
+          up = y > 0 ? a[i - G] : 1; dn = y < GH - 1 ? a[i + G] : 1;
+          kk = 0.78 + (j >> 3) / 31 * 0.16;
+          if (up === 0) { rr = h0 * 0.9; gg = h1 * 0.9; bb = h2 * 0.9; }
+          else if (dn === 0) { rr = s0 * 0.7 * kk; gg = s1 * 0.7 * kk; bb = s2 * 0.7 * kk; }
+          else { rr = s0 * kk; gg = s1 * kk; bb = s2 * kk; }
+        } else {
+          /* 陰影: 左上が空いているほど光が当たる(表面は明るく、山の内側はしっとり深い色) */
+          if (x >= 3 && y >= 3) {
+            ew = (a[i - G] === 0 ? 2 : 0) + (a[i - G - 1] === 0 ? 2 : 0) + (a[i - G2] === 0 ? 1 : 0) + (a[i - G2 - 1] === 0 ? 1 : 0) +
+                 (a[i - G2 - 2] === 0 ? 1 : 0) + (a[i - G3] === 0 ? 1 : 0) + (a[i - G3 - 3] === 0 ? 1 : 0) - (a[i - G + 1] === 0 ? 1 : 0);
+          } else ew = 3;
+          lit = (0.93 + 0.04 * ew) * (0.94 + (j >> 3) / 31 * 0.12);              /* 粒ごとの明るさ(控えめ) */
+          ti = t;
+          if (t !== ACC) { ti = t + ((((j & 7) - 3.5) * 0.7) | 0); if (ti < 1) ti = 1; else if (ti > 100) ti = 100; }   /* 粒ごとの色のわずかなずれ */
+          rr = pr[ti] * lit; gg = pg[ti] * lit; bb = pb[ti] * lit;
+          h = (Math.imul(i, 2654435761) + Math.imul(tt, 40503)) >>> 0;
+          if (t === ACC) {
+            if ((h >>> 24) < 14) { rr = 255; gg = 250; bb = 238; } else { rr *= 1.08; gg *= 1.08; bb *= 1.04; }
+          } else if ((h >>> 24) < 2) { rr += 44; gg += 44; bb += 44; }          /* ときどき光る粒 */
+        }
+        d[i] = 0xff000000 | ((bb > 255 ? 255 : bb) << 16) | ((gg > 255 ? 255 : gg) << 8) | (rr > 255 ? 255 : rr);
+      }
+    }
+    sandCtx.putImageData(sandImg, 0, 0);
+  }
+
+  function rrect(x, y, w, h, r) {
+    ctx.beginPath(); ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h); ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r); ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath();
+  }
+  function ease(t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
+
+  function draw(tm) {
+    var T = THEMES[theme];
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.fillStyle = '#02040a'; ctx.fillRect(0, 0, W, H);
+    var cx = fx + fw / 2, cy = fy + fh / 2;
+    var gr = ctx.createRadialGradient(cx, cy, Math.min(fw, fh) * 0.2, cx, cy, Math.max(W, H) * 0.7);
+    gr.addColorStop(0, 'rgba(' + T.halo[0] + ',' + T.halo[1] + ',' + T.halo[2] + ',0.13)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
+
+    ctx.save();
+    var ang = 0, sc = 1;
+    if (phase === 1) { var e = ease(flipP); ang = Math.PI * e; sc = 1 - 0.13 * Math.sin(Math.PI * flipP); }
+    ctx.translate(cx, cy); ctx.rotate(ang); ctx.scale(sc, sc); ctx.translate(-cx, -cy);
+    /* 額縁 */
+    var fg = ctx.createLinearGradient(fx, fy, fx + fw, fy + fh);
+    fg.addColorStop(0, '#c4cbd6'); fg.addColorStop(0.5, '#5a616e'); fg.addColorStop(1, '#c4cbd6');
+    ctx.fillStyle = fg; rrect(fx, fy, fw, fh, 6); ctx.fill();
+    ctx.fillStyle = '#05070c'; ctx.fillRect(ix - 3, iy - 3, iw + 6, ih + 6);
+    /* 中身 */
+    ctx.save(); ctx.beginPath(); ctx.rect(ix, iy, iw, ih); ctx.clip();
+    var par = -tilt * 7, pw = iw * 1.05, ph = ih * 1.05;
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(bgCv, ix - (pw - iw) / 2 + par, iy - (ph - ih) / 2, pw, ph);
+    for (var s = 0; s < stars.length; s++) {
+      var st = stars[s], tw = 0.45 + 0.55 * Math.sin(tm * 0.0013 + st.p);
+      ctx.fillStyle = 'rgba(235,242,255,' + (st.b * tw * 0.8).toFixed(3) + ')';
+      ctx.fillRect(ix + st.u * iw + par * 1.4, iy + st.v * ih, 1.4, 1.4);
+    }
+    /* 砂のまわりのにじむ光(砂の後ろに敷く) */
+    var src = sandCv;
+    for (var gl = 0; gl < glowCv.length; gl++) {
+      glowCtx[gl].clearRect(0, 0, glowCv[gl].width, glowCv[gl].height);
+      glowCtx[gl].drawImage(src, 0, 0, glowCv[gl].width, glowCv[gl].height); src = glowCv[gl];
+    }
+    ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.5;
+    ctx.drawImage(glowCv[glowCv.length - 1], ix, iy, iw, ih);
+    ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+    ctx.drawImage(sandCv, ix, iy, iw, ih);
+    /* 奥行き: 縁のくらがり */
+    var vg = ctx.createRadialGradient(ix + iw / 2, iy + ih / 2, Math.min(iw, ih) * 0.42, ix + iw / 2, iy + ih / 2, Math.max(iw, ih) * 0.78);
+    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,8,0.5)');
+    ctx.fillStyle = vg; ctx.fillRect(ix, iy, iw, ih);
+    /* ガラスの反射(傾けると動く。中心対称の斜めの帯) */
+    var sp = 0.5 + tilt * 0.4 + (phase === 1 ? 0.45 * Math.sin(Math.PI * flipP) : 0);
+    var sg2 = ctx.createLinearGradient(ix + (sp - 0.5) * iw, iy, ix + (sp + 0.5) * iw, iy + ih);
+    sg2.addColorStop(0, 'rgba(255,255,255,0)'); sg2.addColorStop(0.5, 'rgba(214,232,255,0.085)'); sg2.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = sg2; ctx.fillRect(ix, iy, iw, ih);
+    ctx.restore();
+    ctx.restore();
+  }
+
+  /* 隙間の上(給砂側)に残っている砂の割合 */
+  function measure() {
+    var top = 0, tot = 0, lim = BM * GW;
+    for (var i = 0; i < N; i++) { var t = a[i] & 255; if (t !== 0 && t !== WALL) { tot++; if (i < lim) top++; } }
+    topFrac = tot ? top / tot : 0;
+  }
+
+  /* ======== ひっくり返す(砂が落ち切ったら自動で) ======== */
+  function flip() {
+    if (phase !== 0) return;
+    phase = 1; flipStart = now; flipP = 0; fast = false; settled = 0;
+  }
+  function finishFlip() {
+    for (var i = 0, j = N - 1; i < j; i++, j--) {
+      var t = a[i]; a[i] = a[j]; a[j] = t;
+      var u = throat[i]; throat[i] = throat[j]; throat[j] = u;
+    }
+    for (var g = 0; g < gaps.length; g++) gaps[g].x = GW - 1 - gaps[g].x;
+    phase = 0; settled = 0; stepAcc = 0; cycleStart = now; topFrac = 1; checkT = 0; lowBest = 1; lowAt = now;
+  }
+
+  /* ======== 組み立て ======== */
+  function build() {
+    W = window.innerWidth; H = window.innerHeight;
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    var cap = Math.sqrt(2600000 / (W * H)); if (DPR > cap) DPR = Math.max(1, cap);
+    cvs.width = Math.round(W * DPR); cvs.height = Math.round(H * DPR);
+    var M = 14, FB = 9, aw = W - 2 * M, ah = H - 2 * M - 46;
+    var ar = Math.max(0.64, Math.min(1.45, aw / ah));
+    fw = Math.min(aw, ah * ar); fh = fw / ar;
+    fx = (W - fw) / 2; fy = (H - fh) / 2 - 12;
+    ix = fx + FB; iy = fy + FB; iw = fw - 2 * FB; ih = fh - 2 * FB;
+    var cw = Math.sqrt(iw * ih / (220000 * 0.9));                 /* 砂粒のマス目(細かめ) */
+    GW = Math.max(100, Math.round(iw / cw)); GH = Math.max(110, Math.round(ih / (cw * 0.9)));
+    CW = iw / GW; CH = ih / GH; N = GW * GH; BM = Math.round(GH * 0.5);
+    K = Math.max(0.9, 1.46 / CW);
+    stepRate = 1.57 / CH;                                          /* 粒の落ちる速さ(px/秒)がマス目の細かさに左右されないように */
+    a = new Uint16Array(N); throat = new Uint8Array(N);
+    sandCv.width = GW; sandCv.height = GH; sandCtx = sandCv.getContext('2d');
+    sandImg = sandCtx.createImageData(GW, GH); sandU32 = new Uint32Array(sandImg.data.buffer);
+    glowCv = []; glowCtx = [];
+    for (var gl = 1; gl <= 4; gl++) {
+      var gc = document.createElement('canvas'); gc.width = Math.max(4, Math.ceil(GW / Math.pow(2, gl))); gc.height = Math.max(4, Math.ceil(GH / Math.pow(2, gl)));
+      glowCv.push(gc); glowCtx.push(gc.getContext('2d'));
+    }
+    bgSeed = (Math.random() * 900) | 0;
+    setPalette(); makeBackdrop(); fillSand();
+    phase = 0; tilt = 0; tiltT = 0; settled = 0; stepAcc = 0; last = 0; cycleStart = now; topFrac = 1; checkT = 0; lowBest = 1; lowAt = now;
+  }
+
+  /* ======== メインループ ======== */
+  function frame(ts) {
+    requestAnimationFrame(frame);
+    if (!last) last = ts;
+    var dt = Math.min(64, ts - last); last = ts; now += dt;
+    if (!started) started = now;
+    tilt += (tiltT - tilt) * Math.min(1, dt * 0.009);
+    for (var g = 0; g < gaps.length; g++) {
+      var o = 0.7 + 0.85 * Math.sin(now * 0.0006 * gaps[g].om + gaps[g].ph);
+      gapOpen[g + 1] = o < 0 ? 0 : (o > 1 ? 1 : o);
+    }
+    if (phase === 1) {
+      flipP = (now - flipStart) / FLIP_MS;
+      if (flipP >= 1) { flipP = 1; finishFlip(); }
+    } else {
+      stepAcc += dt / 16.67 * stepRate * (fast ? 5 : 1);
+      var movedFrame = 0, cnt = 0;
+      while (stepAcc >= 1 && cnt < 10) { stepAcc -= 1; movedFrame += step(); cnt++; }
+      if (stepAcc > 10) stepAcc = 0;
+      if (++checkT >= 30) { checkT = 0; measure(); if (topFrac < lowBest - 0.0005) { lowBest = topFrac; lowAt = now; } }
+      /* 上の砂がほぼ全部落ち切ったら、自動でひっくり返る(取りこぼしで止まったときは保険でも返す) */
+      var el = now - cycleStart;
+      if (((topFrac < 0.006 && el > 6000) || (topFrac < 0.04 && el > 12000 && now - lowAt > 6000) || el > 120000) && !pdown) flip();
+    }
+    renderSand(now);
+    draw(now);
+    if (!hint._shown && now - started > 1200) { hint._shown = true; hint.classList.add('on'); }
+    if (hint._shown && !hint._off && now - started > 9000) hintOff();
+  }
+  function hintOff() { hint._off = true; hint.classList.remove('on'); }
+
+  /* ======== 操作(左右になぞる=傾ける / 長押し=早送り。タップでは何も起きない) ======== */
+  var pd = null;
+  cvs.addEventListener('pointerdown', function (e) {
+    if (window.APKit && APKit.isUI(e.clientX, e.clientY)) return;
+    pd = { x: e.clientX, drag: false, id: e.pointerId };
+    pdown = true; hintOff();
+    try { cvs.setPointerCapture(e.pointerId); } catch (_) { }
+    var me = pd;
+    pd.timer = setTimeout(function () { if (pd === me && !me.drag) fast = true; }, 420);
+  });
+  cvs.addEventListener('pointermove', function (e) {
+    if (!pd || e.pointerId !== pd.id) return;
+    var dx = e.clientX - pd.x;
+    if (!pd.drag && Math.abs(dx) > 14) { pd.drag = true; clearTimeout(pd.timer); fast = false; }
+    if (pd.drag) tiltT = Math.max(-1, Math.min(1, dx / (W * 0.26)));
+  });
+  function up(e) {
+    if (!pd || e.pointerId !== pd.id) return;
+    clearTimeout(pd.timer);
+    fast = false; tiltT = 0; pd = null; pdown = false;
+  }
+  cvs.addEventListener('pointerup', up);
+  cvs.addEventListener('pointercancel', up);
+  document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
+  document.addEventListener('dblclick', function (e) { e.preventDefault(); });
+
+  var rzT = 0, lastW = 0, lastH = 0;
+  function onResize() {
+    clearTimeout(rzT);
+    rzT = setTimeout(function () {
+      if (Math.abs(window.innerWidth - lastW) < 3 && Math.abs(window.innerHeight - lastH) < 3) return;
+      lastW = window.innerWidth; lastH = window.innerHeight; build();
+    }, 150);
+  }
+  window.addEventListener('resize', onResize);
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', onResize);
+  document.addEventListener('visibilitychange', function () { last = 0; });
+
+  lastW = window.innerWidth; lastH = window.innerHeight;
+  build();
+  requestAnimationFrame(frame);
+
+  if (window.APKit) {
+    window.APKit.init({
+      canvas: cvs,
+      gifName: 'strata-sand',
+      clockFormat: 'spec',
+      dock: true,
+      autoHide: true,
+      fullscreenButton: false,
+      buttons: [
+        { label: '✦', name: 'mutate', onClick: function () {      /* 砂と背景の色を次の組み合わせへ(いまの砂もそのまま染まる) */
+          theme = (theme + 1) % THEMES.length; bgSeed = (Math.random() * 900) | 0; setPalette(); makeBackdrop();
+        } },
+        { label: '↻', name: 'reset', onClick: function () {       /* 砂を入れ直す(隙間の位置・層も新しく) */
+          bgSeed = (Math.random() * 900) | 0; makeBackdrop(); fillSand(); phase = 0; settled = 0; stepAcc = 0; cycleStart = now; topFrac = 1; checkT = 0; lowBest = 1; lowAt = now;
+        } }
+      ]
+    });
+  }
+})();
+</script>
+</body>
+</html>
