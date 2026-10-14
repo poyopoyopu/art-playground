@@ -1,3 +1,4 @@
+- 2026-10-14 チャッピー: HOLO GRIDのキューブ寸法を元に戻し、各ブロックを固有の3D軸で剛体回転させる方式に修正。格子の変形は除去したまま維持(prototypes/holo-grid.html)
 - 2026-10-14 チャッピー: HOLO GRIDの格子変形・揺れ・欠け表現を除去。キューブの中心と形状を固定し、各ブロックが単一軸で剛体回転する方式に変更(prototypes/holo-grid.html)
 - 2026-10-14 チャッピー: HOLO GRIDをタップするたび、各キューブが固有の軸・角度で個別回転する仕組みを追加(prototypes/holo-grid.html)
 - 2026-10-14 チャッピー: HOLO GRIDの各ブロックに固有の虹色を割り当て、面の反射色を重ねる構成に変更(prototypes/holo-grid.html)
