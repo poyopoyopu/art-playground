@@ -3,108 +3,95 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<meta name="theme-color" content="#030309">
-<title>HOLO GRID — 光が面を渡り、触れると格子の秩序がずれる</title>
+<meta name="theme-color" content="#080a16">
+<title>HOLO GRID — ガラスキューブの集合体</title>
 <script src="../ap-kit.js"></script>
 <style>
-*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#030309;color:#fff;font-family:system-ui,-apple-system,sans-serif;touch-action:manipulation}canvas{display:block;width:100%;height:100%;touch-action:pan-y;outline:none}#hint{position:fixed;left:0;right:0;bottom:calc(20px + env(safe-area-inset-bottom));text-align:center;pointer-events:none;font-size:10px;letter-spacing:.24em;color:rgba(225,228,255,.55);transition:opacity 1s}#hint.off{opacity:0}.apk-ctrl{z-index:5}
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#080a16;color:#fff;font-family:system-ui,-apple-system,sans-serif;touch-action:manipulation}canvas{display:block;width:100%;height:100%;touch-action:pan-y;outline:none}#hint{position:fixed;left:0;right:0;bottom:calc(20px + env(safe-area-inset-bottom));text-align:center;pointer-events:none;font-size:10px;letter-spacing:.22em;color:rgba(225,235,255,.62);transition:opacity 1s}#hint.off{opacity:0}.apk-ctrl{z-index:5}
 </style>
 </head>
 <body>
-<canvas id="c" aria-label="虹色のホログラフィック・ガラスキューブ。タップして格子を変化させる"></canvas>
-<div id="hint">GLASS CUBES · SLOW ORBIT</div>
+<canvas id="c" aria-label="小さなガラスキューブが集まった大きな立方体。タップしたキューブが光る"></canvas>
+<div id="hint">TOUCH A CUBE · CHANGE ITS LIGHT</div>
 <script>
-/* HOLO GRID — ChatGPT作。ホログラフィック・ガラスキューブのリアルタイム生成試作。 */
+/* HOLO GRID — ChatGPT作。小さな実ジオメトリのキューブを組み合わせたガラス立方体。 */
 const canvas=document.getElementById('c'),hint=document.getElementById('hint');
-const gl=canvas.getContext('webgl2',{alpha:false,antialias:false,powerPreference:'low-power'});
-if(!gl){document.body.innerHTML='<p style="padding:2rem">この端末ではWebGL2を利用できません。</p>';throw new Error('WebGL2 unavailable')}
+const gl=canvas.getContext('webgl2',{alpha:false,antialias:true,powerPreference:'high-performance'});
+if(!gl){document.body.innerHTML='<p style="padding:2rem">この端末ではWebGL2を利用できません。</p>';throw Error('WebGL2 unavailable')}
 const vs=`#version 300 es
-in vec2 aPos;out vec2 vUv;void main(){vUv=aPos*.5+.5;gl_Position=vec4(aPos,0.,1.);}`;
+in vec3 aPos; in vec3 aNormal; in vec3 aCenter; in float aId;
+uniform vec2 uRes; uniform float uTime; uniform float uSeed; uniform float uSelected; uniform float uImpact; uniform float uYaw; uniform float uPitch;
+out vec3 vNormal; out vec3 vPos; out vec3 vColor; out float vSelected; out float vFresnel;
+vec3 rotX(vec3 p,float a){return vec3(p.x,p.y*cos(a)-p.z*sin(a),p.y*sin(a)+p.z*cos(a));}
+vec3 rotY(vec3 p,float a){return vec3(p.x*cos(a)+p.z*sin(a),p.y,-p.x*sin(a)+p.z*cos(a));}
+void main(){
+ float selected=1.-step(.1,abs(aId-uSelected));
+ float pulse=selected*uImpact*exp(-uImpact*1.25);
+ vec3 local=aPos*(1.+pulse*.16);
+ vec3 p=aCenter+local;
+ p=rotX(p,uPitch);p=rotY(p,uYaw);
+ vec3 n=rotX(aNormal,uPitch);n=rotY(n,uYaw);
+ float depth=4.4-p.z;
+ float focal=2.75/depth;
+ vec2 xy=p.xy*focal;
+ gl_Position=vec4(xy*vec2(uRes.y/uRes.x,1.),(depth-1.)/5.,1.);
+ vNormal=normalize(n);vPos=p;vSelected=selected;
+ float hue=fract(aId*.61803398875+uSeed*.13);
+ vColor=.5+.5*cos(6.2831853*(hue+vec3(0.,.3333,.6667)));
+ vFresnel=pow(1.-abs(dot(normalize(vec3(.0,.0,1.)-p),n)),3.);
+}`;
 const fs=`#version 300 es
 precision highp float;
-in vec2 vUv; out vec4 outColor;
-uniform vec2 uRes; uniform float uTime; uniform float uShift; uniform float uSeed; uniform vec2 uTouch; uniform float uImpact; uniform float uSpin;
-mat2 rot(float a){float s=sin(a),c=cos(a);return mat2(c,-s,s,c);}
-vec3 rotate3(vec3 p,vec3 axis,float a){float c=cos(a),s=sin(a);return p*c-cross(axis,p)*s+axis*dot(axis,p)*(1.-c);}
-vec3 spectral(float x){return .5+.5*cos(6.2831853*(x+vec3(0.,.3333,.6667)));}
-float sdRoundBox(vec3 p,vec3 b,float r){vec3 q=abs(p)-b;return length(max(q,0.))+min(max(q.x,max(q.y,q.z)),0.)-r;}
-float scene(vec3 p,out float ident){
-  // Fixed cell centres + unrotated box SDF: each cell stays a literal cube.
-  const float pitch=.205;
-  vec3 cell=floor(p/pitch+.5);
-  vec3 local=p-cell*pitch;
-  ident=dot(cell,vec3(1.,17.,113.));
-  float d=sdRoundBox(local,vec3(.091),.0018);
-  float shell=sdRoundBox(p,vec3(1.13),.025);
-  return max(d,shell);
-}
-vec3 getNormal(vec3 p){float id;float e=.0015;return normalize(vec3(scene(p+vec3(e,0,0),id)-scene(p-vec3(e,0,0),id),scene(p+vec3(0,e,0),id)-scene(p-vec3(0,e,0),id),scene(p+vec3(0,0,e),id)-scene(p-vec3(0,0,e),id)));}
+in vec3 vNormal;in vec3 vPos;in vec3 vColor;in float vSelected;in float vFresnel;
+uniform float uTime;uniform float uImpact;out vec4 outColor;
 void main(){
-  vec2 uv=(gl_FragCoord.xy-.5*uRes)/min(uRes.x,uRes.y);
-  float t=uTime;
-  vec3 ro=vec3(uv*1.52,4.15);
-  vec3 rd=normalize(vec3(uv,-2.45));
-  float angle=t*.20+uSpin*.62;
-  // Orbit the view around the whole rigid block, with a gentle vertical tilt.
-  ro.xz=rot(angle)*ro.xz; rd.xz=rot(angle)*rd.xz;
-  float tilt=.16*sin(t*.13+uSpin*.35)+.10;
-  ro.yz=rot(tilt)*ro.yz; rd.yz=rot(tilt)*rd.yz;
-  float travel=0.,ident=0.; bool hit=false; vec3 p=ro;
-  for(int i=0;i<120;i++){
-    p=ro+rd*travel;
-    float d=scene(p,ident);
-    if(d<.0018){hit=true;break;}
-    travel+=max(d*.78,.0025);
-    if(travel>7.)break;
-  }
-  vec3 col=vec3(.009,.012,.027);
-  float vignette=1.-smoothstep(.2,1.15,length(uv));
-  col+=vec3(.025,.018,.07)*vignette;
-  if(hit){
-    vec3 n=getNormal(p),v=normalize(ro-p);
-    vec3 light=normalize(vec3(-.55,.78,1.2));
-    float ndl=max(dot(n,light),0.);
-    float fres=pow(1.-max(dot(n,v),0.),4.);
-    float facing=dot(n,v);
-    // Each voxel gets its own stable hue; the surface angle adds a moving iridescent sheen.
-    float cubeHue=fract(sin(ident*127.1+uSeed*19.7)*43758.5453);
-    vec3 blockColor=spectral(cubeHue*.92+uSeed*.035);
-    float phase=dot(p,vec3(.71,.53,.89))*.82+fres*.24+uSeed*.12+uImpact*sin(length(p)*17.-t*4.5)*.72;
-    vec3 film=spectral(phase+sin(p.x*2.1+p.y*1.3)*.045);
-    vec3 film2=spectral(phase*.68+fres*.28+.19);
-    float broadSpec=pow(max(dot(reflect(-light,n),v),0.),48.);
-    float sharpSpec=pow(max(dot(reflect(-light,n),v),0.),120.);
-    float rim=pow(1.-abs(dot(n,v)),2.2);
-    float faceTint=.72+.28*sin(ident*.071+uSeed);
-    col=blockColor*(.22+ndl*.36)*faceTint;
-    col+=film*(.10+fres*.24);
-    col+=film2*(.07+rim*.18);
-    col+=vec3(.92,.97,1.)*(broadSpec*1.45+sharpSpec*1.2);
-    col+=vec3(.10,.18,.28)*(.16+fres*.55);
-    // Fine spectral edge, but dark gaps remain legible between blocks.
-    float edge=min(min(abs(fract((p.x/.205)+.5)-.5),abs(fract((p.y/.205)+.5)-.5)),abs(fract((p.z/.205)+.5)-.5));
-    col*=.92+.08*smoothstep(0.,.018,edge);
-    col+=film*pow(max(dot(n,normalize(vec3(.4,-.2,1.))),0.),10.)*.12;
-  }
-  col=col/(1.+col*.16);
-  col=pow(max(col,0.),vec3(.86));
-  outColor=vec4(col,1.);
+ vec3 n=normalize(vNormal),v=normalize(vec3(0.,0.,4.4)-vPos);
+ vec3 l1=normalize(vec3(-.55,.8,1.2)),l2=normalize(vec3(.8,-.35,.65));
+ float diff=max(dot(n,l1),0.)*.72+max(dot(n,l2),0.)*.18;
+ float fres=pow(1.-max(dot(n,v),0.),4.);
+ float film=.5+.5*cos(dot(vPos,vec3(2.1,1.4,1.8))*2.0-uTime*.28+fres*5.0);
+ vec3 glass=vColor*(.20+diff*.48)+vColor*film*(.12+fres*.28);
+ glass+=vec3(.72,.88,1.)*pow(max(dot(reflect(-l1,n),v),0.),42.)*1.2;
+ glass+=vec3(.28,.72,1.)*fres*.30;
+ // Dark, narrow seams preserve the individual cube silhouettes.
+ float seam=pow(1.-max(max(abs(n.x),abs(n.y)),abs(n.z)),12.);
+ glass*=.92+.08*seam;
+ glass+=vSelected*vec3(.45,.85,1.)*uImpact*.42;
+ glass=glass/(1.+glass*.20);
+ outColor=vec4(glass,1.);
 }`;
-function compile(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(s));return s}
-const prog=gl.createProgram();gl.attachShader(prog,compile(gl.VERTEX_SHADER,vs));gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,fs));gl.linkProgram(prog);if(!gl.getProgramParameter(prog,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(prog));gl.useProgram(prog);
-const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);
-const at=gl.getAttribLocation(prog,'aPos');gl.enableVertexAttribArray(at);gl.vertexAttribPointer(at,2,gl.FLOAT,false,0,0);
-const U={res:gl.getUniformLocation(prog,'uRes'),time:gl.getUniformLocation(prog,'uTime'),shift:gl.getUniformLocation(prog,'uShift'),seed:gl.getUniformLocation(prog,'uSeed'),touch:gl.getUniformLocation(prog,'uTouch'),impact:gl.getUniformLocation(prog,'uImpact'),spin:gl.getUniformLocation(prog,'uSpin')};
-let shift=0,target=0,seed=Math.random()*20,alive=true,last=0,touchX=0,touchY=0,impact=0,spin=0,spinTarget=0;
-function resize(){const d=Math.min(devicePixelRatio||1,1.25);canvas.width=Math.max(1,Math.round(innerWidth*d));canvas.height=Math.max(1,Math.round(innerHeight*d));gl.viewport(0,0,canvas.width,canvas.height);gl.uniform2f(U.res,canvas.width,canvas.height)}
+function shader(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(s));return s}
+const program=gl.createProgram();gl.attachShader(program,shader(gl.VERTEX_SHADER,vs));gl.attachShader(program,shader(gl.FRAGMENT_SHADER,fs));gl.linkProgram(program);if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(program));gl.useProgram(program);
+const verts=[],norms=[],centers=[],ids=[];
+const N=9,pitch=.205,size=.091,half=N*pitch/2;
+const faces=[
+ [[1,0,0],[[1,-1,-1],[1,1,-1],[1,1,1],[1,-1,-1],[1,1,1],[1,-1,1]]],
+ [[-1,0,0],[[-1,-1,1],[-1,1,1],[-1,1,-1],[-1,-1,1],[-1,1,-1],[-1,-1,-1]]],
+ [[0,1,0],[[-1,1,-1],[-1,1,1],[1,1,1],[-1,1,-1],[1,1,1],[1,1,-1]]],
+ [[0,-1,0],[[-1,-1,1],[-1,-1,-1],[1,-1,-1],[-1,-1,1],[1,-1,-1],[1,-1,1]]],
+ [[0,0,1],[[-1,-1,1],[1,-1,1],[1,1,1],[-1,-1,1],[1,1,1],[-1,1,1]]],
+ [[0,0,-1],[[1,-1,-1],[-1,-1,-1],[-1,1,-1],[1,-1,-1],[-1,1,-1],[1,1,-1]]]
+];
+let id=0;
+for(let z=0;z<N;z++)for(let y=0;y<N;y++)for(let x=0;x<N;x++){
+ const cx=(x-(N-1)/2)*pitch,cy=(y-(N-1)/2)*pitch,cz=(z-(N-1)/2)*pitch;id++;
+ for(const [normal,points] of faces)for(const q of points){
+  verts.push(q[0]*size,q[1]*size,q[2]*size);norms.push(...normal);centers.push(cx,cy,cz);ids.push(id);
+ }
+}
+function attrib(name,data,n){const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(data),gl.STATIC_DRAW);const loc=gl.getAttribLocation(program,name);gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,n,gl.FLOAT,false,0,0)}
+attrib('aPos',verts,3);attrib('aNormal',norms,3);attrib('aCenter',centers,3);attrib('aId',ids,1);
+const U={res:gl.getUniformLocation(program,'uRes'),time:gl.getUniformLocation(program,'uTime'),seed:gl.getUniformLocation(program,'uSeed'),selected:gl.getUniformLocation(program,'uSelected'),impact:gl.getUniformLocation(program,'uImpact'),yaw:gl.getUniformLocation(program,'uYaw'),pitch:gl.getUniformLocation(program,'uPitch')};
+let seed=Math.random()*20,selected=-1,impact=0,yaw=0,pitchAngle=-.22,alive=true,last=0;
+function resize(){const d=Math.min(devicePixelRatio||1,1.5);canvas.width=Math.max(1,Math.round(innerWidth*d));canvas.height=Math.max(1,Math.round(innerHeight*d));gl.viewport(0,0,canvas.width,canvas.height);gl.uniform2f(U.res,canvas.width,canvas.height)}
 addEventListener('resize',resize,{passive:true});resize();
-function draw(now){if(!alive)return;const dt=Math.min(.04,(now-last)/1000||0);last=now;shift+=(target-shift)*Math.min(1,dt*2.9);impact*=Math.exp(-dt*1.65);spin+=(spinTarget-spin)*Math.min(1,dt*3.2);gl.uniform1f(U.time,now*.001);gl.uniform1f(U.shift,shift);gl.uniform1f(U.seed,seed);gl.uniform2f(U.touch,touchX,touchY);gl.uniform1f(U.impact,impact);gl.uniform1f(U.spin,spin);gl.drawArrays(gl.TRIANGLES,0,6);requestAnimationFrame(draw)}
-function touch(e){if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;spinTarget+=1;impact=1;hint.classList.add('off')}
+function draw(now){if(!alive)return;const dt=Math.min(.04,(now-last)/1000||0);last=now;yaw+=dt*.19;pitchAngle=-.22+.12*Math.sin(now*.00017);impact*=Math.exp(-dt*1.8);gl.clearColor(.025,.03,.065,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);gl.enable(gl.DEPTH_TEST);gl.depthFunc(gl.LEQUAL);gl.enable(gl.CULL_FACE);gl.cullFace(gl.BACK);gl.uniform2f(U.res,canvas.width,canvas.height);gl.uniform1f(U.time,now*.001);gl.uniform1f(U.seed,seed);gl.uniform1f(U.selected,selected);gl.uniform1f(U.impact,impact);gl.uniform1f(U.yaw,yaw);gl.uniform1f(U.pitch,pitchAngle);gl.drawArrays(gl.TRIANGLES,0,verts.length/3);requestAnimationFrame(draw)}
+function touch(e){if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;const rect=canvas.getBoundingClientRect();const nx=(e.clientX-rect.left)/rect.width,ny=(e.clientY-rect.top)/rect.height;const gx=Math.max(0,Math.min(N-1,Math.floor(nx*N))),gy=Math.max(0,Math.min(N-1,Math.floor((1-ny)*N)));const gz=Math.floor(N/2);selected=1+gx+gy*N+gz*N*N;impact=1;hint.classList.add('off')}
 canvas.addEventListener('pointerdown',touch,{passive:true});
-document.addEventListener('visibilitychange',()=>{if(document.hidden){alive=false}else if(!alive){alive=true;last=performance.now();requestAnimationFrame(draw)}});
+document.addEventListener('visibilitychange',()=>{if(document.hidden)alive=false;else if(!alive){alive=true;last=performance.now();requestAnimationFrame(draw)}});
 APKit.init({canvas:canvas,gifName:'holo-grid-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,buttons:[
- {label:'✦',name:'mutate',onClick:function(){seed=Math.random()*40;spinTarget+=1;impact=1;hint.classList.add('off')}},
- {label:'↻',name:'reset',onClick:function(){seed=0;target=0;shift=0;impact=0;touchX=0;touchY=0;spin=0;spinTarget=0;hint.classList.remove('off')}}
+ {label:'✦',name:'mutate',onClick:function(){seed=Math.random()*40;selected=1+Math.floor(Math.random()*N*N*N);impact=1;hint.classList.add('off')}},
+ {label:'↻',name:'reset',onClick:function(){selected=-1;impact=0;seed=0;yaw=0;pitchAngle=-.22;hint.classList.remove('off')}}
 ]});
 requestAnimationFrame(draw);
 </script>
