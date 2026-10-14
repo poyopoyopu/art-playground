@@ -30,31 +30,19 @@ float sdRoundBox(vec3 p,vec3 b,float r){vec3 q=abs(p)-b;return length(max(q,0.))
 float scene(vec3 p,out float ident){
   // A dense, true 3-D lattice: every cell is an individual beveled glass block.
   vec3 q=p;
-  // A tap bends the crystal lattice locally; the deformation spreads as a standing wave.
-  vec2 delta=q.xy-uTouch;
-  float radius=length(delta);
-  float wave=exp(-radius*1.65)*uImpact;
-  float pulse=sin(radius*15.0-uTime*2.1)*wave;
-  q.xy+=normalize(delta+vec2(.0001))*pulse*.115;
-  q.z+=cos(radius*13.0-uTime*1.7)*wave*.105;
-  q.xz=rot(.48+sin(uTime*.16)*.035)*q.xz;
-  q.xy=rot(-.16+sin(uTime*.13)*.025)*q.xy;
-  q.yz=rot(.12)*q.yz;
+  // Rigid lattice: cube centers never move and the grid never bends.
   float pitch=.205;
   vec3 c=floor(q/pitch+.5);
   vec3 local=q-c*pitch;
   ident=dot(c,vec3(1.,17.,113.));
-  // Every cube has its own axis and phase. Each tap advances a new rotation cycle.
-  float axisA=sin(ident*1.31+uSeed),axisB=cos(ident*.83+uSeed*.7);
-  float spinAngle=(.20+.95*fract(sin(ident*2.17+uSeed)*43758.5453))*sin(uSpin*1.5707963+ident*.37);
-  local.xy=rot(spinAngle)*local.xy;
-  local.xz=rot(spinAngle*axisA*.72)*local.xz;
-  local.yz=rot(spinAngle*axisB*.58)*local.yz;
-  float cellWave=sin(ident*.73+uSeed*1.7);
-  float jitter=sin(ident*1.713+uSeed)*.008;
-  local.xy=rot(cellWave*uShift*.30+sin(ident*.07+uTime*.25)*uShift*.16)*local.xy;
-  float chip=step(.82,fract(sin(ident*2.31+uSeed)*43758.5453))*uShift*.014;
-  float d=sdRoundBox(local,vec3(.087+jitter-chip,.087+jitter,.087+jitter),.012);
+  // Each block rotates rigidly around one cell-local axis; no deformation or wobble.
+  float axisPick=fract(sin(ident*1.73+uSeed)*43758.5453);
+  float phase=sin(uSpin*1.5707963+ident*.37);
+  float spinAngle=.72*phase;
+  if(axisPick<.333){local.xy=rot(spinAngle)*local.xy;}
+  else if(axisPick<.666){local.xz=rot(spinAngle)*local.xz;}
+  else{local.yz=rot(spinAngle)*local.yz;}
+  float d=sdRoundBox(local,vec3(.070),.009);
   float shell=sdRoundBox(q,vec3(1.13),.025);
   return max(d,shell);
 }
@@ -64,7 +52,7 @@ void main(){
   float t=uTime;
   vec3 ro=vec3(uv*1.52,4.15);
   vec3 rd=normalize(vec3(uv,-2.45));
-  float angle=.04+sin(t*.19)*.025;
+  float angle=.04;
   ro.xz=rot(angle)*ro.xz; rd.xz=rot(angle)*rd.xz;
   float travel=0.,ident=0.; bool hit=false; vec3 p=ro;
   for(int i=0;i<120;i++){
@@ -116,11 +104,11 @@ let shift=0,target=0,seed=Math.random()*20,alive=true,last=0,touchX=0,touchY=0,i
 function resize(){const d=Math.min(devicePixelRatio||1,1.25);canvas.width=Math.max(1,Math.round(innerWidth*d));canvas.height=Math.max(1,Math.round(innerHeight*d));gl.viewport(0,0,canvas.width,canvas.height);gl.uniform2f(U.res,canvas.width,canvas.height)}
 addEventListener('resize',resize,{passive:true});resize();
 function draw(now){if(!alive)return;const dt=Math.min(.04,(now-last)/1000||0);last=now;shift+=(target-shift)*Math.min(1,dt*2.9);impact+=(Math.min(1,target)-impact)*Math.min(1,dt*1.8);spin+=(spinTarget-spin)*Math.min(1,dt*3.2);gl.uniform1f(U.time,now*.001);gl.uniform1f(U.shift,shift);gl.uniform1f(U.seed,seed);gl.uniform2f(U.touch,touchX,touchY);gl.uniform1f(U.impact,impact);gl.uniform1f(U.spin,spin);gl.drawArrays(gl.TRIANGLES,0,6);requestAnimationFrame(draw)}
-function touch(e){if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;const scale=Math.min(canvas.width,canvas.height)/(Math.min(devicePixelRatio||1,1.25));touchX=(e.clientX-innerWidth*.5)/scale*1.52;touchY=(innerHeight*.5-e.clientY)/scale*1.52;target=1;shift=Math.max(shift,.15);seed+=.31;spinTarget+=1;hint.classList.add('off');setTimeout(()=>{target=0},850)}
+function touch(e){if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;spinTarget+=1;hint.classList.add('off')}
 canvas.addEventListener('pointerdown',touch,{passive:true});
 document.addEventListener('visibilitychange',()=>{if(document.hidden){alive=false}else if(!alive){alive=true;last=performance.now();requestAnimationFrame(draw)}});
 APKit.init({canvas:canvas,gifName:'holo-grid-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,buttons:[
- {label:'✦',name:'mutate',onClick:function(){seed=Math.random()*40;target=1;shift=1;spinTarget+=1;hint.classList.add('off');setTimeout(()=>{target=0},1000)}},
+ {label:'✦',name:'mutate',onClick:function(){seed=Math.random()*40;spinTarget+=1;hint.classList.add('off')}},
  {label:'↻',name:'reset',onClick:function(){seed=0;target=0;shift=0;impact=0;touchX=0;touchY=0;spin=0;spinTarget=0;hint.classList.remove('off')}}
 ]});
 requestAnimationFrame(draw);
