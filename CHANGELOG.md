@@ -1,3 +1,4 @@
+- 2026-10-14 チャッピー: HOLO GRIDを試作。虹色のガラスブロックが集合した立方体をWebGL2シェーダーで生成し、タップで格子の変形状態を切り替える。元CodePenソースは特定できていないため独自実装の試作(prototypes/holo-grid.html)
 - 2026-10-10 チャッピー: PRISM SHELL(v104)をREC_WORKSに登録し、ギャラリーの録画ボタンを有効化。実機録画・黒画面でないこと・透かし・iPhone負荷の検証は未実施(index.html)
 - 2026-10-10 チャッピー: PRISM SHELLを採用作品としてv104へ昇格。ap-kit.jsのパスをルート用に修正し、ギャラリーLOG先頭とPublished worksへ追加。ポスター/OGP画像の生成・目視確認は未実施(art-v104-prism-shell.html, index.html, CHANGELOG.md)
 - 2026-10-10 チャッピー: PRISM SHELL背景の動きを強化。背景座標自体を時間変形し、オーロラ帯の移動速度・うねり幅・反射プールのコースティクス速度を上げてスマホで動きを認識しやすく調整(prototypes/prism-shell.html)
