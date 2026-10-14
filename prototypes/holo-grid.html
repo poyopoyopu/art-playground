@@ -12,7 +12,7 @@
 </head>
 <body>
 <canvas id="c" aria-label="虹色のホログラフィック・ガラスキューブ。タップして格子を変化させる"></canvas>
-<div id="hint">TOUCH THE GRID · CHANGE ITS LAW</div>
+<div id="hint">TAP THE CRYSTAL · SEND A FRACTURE</div>
 <script>
 /* HOLO GRID — ChatGPT作。ホログラフィック・ガラスキューブのリアルタイム生成試作。 */
 const canvas=document.getElementById('c'),hint=document.getElementById('hint');
@@ -23,13 +23,20 @@ in vec2 aPos;out vec2 vUv;void main(){vUv=aPos*.5+.5;gl_Position=vec4(aPos,0.,1.
 const fs=`#version 300 es
 precision highp float;
 in vec2 vUv; out vec4 outColor;
-uniform vec2 uRes; uniform float uTime; uniform float uShift; uniform float uSeed;
+uniform vec2 uRes; uniform float uTime; uniform float uShift; uniform float uSeed; uniform vec2 uTouch; uniform float uImpact;
 mat2 rot(float a){float s=sin(a),c=cos(a);return mat2(c,-s,s,c);}
 vec3 spectral(float x){return .5+.5*cos(6.2831853*(x+vec3(0.,.3333,.6667)));}
 float sdRoundBox(vec3 p,vec3 b,float r){vec3 q=abs(p)-b;return length(max(q,0.))+min(max(q.x,max(q.y,q.z)),0.)-r;}
 float scene(vec3 p,out float ident){
   // A dense, true 3-D lattice: every cell is an individual beveled glass block.
   vec3 q=p;
+  // A tap bends the crystal lattice locally; the deformation spreads as a standing wave.
+  vec2 delta=q.xy-uTouch;
+  float radius=length(delta);
+  float wave=exp(-radius*1.65)*uImpact;
+  float pulse=sin(radius*15.0-uTime*2.1)*wave;
+  q.xy+=normalize(delta+vec2(.0001))*pulse*.115;
+  q.z+=cos(radius*13.0-uTime*1.7)*wave*.105;
   q.xz=rot(.48+sin(uTime*.16)*.035)*q.xz;
   q.xy=rot(-.16+sin(uTime*.13)*.025)*q.xy;
   q.yz=rot(.12)*q.yz;
@@ -37,9 +44,11 @@ float scene(vec3 p,out float ident){
   vec3 c=floor(q/pitch+.5);
   vec3 local=q-c*pitch;
   ident=dot(c,vec3(1.,17.,113.));
+  float cellWave=sin(ident*.73+uSeed*1.7);
   float jitter=sin(ident*1.713+uSeed)*.008;
-  local.xy=rot(sin(ident*.07+uTime*.25)*uShift*.16)*local.xy;
-  float d=sdRoundBox(local,vec3(.087+jitter,.087+jitter,.087+jitter),.012);
+  local.xy=rot(cellWave*uShift*.30+sin(ident*.07+uTime*.25)*uShift*.16)*local.xy;
+  float chip=step(.82,fract(sin(ident*2.31+uSeed)*43758.5453))*uShift*.014;
+  float d=sdRoundBox(local,vec3(.087+jitter-chip,.087+jitter,.087+jitter),.012);
   float shell=sdRoundBox(q,vec3(1.13),.025);
   return max(d,shell);
 }
@@ -93,17 +102,17 @@ function compile(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);
 const prog=gl.createProgram();gl.attachShader(prog,compile(gl.VERTEX_SHADER,vs));gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,fs));gl.linkProgram(prog);if(!gl.getProgramParameter(prog,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(prog));gl.useProgram(prog);
 const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);
 const at=gl.getAttribLocation(prog,'aPos');gl.enableVertexAttribArray(at);gl.vertexAttribPointer(at,2,gl.FLOAT,false,0,0);
-const U={res:gl.getUniformLocation(prog,'uRes'),time:gl.getUniformLocation(prog,'uTime'),shift:gl.getUniformLocation(prog,'uShift'),seed:gl.getUniformLocation(prog,'uSeed')};
-let shift=0,target=0,seed=Math.random()*20,alive=true,last=0;
+const U={res:gl.getUniformLocation(prog,'uRes'),time:gl.getUniformLocation(prog,'uTime'),shift:gl.getUniformLocation(prog,'uShift'),seed:gl.getUniformLocation(prog,'uSeed'),touch:gl.getUniformLocation(prog,'uTouch'),impact:gl.getUniformLocation(prog,'uImpact')};
+let shift=0,target=0,seed=Math.random()*20,alive=true,last=0,touchX=0,touchY=0,impact=0;
 function resize(){const d=Math.min(devicePixelRatio||1,1.25);canvas.width=Math.max(1,Math.round(innerWidth*d));canvas.height=Math.max(1,Math.round(innerHeight*d));gl.viewport(0,0,canvas.width,canvas.height);gl.uniform2f(U.res,canvas.width,canvas.height)}
 addEventListener('resize',resize,{passive:true});resize();
-function draw(now){if(!alive)return;const dt=Math.min(.04,(now-last)/1000||0);last=now;shift+=(target-shift)*Math.min(1,dt*2.5);gl.uniform1f(U.time,now*.001);gl.uniform1f(U.shift,shift);gl.uniform1f(U.seed,seed);gl.drawArrays(gl.TRIANGLES,0,6);requestAnimationFrame(draw)}
-function touch(e){if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;target=target>.5?0:1;seed+=.31;hint.classList.add('off')}
+function draw(now){if(!alive)return;const dt=Math.min(.04,(now-last)/1000||0);last=now;shift+=(target-shift)*Math.min(1,dt*2.9);impact+=(Math.min(1,target)-impact)*Math.min(1,dt*1.8);gl.uniform1f(U.time,now*.001);gl.uniform1f(U.shift,shift);gl.uniform1f(U.seed,seed);gl.uniform2f(U.touch,touchX,touchY);gl.uniform1f(U.impact,impact);gl.drawArrays(gl.TRIANGLES,0,6);requestAnimationFrame(draw)}
+function touch(e){if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;const scale=Math.min(canvas.width,canvas.height)/(Math.min(devicePixelRatio||1,1.25));touchX=(e.clientX-innerWidth*.5)/scale*1.52;touchY=(innerHeight*.5-e.clientY)/scale*1.52;target=1;shift=Math.max(shift,.15);seed+=.31;hint.classList.add('off');setTimeout(()=>{target=0},850)}
 canvas.addEventListener('pointerdown',touch,{passive:true});
 document.addEventListener('visibilitychange',()=>{if(document.hidden){alive=false}else if(!alive){alive=true;last=performance.now();requestAnimationFrame(draw)}});
 APKit.init({canvas:canvas,gifName:'holo-grid-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,buttons:[
- {label:'✦',name:'mutate',onClick:function(){seed=Math.random()*40;target=target>.5?0:1;hint.classList.add('off')}},
- {label:'↻',name:'reset',onClick:function(){seed=0;target=0;shift=0;hint.classList.remove('off')}}
+ {label:'✦',name:'mutate',onClick:function(){seed=Math.random()*40;target=1;shift=1;hint.classList.add('off');setTimeout(()=>{target=0},1000)}},
+ {label:'↻',name:'reset',onClick:function(){seed=0;target=0;shift=0;impact=0;touchX=0;touchY=0;hint.classList.remove('off')}}
 ]});
 requestAnimationFrame(draw);
 </script>
