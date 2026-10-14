@@ -1,3 +1,4 @@
+- 2026-10-14 チャッピー: HOLO GRIDを再設計。タップ地点から局所的な歪みが伝播し、結晶格子の回転・欠け・干渉波が連動する操作へ変更(prototypes/holo-grid.html)
 - 2026-10-14 チャッピー: HOLO GRIDのJavaScript構文エラーを修正。シェーダー文字列の開始・終了記号を修正(prototypes/holo-grid.html)
 - 2026-10-14 チャッピー: HOLO GRIDを改修。立方体内部の3Dブロック格子を明確にし、角丸エッジ・面角度/奥行きに連動する薄膜干渉色・広い鏡面ハイライトを統合(prototypes/holo-grid.html)
 - 2026-10-14 チャッピー: HOLO GRIDを試作。虹色のガラスブロックが集合した立方体をWebGL2シェーダーで生成し、タップで格子の変形状態を切り替える。元CodePenソースは特定できていないため独自実装の試作(prototypes/holo-grid.html)
