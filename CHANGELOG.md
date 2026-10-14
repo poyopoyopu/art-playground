@@ -1,3 +1,4 @@
+- 2026-10-14 チャッピー: HOLO GRIDをタップするたび、各キューブが固有の軸・角度で個別回転する仕組みを追加(prototypes/holo-grid.html)
 - 2026-10-14 チャッピー: HOLO GRIDの各ブロックに固有の虹色を割り当て、面の反射色を重ねる構成に変更(prototypes/holo-grid.html)
 - 2026-10-14 チャッピー: ORGANIC LAWを新規試作。自己相似の有機構造をレイマーチングで生成し、タップで成長法則を切り替え、触れた位置に傷状の歪みを残す(prototypes/organism-law.html)
 - 2026-10-14 チャッピー: HOLO GRIDを再設計。タップ地点から局所的な歪みが伝播し、結晶格子の回転・欠け・干渉波が連動する操作へ変更(prototypes/holo-grid.html)
