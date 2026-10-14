@@ -44,10 +44,10 @@ void main(){
   float t=uTime;
   vec3 ro=vec3(uv*1.52,4.15);
   vec3 rd=normalize(vec3(uv,-2.45));
-  float angle=t*.20;
+  float angle=t*.20+uSpin*.62;
   // Orbit the view around the whole rigid block, with a gentle vertical tilt.
   ro.xz=rot(angle)*ro.xz; rd.xz=rot(angle)*rd.xz;
-  float tilt=.16*sin(t*.13)+.10;
+  float tilt=.16*sin(t*.13+uSpin*.35)+.10;
   ro.yz=rot(tilt)*ro.yz; rd.yz=rot(tilt)*rd.yz;
   float travel=0.,ident=0.; bool hit=false; vec3 p=ro;
   for(int i=0;i<120;i++){
@@ -69,7 +69,7 @@ void main(){
     // Each voxel gets its own stable hue; the surface angle adds a moving iridescent sheen.
     float cubeHue=fract(sin(ident*127.1+uSeed*19.7)*43758.5453);
     vec3 blockColor=spectral(cubeHue*.92+uSeed*.035);
-    float phase=dot(p,vec3(.71,.53,.89))*.82+fres*.24+uSeed*.12;
+    float phase=dot(p,vec3(.71,.53,.89))*.82+fres*.24+uSeed*.12+uImpact*sin(length(p)*17.-t*4.5)*.72;
     vec3 film=spectral(phase+sin(p.x*2.1+p.y*1.3)*.045);
     vec3 film2=spectral(phase*.68+fres*.28+.19);
     float broadSpec=pow(max(dot(reflect(-light,n),v),0.),48.);
@@ -98,12 +98,12 @@ const U={res:gl.getUniformLocation(prog,'uRes'),time:gl.getUniformLocation(prog,
 let shift=0,target=0,seed=Math.random()*20,alive=true,last=0,touchX=0,touchY=0,impact=0,spin=0,spinTarget=0;
 function resize(){const d=Math.min(devicePixelRatio||1,1.25);canvas.width=Math.max(1,Math.round(innerWidth*d));canvas.height=Math.max(1,Math.round(innerHeight*d));gl.viewport(0,0,canvas.width,canvas.height);gl.uniform2f(U.res,canvas.width,canvas.height)}
 addEventListener('resize',resize,{passive:true});resize();
-function draw(now){if(!alive)return;const dt=Math.min(.04,(now-last)/1000||0);last=now;shift+=(target-shift)*Math.min(1,dt*2.9);impact+=(Math.min(1,target)-impact)*Math.min(1,dt*1.8);spin+=(spinTarget-spin)*Math.min(1,dt*3.2);gl.uniform1f(U.time,now*.001);gl.uniform1f(U.shift,shift);gl.uniform1f(U.seed,seed);gl.uniform2f(U.touch,touchX,touchY);gl.uniform1f(U.impact,impact);gl.uniform1f(U.spin,spin);gl.drawArrays(gl.TRIANGLES,0,6);requestAnimationFrame(draw)}
-function touch(e){if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;spinTarget+=1;hint.classList.add('off')}
+function draw(now){if(!alive)return;const dt=Math.min(.04,(now-last)/1000||0);last=now;shift+=(target-shift)*Math.min(1,dt*2.9);impact*=Math.exp(-dt*1.65);spin+=(spinTarget-spin)*Math.min(1,dt*3.2);gl.uniform1f(U.time,now*.001);gl.uniform1f(U.shift,shift);gl.uniform1f(U.seed,seed);gl.uniform2f(U.touch,touchX,touchY);gl.uniform1f(U.impact,impact);gl.uniform1f(U.spin,spin);gl.drawArrays(gl.TRIANGLES,0,6);requestAnimationFrame(draw)}
+function touch(e){if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;spinTarget+=1;impact=1;hint.classList.add('off')}
 canvas.addEventListener('pointerdown',touch,{passive:true});
 document.addEventListener('visibilitychange',()=>{if(document.hidden){alive=false}else if(!alive){alive=true;last=performance.now();requestAnimationFrame(draw)}});
 APKit.init({canvas:canvas,gifName:'holo-grid-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,buttons:[
- {label:'✦',name:'mutate',onClick:function(){seed=Math.random()*40;spinTarget+=1;hint.classList.add('off')}},
+ {label:'✦',name:'mutate',onClick:function(){seed=Math.random()*40;spinTarget+=1;impact=1;hint.classList.add('off')}},
  {label:'↻',name:'reset',onClick:function(){seed=0;target=0;shift=0;impact=0;touchX=0;touchY=0;spin=0;spinTarget=0;hint.classList.remove('off')}}
 ]});
 requestAnimationFrame(draw);
