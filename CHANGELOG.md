@@ -1,3 +1,4 @@
+- 2026-10-14 チャッピー: ORGANIC LAWを新規試作。自己相似の有機構造をレイマーチングで生成し、タップで成長法則を切り替え、触れた位置に傷状の歪みを残す(prototypes/organism-law.html)
 - 2026-10-14 チャッピー: HOLO GRIDを再設計。タップ地点から局所的な歪みが伝播し、結晶格子の回転・欠け・干渉波が連動する操作へ変更(prototypes/holo-grid.html)
 - 2026-10-14 チャッピー: HOLO GRIDのJavaScript構文エラーを修正。シェーダー文字列の開始・終了記号を修正(prototypes/holo-grid.html)
 - 2026-10-14 チャッピー: HOLO GRIDを改修。立方体内部の3Dブロック格子を明確にし、角丸エッジ・面角度/奥行きに連動する薄膜干渉色・広い鏡面ハイライトを統合(prototypes/holo-grid.html)
