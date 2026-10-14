@@ -25,6 +25,7 @@ precision highp float;
 in vec2 vUv; out vec4 outColor;
 uniform vec2 uRes; uniform float uTime; uniform float uShift; uniform float uSeed; uniform vec2 uTouch; uniform float uImpact; uniform float uSpin;
 mat2 rot(float a){float s=sin(a),c=cos(a);return mat2(c,-s,s,c);}
+vec3 rotate3(vec3 p,vec3 axis,float a){float c=cos(a),s=sin(a);return p*c-cross(axis,p)*s+axis*dot(axis,p)*(1.-c);}
 vec3 spectral(float x){return .5+.5*cos(6.2831853*(x+vec3(0.,.3333,.6667)));}
 float sdRoundBox(vec3 p,vec3 b,float r){vec3 q=abs(p)-b;return length(max(q,0.))+min(max(q.x,max(q.y,q.z)),0.)-r;}
 float scene(vec3 p,out float ident){
@@ -35,14 +36,12 @@ float scene(vec3 p,out float ident){
   vec3 c=floor(q/pitch+.5);
   vec3 local=q-c*pitch;
   ident=dot(c,vec3(1.,17.,113.));
-  // Each block rotates rigidly around one cell-local axis; no deformation or wobble.
-  float axisPick=fract(sin(ident*1.73+uSeed)*43758.5453);
+  // A true rigid 3-D cube rotation: one stable axis per cell, no bending.
+  vec3 axis=normalize(vec3(sin(ident*1.31+uSeed),cos(ident*.83+uSeed*.7),sin(ident*.47+uSeed*1.9)));
   float phase=sin(uSpin*1.5707963+ident*.37);
-  float spinAngle=.72*phase;
-  if(axisPick<.333){local.xy=rot(spinAngle)*local.xy;}
-  else if(axisPick<.666){local.xz=rot(spinAngle)*local.xz;}
-  else{local.yz=rot(spinAngle)*local.yz;}
-  float d=sdRoundBox(local,vec3(.070),.009);
+  local=rotate3(local,axis,.78*phase);
+  // Restore the original near-touching cube dimensions so the square faces read clearly.
+  float d=sdRoundBox(local,vec3(.087),.006);
   float shell=sdRoundBox(q,vec3(1.13),.025);
   return max(d,shell);
 }
