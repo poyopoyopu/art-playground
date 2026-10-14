@@ -20,54 +20,75 @@ const gl=canvas.getContext('webgl2',{alpha:false,antialias:false,powerPreference
 if(!gl){document.body.innerHTML='<p style="padding:2rem">この端末ではWebGL2を利用できません。</p>';throw new Error('WebGL2 unavailable')}
 const vs=`#version 300 es
 in vec2 aPos;out vec2 vUv;void main(){vUv=aPos*.5+.5;gl_Position=vec4(aPos,0.,1.);}`;
-const fs=`#version 300 es
-precision highp float;in vec2 vUv;out vec4 outColor;
-uniform vec2 uRes;uniform float uTime;uniform float uShift;uniform float uSeed;
+const fs=\`#version 300 es
+precision highp float;
+in vec2 vUv; out vec4 outColor;
+uniform vec2 uRes; uniform float uTime; uniform float uShift; uniform float uSeed;
 mat2 rot(float a){float s=sin(a),c=cos(a);return mat2(c,-s,s,c);}
-vec3 rainbow(float x){return .52+.48*cos(6.28318*(x+vec3(0.,.33,.67)));}
-float boxSDF(vec3 p,vec3 b){vec3 q=abs(p)-b;return length(max(q,0.))+min(max(q.x,max(q.y,q.z)),0.);}
-float gridCube(vec3 p,float t,out float tileId){
- // Separate beveled glass blocks with small black seams.
- vec3 q=p;float a=sin(t*.22)*.12;q.xz=rot(a)*q.xz;q.xy=rot(-.12+sin(t*.17)*.05)*q.xy;
- vec3 cell=floor((q+1.0)*5.0);vec3 f=fract((q+1.0)*5.0)-.5;
- float id=dot(cell,vec3(1.,7.,31.));tileId=id;
- float shift=uShift;
- float wob=sin(id*.71+uSeed)*.035;
- f.x+=sin(id*.17+t*.8)*shift*.14;f.y+=cos(id*.23+t*.65)*shift*.14;
- float d=boxSDF(f,vec3(.465+wob))-0.015;
- // Cube envelope keeps the object crisp.
- float env=boxSDF(q,vec3(1.02));
- return max(d,env);
+vec3 spectral(float x){return .5+.5*cos(6.2831853*(x+vec3(0.,.3333,.6667)));}
+float sdRoundBox(vec3 p,vec3 b,float r){vec3 q=abs(p)-b;return length(max(q,0.))+min(max(q.x,max(q.y,q.z)),0.)-r;}
+float scene(vec3 p,out float ident){
+  // A dense, true 3-D lattice: every cell is an individual beveled glass block.
+  vec3 q=p;
+  q.xz=rot(.48+sin(uTime*.16)*.035)*q.xz;
+  q.xy=rot(-.16+sin(uTime*.13)*.025)*q.xy;
+  q.yz=rot(.12)*q.yz;
+  float pitch=.205;
+  vec3 c=floor(q/pitch+.5);
+  vec3 local=q-c*pitch;
+  ident=dot(c,vec3(1.,17.,113.));
+  float jitter=sin(ident*1.713+uSeed)*.008;
+  local.xy=rot(sin(ident*.07+uTime*.25)*uShift*.16)*local.xy;
+  float d=sdRoundBox(local,vec3(.087+jitter,.087+jitter,.087+jitter),.012);
+  float shell=sdRoundBox(q,vec3(1.13),.025);
+  return max(d,shell);
 }
-vec3 normalAt(vec3 p,float t){float id;float e=.002;return normalize(vec3(gridCube(p+vec3(e,0,0),t,id)-gridCube(p-vec3(e,0,0),t,id),gridCube(p+vec3(0,e,0),t,id)-gridCube(p-vec3(0,e,0),t,id),gridCube(p+vec3(0,0,e),t,id)-gridCube(p-vec3(0,0,e),t,id)));}
+vec3 getNormal(vec3 p){float id;float e=.0015;return normalize(vec3(scene(p+vec3(e,0,0),id)-scene(p-vec3(e,0,0),id),scene(p+vec3(0,e,0),id)-scene(p-vec3(0,e,0),id),scene(p+vec3(0,0,e),id)-scene(p-vec3(0,0,e),id)));}
 void main(){
- vec2 uv=(gl_FragCoord.xy-.5*uRes)/min(uRes.x,uRes.y);
- vec3 ro=vec3(uv*1.62,4.3),rd=normalize(vec3(uv,-2.6));
- float time=uTime;ro.xz=rot(.55+sin(time*.21)*.12)*ro.xz;rd.xz=rot(.55+sin(time*.21)*.12)*rd.xz;
- float travel=0.,id=0.;bool hit=false;vec3 p=ro;
- for(int i=0;i<110;i++){p=ro+rd*travel;float d=gridCube(p,time,id);if(d<.0025){hit=true;break;}travel+=max(d*.72,.003);if(travel>8.)break;}
- vec3 col=vec3(.008,.008,.025);
- // Quiet spectral haze behind the object.
- float halo=exp(-length(uv*vec2(.8,1.0)-vec2(.02,-.03))*2.6);
- col+=vec3(.12,.025,.16)*halo*.20;
- if(hit){
-  vec3 n=normalAt(p,time),v=normalize(ro-p);
-  float fres=pow(1.-max(dot(n,v),0.),3.);
-  float ndl=max(dot(n,normalize(vec3(-.5,.8,1.))),0.);
-  float bands=dot(p,vec3(.72,.46,.82))+time*.075+id*.0009+uSeed;
-  vec3 ir=rainbow(bands*.18+fres*.19);
-  float spec=pow(max(dot(reflect(-normalize(vec3(-.5,.8,1.)),n),v),0.),34.);
-  float edge=pow(1.-abs(dot(n,v)),2.);
-  col=ir*(.16+ndl*.25+fres*.54)+vec3(.65,.82,1.)*(spec*.85+edge*.22);
-  col*=.88+.12*sin(id*.37+time*.8);
-  col+=rainbow(bands*.18+time*.035)*(.07+.12*abs(sin(id*.11+time*.5)));
-  // Thin dark seams define the modular glass blocks.
-  float seam=1.-smoothstep(.0,.035,min(min(abs(fract((p.x+1.)*5.)-.5),abs(fract((p.y+1.)*5.)-.5)),abs(fract((p.z+1.)*5.)-.5)));
-  col*=1.-seam*.42;
- }
- col=col/(1.+col*.55);col=pow(max(col,0.),vec3(.88));
- outColor=vec4(col,1.);
-}`;
+  vec2 uv=(gl_FragCoord.xy-.5*uRes)/min(uRes.x,uRes.y);
+  float t=uTime;
+  vec3 ro=vec3(uv*1.52,4.15);
+  vec3 rd=normalize(vec3(uv,-2.45));
+  float angle=.04+sin(t*.19)*.025;
+  ro.xz=rot(angle)*ro.xz; rd.xz=rot(angle)*rd.xz;
+  float travel=0.,ident=0.; bool hit=false; vec3 p=ro;
+  for(int i=0;i<120;i++){
+    p=ro+rd*travel;
+    float d=scene(p,ident);
+    if(d<.0018){hit=true;break;}
+    travel+=max(d*.78,.0025);
+    if(travel>7.)break;
+  }
+  vec3 col=vec3(.009,.012,.027);
+  float vignette=1.-smoothstep(.2,1.15,length(uv));
+  col+=vec3(.025,.018,.07)*vignette;
+  if(hit){
+    vec3 n=getNormal(p),v=normalize(ro-p);
+    vec3 light=normalize(vec3(-.45,.72,1.));
+    float ndl=max(dot(n,light),0.);
+    float fres=pow(1.-max(dot(n,v),0.),3.);
+    float facing=dot(n,v);
+    float phase=dot(p,vec3(.71,.53,.89))*.82+fres*.24+uSeed*.12;
+    // Thin-film interference: spectral bands shift with surface angle and depth.
+    vec3 film=spectral(phase+sin(p.x*2.1+p.y*1.3)*.045);
+    vec3 film2=spectral(phase*.68+fres*.28+.19);
+    float broadSpec=pow(max(dot(reflect(-light,n),v),0.),48.);
+    float sharpSpec=pow(max(dot(reflect(-light,n),v),0.),120.);
+    float rim=pow(1.-abs(dot(n,v)),2.2);
+    float faceTint=.72+.28*sin(ident*.071+uSeed);
+    col=film*(.20+ndl*.18+fres*.48)*faceTint;
+    col+=film2*(.12+rim*.22);
+    col+=vec3(.82,.91,1.)*(broadSpec*.82+sharpSpec*.55);
+    col+=vec3(.12,.24,.38)*(.10+fres*.2);
+    // Fine spectral edge, but dark gaps remain legible between blocks.
+    float edge=min(min(abs(fract((p.x/.205)+.5)-.5),abs(fract((p.y/.205)+.5)-.5)),abs(fract((p.z/.205)+.5)-.5));
+    col*=.92+.08*smoothstep(0.,.018,edge);
+    col+=film*pow(max(dot(n,normalize(vec3(.4,-.2,1.))),0.),10.)*.12;
+  }
+  col=col/(1.+col*.38);
+  col=pow(max(col,0.),vec3(.88));
+  outColor=vec4(col,1.);
+};
 function compile(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(s));return s}
 const prog=gl.createProgram();gl.attachShader(prog,compile(gl.VERTEX_SHADER,vs));gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,fs));gl.linkProgram(prog);if(!gl.getProgramParameter(prog,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(prog));gl.useProgram(prog);
 const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);
