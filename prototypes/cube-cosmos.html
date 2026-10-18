@@ -75,17 +75,17 @@ void main(){
  float fres=pow(1.-max(dot(n,view),0.),3.2);
  float spec=pow(max(dot(reflect(-lightA,n),view),0.),52.);
  vec3 glass=base*(diff*.76);
- glass+=base*cloud*(.16+.22*spiral);
+ glass+=base*cloud*(.34+.36*spiral);
  glass+=vec3(.28,.67,1.)*(fres*.48+spec*.8);
  glass+=vec3(1.,.54,.37)*cloud*.16;
- glass+=vec3(.65,.85,1.)*(stars*.95+micro*.34);
+ glass+=vec3(.65,.85,1.)*(stars*.55+micro*.16);
  // Bright crisp edges make the individual cube geometry read clearly.
  float faceEdge=abs(vLocal.x)>.99?max(abs(vLocal.y),abs(vLocal.z)):(abs(vLocal.y)>.99?max(abs(vLocal.x),abs(vLocal.z)):max(abs(vLocal.x),abs(vLocal.y)));
  float edge=1.-smoothstep(.84,.99,faceEdge);
- glass+=mix(vec3(.12,.68,1.),vec3(1.,.57,.78),hue)*edge*.58;
+ glass+=mix(vec3(.12,.68,1.),vec3(1.,.57,.78),hue)*edge*.9;
  glass+=vSelected*vec3(.55,.9,1.)*.4;
  glass*=.78+vSize*.1;
- outColor=vec4(clamp(glass,0.,1.),1.);
+ float alpha=clamp(.16+fres*.24+edge*.5+spec*.15+cloud*.06+stars*.08,.12,.78);\n outColor=vec4(clamp(glass,0.,1.),alpha);
 }`;
 function compile(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(s));return s}
 const program=gl.createProgram();gl.attachShader(program,compile(gl.VERTEX_SHADER,vs));gl.attachShader(program,compile(gl.FRAGMENT_SHADER,fs));gl.linkProgram(program);
@@ -110,7 +110,7 @@ function build(){
      x=Math.cos(a)*r;y=Math.sin(a)*r*.76;z=(rand()-.5)*1.8;
      size=.045+Math.pow(rand(),2)*.15;
    }
-   cubes.push({x,y,z,size,id:i+1});
+   cubes.push({x:x*.84,y:y*.84,z:z*.84,size:size*.68,id:i+1});
  }
 }
 const positions=[],normals=[],centers=[],ids=[],sizes=[];
@@ -122,17 +122,18 @@ const faces=[
  [[0,0,1],[[-1,-1,1],[1,-1,1],[1,1,1],[-1,-1,1],[1,1,1],[-1,1,1]]],
  [[0,0,-1],[[1,-1,-1],[-1,-1,-1],[-1,1,-1],[1,-1,-1],[-1,1,-1],[1,1,-1]]]
 ];
+const buffers={};
 function geometry(){
  positions.length=normals.length=centers.length=ids.length=sizes.length=0;
  for(const c of cubes)for(const [n,points] of faces)for(const p of points){
    positions.push(p[0],p[1],p[2]);normals.push(...n);centers.push(c.x,c.y,c.z);ids.push(c.id);sizes.push(c.size);
  }
  const count=positions.length/3;
- function attr(name,data,dim){const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(data),gl.STATIC_DRAW);const loc=gl.getAttribLocation(program,name);gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,dim,gl.FLOAT,false,0,0)}
+ function attr(name,data,dim){let b=buffers[name];if(!b){b=gl.createBuffer();buffers[name]=b;gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(data),gl.DYNAMIC_DRAW);const loc=gl.getAttribLocation(program,name);gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,dim,gl.FLOAT,false,0,0)}else{gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferSubData(gl.ARRAY_BUFFER,0,new Float32Array(data))}}
  attr('aPos',positions,3);attr('aNormal',normals,3);attr('aCenter',centers,3);attr('aId',ids,1);attr('aSize',sizes,1);
  return count;
 }
-build();const vertexCount=geometry();
+build();let vertexCount=geometry();
 const U={res:gl.getUniformLocation(program,'uRes'),time:gl.getUniformLocation(program,'uTime'),seed:gl.getUniformLocation(program,'uSeed'),yaw:gl.getUniformLocation(program,'uYaw'),pitch:gl.getUniformLocation(program,'uPitch'),selected:gl.getUniformLocation(program,'uSelected'),pulse:gl.getUniformLocation(program,'uPulse'),palette:gl.getUniformLocation(program,'uPalette')};
 function resize(){const d=Math.min(devicePixelRatio||1,1.45);canvas.width=Math.max(1,Math.round(innerWidth*d));canvas.height=Math.max(1,Math.round(innerHeight*d));gl.viewport(0,0,canvas.width,canvas.height);gl.uniform2f(U.res,canvas.width,canvas.height)}
 addEventListener('resize',resize,{passive:true});resize();
@@ -156,9 +157,9 @@ canvas.addEventListener('pointermove',e=>{if(e.buttons===1&&selected>0){yaw+=(e.
 function frame(ts){
  if(!alive)return;const dt=Math.min(.04,(ts-last)/1000||0);last=ts;
  yaw+=dt*.055;pulse*=Math.exp(-dt*1.45);
- gl.clearColor(.018,.025,.06,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);gl.enable(gl.DEPTH_TEST);gl.depthFunc(gl.LEQUAL);gl.enable(gl.CULL_FACE);gl.cullFace(gl.BACK);
+ gl.clearColor(.018,.025,.06,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);gl.enable(gl.DEPTH_TEST);gl.depthFunc(gl.LEQUAL);gl.enable(gl.CULL_FACE);gl.cullFace(gl.BACK);gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);gl.depthMask(false);\n cubes.sort((a,b)=>rotate(a,yaw,pitch).z-rotate(b,yaw,pitch).z);vertexCount=geometry();
  gl.uniform2f(U.res,canvas.width,canvas.height);gl.uniform1f(U.time,ts*.001);gl.uniform1f(U.seed,seed);gl.uniform1f(U.yaw,yaw);gl.uniform1f(U.pitch,pitch);gl.uniform1f(U.selected,selected);gl.uniform1f(U.pulse,pulse);gl.uniform1f(U.palette,palette);
- gl.drawArrays(gl.TRIANGLES,0,vertexCount);requestAnimationFrame(frame)
+ gl.drawArrays(gl.TRIANGLES,0,vertexCount);gl.depthMask(true);requestAnimationFrame(frame)
 }
 document.addEventListener('visibilitychange',()=>{if(document.hidden)alive=false;else if(!alive){alive=true;last=performance.now();requestAnimationFrame(frame)}});
 APKit.init({canvas:canvas,gifName:'cube-cosmos-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,buttons:[
