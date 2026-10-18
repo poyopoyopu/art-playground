@@ -1,3 +1,4 @@
+- 2026-10-18 チャッピー: CUBE COSMOSを新規試作。大小のキューブをWebGL2で個別描画し、各キューブ内に星・渦状星雲・ガラスの縁光を手続き生成。キューブごとの独立回転、タップ選択と回転パルス、配色変異・再生成を実装。静的コード検査のみで、ブラウザ描画とiPhone実機負荷は未検証(prototypes/cube-cosmos.html)
 - 2026-10-18 チャッピー: GRAFT LAWを新規試作。触れた場所を永続的な力の法則として記憶し、自己相似の枝分かれ全体を曲げる。Canvas 2D・タップ/ドラッグ操作・配色変異・リセット・ap-kit.js統合。初回のコード検査でタッチ座標と描画座標の基準差を発見し修正。HTMLタグ数とJavaScriptの括弧バランスを確認(prototypes/graft-law.html)。実ブラウザ描画・iPhone実機は未検証
 - 2026-10-18 クロちゃん: EYE LOOMを採用・art-v107として昇格し、CURRENTに設定(おっちゃん「採用でカレントへ、録画もつけてね」)。それまでのCURRENTだったSPLIT DEW(v106)はLOGの先頭(STRATA SAND v105の上)へ移動、Published worksは先頭をEYE LOOMにしてSPLIT DEWをその直後へ。ap-kit.jsの相対パスをルート用に修正、`META`に操作ヒント「タップで目をひらく。なぞると目が対でうまれる」を1行追加。`REC_WORKS`に`art-v107-eye-loom.html`を追加: スマホ(Android Chrome)のUA・390×844のヘッドレスChromiumで、ギャラリーから開き、本物の録画ボタン→タップ2回・なぞり1回→上限まで録画を通し、mp4(720×1558・約29秒)に網目と2行の透かしが映り、始めと終わりで目の数と網目の形が変わることを確認(preserveDrawingBuffer有効のWebGL1)。`tools/poster-config.json`に`hide:#hint`・待ち3秒を追加し、ポスター(ヒーロー含む)とOGPカードを生成、`gen_posters.py --check`・`gen_og.py --check`とも終了コード0(文字が写らず網目が写っていることを目視で確認)。試作版`prototypes/eye-loom.html`は残す。「現在の状態」も更新。**スマホ実機での録画中の重さは未確認**(全画面シェーダー、目12個ぶんのlogを毎ピクセル計算。重ければ`REC_WORKS`から外すか解像度上限1.5倍を下げる)(art-v107-eye-loom.html, index.html, posters/, og/, tools/poster-config.json, CHANGELOG.md)
 - 2026-10-18 クロちゃん: EYE LOOMにレインボーの配色を追加(おっちゃん「気持ち悪くて良いね、レインボーも追加して」)。✦で切り替わる色の候補が6種(夏の夕方・潮・熾火・蘭・薄荷・レインボー)に。スマホ幅のヘッドレスChromiumでレインボー表示を確認(prototypes/eye-loom.html)
@@ -457,6 +458,7 @@
 
 - CURRENT: EYE LOOM(`art-v107-eye-loom.html`)。それまでのCURRENTだったSPLIT DEW(v106)はLOG先頭へ
 - 試作: GRAFT LAW(`prototypes/graft-law.html`)を追加。ギャラリー未登録・採用待ち
+- 試作: CUBE COSMOS(`prototypes/cube-cosmos.html`)を追加。ギャラリー未登録・採用待ち
 - LOG先頭: SPLIT DEW(`art-v106-split-dew.html`)、その下にSTRATA SAND(`art-v105-strata-sand.html`)、PRISM SHELL(`art-v104-prism-shell.html`)、SNOW LEDGER(`art-v103-snow-ledger.html`)、ROSARY(`art-v102-rosary.html`)、WATERLINE(`art-v101-waterline.html`)、HAIRLINE(`art-v100-hairline.html`)、MORPHING FERN(`art-v99-morphing-fern.html`)、v98〜v94、LIVING REEF(`art-v93-living-reef.html`)
 - 作業ルール: `AGENTS.md`(ギャラリー追加の手順と命名ルールは13章)
 - 表示モード: iPhoneホーム画面から起動するとCURRENT作品を自動表示するstandalone Web App対応済み
