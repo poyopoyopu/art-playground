@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#070b19">
+<title>CUBE COSMOS — 小さな宇宙の集合体</title>
+<script src="../ap-kit.js"></script>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#070b19;color:#fff;touch-action:none}
+canvas{display:block;width:100%;height:100%;touch-action:none;outline:none}
+#hint{position:fixed;top:calc(env(safe-area-inset-top) + 16px);left:0;right:0;text-align:center;pointer-events:none;font:500 10px/1.5 ui-monospace,monospace;letter-spacing:.2em;color:rgba(216,232,255,.66);transition:opacity 1.2s}
+#hint.off{opacity:0}
+</style>
+</head>
+<body>
+<canvas id="c" aria-label="大小さまざまなガラスキューブの中に星雲や星がきらめく。キューブは独立してゆっくり回転する"></canvas>
+<div id="hint">TOUCH A CUBE · TURN ITS UNIVERSE</div>
+<script>
+/* CUBE COSMOS — ChatGPT作。参照画像を静止画として貼らず、キューブと内部の宇宙模様をWebGLで生成。 */
+(()=>{
+'use strict';
+const canvas=document.getElementById('c'),hint=document.getElementById('hint');
+const gl=canvas.getContext('webgl2',{alpha:false,antialias:true,powerPreference:'high-performance'});
+if(!gl){hint.textContent='WEBGL2 IS NOT AVAILABLE';throw Error('WebGL2 unavailable')}
+const vs=`#version 300 es
+in vec3 aPos; in vec3 aNormal; in vec3 aCenter; in float aId; in float aSize;
+uniform vec2 uRes; uniform float uTime; uniform float uYaw; uniform float uPitch; uniform float uSelected; uniform float uPulse;
+out vec3 vNormal; out vec3 vLocal; out vec3 vPos; out float vId; out float vSelected; out float vSize;
+vec3 rx(vec3 p,float a){return vec3(p.x,p.y*cos(a)-p.z*sin(a),p.y*sin(a)+p.z*cos(a));}
+vec3 ry(vec3 p,float a){return vec3(p.x*cos(a)+p.z*sin(a),p.y,-p.x*sin(a)+p.z*cos(a));}
+void main(){
+ float id=aId;
+ float sy=uTime*(.13+fract(id*.618)*.24);
+ float sx=uTime*(.09+fract(id*.317)*.18);
+ vec3 local=aPos*aSize;
+ local=ry(local,sy);local=rx(local,sx);
+ float selected=1.-step(.1,abs(id-uSelected));
+ local*=1.+selected*uPulse*.16;
+ vec3 center=aCenter;
+ center+=vec3(sin(uTime*.35+id)*.018,cos(uTime*.27+id*1.7)*.022,sin(uTime*.22+id*.4)*.016);
+ vec3 p=center+local;
+ p=rx(p,uPitch);p=ry(p,uYaw);
+ vec3 n=rx(ry(aNormal,sy),sx);n=rx(ry(n,uYaw),uPitch);
+ float depth=4.9-p.z;
+ float focal=2.65/depth;
+ vec2 xy=p.xy*focal;
+ gl_Position=vec4(xy*vec2(uRes.y/uRes.x,1.),(depth-1.)/7.,1.);
+ vNormal=normalize(n);vLocal=aPos;vPos=p;vId=id;vSelected=selected;vSize=aSize;
+}`;
+const fs=`#version 300 es
+precision highp float;
+in vec3 vNormal;in vec3 vLocal;in vec3 vPos;in float vId;in float vSelected;in float vSize;
+uniform float uTime;uniform float uSeed;uniform float uPalette;out vec4 outColor;
+float hash(vec3 p){p=fract(p*.1031);p+=dot(p,p.yxz+33.33);return fract((p.x+p.y)*p.z);}
+void main(){
+ vec3 n=normalize(vNormal),view=normalize(vec3(0.,0.,4.9)-vPos);
+ vec3 lightA=normalize(vec3(-.65,.8,1.1)),lightB=normalize(vec3(.75,-.4,.7));
+ float diff=.22+.56*max(dot(n,lightA),0.)+.28*max(dot(n,lightB),0.);
+ float hue=fract(vId*.173+uSeed*.13);
+ vec3 base;
+ if(uPalette<.5) base=.5+.5*cos(6.28318*(hue+vec3(.02,.34,.67)));
+ else if(uPalette<1.5) base=mix(vec3(.08,.42,.98),vec3(1.,.31,.57),.5+.5*sin(hue*6.28318));
+ else if(uPalette<2.5) base=mix(vec3(1.,.35,.19),vec3(1.,.83,.54),.5+.5*cos(hue*6.28318));
+ else base=mix(vec3(.18,.95,.91),vec3(.68,.43,1.),.5+.5*sin(hue*6.28318));
+ // A distinct, deterministic starfield and a soft spiral nebula live inside every cube.
+ vec3 q=vLocal*3.7+vec3(vId*.31,uSeed*2.,vId*.17);
+ float stars=step(.988,hash(floor(q*5.)));
+ float micro=step(.972,hash(floor(q*13.)));
+ float angle=atan(q.y,q.x);
+ float radius=length(q.xy);
+ float spiral=.5+.5*cos(angle*3.0-radius*5.2-uTime*.24+vId);
+ float cloud=exp(-abs(q.z)*1.5)*spiral;
+ float fres=pow(1.-max(dot(n,view),0.),3.2);
+ float spec=pow(max(dot(reflect(-lightA,n),view),0.),52.);
+ vec3 glass=base*(diff*.76);
+ glass+=base*cloud*(.16+.22*spiral);
+ glass+=vec3(.28,.67,1.)*(fres*.48+spec*.8);
+ glass+=vec3(1.,.54,.37)*cloud*.16;
+ glass+=vec3(.65,.85,1.)*(stars*.95+micro*.34);
+ // Bright crisp edges make the individual cube geometry read clearly.
+ vec3 edgeDist=abs(vLocal);
+ float edge=1.-smoothstep(.88,.99,max(edgeDist.x,max(edgeDist.y,edgeDist.z)));
+ glass+=mix(vec3(.12,.68,1.),vec3(1.,.57,.78),hue)*edge*.58;
+ glass+=vSelected*vec3(.55,.9,1.)*.4;
+ glass*=.78+vSize*.1;
+ outColor=vec4(clamp(glass,0.,1.),1.);
+}`;
+function compile(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(s));return s}
+const program=gl.createProgram();gl.attachShader(program,compile(gl.VERTEX_SHADER,vs));gl.attachShader(program,compile(gl.FRAGMENT_SHADER,fs));gl.linkProgram(program);
+if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(program));
+gl.useProgram(program);
+let seed=Math.random()*1000,palette=0,yaw=-.28,pitch=-.16,selected=-1,pulse=0,last=0,alive=true;
+let cubes=[];
+function rngFactory(s){return ()=>{s=(s*1664525+1013904223)>>>0;return s/4294967296}}
+function build(){
+ const rand=rngFactory(Math.floor(seed*10000)+42);cubes=[];
+ // Dense but breathable central cluster: large hero cubes, medium satellites, tiny far cubes.
+ for(let i=0;i<58;i++){
+   const core=i<36;
+   let x,y,z,size;
+   if(core){
+     const a=rand()*Math.PI*2,r=Math.pow(rand(),.62)*.92;
+     x=Math.cos(a)*r;y=Math.sin(a)*r*.76;z=(rand()-.5)*1.18;
+     size=.12+Math.pow(rand(),2)*.23;
+     if(i<5){x=(rand()-.5)*.38;y=(rand()-.5)*.34;z=(rand()-.5)*.42;size=.27+rand()*.12}
+   }else{
+     const a=rand()*Math.PI*2,r=1.12+rand()*1.0;
+     x=Math.cos(a)*r;y=Math.sin(a)*r*.76;z=(rand()-.5)*1.8;
+     size=.045+Math.pow(rand(),2)*.15;
+   }
+   cubes.push({x,y,z,size,id:i+1});
+ }
+}
+const positions=[],normals=[],centers=[],ids=[],sizes=[];
+const faces=[
+ [[1,0,0],[[1,-1,-1],[1,1,-1],[1,1,1],[1,-1,-1],[1,1,1],[1,-1,1]]],
+ [[-1,0,0],[[-1,-1,1],[-1,1,1],[-1,1,-1],[-1,-1,1],[-1,1,-1],[-1,-1,-1]]],
+ [[0,1,0],[[-1,1,-1],[-1,1,1],[1,1,1],[-1,1,-1],[1,1,1],[1,1,-1]]],
+ [[0,-1,0],[[-1,-1,1],[-1,-1,-1],[1,-1,-1],[-1,-1,1],[1,-1,-1],[1,-1,1]]],
+ [[0,0,1],[[-1,-1,1],[1,-1,1],[1,1,1],[-1,-1,1],[1,1,1],[-1,1,1]]],
+ [[0,0,-1],[[1,-1,-1],[-1,-1,-1],[-1,1,-1],[1,-1,-1],[-1,1,-1],[1,1,-1]]]
+];
+function geometry(){
+ positions.length=normals.length=centers.length=ids.length=sizes.length=0;
+ for(const c of cubes)for(const [n,points] of faces)for(const p of points){
+   positions.push(p[0],p[1],p[2]);normals.push(...n);centers.push(c.x,c.y,c.z);ids.push(c.id);sizes.push(c.size);
+ }
+ const count=positions.length/3;
+ function attr(name,data,dim){const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(data),gl.STATIC_DRAW);const loc=gl.getAttribLocation(program,name);gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,dim,gl.FLOAT,false,0,0)}
+ attr('aPos',positions,3);attr('aNormal',normals,3);attr('aCenter',centers,3);attr('aId',ids,1);attr('aSize',sizes,1);
+ return count;
+}
+build();const vertexCount=geometry();
+const U={res:gl.getUniformLocation(program,'uRes'),time:gl.getUniformLocation(program,'uTime'),seed:gl.getUniformLocation(program,'uSeed'),yaw:gl.getUniformLocation(program,'uYaw'),pitch:gl.getUniformLocation(program,'uPitch'),selected:gl.getUniformLocation(program,'uSelected'),pulse:gl.getUniformLocation(program,'uPulse'),palette:gl.getUniformLocation(program,'uPalette')};
+function resize(){const d=Math.min(devicePixelRatio||1,1.45);canvas.width=Math.max(1,Math.round(innerWidth*d));canvas.height=Math.max(1,Math.round(innerHeight*d));gl.viewport(0,0,canvas.width,canvas.height);gl.uniform2f(U.res,canvas.width,canvas.height)}
+addEventListener('resize',resize,{passive:true});resize();
+function rotate(p,a,b){let x=p.x,y=p.y,z=p.z;const cy=Math.cos(a),sy=Math.sin(a),cp=Math.cos(b),sp=Math.sin(b);let x1=x*cy+z*sy,z1=-x*sy+z*cy;return {x:x1,y:y*cp-z1*sp,z:y*sp+z1*cp}}
+function chooseCube(px,py){
+ let best=null,bestD=Infinity;
+ for(const c of cubes){const p=rotate(c,yaw,pitch),depth=4.9-p.z,f=2.65/depth;
+   const sx=(p.x*f*canvas.height/canvas.width*.5+.5)*innerWidth;
+   const sy=(.5-p.y*f*.5)*innerHeight;
+   const d=(sx-px)**2+(sy-py)**2;
+   if(d<bestD){bestD=d;best=c}
+ }
+ return best;
+}
+canvas.addEventListener('pointerdown',e=>{
+ if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+ e.preventDefault();const c=chooseCube(e.clientX,e.clientY);if(c){selected=c.id;pulse=1.25}
+ hint.classList.add('off');
+},{passive:false});
+canvas.addEventListener('pointermove',e=>{if(e.buttons===1&&selected>0){yaw+=(e.movementX||0)*.003;pitch=Math.max(-.65,Math.min(.65,pitch+(e.movementY||0)*.003))}},{passive:true});
+function frame(ts){
+ if(!alive)return;const dt=Math.min(.04,(ts-last)/1000||0);last=ts;
+ yaw+=dt*.055;pulse*=Math.exp(-dt*1.45);
+ gl.clearColor(.018,.025,.06,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);gl.enable(gl.DEPTH_TEST);gl.depthFunc(gl.LEQUAL);gl.enable(gl.CULL_FACE);gl.cullFace(gl.BACK);
+ gl.uniform2f(U.res,canvas.width,canvas.height);gl.uniform1f(U.time,ts*.001);gl.uniform1f(U.seed,seed);gl.uniform1f(U.yaw,yaw);gl.uniform1f(U.pitch,pitch);gl.uniform1f(U.selected,selected);gl.uniform1f(U.pulse,pulse);gl.uniform1f(U.palette,palette);
+ gl.drawArrays(gl.TRIANGLES,0,vertexCount);requestAnimationFrame(frame)
+}
+document.addEventListener('visibilitychange',()=>{if(document.hidden)alive=false;else if(!alive){alive=true;last=performance.now();requestAnimationFrame(frame)}});
+APKit.init({canvas:canvas,gifName:'cube-cosmos-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,buttons:[
+ {label:'✦',name:'mutate',onClick:function(){seed=Math.random()*1000;palette=(palette+1+Math.floor(Math.random()*3))%4;build();window.__cubeVertexCount=geometry();selected=-1;pulse=0;}},
+ {label:'↻',name:'reset',onClick:function(){seed=13.7;palette=0;yaw=-.28;pitch=-.16;selected=-1;pulse=0;build();window.__cubeVertexCount=geometry();hint.classList.remove('off')}}
+]});
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
