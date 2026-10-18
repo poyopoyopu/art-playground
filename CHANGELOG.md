@@ -1,3 +1,4 @@
+- 2026-10-18 チャッピー: HINGE LAWを再構成。三角分割を4階層から3階層へ減らして形の読みやすさを上げ、表示サイズを拡大。装飾リング・画面を横切る折り目のガイド線・各面の追加ハイライトを削り、折り面そのものを主役にした。HTMLタグ対応とJavaScript構文検査を確認。実ブラウザ描画・iPhone実機は未検証(prototypes/hinge-law.html)
 - 2026-10-18 チャッピー: HINGE LAWを新規試作。粒子・ノイズを使わず、六角形の一枚面を4階層で三角分割し、タップ/ドラッグで追加した折り目を累積適用して地形そのものを変形。折り面の陰影、配色変異、リセット、ap-kit.js統合。HTMLタグ対応・JavaScript構文検査は通過。実ブラウザ描画・iPhone実機負荷は未検証(prototypes/hinge-law.html)
 - 2026-10-18 チャッピー: CUBE COSMOSを再設計。キューブのサイズと密度を抑え、アルファブレンド・奥行き順ソート・深度書き込み制御を導入してガラスの重なりを表現。内部の星雲を強め、表面ノイズを抑え、縁の反射を強調。HTMLタグ数とJavaScriptの括弧バランスを確認。実ブラウザ・iPhone実機での透明描画と負荷は未検証(prototypes/cube-cosmos.html)
 - 2026-10-18 チャッピー: CUBE COSMOSを新規試作。大小のキューブをWebGL2で個別描画し、各キューブ内に星・渦状星雲・ガラスの縁光を手続き生成。キューブごとの独立回転、タップ選択と回転パルス、配色変異・再生成を実装。静的コード検査のみで、ブラウザ描画とiPhone実機負荷は未検証(prototypes/cube-cosmos.html)
@@ -461,7 +462,7 @@
 - CURRENT: EYE LOOM(`art-v107-eye-loom.html`)。それまでのCURRENTだったSPLIT DEW(v106)はLOG先頭へ
 - 試作: GRAFT LAW(`prototypes/graft-law.html`)を追加。ギャラリー未登録・採用待ち
 - 試作: CUBE COSMOS(`prototypes/cube-cosmos.html`)を追加。ギャラリー未登録・採用待ち
-- 試作: HINGE LAW(`prototypes/hinge-law.html`)を追加。ギャラリー未登録・採用待ち
+- 試作: HINGE LAW(`prototypes/hinge-law.html`)を再構成。分割数・装飾を削り、画面内で大きく見せる調整済み。ギャラリー未登録・採用待ち
 - LOG先頭: SPLIT DEW(`art-v106-split-dew.html`)、その下にSTRATA SAND(`art-v105-strata-sand.html`)、PRISM SHELL(`art-v104-prism-shell.html`)、SNOW LEDGER(`art-v103-snow-ledger.html`)、ROSARY(`art-v102-rosary.html`)、WATERLINE(`art-v101-waterline.html`)、HAIRLINE(`art-v100-hairline.html`)、MORPHING FERN(`art-v99-morphing-fern.html`)、v98〜v94、LIVING REEF(`art-v93-living-reef.html`)
 - 作業ルール: `AGENTS.md`(ギャラリー追加の手順と命名ルールは13章)
 - 表示モード: iPhoneホーム画面から起動するとCURRENT作品を自動表示するstandalone Web App対応済み
