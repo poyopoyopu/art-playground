@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#080a18">
+<title>HINGE LAW — 折り目が世界の地形を変える</title>
+<script src="../ap-kit.js"></script>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#080a18;touch-action:none}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#hint{position:fixed;top:calc(env(safe-area-inset-top) + 15px);left:0;right:0;text-align:center;pointer-events:none;color:#c3c9edb8;font:500 10px/1.5 ui-monospace,monospace;letter-spacing:.24em;transition:opacity 1s}
+#hint.off{opacity:0}
+</style>
+</head>
+<body>
+<canvas id="art" aria-label="一枚の幾何学的な面が折り目に沿って折れ、宝石のような面を作る。タップやドラッグで折り目を追加できる"></canvas>
+<div id="hint">TOUCH TO FOLD THE WORLD</div>
+<script>
+/* HINGE LAW — ChatGPT作。粒子やノイズではなく、折り目の累積で一枚の面の地形そのものが変わる。 */
+(()=>{
+'use strict';
+const canvas=document.getElementById('art'),ctx=canvas.getContext('2d',{alpha:false}),hint=document.getElementById('hint');
+const TAU=Math.PI*2;
+let W=1,H=1,D=1,time=0,last=0,alive=true,seed=7,palette=0,spin=0,drag=null,laws=[],mesh=[];
+const palettes=[
+ [[36,211,203],[80,130,255],[179,110,255],[255,143,164],[255,205,132]],
+ [[255,112,94],[255,177,107],[255,218,155],[129,84,220],[62,190,204]],
+ [[133,241,211],[96,161,255],[183,160,255],[238,242,255],[255,151,194]],
+ [[255,88,169],[143,103,255],[66,208,255],[255,192,94],[255,245,220]]
+];
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function resize(){D=Math.min(devicePixelRatio||1,1.6);W=innerWidth;H=innerHeight;canvas.width=Math.round(W*D);canvas.height=Math.round(H*D);canvas.style.width=W+'px';canvas.style.height=H+'px';ctx.setTransform(D,0,0,D,0,0);buildMesh()}
+addEventListener('resize',resize,{passive:true});
+function buildMesh(){
+ mesh=[];const root=[];
+ // A single hexagonal sheet, divided into six wedges then recursively folded into four child facets.
+ const R=1.12;
+ for(let i=0;i<6;i++){
+  const a=i*TAU/6+Math.PI/6,b=(i+1)*TAU/6+Math.PI/6;
+  const tri=[[0,0],[Math.cos(a)*R,Math.sin(a)*R],[Math.cos(b)*R,Math.sin(b)*R]];
+  subdivide(tri,4,i,0);
+ }
+ function subdivide(t,depth,sector,path){
+  if(depth===0){mesh.push({p:t.map(p=>({x:p[0],y:p[1],z:0})),sector,path,phase:((sector*131+path*17+seed*19)%97)/97});return}
+  const mid=(a,b)=>[(a[0]+b[0])*.5,(a[1]+b[1])*.5];
+  const [a,b,c]=t,ab=mid(a,b),bc=mid(b,c),ca=mid(c,a);
+  subdivide([a,ab,ca],depth-1,sector,path*4);
+  subdivide([ab,b,bc],depth-1,sector,path*4+1);
+  subdivide([ca,bc,c],depth-1,sector,path*4+2);
+  subdivide([ab,bc,ca],depth-1,sector,path*4+3);
+ }
+}
+function cross(ax,ay,bx,by){return ax*by-ay*bx}
+function rotateAroundAxis(p,a,b,angle){
+ const dx=b.x-a.x,dy=b.y-a.y,len=Math.hypot(dx,dy)||1,ux=dx/len,uy=dy/len;
+ const rx=p.x-a.x,ry=p.y-a.y,rz=p.z;
+ const along=rx*ux+ry*uy,side=-rx*uy+ry*ux;
+ const cs=Math.cos(angle),sn=Math.sin(angle);
+ const side2=side*cs-rz*sn,z2=side*sn+rz*cs;
+ return {x:a.x+ux*along-uy*side2,y:a.y+uy*along+ux*side2,z:z2};
+}
+function deform(p,now){
+ let q={x:p.x,y:p.y,z:p.z};
+ for(let i=0;i<laws.length;i++){
+  const l=laws[i],s=cross(l.b.x-l.a.x,l.b.y-l.a.y,p.x-l.a.x,p.y-l.a.y);
+  if(s*l.side>0)q=rotateAroundAxis(q,l.a,l.b,l.angle+.07*Math.sin(now*.65+l.phase));
+ }
+ return q;
+}
+function project(p,scale,cx,cy){
+ const z=p.z,depth=3.6-z*.28;
+ return {x:cx+(p.x*scale)/(1+z*.19),y:cy+(p.y*scale)/(1+z*.19),z};
+}
+function colorFor(sector,normalZ,phase){
+ const pal=palettes[palette],idx=(sector+Math.floor((normalZ+1)*1.8)+Math.floor(phase*3))%pal.length,c=pal[idx];
+ const light=clamp(.5+normalZ*.42, .18,1.12);
+ return c.map(v=>Math.round(clamp(v*light,0,255)));
+}
+function rgb(c,a=1){return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'}
+function render(now){
+ const scale=Math.min(W,H)*.39,cx=W*.5,cy=H*.51;
+ ctx.fillStyle='#080a18';ctx.fillRect(0,0,W,H);
+ // Quiet concentric drafting rings ground the folded sheet without adding decorative particles.
+ ctx.save();ctx.translate(cx,cy);ctx.rotate(-.12+spin*.12);
+ for(let r=1;r<=4;r++){ctx.beginPath();ctx.arc(0,0,scale*(.28+r*.19),0,TAU);ctx.strokeStyle='rgba(115,137,203,'+(0.055-r*.008)+')';ctx.lineWidth=.7;ctx.stroke()}
+ ctx.restore();
+ const draw=[];
+ for(const t of mesh){
+  const points=t.p.map(p=>project(deform(p,now),scale,cx,cy));
+  const [a,b,c]=points,area=cross(b.x-a.x,b.y-a.y,c.x-a.x,c.y-a.y);
+  if(Math.abs(area)<.18)continue;
+  const nz=clamp((area>0?1:-1)*(.38+Math.abs(area)/(scale*scale)*.35),-1,1);
+  const depth=(a.z+b.z+c.z)/3;
+  draw.push({t,points,depth,nz,area});
+ }
+ draw.sort((a,b)=>a.depth-b.depth);
+ for(const f of draw){
+  const [a,b,c]=f.points,col=colorFor(f.t.sector,f.nz,f.t.phase);
+  ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.lineTo(c.x,c.y);ctx.closePath();
+  const grad=ctx.createLinearGradient(a.x,a.y,c.x,c.y);
+  grad.addColorStop(0,rgb(col,.88));grad.addColorStop(.52,rgb(col,.46));grad.addColorStop(1,rgb(col,.19));
+  ctx.fillStyle=grad;ctx.fill();
+  ctx.strokeStyle=rgb(col,.48);ctx.lineWidth=.62;ctx.stroke();
+  // One narrow specular crease per facet: geometry, not texture noise.
+  if(Math.abs(f.area)>scale*scale*.0015){
+   ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo((a.x+b.x)*.5,(a.y+b.y)*.5);
+   ctx.strokeStyle='rgba(238,246,255,.19)';ctx.lineWidth=.55;ctx.stroke();
+  }
+ }
+ // The fold axes remain visible as hairline seams: each touch is a persistent new law.
+ for(const l of laws){
+  const a=project({x:l.a.x,y:l.a.y,z:0},scale,cx,cy),b=project({x:l.b.x,y:l.b.y,z:0},scale,cx,cy);
+  ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);
+  ctx.strokeStyle=rgb(palettes[palette][l.color%palettes[palette].length],.82);ctx.lineWidth=1.15;ctx.stroke();
+ }
+ if(drag){
+  ctx.beginPath();ctx.moveTo(drag.x0,drag.y0);ctx.lineTo(drag.x,drag.y);ctx.strokeStyle='rgba(255,255,255,.8)';ctx.lineWidth=1;ctx.setLineDash([4,5]);ctx.stroke();ctx.setLineDash([]);
+ }
+}
+function addLaw(x0,y0,x1,y1){
+ const scale=Math.min(W,H)*.39,cx=W*.5,cy=H*.51;
+ const toWorld=(x,y)=>({x:(x-cx)/scale,y:(y-cy)/scale});
+ let a=toWorld(x0,y0),b=toWorld(x1,y1);
+ const dx=b.x-a.x,dy=b.y-a.y;
+ if(Math.hypot(dx,dy)<.12){b={x:a.x+dy*.01+0.8,y:a.y-dx*.01+0.8}}
+ const mid={x:(a.x+b.x)/2,y:(a.y+b.y)/2};
+ const len=Math.hypot(b.x-a.x,b.y-a.y)||1;
+ a={x:mid.x-(b.x-a.x)/len*2.3,y:mid.y-(b.y-a.y)/len*2.3};
+ b={x:mid.x+(b.x-a.x)/len*2.3,y:mid.y+(b.y-a.y)/len*2.3};
+ laws.push({a,b,angle:(laws.length%2? -1:1)*(.55+Math.random()*.65),side:laws.length%2?1:-1,phase:Math.random()*TAU,color:laws.length+1});
+ if(laws.length>7)laws.shift();
+}
+canvas.addEventListener('pointerdown',e=>{
+ if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+ e.preventDefault();drag={x0:e.clientX,y0:e.clientY,x:e.clientX,y:e.clientY};canvas.setPointerCapture?.(e.pointerId);hint.classList.add('off');
+},{passive:false});
+canvas.addEventListener('pointermove',e=>{if(drag){drag.x=e.clientX;drag.y=e.clientY}},{passive:true});
+canvas.addEventListener('pointerup',e=>{
+ if(!drag)return;const d=drag;drag=null;
+ if(Math.hypot(d.x-d.x0,d.y-d.y0)>22)addLaw(d.x0,d.y0,d.x,d.y);
+ else {const cx=W*.5,cy=H*.51,dx=d.x-cx,dy=d.y-cy;addLaw(d.x,d.y,cx-dy*.5,cy+dx*.5)}
+},{passive:true});
+canvas.addEventListener('pointercancel',()=>{drag=null},{passive:true});
+function frame(ts){if(!alive)return;const dt=Math.min(.04,(ts-last)/1000||0);last=ts;time+=dt;spin+=dt*.025;render(time);requestAnimationFrame(frame)}
+document.addEventListener('visibilitychange',()=>{if(document.hidden)alive=false;else if(!alive){alive=true;last=performance.now();requestAnimationFrame(frame)}});
+function mutate(){seed=Math.random()*1000;palette=(palette+1+Math.floor(Math.random()*3))%palettes.length;buildMesh();laws=laws.map(l=>({...l,angle:l.angle*(.7+Math.random()*.7),phase:Math.random()*TAU}));}
+function reset(){laws=[];palette=0;seed=7;buildMesh();hint.classList.remove('off')}
+resize();
+APKit.init({canvas:canvas,gifName:'hinge-law-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,buttons:[
+ {label:'✦',name:'mutate',onClick:mutate},
+ {label:'↻',name:'reset',onClick:reset}
+]});
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
