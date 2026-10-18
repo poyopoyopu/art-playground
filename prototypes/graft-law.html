@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>GRAFT LAW — 触れた場所が、枝分かれの法則を変える</title>
+<script src="../ap-kit.js"></script>
+<style>
+:root{color-scheme:dark}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#10131b;touch-action:none}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#hint{position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top) + 15px);text-align:center;font:500 10px/1.5 ui-monospace,monospace;letter-spacing:.22em;color:rgba(235,245,255,.58);pointer-events:none;transition:opacity 1s}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">TAP TO GRAFT · DRAG TO BEND THE LAW</div>
+<script>
+/* GRAFT LAW — ChatGPT作。ap-kit.js統合。
+   世界の法則: 枝は決まった形に成長するのではなく、触れた場所を新しい「引力の法則」として記憶し、
+   以後の全階層の枝分かれを曲げる。痕跡はリセットするまで消えない。 */
+(()=>{
+'use strict';
+const canvas=document.getElementById('c'),ctx=canvas.getContext('2d',{alpha:false});
+const TAU=Math.PI*2;
+let W=1,H=1,D=1,time=0,last=0,seed=Math.random()*9999,palette=0,dragging=false,lastPoint=null;
+let grafts=[],hueOffset=Math.random()*360,branchBias=.55;
+const palettes=[
+  [191,28,326,44], [157,190,36,282], [18,350,48,205], [270,198,328,72], [42,175,225,305]
+];
+function resize(){
+  D=Math.min(window.devicePixelRatio||1,1.65);W=innerWidth;H=innerHeight;
+  canvas.width=Math.round(W*D);canvas.height=Math.round(H*D);
+  canvas.style.width=W+'px';canvas.style.height=H+'px';
+  ctx.setTransform(D,0,0,D,0,0);
+}
+function rand(n){const x=Math.sin(n*127.1+seed*311.7)*43758.5453;return x-Math.floor(x)}
+function color(level,side,extra=0){const p=palettes[palette%palettes.length];return (p[Math.abs(side)%p.length]+hueOffset+level*13+extra+360)%360}
+function nearestForce(x,y){
+  let fx=0,fy=0,total=0;
+  for(let i=0;i<grafts.length;i++){
+    const m=grafts[i],dx=m.x-x,dy=m.y-y,dist2=dx*dx+dy*dy+900;
+    const f=m.power/dist2;
+    fx+=dx*f;fy+=dy*f;total+=f;
+  }
+  return {x:fx,y:fy,total};
+}
+function branch(x,y,angle,len,level,side,phase){
+  if(level===0||len<1.6)return;
+  const force=nearestForce(x,y),norm=Math.hypot(force.x,force.y)+.0001;
+  const influence=Math.min(1.1,force.total*620);
+  const steer=Math.atan2(force.y,force.x);
+  let bend=Math.sin(time*.42+phase+side*.8)*.045;
+  if(influence>.015){
+    let delta=Math.atan2(Math.sin(steer-angle),Math.cos(steer-angle));
+    bend+=delta*Math.min(.28,influence*.28);
+  }
+  const a=angle+bend,curve=len*(.12+Math.sin(phase+time*.25)*.035);
+  const ex=x+Math.cos(a)*len,ey=y+Math.sin(a)*len;
+  const mx=x+Math.cos(a+bend*.8)*len*.52+Math.cos(a+Math.PI/2)*curve;
+  const my=y+Math.sin(a+bend*.8)*len*.52+Math.sin(a+Math.PI/2)*curve;
+  const h=color(level,side,Math.sin(time*.18+phase)*9);
+  ctx.beginPath();ctx.moveTo(x,y);ctx.quadraticCurveTo(mx,my,ex,ey);
+  ctx.strokeStyle='hsla('+h+',92%,'+(56+level*2)+'%, '+(.2+level*.105)+')';
+  ctx.lineWidth=Math.max(.55,level*.8);ctx.lineCap='round';ctx.stroke();
+  if(level<=2){
+    const r=level===1?2.1:1.15;
+    ctx.beginPath();ctx.arc(ex,ey,r*(1+.16*Math.sin(time*1.1+phase)),0,TAU);
+    ctx.fillStyle='hsla('+h+',100%,75%,.86)';ctx.fill();
+  }
+  const turn=.38+branchBias*.11+Math.sin(phase+seed)*.06;
+  const spread=turn+Math.min(.23,influence*.1);
+  branch(ex,ey,a-spread,len*.73,level-1,side*2+1,phase+1.7);
+  branch(ex,ey,a+spread,len*.73,level-1,side*2+2,phase+2.9);
+}
+function draw(){
+  ctx.fillStyle='#10131b';ctx.fillRect(0,0,W,H);
+  // Quiet radial atmosphere, kept deliberately subtle behind the living structure.
+  const bg=ctx.createRadialGradient(W*.5,H*.47,0,W*.5,H*.47,Math.max(W,H)*.68);
+  bg.addColorStop(0,'rgba(39,46,68,.7)');bg.addColorStop(1,'rgba(10,12,18,.2)');
+  ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
+  const cx=W*.5,cy=H*.53,base=Math.min(W,H)*.185;
+  ctx.save();ctx.translate(cx,cy);
+  const trunks=7;
+  for(let i=0;i<trunks;i++){
+    const a=TAU*i/trunks+time*.035;
+    const x=Math.cos(a)*base*.17,y=Math.sin(a)*base*.17;
+    branch(x,y,a,base*(.83+rand(i)*.3),6,i,time*.2+i*1.9);
+  }
+  // The grafts are not decorative dots: each one is an active, persistent force that bends every branch.
+  for(let i=0;i<grafts.length;i++){
+    const m=grafts[i],age=1+.09*Math.sin(time*1.1+i);
+    const x=m.x-cx,y=m.y-cy,r=(5+Math.min(8,m.power*.018))*age;
+    ctx.beginPath();ctx.arc(x,y,r+4,0,TAU);
+    ctx.strokeStyle='hsla('+color(2,i)+',95%,72%,.18)';ctx.lineWidth=1;ctx.stroke();
+    ctx.beginPath();ctx.arc(x,y,r,0,TAU);
+    ctx.fillStyle='hsla('+color(3,i)+',100%,78%,.92)';ctx.fill();
+    ctx.beginPath();ctx.arc(x-r*.24,y-r*.25,r*.28,0,TAU);
+    ctx.fillStyle='rgba(255,255,255,.8)';ctx.fill();
+  }
+  ctx.restore();
+  // Hairline borderless label fades away after the first interaction.
+}
+function frame(ts){
+  if(!last)last=ts;const dt=Math.min(.04,(ts-last)/1000);last=ts;time+=dt;
+  draw();requestAnimationFrame(frame);
+}
+function point(e){return {x:e.clientX,y:e.clientY}}
+function addGraft(p,power=5200){
+  grafts.push({x:p.x,y:p.y,power:power*(.82+Math.random()*.36)});
+  if(grafts.length>9)grafts.shift();
+  document.getElementById('hint').style.opacity='0';
+}
+canvas.addEventListener('pointerdown',e=>{
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  e.preventDefault();canvas.setPointerCapture(e.pointerId);dragging=true;lastPoint=point(e);addGraft(lastPoint,6200);
+},{passive:false});
+canvas.addEventListener('pointermove',e=>{
+  if(!dragging)return;
+  const p=point(e);
+  if(!lastPoint||Math.hypot(p.x-lastPoint.x,p.y-lastPoint.y)>Math.min(W,H)*.105){
+    addGraft(p,3800);lastPoint=p;
+  }
+},{passive:true});
+function release(){dragging=false;lastPoint=null}
+canvas.addEventListener('pointerup',release);canvas.addEventListener('pointercancel',release);
+window.addEventListener('resize',resize,{passive:true});
+resize();
+if(window.APKit)APKit.init({
+  canvas:canvas,gifName:'graft-law-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,
+  buttons:[
+    {label:'✦',name:'mutate',onClick:()=>{palette=(palette+1+Math.floor(Math.random()*4))%palettes.length;hueOffset=Math.random()*360;branchBias=.35+Math.random()*.6;seed=Math.random()*9999;}},
+    {label:'↻',name:'reset',onClick:()=>{grafts=[];time=0;seed=Math.random()*9999;hueOffset=Math.random()*360;document.getElementById('hint').style.opacity='1';}}
+  ]
+});
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
