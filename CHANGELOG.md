@@ -1,3 +1,4 @@
+- 2026-10-18 クロちゃん: EYE LOOMを採用・art-v107として昇格し、CURRENTに設定(おっちゃん「採用でカレントへ、録画もつけてね」)。それまでのCURRENTだったSPLIT DEW(v106)はLOGの先頭(STRATA SAND v105の上)へ移動、Published worksは先頭をEYE LOOMにしてSPLIT DEWをその直後へ。ap-kit.jsの相対パスをルート用に修正、`META`に操作ヒント「タップで目をひらく。なぞると目が対でうまれる」を1行追加。`REC_WORKS`に`art-v107-eye-loom.html`を追加: スマホ(Android Chrome)のUA・390×844のヘッドレスChromiumで、ギャラリーから開き、本物の録画ボタン→タップ2回・なぞり1回→上限まで録画を通し、mp4(720×1558・約29秒)に網目と2行の透かしが映り、始めと終わりで目の数と網目の形が変わることを確認(preserveDrawingBuffer有効のWebGL1)。`tools/poster-config.json`に`hide:#hint`・待ち3秒を追加し、ポスター(ヒーロー含む)とOGPカードを生成、`gen_posters.py --check`・`gen_og.py --check`とも終了コード0(文字が写らず網目が写っていることを目視で確認)。試作版`prototypes/eye-loom.html`は残す。「現在の状態」も更新。**スマホ実機での録画中の重さは未確認**(全画面シェーダー、目12個ぶんのlogを毎ピクセル計算。重ければ`REC_WORKS`から外すか解像度上限1.5倍を下げる)(art-v107-eye-loom.html, index.html, posters/, og/, tools/poster-config.json, CHANGELOG.md)
 - 2026-10-18 クロちゃん: EYE LOOMにレインボーの配色を追加(おっちゃん「気持ち悪くて良いね、レインボーも追加して」)。✦で切り替わる色の候補が6種(夏の夕方・潮・熾火・蘭・薄荷・レインボー)に。スマホ幅のヘッドレスChromiumでレインボー表示を確認(prototypes/eye-loom.html)
 - 2026-10-18 クロちゃん: EYE LOOM(prototypes/eye-loom.html)を新規試作。おっちゃんが見せてくれた「菱形の網目が中心の一点に吸い込まれていく」リール動画(a_gilmore氏)を見て「こんな作品を作ってくれよ」→見た目の写しではなく手法(複素関数で曲げた菱形格子)だけを使った独自作品。法則は「網目は『目』(特異点)だけで決まる。+の目と−の目は引き合い、重なると閉じて消える。最初の2つの目(機の枠)は消えずにゆっくり呼吸する」。タップ=目がひらく(向きは全体の釣り合いで決まる)、なぞる=目が対でうまれ、離すと引き合って閉じに行く、目をつかむ=動かす。最大12個で、いっぱいの時に触ると一番古い目が閉じに行く。WebGL1の全画面シェーダー(目ごとにlogを足す)、セルは光の当たるピラミッド状の面、色は帯状に流れる。ap-kit.js統合(✦=色・網目の細かさ・帯の幅を変える、↻=最初の2つの目に戻す、clockFormat/dock/autoHide/fullscreenButton:false、GIF・？なし、pointerdownの先頭でAPKit.isUI)。preserveDrawingBuffer有効。スマホ幅/横画面のヘッドレスChromiumで描画・タップ・なぞり・対が閉じることを確認しエラーなし。試作のみ(ルート昇格・ギャラリー追加はしていない)。**スマホ実機での重さは未確認**(prototypes/eye-loom.html, CHANGELOG.md)
 - 2026-10-16 クロちゃん: SPLIT DEW(v106)をCURRENTに設定し、録画の対象に追加(おっちゃん「録画もつけてね、カレントへ」)。それまでのCURRENTだったSTRATA SAND(v105)はLOGの先頭(PRISM SHELL v104の上)へ移動(LOGの並び順ルール)、LOGにあったSPLIT DEWの行はCURRENTへ移したので外した。Published worksは先頭をSPLIT DEWにしてSTRATA SANDをその直後へ。`REC_WORKS`に`art-v106-split-dew.html`を追加: スマホ(Android Chrome)のUA・390×844のヘッドレスChromiumで、ギャラリーから開き、本物の録画ボタン→2回なぞって切る→上限まで録画を通し、mp4(720×1558・約26秒)に水滴と2行の透かしが映り、始めと終わりで水滴の形が変わることを確認(preserveDrawingBuffer有効のWebGL1)。ヒーロー用ポスター(`art-v106-split-dew.hero.webp`)を生成し、`gen_posters.py --check`・`gen_og.py --check`とも終了コード0(目視確認済み)。**スマホ実機での録画中の重さは未確認**(全画面シェーダー。重ければ`REC_WORKS`から外すか、作品側の解像度上限1.5倍を下げる)(index.html, posters/, CHANGELOG.md)
@@ -453,13 +454,13 @@
 
 ## 現在の状態(変わったら書き換える)
 
-- CURRENT: STRATA SAND(`art-v105-strata-sand.html`)。それまでのCURRENTだったROSARY(v102)はLOGのSNOW LEDGER(v103)の下へ
-- LOG先頭: PRISM SHELL(`art-v104-prism-shell.html`)、その下にSNOW LEDGER(`art-v103-snow-ledger.html`)、ROSARY(`art-v102-rosary.html`)、WATERLINE(`art-v101-waterline.html`)、HAIRLINE(`art-v100-hairline.html`)、MORPHING FERN(`art-v99-morphing-fern.html`)、v98〜v94、LIVING REEF(`art-v93-living-reef.html`)
+- CURRENT: EYE LOOM(`art-v107-eye-loom.html`)。それまでのCURRENTだったSPLIT DEW(v106)はLOG先頭へ
+- LOG先頭: SPLIT DEW(`art-v106-split-dew.html`)、その下にSTRATA SAND(`art-v105-strata-sand.html`)、PRISM SHELL(`art-v104-prism-shell.html`)、SNOW LEDGER(`art-v103-snow-ledger.html`)、ROSARY(`art-v102-rosary.html`)、WATERLINE(`art-v101-waterline.html`)、HAIRLINE(`art-v100-hairline.html`)、MORPHING FERN(`art-v99-morphing-fern.html`)、v98〜v94、LIVING REEF(`art-v93-living-reef.html`)
 - 作業ルール: `AGENTS.md`(ギャラリー追加の手順と命名ルールは13章)
 - 表示モード: iPhoneホーム画面から起動するとCURRENT作品を自動表示するstandalone Web App対応済み
 - 一言説明: ヒーロー/タイルの一言は各作品の`<title>`(`NAME — 日本語の一言`)から自動取得。上書き・ヒントは`index.html`の`META`(ルールはAGENTS.md 13章)
 - 運用メモ: `NOTES.md`(GitHub操作は可能性を確認してから実行)
-- 採用作品作業: STRATA SAND(v105)をCURRENTに登録済み(ポスター・OGP生成と目視確認、ヘッドレスでの録画確認は完了)。PRISM SHELL(v104)もポスター・OGPを生成・目視確認済み。どちらも録画のスマホ実機での重さ・iPhone負荷の検証は未完了。
+- 採用作品作業: EYE LOOM(v107)をCURRENTに登録済み(ポスター・OGP生成と目視確認、ヘッドレスでの録画確認は完了)。STRATA SAND(v105)・SPLIT DEW(v106)・EYE LOOM(v107)とも、録画のスマホ実機での重さ・iPhone負荷の検証は未完了。
 - ポスター: ギャラリーのタイルの静止画。`posters/`と`tools/gen_posters.py`、ルールはAGENTS.md 14章。作品追加・作品修正・CURRENT変更のたびに`python3 tools/gen_posters.py`(`--check`で点検)
 
 ---
