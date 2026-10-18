@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>EYE LOOM — 網目は、ひらいた目すべてに従う</title>
+<!-- EYE LOOM — クロちゃん(Claude)作。ap-kit.js統合: クロちゃん
+     おっちゃんが見せてくれた「菱形の網目が中心の一点に吸い込まれていく」リール動画がきっかけ。
+     見た目の写しではなく、手法(複素関数で曲げた菱形格子)だけを使った独自作品。
+     世界のルール: 網目は「目」(特異点)だけで決まる。+の目と−の目は引き合い、重なると閉じて消える。
+     最初の2つの目(機の枠)は消えない。タップ=目をひらく / なぞる=目が対でうまれる / 目をつかむ=動かす -->
+<script src="../ap-kit.js"></script>
+<style>
+html,body{margin:0;height:100%;background:#120f1c;overflow:hidden;touch-action:none}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+#hint{position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top) + 18px);text-align:center;color:rgba(255,246,232,.78);font:500 11px/1.5 system-ui,sans-serif;letter-spacing:.12em;pointer-events:none;transition:opacity 1.2s;text-shadow:0 0 8px rgba(0,0,0,.55)}
+#hint.off{opacity:0}
+#error{display:none;position:fixed;inset:0;align-items:center;justify-content:center;color:#ddd;font:14px system-ui,sans-serif}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">タップで目がひらく · なぞると目が対でうまれる</div>
+<div id="error">この端末では WebGL を利用できません。</div>
+<script>
+(function(){
+'use strict';
+var MAXE = 12;
+var canvas = document.getElementById('c');
+var gl = canvas.getContext('webgl', {preserveDrawingBuffer:true, antialias:false, alpha:false});
+if(!gl){ document.getElementById('error').style.display='flex'; return; }
+
+var VS = 'attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}';
+var FS = [
+'precision highp float;',
+'uniform vec2 uRes;uniform float uT;uniform vec3 uE[12];',
+'uniform float uN,uK,uFlow,uTwist,uBand,uLobes,uLight;uniform vec3 uPal[8];',
+'vec3 pal(float x){',
+'  float f=mod(x,8.);vec3 s=vec3(0.);float ws=0.;',
+'  for(int i=0;i<8;i++){float d=abs(f-float(i));d=min(d,8.-d);float w=1.-smoothstep(0.,1.,d);s+=w*uPal[i];ws+=w;}',
+'  return s/max(ws,1e-4);',
+'}',
+'float hash(vec2 p){return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453);}',
+'void main(){',
+'  float m=min(uRes.x,uRes.y);',
+'  vec2 z=(gl_FragCoord.xy-.5*uRes)/m;',
+'  float re=0.,im=0.;vec2 J=vec2(0.);',
+'  for(int i=0;i<12;i++){vec3 e=uE[i];if(e.z==0.)continue;vec2 d=z-e.xy;float r2=dot(d,d)+1e-10;',
+'    re+=e.z*.5*log(r2);im+=e.z*atan(d.y,d.x);J+=e.z*vec2(d.x,-d.y)/r2;}',
+'  float c=uN/6.2831853;',
+'  float A=c*(uK*re+im)+uFlow+uTwist;',
+'  float B=c*(uK*re-im)+uFlow-uTwist;',
+'  float rho=c*length(J)*sqrt(1.+uK*uK)/m;',
+'  vec2 f=fract(vec2(A,B));vec2 id=floor(vec2(A,B));',
+'  float s=id.x+id.y;float dd=id.x-id.y;',
+'  float ang=cos(dd*3.14159265/uN*uLobes);',
+'  float ci=s*uBand+.9*ang+uT*.035;',
+'  float g=(f.x+f.y)*.5;',
+'  vec3 c1=pal(ci),c2=pal(ci+1.);',
+'  vec3 col=mix(c1,c2,smoothstep(.05,.95,g));',
+'  col=mix(col*.5,col*1.12+.04,smoothstep(0.,1.,g));',
+'  vec2 q=f-.5;',
+'  float wx=smoothstep(-.07,.07,abs(q.x)-abs(q.y));',
+'  vec2 n=mix(vec2(0.,sign(q.y)),vec2(sign(q.x),0.),wx);',
+'  float lit=dot(n,vec2(cos(uLight),sin(uLight)));',
+'  col*=.86+.22*lit;',
+'  float e=min(min(f.x,1.-f.x),min(f.y,1.-f.y));',
+'  col*=mix(.82,1.,smoothstep(0.,rho*1.4+.012,e));',
+'  float sC=(A+B-1.)*uBand+.9*ang+uT*.035;',
+'  vec3 avg=(pal(sC)*.6+pal(sC+1.)*.4)*.92+.03;',
+'  col=mix(col,avg,smoothstep(.28,.85,rho));',
+'  col+=vec3(1.,.93,.82)*.14*smoothstep(1.5,9.,rho);',
+'  col*=1.-.12*dot(z,z);',
+'  col+=(hash(gl_FragCoord.xy+fract(uT))-.5)/128.;',
+'  gl_FragColor=vec4(clamp(col,0.,1.),1.);',
+'}'
+].join('\n');
+
+function sh(type, src){ var s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+var prog=gl.createProgram();
+gl.attachShader(prog, sh(gl.VERTEX_SHADER,VS)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER,FS));
+gl.linkProgram(prog); gl.useProgram(prog);
+var buf=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+var loc=gl.getAttribLocation(prog,'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+var U={}; ['uRes','uT','uE','uN','uK','uFlow','uTwist','uBand','uLobes','uLight','uPal'].forEach(function(k){U[k]=gl.getUniformLocation(prog,(k==='uE'||k==='uPal')?k+'[0]':k);});
+
+// ---- パレット(色の組み合わせ) ----
+function hex(h){ return [parseInt(h.substr(1,2),16)/255, parseInt(h.substr(3,2),16)/255, parseInt(h.substr(5,2),16)/255]; }
+var PALS = [
+  ['#16213f','#2c5d86','#7fb2cf','#f1e6cf','#f4b37a','#e0702f','#9c3b22','#d98b8b'], // 夏の夕方
+  ['#0d1b2a','#1b4965','#5fa8d3','#cae9ff','#fefae0','#e9c46a','#2a9d8f','#264653'], // 潮
+  ['#1a0f1f','#4a1942','#893168','#e05d5d','#f7a072','#ffd7a8','#c97b3d','#5a2a27'], // 熾火
+  ['#1b1530','#3d2c6e','#7a5bb5','#c9a7eb','#f6e7f1','#f2a0b5','#c0577f','#4d2445'], // 蘭
+  ['#0f2a2a','#1f5f5b','#4fa69a','#b9e4c9','#f4f1de','#e7c08f','#b5694a','#3b3a5a']  // 薄荷
+];
+var P = {pal:0, N:44, k0:1.0, band:.34, lobes:2, flowDir:1};
+function palArray(i){ var a=[]; PALS[i].forEach(function(h){ a.push.apply(a,hex(h)); }); return new Float32Array(a); }
+var palBuf = palArray(0);
+
+// ---- 目(特異点) ----
+// {x,y,q,founder,hx,hy,vx,vy,seek,born}
+var eyes=[];
+function resetEyes(){
+  eyes=[
+    {x:-.21,y:0,q:1,founder:true,hx:-.21,hy:0,seek:false,born:0},
+    {x:.21,y:0,q:-1,founder:true,hx:.21,hy:0,seek:false,born:0}
+  ];
+}
+resetEyes();
+function net(){ var n=0; eyes.forEach(function(e){n+=e.q;}); return n; }
+function freeCount(){ return eyes.filter(function(e){return !e.founder;}).length; }
+
+// ---- サイズ ----
+var W=0,H=0,dpr=1;
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,1.5);
+  W=Math.round(innerWidth*dpr); H=Math.round(innerHeight*dpr);
+  canvas.width=W; canvas.height=H; gl.viewport(0,0,W,H);
+}
+addEventListener('resize',resize); resize();
+function toZ(x,y){ var m=Math.min(W,H); return {x:(x*dpr-.5*W)/m, y:(.5*H-y*dpr)/m}; }
+
+// ---- 操作 ----
+var hint=document.getElementById('hint'), hinted=false;
+function hideHint(){ if(!hinted){ hinted=true; hint.classList.add('off'); } }
+setTimeout(hideHint,7000);
+var ptr=null, clock0=performance.now();
+function nowS(){ return (performance.now()-clock0)/1000; }
+function nearestEye(z,r){ var best=null,bd=r*r; eyes.forEach(function(e){ var d=(e.x-z.x)*(e.x-z.x)+(e.y-z.y)*(e.y-z.y); if(d<bd){bd=d;best=e;} }); return best; }
+// いっぱいなら、いちばん古い目に「閉じに行かせる」
+function closeOldest(){
+  var old=null; eyes.forEach(function(e){ if(!e.founder && !e.seek && (!old||e.born<old.born)) old=e; });
+  if(old) old.seek=true;
+}
+function addEye(x,y,q){
+  if(eyes.length>=MAXE){ closeOldest(); return null; }
+  var e={x:x,y:y,q:q,founder:false,seek:false,born:nowS(),vx:0,vy:0};
+  eyes.push(e); return e;
+}
+canvas.addEventListener('pointerdown',function(ev){
+  if(window.APKit && APKit.isUI(ev.clientX,ev.clientY)) return true;
+  ev.preventDefault(); hideHint();
+  var z=toZ(ev.clientX,ev.clientY);
+  var grab=nearestEye(z,.07);
+  ptr={id:ev.pointerId,sx:ev.clientX,sy:ev.clientY,z0:z,mode:grab?'grab':'wait',eye:grab,pair:null};
+  try{canvas.setPointerCapture(ev.pointerId);}catch(e){}
+});
+canvas.addEventListener('pointermove',function(ev){
+  if(!ptr||ev.pointerId!==ptr.id) return;
+  var z=toZ(ev.clientX,ev.clientY);
+  var moved=Math.hypot(ev.clientX-ptr.sx,ev.clientY-ptr.sy);
+  if(ptr.mode==='wait' && moved>14){
+    // なぞり始め: 目が対でうまれる(片方は始点、片方は指についてくる)
+    var s=Math.random()<.5?1:-1;
+    if(eyes.length+2<=MAXE){
+      var a=addEye(ptr.z0.x,ptr.z0.y,s), b=addEye(z.x,z.y,-s);
+      ptr.mode='pair'; ptr.pair=a; ptr.eye=b; if(a) a.held=true;
+    } else { ptr.mode='none'; closeOldest(); }
+  }
+  if((ptr.mode==='grab'||ptr.mode==='pair') && ptr.eye){ ptr.eye.x=z.x; ptr.eye.y=z.y; ptr.eye.held=true; }
+});
+function up(ev){
+  if(!ptr||ev.pointerId!==ptr.id) return;
+  if(ptr.mode==='wait'){
+    // タップ: 目がひらく。向きは全体の釣り合いで決まる
+    var n=net(), q=n>0?-1:n<0?1:(Math.random()<.5?1:-1);
+    addEye(ptr.z0.x,ptr.z0.y,q);
+  }
+  if(ptr.eye) ptr.eye.held=false;
+  if(ptr.pair) ptr.pair.held=false;
+  ptr=null;
+}
+canvas.addEventListener('pointerup',up); canvas.addEventListener('pointercancel',up);
+
+// ---- 目の動き: 逆どうしは引き合い、同じどうしは避け合う ----
+function step(dt,t){
+  var m=Math.min(W,H), ax=W/m*.5, ay=H/m*.5;
+  // 機の枠(最初の2つ)はゆっくり呼吸する
+  var sep=.21*(1+.3*Math.sin(t*.11)), rot=.25*Math.sin(t*.07);
+  eyes.forEach(function(e,i){
+    if(!e.founder) return;
+    var sgn=i===0?-1:1;
+    e.hx=sgn*sep*Math.cos(rot); e.hy=sgn*sep*Math.sin(rot);
+    if(!e.held){ e.x+=(e.hx-e.x)*Math.min(1,dt*.8); e.y+=(e.hy-e.y)*Math.min(1,dt*.8); }
+  });
+  for(var i=0;i<eyes.length;i++){
+    var e=eyes[i]; if(e.founder||e.held) continue;
+    var fx=0,fy=0;
+    for(var j=0;j<eyes.length;j++){ if(i===j) continue; var o=eyes[j];
+      var dx=o.x-e.x, dy=o.y-e.y, r2=dx*dx+dy*dy+.004;
+      var k=-e.q*o.q*(e.seek?5:1); // 逆符号 → 引く
+      fx+=k*dx/r2; fy+=k*dy/r2; }
+    var sp=.018*(e.seek?3:1);
+    var vx=fx*sp, vy=fy*sp, vm=Math.hypot(vx,vy), cap=e.seek?.35:.12;
+    if(vm>cap){ vx*=cap/vm; vy*=cap/vm; }
+    e.x+=vx*dt; e.y+=vy*dt;
+    // 画面の外へは出ていかない
+    e.x=Math.max(-ax*.96,Math.min(ax*.96,e.x)); e.y=Math.max(-ay*.96,Math.min(ay*.96,e.y));
+  }
+  // 重なった逆どうしは閉じる(枠の目は閉じず、相手を飲み込む)
+  var merged=true;
+  while(merged){
+    merged=false;
+    outer: for(i=0;i<eyes.length;i++){
+      var a=eyes[i]; if(a.founder||a.held) continue;
+      for(j=0;j<eyes.length;j++){ if(j===i) continue; var b=eyes[j];
+        if(b.q===-a.q && !b.held && Math.hypot(b.x-a.x,b.y-a.y)<.014){
+          eyes=eyes.filter(function(x){ return x!==a && (b.founder || x!==b); });
+          merged=true; break outer; }
+      }
+    }
+  }
+}
+
+// ---- ✦ / ↻ ----
+function mutate(){
+  P.pal=(P.pal+1+Math.floor(Math.random()*(PALS.length-1)))%PALS.length;
+  P.N=[28,32,36,40,44,48][Math.floor(Math.random()*6)];
+  P.k0=.75+Math.random()*.55;
+  P.band=[.25,.34,.5][Math.floor(Math.random()*3)];
+  P.lobes=1+Math.floor(Math.random()*3);
+  P.flowDir=Math.random()<.5?1:-1;
+  palBuf=palArray(P.pal);
+}
+function reset(){ resetEyes(); }
+
+// ---- 描画 ----
+var last=performance.now(), flow=0, twist=0;
+var eArr=new Float32Array(MAXE*3);
+function frame(now){
+  var dt=Math.min(.05,(now-last)/1000); last=now;
+  var t=nowS();
+  step(dt,t);
+  flow+=dt*.22*P.flowDir;
+  twist=1.2*Math.sin(t*.05);
+  var k=P.k0*(1+.22*Math.sin(t*.13));
+  eArr.fill(0);
+  eyes.forEach(function(e,i){ if(i<MAXE){ eArr[i*3]=e.x; eArr[i*3+1]=e.y; eArr[i*3+2]=e.q; } });
+  gl.uniform2f(U.uRes,W,H); gl.uniform1f(U.uT,t); gl.uniform3fv(U.uE,eArr);
+  gl.uniform1f(U.uN,P.N); gl.uniform1f(U.uK,k); gl.uniform1f(U.uFlow,flow); gl.uniform1f(U.uTwist,twist);
+  gl.uniform1f(U.uBand,P.band); gl.uniform1f(U.uLobes,P.lobes); gl.uniform1f(U.uLight,2.2+.6*Math.sin(t*.09));
+  gl.uniform3fv(U.uPal,palBuf);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+if(window.APKit){
+  APKit.init({
+    canvas: canvas,
+    gifName: 'eye-loom-loop',
+    clockFormat: 'spec',
+    dock: true,
+    autoHide: true,
+    fullscreenButton: false,
+    buttons: [
+      {label:'✦', name:'mutate', onClick:function(){ mutate(); }},
+      {label:'↻', name:'reset',  onClick:function(){ reset(); }}
+    ]
+  });
+}
+})();
+</script>
+</body>
+</html>
