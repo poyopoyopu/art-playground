@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#080510">
+<title>PARADOX ENGINE — 触れるたび、立体のつじつまが崩れる</title>
+<script src="../ap-kit.js"></script>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#080510;touch-action:none}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#hint{position:fixed;left:12px;right:12px;top:calc(env(safe-area-inset-top) + 17px);text-align:center;color:#e9ddffb5;font:500 10px/1.6 ui-monospace,monospace;letter-spacing:.2em;pointer-events:none;transition:opacity 1s}
+#hint.off{opacity:0}
+</style>
+</head>
+<body>
+<canvas id="art"></canvas>
+<div id="hint">TAP TO BREAK THE LAW · DRAG TO TWIST</div>
+<script>
+(()=>{'use strict';
+const canvas=document.getElementById('art'),ctx=canvas.getContext('2d',{alpha:false}),hint=document.getElementById('hint');
+const TAU=Math.PI*2;
+let W=1,H=1,D=1,t=0,last=0,angle=0,twist=0,law=0,seed=11,drag=null,palette=0;
+const palettes=[
+ {bg:'#080510',a:'#fb42cf',b:'#54f6ff',c:'#f8e9ff',d:'#7c55ff'},
+ {bg:'#06100f',a:'#b5ff38',b:'#36ffd0',c:'#f6ffde',d:'#008c86'},
+ {bg:'#100805',a:'#ff633d',b:'#ffd166',c:'#fff0d4',d:'#a52b57'},
+ {bg:'#06091b',a:'#5b8cff',b:'#d6a6ff',c:'#e9f5ff',d:'#ff4e9b'}
+];
+const P=()=>palettes[palette];
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+function resize(){D=Math.min(devicePixelRatio||1,1.8);W=innerWidth;H=innerHeight;canvas.width=Math.round(W*D);canvas.height=Math.round(H*D);canvas.style.width=W+'px';canvas.style.height=H+'px';ctx.setTransform(D,0,0,D,0,0)}
+addEventListener('resize',resize,{passive:true});resize();
+function rot(p,a,b,c){let [x,y,z]=p,ca=Math.cos(a),sa=Math.sin(a),cb=Math.cos(b),sb=Math.sin(b),cc=Math.cos(c),sc=Math.sin(c);let y1=y*ca-z*sa,z1=y*sa+z*ca,x2=x*cb+z1*sb,z2=-x*sb+z1*cb;return [x2*cc-y1*sc,x2*sc+y1*cc,z2]}
+function project(p){let q=rot(p,angle*.31+twist*.15,angle*.53,angle*.22+twist*.4);let perspective=3.8/(3.8+q[2]*.18);return {x:W*.5+q[0]*Math.min(W,H)*.25*perspective,y:H*.52+q[1]*Math.min(W,H)*.25*perspective,z:q[2]}}
+function line(a,b,color,width=1,alpha=1){ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.strokeStyle=color;ctx.globalAlpha=alpha;ctx.lineWidth=width;ctx.stroke();ctx.globalAlpha=1}
+function poly(points,fill,stroke,alpha=1){ctx.beginPath();ctx.moveTo(points[0].x,points[0].y);for(let i=1;i<points.length;i++)ctx.lineTo(points[i].x,points[i].y);ctx.closePath();ctx.globalAlpha=alpha;ctx.fillStyle=fill;ctx.fill();ctx.strokeStyle=stroke;ctx.lineWidth=1.1;ctx.stroke();ctx.globalAlpha=1}
+function prism(phase,scale,depth,idx){
+ const verts=[];for(let layer=0;layer<2;layer++)for(let i=0;i<3;i++){let a=i*TAU/3+phase+Math.PI/6;verts.push([Math.cos(a)*scale,Math.sin(a)*scale,layer?depth:-depth])}
+ const faces=[[0,1,4,3],[1,2,5,4],[2,0,3,5]].map(f=>({f,idx,depth:f.reduce((s,i)=>s+verts[i][2],0)/4}));
+ const ps=verts.map(project);
+ return {verts,ps,faces};
+}
+function draw(now){
+ const p=P();ctx.fillStyle=p.bg;ctx.fillRect(0,0,W,H);
+ // A restrained luminous coordinate halo, not a particle field.
+ const cx=W*.5,cy=H*.52,r=Math.min(W,H)*.37;
+ const halo=ctx.createRadialGradient(cx,cy,0,cx,cy,r*1.5);halo.addColorStop(0,p.d+'22');halo.addColorStop(.55,p.d+'0c');halo.addColorStop(1,p.bg);
+ ctx.fillStyle=halo;ctx.fillRect(0,0,W,H);
+ ctx.save();ctx.translate(cx,cy);ctx.rotate(-angle*.08);ctx.strokeStyle=p.d;ctx.globalAlpha=.18;ctx.lineWidth=.6;
+ for(let i=0;i<3;i++){ctx.beginPath();ctx.ellipse(0,0,r*(.65+i*.2),r*(.65+i*.2),i*TAU/3,0,TAU);ctx.stroke()}ctx.restore();ctx.globalAlpha=1;
+ const objects=[];
+ // Three nested impossible triangular rings. Their shared corners deliberately disagree about depth.
+ for(let i=0;i<3;i++){let ph=i*TAU/3+angle*.16+twist*.12;let s=1.18-i*.25;let d=.75+i*.12;let ob=prism(ph, s,d,i);
+ for(const face of ob.faces){let pts=face.f.map(k=>ob.ps[k]);objects.push({pts,depth:face.depth,idx:i,face:face.f,ps:ob.ps})}
+ // recursive smaller frame nested inside each arm: same rule, three scales deep
+ for(let j=1;j<=3;j++){let sc=s*(.72**j),ph2=ph+j*.17;let q=[];for(let k=0;k<3;k++){let a=k*TAU/3+ph2+Math.PI/6;q.push(project([Math.cos(a)*sc,Math.sin(a)*sc,(k===law%3?d:-d)*(.6**j)]))}
+ for(let k=0;k<3;k++)line(q[k],q[(k+1)%3],j===1?p.c:p.b,Math.max(.5,2.2-j*.45),.48/(j*.55));
+ }
+ }
+ // Sort faces, then deliberately reverse the crossing at one junction: the impossible joint.
+ objects.sort((a,b)=>a.depth-b.depth);
+ for(const o of objects){let c=[p.a,p.b,p.d][(o.idx+law)%3];poly(o.pts,c,p.c,.10);for(let k=0;k<o.pts.length;k++){let next=o.pts[(k+1)%o.pts.length];line(o.pts[k],next,k===law%4&&o.idx===law%3?p.c:c, k===law%4&&o.idx===law%3?3:1.5,.88)}}
+ // Repaint a short bridge on top to force a logically impossible over-under transition.
+ const ob=prism(angle*.16+twist*.12,1.18,.75,0),a=ob.ps[law%3],b=ob.ps[(law%3)+3];line(a,b,p.c,3.2,.96);
+ // Central jewel changes shape and apparent handedness with each touch.
+ const n=3+(law%4),rr=Math.min(W,H)*(.035+.009*(law%3)),pts=[];
+ for(let i=0;i<n*2;i++){let aa=i*Math.PI/n+angle*(law%2?-.7:.7);let rad=i%2?rr*.38:rr;pts.push({x:cx+Math.cos(aa)*rad,y:cy+Math.sin(aa)*rad})}
+ ctx.save();ctx.shadowBlur=22;ctx.shadowColor=p.b;poly(pts,p.d,p.c,.95);ctx.restore();
+ // Fine radial seams make the scale hierarchy legible.
+ for(let i=0;i<6;i++){let aa=i*TAU/6-angle*.25;line({x:cx+Math.cos(aa)*rr*1.2,y:cy+Math.sin(aa)*rr*1.2},{x:cx+Math.cos(aa)*r*.13,y:cy+Math.sin(aa)*r*.13},p.b,.7,.42)}
+ if(drag){line({x:drag.x0,y:drag.y0},{x:drag.x,y:drag.y},p.c,1,.6)}
+}
+function frame(ms){const dt=Math.min(.04,(ms-last)/1000||0);last=ms;t+=dt;angle+=dt*(.25+law*.018);draw(t);requestAnimationFrame(frame)}
+function breakLaw(x,y){law++;twist+=.62+(Math.random()*.7);if(law%3===0)palette=(palette+1)%palettes.length;hint.classList.add('off')}
+canvas.addEventListener('pointerdown',e=>{if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;e.preventDefault();drag={x0:e.clientX,y0:e.clientY,x:e.clientX,y:e.clientY};canvas.setPointerCapture?.(e.pointerId);hint.classList.add('off')},{passive:false});
+canvas.addEventListener('pointermove',e=>{if(!drag)return;drag.x=e.clientX;drag.y=e.clientY;twist+=(e.movementX-e.movementY)*.006},{passive:true});
+canvas.addEventListener('pointerup',e=>{if(!drag)return;const d=Math.hypot(e.clientX-drag.x0,e.clientY-drag.y0);if(d<18)breakLaw(e.clientX,e.clientY);else{law++;twist+=.35}drag=null},{passive:true});
+canvas.addEventListener('pointercancel',()=>drag=null);
+function mutate(){seed=Math.random()*1000;palette=(palette+1+Math.floor(Math.random()*3))%palettes.length;twist+=Math.random()*TAU;law+=1+Math.floor(Math.random()*3)}
+function reset(){angle=0;twist=0;law=0;palette=0;drag=null;hint.classList.remove('off')}
+requestAnimationFrame(frame);
+if(window.APKit)APKit.init({canvas:canvas,gifName:'paradox-engine-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,buttons:[{label:'✦',name:'mutate',onClick:mutate},{label:'↻',name:'reset',onClick:reset}]});
+})();
+</script>
+</body>
+</html>
