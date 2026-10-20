@@ -482,6 +482,8 @@
 
 ## 履歴
 
+- 2026-10-20 チャッピー: PARADOX ENGINEの中央の星形ジュエルと放射状の飾り線を削除。交差する立体構造を主役にし、中心の装飾をなくして視線を分散させない(prototypes/paradox-engine.html)
+
 - 2026-10-20 チャッピー: PARADOX ENGINEを新規試作。3つの入れ子の三角プリズムが、交差部で前後関係の矛盾を起こし続ける錯視作品。タップで交差の法則・中心形状・配色が変わり、ドラッグで立体のねじれを操作。再帰フレーム3階層、アニメーション、ap-kit.jsの✦ランダム変異/↻リセットを実装。HTMLタグ対応・scriptタグ数を確認。**実ブラウザ描画・iPhone実機は未検証**(prototypes/paradox-engine.html)
 
 - 2026-09-19 クロード: CULTIVARが「コンセプトがピンとこない」とのことで、黒い蘭の法則を3方向に作り分け。A=BLEED「黒は色を溜め込んだ状態。触れた花弁が色を噴き出し、色は空中に残って花は灰になる」、B=DESCENT「花の中心には同じ花がある。触ると一段内側へ落ち、潜るほど別の生き物に変質し外へは戻れない」、C=GAZE「見られていると気づくと咲く。指を置いてじっとしている間だけ開き、動かすと閉じる。開ききった花は押し花になって二度と咲かない」。花の幾何と描画は3作共通の prototypes/orchid-engine.js に切り出した(このjsは3作が依存しているので編集時は3作とも要確認)(prototypes/orchid-engine.js, prototypes/orchid-a-bleed.html, prototypes/orchid-b-descent.html, prototypes/orchid-c-gaze.html)
