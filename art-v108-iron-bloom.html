@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>IRON BLOOM — 黒い液体は、磁石の通った道を覚えている</title>
+<!-- IRON BLOOM — クロちゃん(Claude)作。ap-kit.js統合: クロちゃん。2026/10/20 採用、art-v108として昇格(試作: prototypes/iron-bloom.html)
+     おっちゃん「あっと驚く作品を作ってくれよ」→ 磁性流体(フェロフルイド)。
+     「なんだかよくわからない」「眺めるだけができないか」を受けて、光る磁石を3つ見せる形に。
+     世界のルール: 黒い液体は、磁石の通った道を覚えている。
+       磁石はふだん勝手に漂い、低く降りるほど液を強く引く(トゲが立ち、真下の液は磁石へ伸び上がる)
+       通った道には磁力が残り、液はしばらくその道をトゲで覚えている(細かいトゲから先に忘れる)
+       触る   = いちばん近い磁石が指のところへ降りてくる(なぞるとついてくる)
+       タップ = その場の磁力が抜ける(トゲが一度跳ねて崩れ、波紋が広がる)
+     描画: WebGL1。磁場を小さなテクスチャに焼き、黒い液面を高さ場としてレイマーチ。
+     色は液体ではなく、スタジオの照明と磁石の光の映り込み(✦で照明が変わる)。 -->
+<script src="ap-kit.js"></script>
+<style>
+html,body{margin:0;height:100%;background:#000;overflow:hidden;touch-action:none}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+#hint{position:fixed;left:16px;right:16px;top:calc(env(safe-area-inset-top) + 18px);text-align:center;color:rgba(235,240,255,.72);font:500 11px/1.6 system-ui,sans-serif;letter-spacing:.12em;text-shadow:0 1px 6px rgba(0,0,0,.65);pointer-events:none;transition:opacity 1.2s}
+#hint.off{opacity:0}
+#error{display:none;position:fixed;inset:0;align-items:center;justify-content:center;color:#ddd;font:14px system-ui,sans-serif}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">眺めているだけでも · 触ると磁石が指へ来る<br>タップすると磁力が抜ける</div>
+<div id="error">この端末では WebGL を利用できません。</div>
+<script>
+(function(){
+'use strict';
+var canvas = document.getElementById('c');
+var gl = canvas.getContext('webgl', {preserveDrawingBuffer:true, antialias:false, alpha:false});
+if(!gl){ document.getElementById('error').style.display='flex'; return; }
+
+var NM = 16;        // 磁石(指 + 記憶)の最大数
+var NR = 6;         // 波紋の最大数
+var FW = 512, FH = 512;           // 磁場テクスチャ
+var DOM = {x0:-5, z0:-2.5, w:10, d:10};
+
+var VS = 'attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}';
+
+// ---- 磁場を焼くパス ----
+var FS_FIELD = [
+'precision highp float;',
+'uniform vec4 uM[16];uniform vec2 uTex;uniform vec4 uDom;',
+'void main(){',
+'  vec2 p=uDom.xy+(gl_FragCoord.xy/uTex)*uDom.zw;',
+'  float B=0.;',
+'  for(int i=0;i<16;i++){vec4 m=uM[i];if(m.z<=0.)continue;vec2 d=p-m.xy;B+=m.z*exp(-dot(d,d)/(m.w*m.w));}',
+'  float v=clamp(1.-exp(-B),0.,.9999);',
+'  float hi=floor(v*255.)/255.;',
+'  gl_FragColor=vec4(hi,(v-hi)*255.,0.,1.);',
+'}'
+].join('\n');
+
+// ---- 液面を描くパス ----
+var FS_MAIN = [
+'precision highp float;',
+'uniform vec2 uRes;uniform float uT;',
+'uniform vec3 uRo,uF,uR,uU;',
+'uniform sampler2D uFld;uniform vec4 uDom;',
+'uniform vec4 uRip[6];',
+'uniform float uS1,uH1,uSharp,uHM;',
+'uniform vec3 uC1,uC2,uC3,uAmb;uniform float uRain,uHueSpd;',
+'float gB;float gPix;uniform float uPx;',
+'uniform vec4 uMag[3];uniform vec3 uMagC[3];uniform float uMagS[3];',
+'float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}',
+'uniform vec2 uTexN;',
+'float dec(vec4 t){return t.r+t.g/255.;}',
+'bool outD(vec2 uv){return uv.x<0.||uv.y<0.||uv.x>1.||uv.y>1.;}',
+'float fld(vec2 p){vec2 uv=(p-uDom.xy)*uDom.zw;if(outD(uv))return 0.;return dec(texture2D(uFld,uv));}',
+'vec4 cub(float v){vec4 n=vec4(1.,2.,3.,4.)-v;vec4 s=n*n*n;float x=s.x;float y=s.y-4.*s.x;float z=s.z-4.*s.y+6.*s.x;return vec4(x,y,z,6.-x-y-z)/6.;}',
+'float fldC(vec2 p){vec2 uv=(p-uDom.xy)*uDom.zw;if(outD(uv))return 0.;',
+'  vec2 tc=uv*uTexN-.5;vec2 f=fract(tc);tc-=f;vec4 xc=cub(f.x),yc=cub(f.y);',
+'  vec4 c=tc.xxyy+vec2(-.5,1.5).xyxy;vec4 s=vec4(xc.xz+xc.yw,yc.xz+yc.yw);',
+'  vec4 o=(c+vec4(xc.yw,yc.yw)/s)/uTexN.xxyy;',
+'  float s0=dec(texture2D(uFld,o.xz)),s1=dec(texture2D(uFld,o.yz)),s2=dec(texture2D(uFld,o.xw)),s3=dec(texture2D(uFld,o.yw));',
+'  float sx=s.x/(s.x+s.y),sy=s.z/(s.z+s.w);',
+'  return mix(mix(s3,s2,sx),mix(s1,s0,sx),sy);}',
+'vec2 hexOff(vec2 q){vec2 r=vec2(1.,1.7320508);vec2 h=r*.5;vec2 a=mod(q,r)-h;vec2 b=mod(q-h,r)-h;return dot(a,a)<dot(b,b)?a:b;}',
+'float ripple(vec2 p){float s=0.;for(int i=0;i<6;i++){vec4 r=uRip[i];if(r.w<=0.)continue;',
+'  float d=length(p-r.xy);float x=d-r.z*.9;s+=r.w*exp(-r.z*1.3)*sin(x*24.)*exp(-x*x*16.)/(1.+d*1.6);}return s;}',
+'float hgt(vec2 p,out float cav,float hq){',
+'  float B=hq>.5?fldC(p):fld(p);gB=B;',
+'  float h=.10*B*B*(3.-2.*B);',
+'  h+=ripple(p);',
+'  h+=.0035*sin(p.x*3.1+uT*.6)*sin(p.y*2.7-uT*.5);',
+'  for(int i=0;i<3;i++){vec4 m=uMag[i];if(m.w<=0.||uMagS[i]<=0.)continue;float d=length(p-m.xz);',
+'    float A=uMagS[i]*(m.y-m.w-.04);h+=A*pow(max(1.-d/(.11+.12*uMagS[i]),0.),2.6);}',
+'  cav=0.;',
+'  if(B<.11)return h;',
+'  vec2 q=p/uS1;vec2 o=hexOff(q);vec2 c=q-o;vec2 id=floor(c/vec2(.5,.8660254)+.5);',
+'  vec2 jo=(vec2(hash(id*.37),hash(id*.37+17.3))-.5)*.16;',
+'  float a1=smoothstep(.15,.9,fld(c*uS1));a1*=a1;',
+'  float cone=max(1.-length(o-jo)/(.41*(.42+.58*a1)),0.);',
+'  h+=uH1*a1*(.78+.44*hash(id*.37+5.1))*pow(cone,uSharp);',
+'  cav=smoothstep(.15,.9,B)*(1.-cone);',
+'  float g2=smoothstep(.45,.8,B)*pow(1.-cone,1.5)*(1.-smoothstep(.1,.22,gPix/uS1));',
+'  if(g2>.002){',
+'    vec2 p2=mat2(.866,-.5,.5,.866)*p/(uS1*.43)+vec2(.31,.17);',
+'    vec2 o2=hexOff(p2);vec2 cc2=floor((p2-o2)/vec2(.5,.8660254)+.5)*.37;',
+'    vec2 j2=(vec2(hash(cc2+2.3),hash(cc2+9.1))-.5)*.14;',
+'    float c2=max(1.-length(o2-j2)/(.4*(.5+.5*g2)),0.);',
+'    h+=uH1*.34*g2*(.75+.5*hash(cc2))*pow(c2,1.6);',
+'  }',
+'  return h;',
+'}',
+'float sph(vec3 ro,vec3 rd,vec4 m){vec3 oc=ro-m.xyz;float b=dot(oc,rd);float c=dot(oc,oc)-m.w*m.w;float h=b*b-c;if(h<0.)return -1.;return -b-sqrt(h);}',
+'vec3 orbGlow(vec3 ro,vec3 rd,float tl){vec3 g=vec3(0.);for(int i=0;i<3;i++){vec4 m=uMag[i];if(m.w<=0.)continue;',
+'  float tc=max(dot(m.xyz-ro,rd),0.);if(tc>tl)continue;float dd=length(ro+rd*tc-m.xyz);',
+'  g+=uMagC[i]*(.45*exp(-dd*dd/(m.w*m.w*6.))+.08*exp(-dd*dd/(m.w*m.w*40.)));}return g;}',
+'vec3 hue(float x){return .5+.5*cos(6.2831853*(x+vec3(0.,.33,.67)));}',
+'float rbox(vec2 q,vec2 c,vec2 s,float k){vec2 d=abs(q-c)-s;float sd=length(max(d,0.))+min(max(d.x,d.y),0.);return 1.-smoothstep(-k,k,sd);}',
+'float band(float x,float c,float w,float k){return 1.-smoothstep(w-k,w+k,abs(x-c));}',
+'vec3 env(vec3 r){',
+'  float el=asin(clamp(r.y,-1.,1.));float az=atan(r.x,r.z);',
+'  float up=max(r.y,0.);',
+'  vec3 c=uAmb*(.22+1.1*up);',
+'  c+=mix(uAmb,uC1,.5)*1.3*exp(-pow((el-.12)/.22,2.))*smoothstep(1.7,.4,abs(az));',
+'  float bz=abs(az);',
+'  float bk=0.;',
+'  bk=band(bz,3.14159,.42,.18);float sb=band(bz,1.95,.2,.1);',
+'  c+=uC1*10.*bk*band(el,.34,.3,.1);',
+'  c+=mix(uC3,uC2,step(0.,az))*8.*sb*band(el,.35,.22,.1);',
+'  c+=uC2*20.*band(az,1.62,.07,.02)*band(el,.45,.38,.03);',
+'  c+=uC3*20.*band(az,-1.62,.07,.02)*band(el,.45,.38,.03);',
+'  c+=mix(uC3,uC2,.5)*10.*band(el,.95,.035,.015)*smoothstep(1.8,2.3,bz);',
+'  float rb=exp(-pow((el-.06)/.045,2.));',
+'  c+=uRain*rb*hue(az/6.2831853+uT*uHueSpd)*5.5;',
+'  return c;',
+'}',
+'void main(){',
+'  vec2 uv=(gl_FragCoord.xy-.5*uRes)/uRes.y;',
+'  vec3 rd=normalize(uF*1.1+uv.x*uR+uv.y*uU);',
+'  vec3 col;float tL=1e9;',
+'  float n0=fract(sin(dot(gl_FragCoord.xy,vec2(12.9898,78.233)))*43758.5453);',
+'  if(rd.y>-.002){col=env(rd)*.45;}',
+'  else{',
+'    float t=max((uRo.y-uHM)/(-rd.y),0.);',
+'    float tmax=(uRo.y+.08)/(-rd.y);',
+'    float tp=t;float cav=0.;bool hit=false;',
+'    for(int i=0;i<170;i++){',
+'      vec3 p=uRo+rd*t;gPix=t*uPx;float h=hgt(p.xz,cav,0.);float g=p.y-h;',
+'      if(g<.0006){hit=true;break;}',
+'      tp=t;t+=max(g*(gB<.11?.85:.45),.0012);',
+'      if(t>tmax){t=tmax;hit=true;break;}',
+'      if(i==169){t=tp;}',
+'    }',
+'    float a=tp,b=t;',
+'    for(int i=0;i<6;i++){float m=.5*(a+b);vec3 p=uRo+rd*m;if(p.y-hgt(p.xz,cav,0.)>0.)a=m;else b=m;}',
+'    t=b;gPix=t*uPx;vec3 p=uRo+rd*t;float h0=hgt(p.xz,cav,1.);float B0=gB;',
+'    float e=.0011+.0006*t;float cc;',
+'    float hx=hgt(p.xz+vec2(e,0.),cc,1.)-hgt(p.xz-vec2(e,0.),cc,1.);',
+'    float hz=hgt(p.xz+vec2(0.,e),cc,1.)-hgt(p.xz-vec2(0.,e),cc,1.);',
+'    vec3 n=normalize(vec3(-hx,2.*e,-hz));',
+'    vec3 v=-rd;float ndv=max(dot(n,v),0.);',
+'    vec3 r=reflect(rd,n);',
+'    float F=.045+.955*pow(1.-ndv,5.);',
+'    float occ=1.-.7*cav;',
+'    vec3 rc=env(r);',
+'    if(r.y<0.)rc*=.35;',
+'    vec3 po=p+n*.004;',
+'    float sl=smoothstep(.995,.93,n.y);',
+'    for(int i=0;i<3;i++){vec4 m=uMag[i];if(m.w<=0.)continue;if(sph(po,r,m)>0.)rc=mix(rc,uMagC[i]*5.,sl);}',
+'    rc+=orbGlow(po,r,1e9)*.8*sl;',
+'    col=rc*F*occ;',
+'    col+=mix(uAmb,uC1,.3)*.07*(.35+.65*n.y)*occ;',
+'    for(int i=0;i<3;i++){vec4 m=uMag[i];if(m.w<=0.)continue;vec3 L=m.xyz-p;float dl=length(L);',
+'      col+=uMagC[i]*.035*max(dot(n,L/dl),0.)/(1.+dl*dl*25.)*occ;}',
+'    col+=(uC1*.5+uC2*.25+uC3*.25)*.02*smoothstep(.1,.25,h0-.1*B0)*pow(max(n.y,0.),4.);',
+'    col=mix(col,mix(uAmb,uC1,.35)*.55,1.-exp(-.16*max(t-3.5,0.)));',
+'    tL=t;',
+'  }',
+'  for(int i=0;i<3;i++){vec4 m=uMag[i];if(m.w<=0.)continue;float ts=sph(uRo,rd,m);',
+'    if(ts>0.&&ts<tL){tL=ts;vec3 q=uRo+rd*ts;vec3 N=normalize(q-m.xyz);float f=max(dot(N,-rd),0.);',
+'      vec3 er=env(reflect(rd,N));',
+'      col=uMagC[i]*(1.4+3.2*pow(f,2.))+vec3(1.)*2.5*pow(f,24.)+er*.25*pow(1.-f,2.);}}',
+'  col+=orbGlow(uRo,rd,tL);',
+'  col*=1.35;',
+'  col=col*(2.51*col+.03)/(col*(2.43*col+.59)+.14);',
+'  col=pow(clamp(col,0.,1.),vec3(.4545));',
+'  col*=1.-.18*dot(uv,uv);',
+'  col+=(n0-.5)/160.;',
+'  gl_FragColor=vec4(col,1.);',
+'}'
+].join('\n');
+
+function sh(type, src){ var s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+function mkProg(fs){ var p=gl.createProgram(); gl.attachShader(p,sh(gl.VERTEX_SHADER,VS)); gl.attachShader(p,sh(gl.FRAGMENT_SHADER,fs));
+  gl.bindAttribLocation(p,0,'p'); gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p)); return p; }
+var pField, pMain;
+try{ pField=mkProg(FS_FIELD); pMain=mkProg(FS_MAIN); }
+catch(err){ console.error(err); var el=document.getElementById('error'); el.style.display='flex'; el.textContent='この端末では表示できませんでした。'; return; }
+
+var buf=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+
+function locs(prog, names){ var o={}; names.forEach(function(k){ o[k]=gl.getUniformLocation(prog,(k==='uM'||k==='uRip'||k==='uMag'||k==='uMagC'||k==='uMagS')?k+'[0]':k); }); return o; }
+var UF=locs(pField,['uM','uTex','uDom']);
+var UM=locs(pMain,['uMag','uMagC','uMagS','uPx','uTexN','uRes','uT','uRo','uF','uR','uU','uFld','uDom','uRip','uS1','uH1','uSharp','uHM','uC1','uC2','uC3','uAmb','uRain','uHueSpd']);
+
+// 磁場テクスチャ(16bitを2チャンネルに分けて持つ。線形補間しても値が正しく混ざる)
+var ftex=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,ftex);
+gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,FW,FH,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+var fbo=gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);
+gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,ftex,0);
+gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+
+// ---- 照明(色はすべて映り込み) ----
+function hex(h){ return [parseInt(h.substr(1,2),16)/255, parseInt(h.substr(3,2),16)/255, parseInt(h.substr(5,2),16)/255]; }
+var LIGHTS = [
+  {name:'虹の部屋', c1:'#f4f1ff', c2:'#ff4fb8', c3:'#3fd8ff', amb:'#5a6296', rain:1.0},
+  {name:'白スタジオ', c1:'#ffffff', c2:'#fff4e6', c3:'#e6f0ff', amb:'#7a7a86', rain:.12},
+  {name:'夕焼け', c1:'#ffcf9a', c2:'#ff5e62', c3:'#4b5bff', amb:'#7a4a5c', rain:.35},
+  {name:'ネオン', c1:'#c9fff7', c2:'#ff2fd6', c3:'#7a3cff', amb:'#3e2378', rain:.6},
+  {name:'金', c1:'#ffe7b0', c2:'#ffb347', c3:'#fff6e0', amb:'#6a4f2a', rain:0.},
+  {name:'オーロラ', c1:'#b8ffd9', c2:'#2fffb0', c3:'#a55cff', amb:'#235566', rain:.8}
+];
+var P = {light:0, S1:.2, H1:.29, sharp:1.7};
+function lightUniforms(){ var L=LIGHTS[P.light]; return {c1:hex(L.c1), c2:hex(L.c2), c3:hex(L.c3), amb:hex(L.amb), rain:L.rain}; }
+var LU = lightUniforms();
+
+// ---- 磁力の記憶 ----
+// stamp: {x,z,s,r,tau}  s=強さ, r=広がり, tau=忘れるまでの時間の目安(秒)
+var stamps=[], ripples=[];
+function seedStamps(){
+  stamps=[
+    {x:.45, z:.35, s:1.6, r:.32, tau:30},
+    {x:-.6, z:1.5, s:1.2, r:.3, tau:25}
+  ];
+  ripples=[];
+}
+seedStamps();
+function addStamp(x,z,s,r,tau){
+  var near=null, nd=.13*.13;
+  stamps.forEach(function(st){ var d=(st.x-x)*(st.x-x)+(st.z-z)*(st.z-z); if(d<nd){ nd=d; near=st; } });
+  if(near){
+    if(s>near.s){ near.x+=(x-near.x)*.5; near.z+=(z-near.z)*.5; }
+    near.s=Math.max(near.s,s); near.r=Math.max(near.r,r); near.tau=Math.max(near.tau,tau);
+    return;
+  }
+  if(stamps.length<NM-1){ stamps.push({x:x,z:z,s:s,r:r,tau:tau}); return; }
+  var weak=null; stamps.forEach(function(st){ if(!weak||st.s<weak.s) weak=st; });
+  if(weak && weak.s<s){ weak.x=x; weak.z=z; weak.s=s; weak.r=r; weak.tau=tau; }
+}
+function addRipple(x,z,amp){
+  if(ripples.length>=NR) ripples.shift();
+  ripples.push({x:x,z:z,age:0,amp:amp});
+}
+
+// ---- カメラ(シェーダーと同じ式。タッチ位置を液面に写すのにも使う) ----
+var cam={ro:[0,0,0],f:[0,0,1],r:[1,0,0],u:[0,1,0]};
+function norm(v){ var l=Math.hypot(v[0],v[1],v[2]); return [v[0]/l,v[1]/l,v[2]/l]; }
+function cross(a,b){ return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]; }
+function updateCam(t){
+  var yaw=.15*Math.sin(t*.06), pitch=(28+3*Math.sin(t*.045))*Math.PI/180, R=(W>H?2.6:3.4);
+  var tg=[0,0,1.0];
+  var ro=[tg[0]+R*Math.sin(yaw)*Math.cos(pitch), tg[1]+R*Math.sin(pitch), tg[2]-R*Math.cos(yaw)*Math.cos(pitch)];
+  var f=norm([tg[0]-ro[0],tg[1]-ro[1],tg[2]-ro[2]]);
+  var r=norm(cross([0,1,0],f));
+  var u=cross(f,r);
+  cam.ro=ro; cam.f=f; cam.r=r; cam.u=u;
+}
+// 画面の点(CSS px) → 液面(y=0)の座標
+function toPool(cx,cy){
+  var rect=canvas.getBoundingClientRect();
+  var w=rect.width, h=rect.height;
+  var ux=(cx-rect.left-.5*w)/h, uy=(.5*h-(cy-rect.top))/h;
+  var d=norm([cam.f[0]*1.1+ux*cam.r[0]+uy*cam.u[0], cam.f[1]*1.1+ux*cam.r[1]+uy*cam.u[1], cam.f[2]*1.1+ux*cam.r[2]+uy*cam.u[2]]);
+  if(d[1]>-.02) d[1]=-.02;
+  var t=-cam.ro[1]/d[1];
+  var x=cam.ro[0]+d[0]*t, z=cam.ro[2]+d[2]*t;
+  return {x:Math.max(DOM.x0+.3,Math.min(DOM.x0+DOM.w-.3,x)), z:Math.max(DOM.z0+.3,Math.min(DOM.z0+DOM.d-.3,z))};
+}
+
+// ---- 解像度(重ければ自動で下げる) ----
+var budget=720000, W=0, H=0;
+function resize(){
+  var dpr=Math.min(window.devicePixelRatio||1,2);
+  var cw=canvas.clientWidth||innerWidth, ch=canvas.clientHeight||innerHeight;
+  var px=cw*ch*dpr*dpr, sc=Math.min(1,Math.sqrt(budget/px));
+  W=Math.max(2,Math.round(cw*dpr*sc)); H=Math.max(2,Math.round(ch*dpr*sc));
+  canvas.width=W; canvas.height=H;
+}
+addEventListener('resize',resize);
+if(window.ResizeObserver) new ResizeObserver(resize).observe(canvas);
+resize();
+
+// ---- 操作 ----
+var hint=document.getElementById('hint'), hinted=false;
+function hideHint(){ if(!hinted){ hinted=true; hint.classList.add('off'); } }
+setTimeout(hideHint,8000);
+var clock0=performance.now();
+function nowS(){ return (performance.now()-clock0)/1000; }
+var lastTouch=-100;
+
+// ---- 光る磁石(3つ)。ふだんは勝手に漂い、低く降りるほど液を強く引く ----
+var MAG_R=.085;
+var mags=[
+  {ax:-.35,az:.15, w:[.071,.093,.13], ph:[0,1.7,.4]},
+  {ax:.42, az:1.0, w:[.083,.061,.11], ph:[2.1,.3,2.6]},
+  {ax:-.1, az:2.0, w:[.058,.077,.097],ph:[4.0,3.3,4.9]}
+];
+mags.forEach(function(m,i){ var p=magPath(m,0); m.x=p[0]; m.y=p[1]; m.z=p[2]; m.s=0; m.lx=m.x; m.lz=m.z; m.held=false; m.wasStrong=false; m.ci=i; });
+function magPath(m,t){
+  return [m.ax+.55*Math.sin(t*m.w[0]+m.ph[0])+.18*Math.sin(t*m.w[1]*2.3+m.ph[1]),
+          .9+.45*Math.sin(t*m.w[2]+m.ph[2]),
+          m.az+.6*Math.sin(t*m.w[1]+m.ph[1])];
+}
+function magStrength(y){ var k=Math.min(1,Math.max(0,(1.35-y)/(1.35-.42))); return 2.7*Math.pow(k*k*(3-2*k),1.15); }
+function magR(s){ return .26+.12*s/2.7; }
+
+var touch=null;
+canvas.addEventListener('pointerdown',function(ev){
+  if(window.APKit && APKit.isUI(ev.clientX,ev.clientY)) return true;
+  ev.preventDefault(); hideHint();
+  if(touch) return;
+  var p=toPool(ev.clientX,ev.clientY);
+  // いちばん近い磁石が指のところへ来る
+  var best=null,bd=1e9; mags.forEach(function(m){ var d=Math.hypot(m.x-p.x,m.z-p.z); if(d<bd){bd=d;best=m;} });
+  touch={id:ev.pointerId, sx:ev.clientX, sy:ev.clientY, t0:nowS(), x:p.x, z:p.z, moved:false, mag:best};
+  best.held=true; best.fx=p.x; best.fz=p.z;
+  lastTouch=nowS();
+  try{ canvas.setPointerCapture(ev.pointerId); }catch(e){}
+});
+canvas.addEventListener('pointermove',function(ev){
+  if(!touch||ev.pointerId!==touch.id) return;
+  var p=toPool(ev.clientX,ev.clientY);
+  touch.x=p.x; touch.z=p.z; touch.mag.fx=p.x; touch.mag.fz=p.z;
+  if(Math.hypot(ev.clientX-touch.sx,ev.clientY-touch.sy)>12) touch.moved=true;
+});
+function up(ev){
+  if(!touch||ev.pointerId!==touch.id) return;
+  var dur=nowS()-touch.t0;
+  touch.mag.held=false;
+  if(!touch.moved && dur<.28) tapAt(touch.x,touch.z);
+  touch=null; lastTouch=nowS();
+}
+canvas.addEventListener('pointerup',up); canvas.addEventListener('pointercancel',up);
+
+// タップ: その場の磁力が抜ける。トゲは一度跳ねてから崩れる
+function tapAt(x,z){
+  stamps.forEach(function(st){
+    var d=Math.hypot(st.x-x,st.z-z);
+    if(d<.55+st.r*.5){ st.s*=1.3; st.tau=Math.min(st.tau,.32+d*.4); }
+  });
+  stamps.push({x:x,z:z,s:1.0,r:.27,tau:.3});
+  addRipple(x,z,.022);
+}
+
+// ---- 毎フレームの更新 ----
+function step(dt,t){
+  mags.forEach(function(m){
+    var tx,ty,tz,rate;
+    if(m.held){ tx=m.fx; tz=m.fz; ty=.42; rate=3.2; }
+    else { var p=magPath(m,t); tx=p[0]; ty=p[1]; tz=p[2]; rate=.7; }
+    var k=1-Math.exp(-dt*rate);
+    m.x+=(tx-m.x)*k; m.z+=(tz-m.z)*k; m.y+=(ty-m.y)*(m.held?k:1-Math.exp(-dt*1.2));
+    m.s=magStrength(m.y);
+    // 通った跡に磁力が残る(その道を液は覚えている)
+    if(m.s>1.3 && Math.hypot(m.x-m.lx,m.z-m.lz)>.1){ addStamp(m.x,m.z,m.s*.36,.19,10); m.lx=m.x; m.lz=m.z; }
+    // 磁石が離れていくと、立っていたトゲが崩れて波紋が出る
+    if(m.s>1.6) m.wasStrong=true;
+    if(m.wasStrong && m.s<1.0){ m.wasStrong=false; addRipple(m.x,m.z,.012); }
+  });
+  // 忘れる(強いほどゆっくり。細かいトゲから先に消える)
+  for(var i=stamps.length-1;i>=0;i--){
+    var st=stamps[i];
+    st.s*=Math.exp(-dt/st.tau);
+    if(st.s<.03){ stamps.splice(i,1); }
+  }
+  for(i=ripples.length-1;i>=0;i--){ ripples[i].age+=dt; if(ripples[i].age>4.5) ripples.splice(i,1); }
+}
+
+// ---- ✦ / ↻ ----
+function mutate(){
+  P.light=(P.light+1+Math.floor(Math.random()*(LIGHTS.length-1)))%LIGHTS.length;
+  P.S1=[.16,.18,.2,.22,.24][Math.floor(Math.random()*5)];
+  P.H1=P.S1*(1.3+Math.random()*.45);
+  P.sharp=[1.5,1.8,2.1][Math.floor(Math.random()*3)];
+  LU=lightUniforms();
+  stamps.forEach(function(st){ addRipple(st.x,st.z,.006); });
+}
+function reset(){ seedStamps(); lastTouch=nowS(); }
+
+// ---- 描画 ----
+var mArr=new Float32Array(NM*4), rArr=new Float32Array(NR*4), magArr=new Float32Array(12), magC=new Float32Array(9), magS=new Float32Array(3);
+var SPEED=1, last=performance.now(), ftAvg=16, ftN=0, ftAcc=0;
+function frame(now){
+  var dtms=now-last; last=now;
+  var dt=Math.min(.05,dtms/1000)*SPEED, t=nowS();
+  // 重い端末では解像度を下げる
+  ftAcc+=dtms; ftN++;
+  if(ftN>=45){ ftAvg=ftAcc/ftN; ftAcc=0; ftN=0;
+    // 30fps前後を保てるうちは画質を落とさない。軽ければ少し戻す
+    if(ftAvg>42 && budget>400000){ budget=Math.max(400000,Math.round(budget*.86)); resize(); }
+    else if(ftAvg<21 && budget<1100000){ budget=Math.round(budget*1.12); resize(); }
+  }
+  step(dt,t);
+  updateCam(t);
+
+  mArr.fill(0); var k=0;
+  mags.forEach(function(m){ mArr[k*4]=m.x; mArr[k*4+1]=m.z; mArr[k*4+2]=m.s; mArr[k*4+3]=magR(m.s); k++; });
+  var maxPeak=0;
+  mags.forEach(function(m,j){ magArr[j*4]=m.x; magArr[j*4+1]=m.y; magArr[j*4+2]=m.z; magArr[j*4+3]=MAG_R;
+    var ms=Math.min(1,Math.max(0,(m.s-1.5)/1.1)); ms=ms*ms*(3-2*ms); magS[j]=ms;
+    var c=[LU.c2,LU.c3,LU.c1][j]; magC[j*3]=c[0]; magC[j*3+1]=c[1]; magC[j*3+2]=c[2];
+    maxPeak=Math.max(maxPeak,ms*(m.y-MAG_R)); });
+  for(var i=0;i<stamps.length && k<NM;i++,k++){ var st=stamps[i]; mArr[k*4]=st.x; mArr[k*4+1]=st.z; mArr[k*4+2]=st.s; mArr[k*4+3]=st.r; }
+  rArr.fill(0);
+  ripples.forEach(function(r,j){ rArr[j*4]=r.x; rArr[j*4+1]=r.z; rArr[j*4+2]=r.age; rArr[j*4+3]=r.amp; });
+
+  // 1) 磁場を焼く
+  gl.bindFramebuffer(gl.FRAMEBUFFER,fbo); gl.viewport(0,0,FW,FH);
+  gl.useProgram(pField);
+  gl.uniform4fv(UF.uM,mArr); gl.uniform2f(UF.uTex,FW,FH); gl.uniform4f(UF.uDom,DOM.x0,DOM.z0,DOM.w,DOM.d);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+
+  // 2) 液面
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.viewport(0,0,W,H);
+  gl.useProgram(pMain);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,ftex); gl.uniform1i(UM.uFld,0);
+  gl.uniform2f(UM.uTexN,FW,FH); gl.uniform1f(UM.uPx,1/(H*1.1)); gl.uniform2f(UM.uRes,W,H); gl.uniform1f(UM.uT,t);
+  gl.uniform3fv(UM.uRo,cam.ro); gl.uniform3fv(UM.uF,cam.f); gl.uniform3fv(UM.uR,cam.r); gl.uniform3fv(UM.uU,cam.u);
+  gl.uniform4f(UM.uDom,DOM.x0,DOM.z0,1/DOM.w,1/DOM.d);
+  gl.uniform4fv(UM.uRip,rArr);
+  gl.uniform1f(UM.uS1,P.S1); gl.uniform1f(UM.uH1,P.H1); gl.uniform1f(UM.uSharp,P.sharp);
+  gl.uniform1f(UM.uHM,Math.max(P.H1*1.55+.16,maxPeak+.12));
+  gl.uniform4fv(UM.uMag,magArr); gl.uniform3fv(UM.uMagC,magC); gl.uniform1fv(UM.uMagS,magS);
+  gl.uniform3fv(UM.uC1,LU.c1); gl.uniform3fv(UM.uC2,LU.c2); gl.uniform3fv(UM.uC3,LU.c3); gl.uniform3fv(UM.uAmb,LU.amb);
+  gl.uniform1f(UM.uRain,LU.rain); gl.uniform1f(UM.uHueSpd,.012);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+
+if(window.APKit){
+  APKit.init({
+    canvas: canvas,
+    gifName: 'iron-bloom-loop',
+    clockFormat: 'spec',
+    dock: true,
+    autoHide: true,
+    fullscreenButton: false,
+    buttons: [
+      {label:'✦', name:'mutate', onClick:function(){ mutate(); }},
+      {label:'↻', name:'reset',  onClick:function(){ reset(); }}
+    ]
+  });
+}
+})();
+</script>
+</body>
+</html>
