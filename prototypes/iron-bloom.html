@@ -82,8 +82,8 @@ var FS_MAIN = [
 'vec2 hexOff(vec2 q){vec2 r=vec2(1.,1.7320508);vec2 h=r*.5;vec2 a=mod(q,r)-h;vec2 b=mod(q-h,r)-h;return dot(a,a)<dot(b,b)?a:b;}',
 'float ripple(vec2 p){float s=0.;for(int i=0;i<6;i++){vec4 r=uRip[i];if(r.w<=0.)continue;',
 '  float d=length(p-r.xy);float x=d-r.z*.9;s+=r.w*exp(-r.z*1.3)*sin(x*24.)*exp(-x*x*16.)/(1.+d*1.6);}return s;}',
-'float hgt(vec2 p,out float cav){',
-'  float B=fldC(p);gB=B;',
+'float hgt(vec2 p,out float cav,float hq){',
+'  float B=hq>.5?fldC(p):fld(p);gB=B;',
 '  float h=.10*B*B*(3.-2.*B);',
 '  h+=ripple(p);',
 '  h+=.0035*sin(p.x*3.1+uT*.6)*sin(p.y*2.7-uT*.5);',
@@ -141,19 +141,19 @@ var FS_MAIN = [
 '    float t=max((uRo.y-uHM)/(-rd.y),0.);',
 '    float tmax=(uRo.y+.08)/(-rd.y);',
 '    float tp=t;float cav=0.;bool hit=false;',
-'    for(int i=0;i<200;i++){',
-'      vec3 p=uRo+rd*t;gPix=t*uPx;float h=hgt(p.xz,cav);float g=p.y-h;',
+'    for(int i=0;i<170;i++){',
+'      vec3 p=uRo+rd*t;gPix=t*uPx;float h=hgt(p.xz,cav,0.);float g=p.y-h;',
 '      if(g<.0006){hit=true;break;}',
 '      tp=t;t+=max(g*(gB<.11?.85:.45),.0012);',
 '      if(t>tmax){t=tmax;hit=true;break;}',
-'      if(i==199){t=tp;}',
+'      if(i==169){t=tp;}',
 '    }',
 '    float a=tp,b=t;',
-'    for(int i=0;i<6;i++){float m=.5*(a+b);vec3 p=uRo+rd*m;if(p.y-hgt(p.xz,cav)>0.)a=m;else b=m;}',
-'    t=b;gPix=t*uPx;vec3 p=uRo+rd*t;float h0=hgt(p.xz,cav);float B0=gB;',
+'    for(int i=0;i<6;i++){float m=.5*(a+b);vec3 p=uRo+rd*m;if(p.y-hgt(p.xz,cav,0.)>0.)a=m;else b=m;}',
+'    t=b;gPix=t*uPx;vec3 p=uRo+rd*t;float h0=hgt(p.xz,cav,1.);float B0=gB;',
 '    float e=.0011+.0006*t;float cc;',
-'    float hx=hgt(p.xz+vec2(e,0.),cc)-hgt(p.xz-vec2(e,0.),cc);',
-'    float hz=hgt(p.xz+vec2(0.,e),cc)-hgt(p.xz-vec2(0.,e),cc);',
+'    float hx=hgt(p.xz+vec2(e,0.),cc,1.)-hgt(p.xz-vec2(e,0.),cc,1.);',
+'    float hz=hgt(p.xz+vec2(0.,e),cc,1.)-hgt(p.xz-vec2(0.,e),cc,1.);',
 '    vec3 n=normalize(vec3(-hx,2.*e,-hz));',
 '    vec3 v=-rd;float ndv=max(dot(n,v),0.);',
 '    vec3 r=reflect(rd,n);',
@@ -401,7 +401,9 @@ function frame(now){
   // 重い端末では解像度を下げる
   ftAcc+=dtms; ftN++;
   if(ftN>=45){ ftAvg=ftAcc/ftN; ftAcc=0; ftN=0;
-    if(ftAvg>26 && budget>260000){ budget=Math.round(budget*.78); resize(); }
+    // 30fps前後を保てるうちは画質を落とさない。軽ければ少し戻す
+    if(ftAvg>42 && budget>400000){ budget=Math.max(400000,Math.round(budget*.86)); resize(); }
+    else if(ftAvg<21 && budget<1100000){ budget=Math.round(budget*1.12); resize(); }
   }
   step(dt,t);
   updateCam(t);
