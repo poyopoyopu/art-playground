@@ -19,7 +19,7 @@
 <style>
 html,body{margin:0;height:100%;background:#000;overflow:hidden;touch-action:none}
 canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
-#hint{position:fixed;left:16px;right:16px;top:calc(env(safe-area-inset-top) + 18px);text-align:center;color:rgba(235,240,255,.72);font:500 11px/1.6 system-ui,sans-serif;letter-spacing:.12em;pointer-events:none;transition:opacity 1.2s}
+#hint{position:fixed;left:16px;right:16px;top:calc(env(safe-area-inset-top) + 18px);text-align:center;color:rgba(235,240,255,.72);font:500 11px/1.6 system-ui,sans-serif;letter-spacing:.12em;text-shadow:0 1px 6px rgba(0,0,0,.65);pointer-events:none;transition:opacity 1.2s}
 #hint.off{opacity:0}
 #error{display:none;position:fixed;inset:0;align-items:center;justify-content:center;color:#ddd;font:14px system-ui,sans-serif}
 </style>
@@ -111,7 +111,8 @@ var FS_MAIN = [
 'vec3 env(vec3 r){',
 '  float el=asin(clamp(r.y,-1.,1.));float az=atan(r.x,r.z);',
 '  float up=max(r.y,0.);',
-'  vec3 c=uAmb*(.07+.45*up);',
+'  vec3 c=uAmb*(.22+1.1*up);',
+'  c+=mix(uAmb,uC1,.5)*1.3*exp(-pow((el-.12)/.22,2.))*smoothstep(1.7,.4,abs(az));',
 '  float bz=abs(az);',
 '  float bk=0.;',
 '  bk=band(bz,3.14159,.42,.18);float sb=band(bz,1.95,.2,.1);',
@@ -129,7 +130,7 @@ var FS_MAIN = [
 '  vec3 rd=normalize(uF*1.1+uv.x*uR+uv.y*uU);',
 '  vec3 col;',
 '  float n0=fract(sin(dot(gl_FragCoord.xy,vec2(12.9898,78.233)))*43758.5453);',
-'  if(rd.y>-.002){col=env(rd)*.03;}',
+'  if(rd.y>-.002){col=env(rd)*.45;}',
 '  else{',
 '    float t=max((uRo.y-uHM)/(-rd.y),0.);',
 '    float tmax=(uRo.y+.08)/(-rd.y);',
@@ -155,13 +156,14 @@ var FS_MAIN = [
 '    vec3 rc=env(r);',
 '    if(r.y<0.)rc*=.35;',
 '    col=rc*F*occ;',
-'    col+=uAmb*.01*(.4+.6*n.y)*occ;',
+'    col+=mix(uAmb,uC1,.3)*.07*(.35+.65*n.y)*occ;',
 '    col+=(uC1*.5+uC2*.25+uC3*.25)*.02*smoothstep(.1,.25,h0-.1*B0)*pow(max(n.y,0.),4.);',
-'    col*=exp(-.2*max(t-4.2,0.));',
+'    col=mix(col,mix(uAmb,uC1,.35)*.55,1.-exp(-.16*max(t-3.5,0.)));',
 '  }',
+'  col*=1.35;',
 '  col=col*(2.51*col+.03)/(col*(2.43*col+.59)+.14);',
 '  col=pow(clamp(col,0.,1.),vec3(.4545));',
-'  col*=1.-.28*dot(uv,uv);',
+'  col*=1.-.18*dot(uv,uv);',
 '  col+=(n0-.5)/160.;',
 '  gl_FragColor=vec4(col,1.);',
 '}'
@@ -198,12 +200,12 @@ gl.bindFramebuffer(gl.FRAMEBUFFER,null);
 // ---- 照明(色はすべて映り込み) ----
 function hex(h){ return [parseInt(h.substr(1,2),16)/255, parseInt(h.substr(3,2),16)/255, parseInt(h.substr(5,2),16)/255]; }
 var LIGHTS = [
-  {name:'虹の部屋', c1:'#f4f1ff', c2:'#ff4fb8', c3:'#3fd8ff', amb:'#3a3f66', rain:1.0},
-  {name:'白スタジオ', c1:'#ffffff', c2:'#fff4e6', c3:'#e6f0ff', amb:'#3c3c44', rain:.12},
-  {name:'夕焼け', c1:'#ffcf9a', c2:'#ff5e62', c3:'#4b5bff', amb:'#4a2a3a', rain:.35},
-  {name:'ネオン', c1:'#c9fff7', c2:'#ff2fd6', c3:'#7a3cff', amb:'#22104a', rain:.6},
-  {name:'金', c1:'#ffe7b0', c2:'#ffb347', c3:'#fff6e0', amb:'#3a2a14', rain:0.},
-  {name:'オーロラ', c1:'#b8ffd9', c2:'#2fffb0', c3:'#a55cff', amb:'#10303a', rain:.8}
+  {name:'虹の部屋', c1:'#f4f1ff', c2:'#ff4fb8', c3:'#3fd8ff', amb:'#5a6296', rain:1.0},
+  {name:'白スタジオ', c1:'#ffffff', c2:'#fff4e6', c3:'#e6f0ff', amb:'#7a7a86', rain:.12},
+  {name:'夕焼け', c1:'#ffcf9a', c2:'#ff5e62', c3:'#4b5bff', amb:'#7a4a5c', rain:.35},
+  {name:'ネオン', c1:'#c9fff7', c2:'#ff2fd6', c3:'#7a3cff', amb:'#3e2378', rain:.6},
+  {name:'金', c1:'#ffe7b0', c2:'#ffb347', c3:'#fff6e0', amb:'#6a4f2a', rain:0.},
+  {name:'オーロラ', c1:'#b8ffd9', c2:'#2fffb0', c3:'#a55cff', amb:'#235566', rain:.8}
 ];
 var P = {light:0, S1:.2, H1:.29, sharp:1.7};
 function lightUniforms(){ var L=LIGHTS[P.light]; return {c1:hex(L.c1), c2:hex(L.c2), c3:hex(L.c3), amb:hex(L.amb), rain:L.rain}; }
