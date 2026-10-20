@@ -11,10 +11,14 @@
        なぞる = その向きに風が吹く(綿毛がちぎれて飛ぶ。吹いた向きに次の野原ができる)
        タップ = 綿毛をはじく
        長押し = 風がやむ(飛んでいる綿毛が空中で止まりかける)
-     描画: Canvas 2D。綿毛1本1本(冠毛の傘+柄+実)を作り置きの絵にして、球状に並べて描く。 -->
+     2026/10/20 v2: おっちゃん「ちゃっちいなー」を受けて描画を全面作り直し。
+       草むらに寝転んで逆光のタンポポを見上げる写真の構図に。被写界深度(奥と手前がボケる)、
+       綿毛は1粒ずつ「冠毛の円盤+くちばし+実」を立体の向きで描く、花は切れ込みのある舌状花の重なり、
+       草は先細りの葉を奥行きの層ごとに揺らす、雲・木立・遠くの花畑・光のボケ・グレイン・ビネット。
+     描画: Canvas 2D。綿毛の頭は株ごとの作り置きキャンバスに描き、綿毛が減った時だけ描き直す。 -->
 <script src="../ap-kit.js"></script>
 <style>
-html,body{margin:0;height:100%;background:#f3d9b8;overflow:hidden;touch-action:none}
+html,body{margin:0;height:100%;background:#e9b98f;overflow:hidden;touch-action:none}
 canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
 #hint{position:fixed;left:16px;right:16px;top:calc(env(safe-area-inset-top) + 18px);text-align:center;color:rgba(255,255,255,.92);font:500 11px/1.6 system-ui,sans-serif;letter-spacing:.12em;text-shadow:0 1px 6px rgba(40,30,60,.55);pointer-events:none;transition:opacity 1.2s}
 #hint.off{opacity:0}
@@ -28,125 +32,316 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
 'use strict';
 var cv=document.getElementById('c'), ctx=cv.getContext('2d');
 var W=0,H=0,DPR=1,U=1;
+var PI2=Math.PI*2;
+function rnd(a,b){ return a+Math.random()*(b-a); }
+function clamp(v,a,b){ return v<a?a:v>b?b:v; }
+function mk(w,h){ var c=document.createElement('canvas'); c.width=Math.max(1,Math.round(w)); c.height=Math.max(1,Math.round(h)); return c; }
 
 // ---- 時間帯(✦で切り替え) ----
+// rgba( で終わる値は、あとに '透明度)' を足して使う
 var TIMES=[
-  {name:'夕暮れ', sky:['#40508c','#9a7fb0','#f0a9a0','#ffd59a'], sun:'#fff3cf', sunGlow:'rgba(255,214,150,', hill1:'#7d6f98', hill2:'#5b587e', mist:'rgba(255,215,190,', ground:['#5d6b45','#3b4a2c','#26331d'], grass:'#2c3b22', grassLit:'#9bb05a', stem:'#93a865', leaf:'#4f6b33', pap:'#fff6e6', glow:'rgba(255,226,170,', pollen:'rgba(255,235,190,'},
-  {name:'朝', sky:['#7fa9de','#a9c9ea','#e9e6dc','#fff2d6'], sun:'#ffffff', sunGlow:'rgba(255,250,225,', hill1:'#9fb1c8', hill2:'#7f94ae', mist:'rgba(245,248,255,', ground:['#7c9a58','#58763a','#3c5527'], grass:'#3d5a2a', grassLit:'#bcd486', stem:'#9cb871', leaf:'#5a7e38', pap:'#ffffff', glow:'rgba(255,255,240,', pollen:'rgba(255,255,240,'},
-  {name:'春の昼', sky:['#3f8fe6','#6fb0f2','#bfe1fb','#eaf6ff'], sun:'#ffffff', sunGlow:'rgba(255,255,245,', hill1:'#86b07f', hill2:'#5e905c', mist:'rgba(235,248,255,', ground:['#86b65a','#5f9440','#3f6e2b'], grass:'#3f6f2a', grassLit:'#c6e38a', stem:'#a3c477', leaf:'#4f8a35', pap:'#ffffff', glow:'rgba(255,255,255,', pollen:'rgba(255,255,255,'},
-  {name:'月夜', sky:['#0e1a3d','#1d2e62','#3a4f8a','#6d7fb3'], sun:'#f2f4ff', sunGlow:'rgba(190,210,255,', hill1:'#2d3a66', hill2:'#1f2a4f', mist:'rgba(160,185,240,', ground:['#2c3c45','#1d2b33','#121c22'], grass:'#16242a', grassLit:'#5d7f8f', stem:'#6f8f8f', leaf:'#2f4f45', pap:'#e6f2ff', glow:'rgba(170,205,255,', pollen:'rgba(200,225,255,'}
+  {name:'夕暮れ', sunX:.36, sunY:-.035, night:false,
+   sky:['#2b3a73','#6b5f9e','#d98f8e','#ffc68a','#ffe6b5'], cloud:'#6a5a8c', cloudLit:'#ffb88e', cloudA:.9,
+   sun:'#fff7e0', sunGlow:'rgba(255,196,128,', streak:'rgba(255,214,160,',
+   hillFar:'#9a86a8', hillNear:'#6f6288', trees:'#4f4870', haze:'rgba(255,200,165,',
+   meadow:['#9c8f5c','#6b6c3c','#3b4527'], dotY:'#ffd24a', dotW:'#fff4dc',
+   grass:['#26361d','#3f5629','#7c8a3e'], rim:'rgba(255,214,140,', near:'#141c10',
+   stem:'#a3b26c', stemDark:'#6f7e46', pap:'#fff8ea', achene:'#6b4a2e', glow:'rgba(255,222,165,',
+   bud:'#5f7c33', budLit:'#a9c05f', bract:'#4c6629', fdim:0,
+   bokeh:'rgba(255,212,150,', mote:'rgba(255,236,190,', vig:'rgba(46,22,40,', vigA:.48, bloomA:.3, haloA:.38, bloom:'rgba(255,190,120,', bg:'#e9b98f'},
+  {name:'朝', sunX:.30, sunY:-.03, night:false,
+   sky:['#5f8fd0','#93b7e3','#d6dfe6','#fde3c4','#fff3dc'], cloud:'#aab7cf', cloudLit:'#fff0da', cloudA:.8,
+   sun:'#ffffff', sunGlow:'rgba(255,238,205,', streak:'rgba(255,246,225,',
+   hillFar:'#a9b7cb', hillNear:'#8597b0', trees:'#6a7c97', haze:'rgba(244,246,255,',
+   meadow:['#9fae76','#6c8a48','#3f5a2c'], dotY:'#ffdd55', dotW:'#ffffff',
+   grass:['#2c4524','#4c6d33','#9db35e'], rim:'rgba(255,248,215,', near:'#16241a',
+   stem:'#a9c27a', stemDark:'#6f8a4a', pap:'#ffffff', achene:'#6e5038', glow:'rgba(255,252,236,',
+   bud:'#638a36', budLit:'#b4d073', bract:'#4f7030', fdim:0,
+   bokeh:'rgba(255,248,222,', mote:'rgba(255,255,240,', vig:'rgba(24,34,52,', vigA:.3, bloomA:.16, haloA:.16, bloom:'rgba(255,240,210,', bg:'#dfe6ea'},
+  {name:'春の昼', sunX:.80, sunY:-.56, night:false,
+   sky:['#2a72cf','#4f97e6','#93c7f4','#d2ebfb','#eef8ff'], cloud:'#c3d3ea', cloudLit:'#ffffff', cloudA:.95,
+   sun:'#ffffff', sunGlow:'rgba(255,255,248,', streak:'rgba(255,255,250,',
+   hillFar:'#9cc0b2', hillNear:'#6e9f72', trees:'#4d8155', haze:'rgba(232,246,255,',
+   meadow:['#9cc66a','#6aa14a','#3f7530'], dotY:'#ffe04a', dotW:'#ffffff',
+   grass:['#2f5a24','#4f8a36','#a8d36a'], rim:'rgba(250,255,215,', near:'#173019',
+   stem:'#b0cf80', stemDark:'#76a04e', pap:'#ffffff', achene:'#735536', glow:'rgba(255,255,255,',
+   bud:'#5f9038', budLit:'#b9dc7c', bract:'#4b7a30', fdim:0,
+   bokeh:'rgba(255,255,245,', mote:'rgba(255,255,255,', vig:'rgba(18,40,60,', vigA:.24, bloomA:.12, haloA:.18, bloom:'rgba(255,255,240,', bg:'#cfe6f7'},
+  {name:'月夜', sunX:.70, sunY:-.40, night:true,
+   sky:['#050a20','#0f1a44','#22346c','#3e5390','#5d72aa'], cloud:'#24305e', cloudLit:'#8b9fd8', cloudA:.7,
+   sun:'#f3f5ff', sunGlow:'rgba(180,200,255,', streak:'rgba(190,210,255,',
+   hillFar:'#2c3c6c', hillNear:'#1e2b52', trees:'#141e3c', haze:'rgba(150,175,235,',
+   meadow:['#2b3c4a','#1a2a34','#0d171e'], dotY:'#b9a85a', dotW:'#dfe9ff',
+   grass:['#0b161b','#16282e','#3f6070'], rim:'rgba(180,210,255,', near:'#04080b',
+   stem:'#728f90', stemDark:'#3f5759', pap:'#eaf2ff', achene:'#4a5468', glow:'rgba(175,205,255,',
+   bud:'#3a5a48', budLit:'#6f9480', bract:'#2c4838', fdim:.45,
+   bokeh:'rgba(185,212,255,', mote:'rgba(225,255,170,', vig:'rgba(2,4,14,', vigA:.52, bloomA:.14, haloA:.42, bloom:'rgba(150,180,255,', bg:'#0f1a44'}
 ];
 var TI=0, T=TIMES[0];
 
+// ---- 奥行き ----
+// z: 0=遠く 1=目の前。1より大きいのはカメラのすぐ前(大きくボケる)
+function horizon(){ return H*(W>H?.66:.70); }
+function baseY(z){ var hy=horizon(); return hy+(H*1.06-hy)*Math.pow(Math.max(0,z),1.3); }
+function zOfY(y){ var hy=horizon(); return Math.pow(Math.max(0,(y-hy)/(H*1.06-hy)),1/1.3); }
+function zsc(z){ return .36+1.04*Math.pow(Math.max(0,z),1.4); }
+function lvOf(z){ if(z>1.25) return 3; if(z>1.04) return 2; var d=Math.abs(z-.78); return d<.26?0:(d<.46?1:2); }
+var SUN={x:0,y:0};
+
 // ---- 作り置きの絵 ----
-var bg=document.createElement('canvas'), bgx=bg.getContext('2d');
-var seedSpr=document.createElement('canvas'), SS=96, SOX=48, SOY=92;
-var glowSpr=document.createElement('canvas');
-function buildSprites(){
-  seedSpr.width=SS; seedSpr.height=SS; var g=seedSpr.getContext('2d'); g.clearRect(0,0,SS,SS);
-  // 冠毛の傘: 柄の先から上向きに扇状に広がる細い毛
-  var cx=SOX, cy=38, n=34;
-  g.lineCap='round';
+// ぼかし: 半分ずつ縮めてから戻す(どのブラウザでも同じに見える)
+function blurCanvas(src,steps){
+  if(steps<=0) return src;
+  var cur=src, list=[];
+  for(var i=0;i<steps;i++){ var n=mk(cur.width/2,cur.height/2), g=n.getContext('2d'); g.imageSmoothingEnabled=true; g.imageSmoothingQuality='high'; g.drawImage(cur,0,0,n.width,n.height); list.push(n); cur=n; }
+  for(i=steps-1;i>=0;i--){ var w=i===0?src.width:list[i-1].width, h=i===0?src.height:list[i-1].height; var u=mk(w,h), q=u.getContext('2d'); q.imageSmoothingEnabled=true; q.imageSmoothingQuality='high'; q.drawImage(cur,0,0,w,h); cur=u; }
+  return cur;
+}
+var DS=128, DC=64, DR=46;        // 冠毛の円盤(正面向き)
+var discSpr=[], flySpr=[], FS=160, FOX=80, FOY=84;
+var flowerSpr=null, FLR=112;
+var haloSpr=null, bokehSpr=null, glintSpr=null;
+function buildDisc(lv){
+  var c=mk(DS,DS), g=c.getContext('2d'), n=78, lw=.75+lv*1.15;
+  g.lineCap='round'; g.strokeStyle=T.pap;
   for(var i=0;i<n;i++){
-    var a=-Math.PI/2+(i/(n-1)-.5)*2.55, L=30+4*Math.sin(i*2.7);
-    var ex=cx+Math.cos(a)*L, ey=cy+Math.sin(a)*L*.92;
-    g.strokeStyle=T.pap; g.globalAlpha=.55+.3*Math.abs(Math.sin(i*1.3));
-    g.lineWidth=.9;
-    g.beginPath(); g.moveTo(cx,cy); g.quadraticCurveTo(cx+Math.cos(a)*L*.5,cy+Math.sin(a)*L*.5-3,ex,ey); g.stroke();
-    // 毛の先の細かい枝(羽毛状)
-    g.globalAlpha=.35; g.lineWidth=.6;
-    for(var k=1;k<=3;k++){
-      var px=cx+Math.cos(a)*L*(.45+k*.17), py=cy+Math.sin(a)*L*.92*(.45+k*.17);
-      g.beginPath(); g.moveTo(px,py); g.lineTo(px+Math.cos(a-.6)*4,py+Math.sin(a-.6)*4); g.moveTo(px,py); g.lineTo(px+Math.cos(a+.6)*4,py+Math.sin(a+.6)*4); g.stroke();
+    var a=i/n*PI2+rnd(-.03,.03), L=DR*rnd(.8,1), ca=Math.cos(a), sa=Math.sin(a);
+    g.globalAlpha=(.2+.16*Math.random())/(1+lv*.55); g.lineWidth=lw;
+    g.beginPath(); g.moveTo(DC+ca*3,DC+sa*3); g.lineTo(DC+ca*L,DC+sa*L); g.stroke();
+    if(lv<2){
+      g.globalAlpha=.16; g.lineWidth=lw*.7; g.beginPath();
+      for(var k=0;k<4;k++){ var t=.5+k*.13, px=DC+ca*L*t, py=DC+sa*L*t, bl=3+k;
+        g.moveTo(px,py); g.lineTo(px+Math.cos(a-.55)*bl,py+Math.sin(a-.55)*bl);
+        g.moveTo(px,py); g.lineTo(px+Math.cos(a+.55)*bl,py+Math.sin(a+.55)*bl); }
+      g.stroke();
     }
   }
+  // 毛先の光(逆光)
   g.globalAlpha=1;
-  // 柄
-  g.strokeStyle=T.pap; g.globalAlpha=.8; g.lineWidth=1.1;
-  g.beginPath(); g.moveTo(cx,cy); g.lineTo(cx,82); g.stroke();
-  g.globalAlpha=1;
-  // 実
-  g.fillStyle=TI===3?'#6f7890':'#8a5a33';
-  g.beginPath(); g.ellipse(cx,87,2.2,6,0,0,Math.PI*2); g.fill();
-  // 傘の中心のきらめき
-  var rg=g.createRadialGradient(cx,cy,0,cx,cy,7); rg.addColorStop(0,T.glow+'0.9)'); rg.addColorStop(1,T.glow+'0)');
-  g.fillStyle=rg; g.beginPath(); g.arc(cx,cy,7,0,Math.PI*2); g.fill();
-
-  glowSpr.width=128; glowSpr.height=128; var q=glowSpr.getContext('2d');
-  var gg=q.createRadialGradient(64,64,0,64,64,64); gg.addColorStop(0,T.glow+'0.55)'); gg.addColorStop(.45,T.glow+'0.18)'); gg.addColorStop(1,T.glow+'0)');
-  q.clearRect(0,0,128,128); q.fillStyle=gg; q.fillRect(0,0,128,128);
+  var rg=g.createRadialGradient(DC,DC,DR*.5,DC,DC,DR*1.02);
+  rg.addColorStop(0,T.glow+'0)'); rg.addColorStop(.8,T.glow+(.07+lv*.04)+')'); rg.addColorStop(1,T.glow+'0)');
+  g.fillStyle=rg; g.beginPath(); g.arc(DC,DC,DR*1.05,0,PI2); g.fill();
+  var cg=g.createRadialGradient(DC,DC,0,DC,DC,7); cg.addColorStop(0,T.glow+'0.45)'); cg.addColorStop(1,T.glow+'0)');
+  g.fillStyle=cg; g.beginPath(); g.arc(DC,DC,9,0,PI2); g.fill();
+  return blurCanvas(c,lv);
 }
-function horizon(){ return H*.66; }
-function baseY(z){ return H*(.70+.22*z); }
-function zsc(z){ return .45+.75*z; }
-var SUN={x:0,y:0};
+function buildFly(lv){
+  // 横から見た綿毛1粒: 冠毛(少し上に反った円盤)+くちばし+実
+  var c=mk(FS,FS), g=c.getContext('2d'), cx=FOX, cy=48, n=70, lw=.75+lv*1.15;
+  g.lineCap='round'; g.strokeStyle=T.pap;
+  var pts=[];
+  for(var i=0;i<n;i++){ var a=i/n*PI2+rnd(-.04,.04), L=DR*rnd(.8,1); pts.push([a,L]); }
+  pts.sort(function(p,q){ return Math.sin(p[0])-Math.sin(q[0]); });   // 奥の毛から
+  pts.forEach(function(p){
+    var a=p[0], L=p[1], ex=cx+Math.cos(a)*L, ey=cy+Math.sin(a)*L*.3-L*.24;
+    var back=Math.sin(a)<0;
+    g.globalAlpha=(back?.28:.55)*(1+lv*.25); g.lineWidth=lw;
+    g.beginPath(); g.moveTo(cx,cy); g.quadraticCurveTo(cx+Math.cos(a)*L*.5,cy+Math.sin(a)*L*.15-L*.04,ex,ey); g.stroke();
+    if(lv<2 && !back){ g.globalAlpha=.3; g.lineWidth=lw*.7; g.beginPath();
+      for(var k=0;k<3;k++){ var t=.55+k*.15, px=cx+(ex-cx)*t, py=cy+(ey-cy)*t; g.moveTo(px,py); g.lineTo(px+(Math.random()-.5)*5,py-2-Math.random()*2); }
+      g.stroke(); }
+  });
+  // くちばし
+  g.globalAlpha=.85; g.lineWidth=.9+lv; g.beginPath(); g.moveTo(cx,cy); g.lineTo(cx,cy+52); g.stroke();
+  // 実(とげのある細長い種)
+  g.globalAlpha=1; g.fillStyle=T.achene;
+  g.beginPath(); g.ellipse(cx,cy+60,2.6+lv*.6,8.5,0,0,PI2); g.fill();
+  g.strokeStyle='rgba(255,230,190,.35)'; g.lineWidth=.6; g.beginPath(); g.moveTo(cx-.8,cy+54); g.lineTo(cx-.8,cy+66); g.stroke();
+  // 冠毛の付け根の光
+  var cg=g.createRadialGradient(cx,cy,0,cx,cy,10); cg.addColorStop(0,T.glow+'0.95)'); cg.addColorStop(1,T.glow+'0)');
+  g.fillStyle=cg; g.beginPath(); g.arc(cx,cy,10,0,PI2); g.fill();
+  return blurCanvas(c,lv);
+}
+function buildFlower(){
+  var S=256, c=mk(S,S), g=c.getContext('2d'), C=128, R=FLR;
+  var rings=[{n:40,l:1,w:.085,c0:'#f0a000',c1:'#ffe14d'},{n:34,l:.86,w:.088,c0:'#ec9500',c1:'#ffd83a'},{n:28,l:.71,w:.095,c0:'#e88a00',c1:'#ffcf2a'},{n:22,l:.55,w:.11,c0:'#e07c00',c1:'#ffc21a'},{n:15,l:.38,w:.13,c0:'#d06c00',c1:'#f9b20e'}];
+  rings.forEach(function(rg,ri){
+    for(var i=0;i<rg.n;i++){
+      var a=i/rg.n*PI2+ri*.41+rnd(-.05,.05), L=R*rg.l*rnd(.9,1.04), wd=R*rg.w*rnd(.85,1.15);
+      g.save(); g.translate(C,C); g.rotate(a);
+      var gr=g.createLinearGradient(0,0,L,0); gr.addColorStop(0,rg.c0); gr.addColorStop(.5,rg.c1); gr.addColorStop(1,rg.c1);
+      g.fillStyle=gr;
+      g.beginPath(); g.moveTo(0,-wd*.22); g.quadraticCurveTo(L*.5,-wd*.72,L*.93,-wd*.5);
+      g.lineTo(L,-wd*.32); g.lineTo(L*.965,-wd*.12); g.lineTo(L*1.0,wd*.08); g.lineTo(L*.965,wd*.27); g.lineTo(L*.99,wd*.46);
+      g.lineTo(L*.93,wd*.5); g.quadraticCurveTo(L*.5,wd*.72,0,wd*.22); g.closePath(); g.fill();
+      g.strokeStyle='rgba(150,70,0,.28)'; g.lineWidth=.7; g.stroke();
+      g.strokeStyle='rgba(255,250,200,.35)'; g.lineWidth=.6; g.beginPath(); g.moveTo(L*.2,0); g.lineTo(L*.85,0); g.stroke();
+      g.restore();
+    }
+  });
+  // 中心の小さな花(丸まった筒状)
+  var cgr=g.createRadialGradient(C,C,0,C,C,R*.2); cgr.addColorStop(0,'#b86a00'); cgr.addColorStop(1,'rgba(230,140,0,0)');
+  g.fillStyle=cgr; g.beginPath(); g.arc(C,C,R*.2,0,PI2); g.fill();
+  for(var j=0;j<34;j++){ var a2=j*2.4, r2=Math.sqrt(j/34)*R*.16; g.fillStyle=j%3?'#f6b31a':'#d98a08'; g.beginPath(); g.arc(C+Math.cos(a2)*r2,C+Math.sin(a2)*r2,R*.022,0,PI2); g.fill(); }
+  if(T.fdim>0){ g.globalCompositeOperation='source-atop'; g.fillStyle='rgba(20,30,70,'+T.fdim+')'; g.fillRect(0,0,S,S); g.globalCompositeOperation='source-over'; }
+  return c;
+}
+function radial(size,stops){
+  var c=mk(size,size), g=c.getContext('2d'), h=size/2, rg=g.createRadialGradient(h,h,0,h,h,h);
+  stops.forEach(function(s){ rg.addColorStop(s[0],s[1]); });
+  g.fillStyle=rg; g.fillRect(0,0,size,size); return c;
+}
+function buildSprites(){
+  discSpr=[]; flySpr=[];
+  for(var lv=0;lv<4;lv++){ discSpr.push(buildDisc(lv)); flySpr.push(buildFly(lv)); }
+  flowerSpr=buildFlower();
+  haloSpr=radial(128,[[0,T.glow+'0.16)'],[.5,T.glow+'0.12)'],[.72,T.glow+'0.3)'],[.84,T.glow+'0.1)'],[1,T.glow+'0)']]);
+  // ボケ玉: ふちが少し明るい
+  bokehSpr=radial(96,[[0,T.bokeh+'0.5)'],[.72,T.bokeh+'0.62)'],[.86,T.bokeh+'0.9)'],[.94,T.bokeh+'0.35)'],[1,T.bokeh+'0)']]);
+  glintSpr=radial(64,[[0,T.mote+'1)'],[.18,T.mote+'0.6)'],[.5,T.mote+'0.12)'],[1,T.mote+'0)']]);
+}
+
+// ---- 背景(静止部分はまとめて作り置き) ----
+var bg=mk(1,1), bloomCv=mk(1,1), vigCv=mk(1,1), grainTile=null;
+function buildGrain(){
+  var c=mk(160,160), g=c.getContext('2d'), im=g.createImageData(160,160);
+  for(var i=0;i<im.data.length;i+=4){ var v=110+Math.random()*36|0; im.data[i]=im.data[i+1]=im.data[i+2]=v; im.data[i+3]=255; }
+  g.putImageData(im,0,0); grainTile=c;
+}
 function buildBg(){
-  bg.width=Math.round(W*DPR); bg.height=Math.round(H*DPR);
-  var g=bgx; g.setTransform(DPR,0,0,DPR,0,0);
   var hy=horizon();
-  var sk=g.createLinearGradient(0,0,0,hy+20);
-  sk.addColorStop(0,T.sky[0]); sk.addColorStop(.45,T.sky[1]); sk.addColorStop(.8,T.sky[2]); sk.addColorStop(1,T.sky[3]);
-  g.fillStyle=sk; g.fillRect(0,0,W,hy+30);
-  SUN.x=W*.68; SUN.y=hy-H*.05;
-  var r=Math.max(W,H)*.75;
-  var sg=g.createRadialGradient(SUN.x,SUN.y,0,SUN.x,SUN.y,r);
-  sg.addColorStop(0,T.sunGlow+'0.85)'); sg.addColorStop(.08,T.sunGlow+'0.45)'); sg.addColorStop(.35,T.sunGlow+'0.14)'); sg.addColorStop(1,T.sunGlow+'0)');
-  g.fillStyle=sg; g.fillRect(0,0,W,H);
-  g.fillStyle=T.sun; g.beginPath(); g.arc(SUN.x,SUN.y,Math.min(W,H)*.045,0,Math.PI*2); g.fill();
-  // 遠くの丘(2段)
-  function hill(col,y0,amp,f,ph,alpha){
-    g.globalAlpha=alpha; g.fillStyle=col; g.beginPath(); g.moveTo(0,H);
-    for(var x=0;x<=W+8;x+=8){ var y=y0-amp*(.55*Math.sin(x*f+ph)+.3*Math.sin(x*f*2.3+ph*1.7)+.15*Math.sin(x*f*5.1+ph*.3)); g.lineTo(x,y); }
-    g.lineTo(W,H); g.closePath(); g.fill(); g.globalAlpha=1;
-  }
-  hill(T.hill1,hy-H*.035,H*.035,.006,1.2,.55);
-  hill(T.hill2,hy-H*.01,H*.022,.011,4.1,.7);
-  // 地平のもや
-  var mg=g.createLinearGradient(0,hy-H*.06,0,hy+H*.05);
-  mg.addColorStop(0,T.mist+'0)'); mg.addColorStop(.6,T.mist+'0.55)'); mg.addColorStop(1,T.mist+'0)');
-  g.fillStyle=mg; g.fillRect(0,hy-H*.06,W,H*.11);
-  // 野原
-  var gr=g.createLinearGradient(0,hy,0,H);
-  gr.addColorStop(0,T.ground[0]); gr.addColorStop(.45,T.ground[1]); gr.addColorStop(1,T.ground[2]);
-  g.fillStyle=gr; g.fillRect(0,hy,W,H-hy);
-  // 野原の光(太陽の方向が明るい)
-  var lg=g.createRadialGradient(SUN.x,hy,0,SUN.x,hy,W*.7);
-  lg.addColorStop(0,T.sunGlow+'0.35)'); lg.addColorStop(1,T.sunGlow+'0)');
-  g.fillStyle=lg; g.fillRect(0,hy,W,H-hy);
-  // 遠くの草の細かい筋
-  g.lineWidth=1;
-  for(var i=0;i<900;i++){
-    var y=hy+Math.pow(Math.random(),1.6)*(H-hy), d=(y-hy)/(H-hy), x=Math.random()*W, h=(2+d*14)*U;
-    g.strokeStyle=Math.random()<.35?T.grassLit:T.grass; g.globalAlpha=.25+.35*d;
-    g.beginPath(); g.moveTo(x,y); g.lineTo(x+(Math.random()-.5)*h*.4,y-h); g.stroke();
+  SUN.x=W*T.sunX; SUN.y=T.sunY<-.2? H*(-T.sunY*.3) : hy+H*T.sunY;
+  if(T.sunY<-.2) SUN.y=H*(T.night?.17:.11);
+  // 1) やわらかい層: 1/4の大きさで描いて引き伸ばす(遠くはボケて見える)
+  var q=.25, sw=W*q, sh=H*q, s=mk(sw,sh), g=s.getContext('2d');
+  g.setTransform(q,0,0,q,0,0);
+  var sk=g.createLinearGradient(0,0,0,hy);
+  sk.addColorStop(0,T.sky[0]); sk.addColorStop(.35,T.sky[1]); sk.addColorStop(.68,T.sky[2]); sk.addColorStop(.88,T.sky[3]); sk.addColorStop(1,T.sky[4]);
+  g.fillStyle=sk; g.fillRect(0,0,W,hy+4);
+  var R=Math.max(W,H)*1.0, sg=g.createRadialGradient(SUN.x,SUN.y,0,SUN.x,SUN.y,R);
+  sg.addColorStop(0,T.sunGlow+'0.95)'); sg.addColorStop(.06,T.sunGlow+'0.55)'); sg.addColorStop(.22,T.sunGlow+'0.22)'); sg.addColorStop(.6,T.sunGlow+'0.05)'); sg.addColorStop(1,T.sunGlow+'0)');
+  g.fillStyle=sg; g.fillRect(0,0,W,hy+4);
+  // 雲: 横に流れる薄い雲の帯。小さな塊をたくさん重ねてから、しっかりぼかす
+  var cq=.25, cc=mk(W*cq,hy*cq), cg2=cc.getContext('2d'); cg2.setTransform(cq,0,0,cq,0,0);
+  var nc=W>H?6:5, i, k;
+  for(i=0;i<nc;i++){
+    var cy=hy*rnd(.08,.72), cx=rnd(-.1,1.1)*W, cw=W*rnd(.5,1.0), ch=H*rnd(.01,.026), lit=[];
+    for(k=0;k<46;k++){
+      var u=rnd(-.5,.5), ex=cx+u*cw, ey=cy+rnd(-.5,.5)*ch*2+Math.sin(u*5+i)*ch, rx=W*rnd(.03,.09)*(1-Math.abs(u)*.8), ry=rx*rnd(.14,.3);
+      cg2.globalAlpha=T.cloudA*.4; cg2.fillStyle=T.cloud; cg2.beginPath(); cg2.ellipse(ex,ey,rx,ry,0,0,PI2); cg2.fill();
+      lit.push([ex,ey,rx,ry]);
+    }
+    var sdy=SUN.y>cy?1:-1, sdx=(SUN.x-cx)/W;   // 太陽の方を向いたふちが明るい
+    lit.forEach(function(e){ cg2.globalAlpha=T.cloudA*.36; cg2.fillStyle=T.cloudLit; cg2.beginPath(); cg2.ellipse(e[0]+sdx*e[2]*.3,e[1]+sdy*e[3]*.6,e[2]*.8,e[3]*.5,0,0,PI2); cg2.fill(); });
   }
   g.globalAlpha=1;
+  g.drawImage(blurCanvas(cc,2),0,0,W,hy);
+  // 遠い丘・木立
+  function ridge(col,y0,amp,f,ph,alpha,bumps){
+    g.globalAlpha=alpha; g.fillStyle=col; g.beginPath(); g.moveTo(-10,H);
+    for(var x=-10;x<=W+10;x+=6){
+      var y=y0-amp*(.55*Math.sin(x*f+ph)+.3*Math.sin(x*f*2.3+ph*1.7)+.15*Math.sin(x*f*5.1+ph*.3));
+      if(bumps) y-=Math.abs(Math.sin(x*.09+ph))*bumps*(.6+.4*Math.sin(x*.023+ph*2));
+      g.lineTo(x,y);
+    }
+    g.lineTo(W+10,H); g.closePath(); g.fill(); g.globalAlpha=1;
+  }
+  ridge(T.hillFar,hy-H*.05,H*.03,.005,1.2,.6,0);
+  ridge(T.hillNear,hy-H*.022,H*.018,.009,4.1,.75,0);
+  ridge(T.trees,hy-H*.004,H*.006,.02,2.2,.85,H*.018);
+  // 地平のもや
+  var mg=g.createLinearGradient(0,hy-H*.08,0,hy+H*.06);
+  mg.addColorStop(0,T.haze+'0)'); mg.addColorStop(.62,T.haze+'0.6)'); mg.addColorStop(1,T.haze+'0)');
+  g.fillStyle=mg; g.fillRect(0,hy-H*.08,W,H*.14);
+  // 遠くの野原と、ボケた花たち
+  var gr=g.createLinearGradient(0,hy,0,H);
+  gr.addColorStop(0,T.meadow[0]); gr.addColorStop(.35,T.meadow[1]); gr.addColorStop(1,T.meadow[2]);
+  g.fillStyle=gr; g.fillRect(0,hy,W,H-hy);
+  var lg=g.createRadialGradient(SUN.x,hy,0,SUN.x,hy,W*.9);
+  lg.addColorStop(0,T.sunGlow+'0.3)'); lg.addColorStop(.5,T.sunGlow+'0.06)'); lg.addColorStop(1,T.sunGlow+'0)');
+  g.fillStyle=lg; g.fillRect(0,hy,W,H-hy);
+  for(i=0;i<260;i++){
+    var y=hy+Math.pow(Math.random(),1.8)*(H*.86-hy), d=(y-hy)/(H*.86-hy), x=Math.random()*W, r=(.8+d*4.5)*U;
+    g.globalAlpha=.55+.35*Math.random(); g.fillStyle=Math.random()<.55?T.dotY:T.dotW;
+    g.beginPath(); g.ellipse(x,y,r,r*.7,0,0,PI2); g.fill();
+  }
+  g.globalAlpha=1;
+  // 2) 本番の背景
+  bg=mk(W*DPR,H*DPR); var b=bg.getContext('2d');
+  b.imageSmoothingEnabled=true; b.imageSmoothingQuality='high';
+  b.drawImage(s,0,0,bg.width,bg.height);
+  b.setTransform(DPR,0,0,DPR,0,0);
+  if(T.night){
+    for(i=0;i<170;i++){ var sx=Math.random()*W, sy=Math.pow(Math.random(),1.4)*hy*.85, sr=Math.random()<.92?rnd(.35,.8):rnd(.9,1.4);
+      b.globalAlpha=rnd(.35,.95); b.fillStyle='#eef2ff'; b.beginPath(); b.arc(sx,sy,sr*U,0,PI2); b.fill(); }
+    b.globalAlpha=1;
+  }
+  // 太陽(月)と、横に伸びる光の筋
+  var sr2=Math.min(W,H)*(T.night?.05:.042);
+  var dg=b.createRadialGradient(SUN.x,SUN.y,0,SUN.x,SUN.y,sr2*1.5);
+  dg.addColorStop(0,T.sun); dg.addColorStop(.62,T.sun); dg.addColorStop(.7,T.sunGlow+'0.6)'); dg.addColorStop(1,T.sunGlow+'0)');
+  b.fillStyle=dg; b.beginPath(); b.arc(SUN.x,SUN.y,sr2*1.5,0,PI2); b.fill();
+  if(T.night){ b.fillStyle='rgba(150,165,210,.18)'; b.beginPath(); b.arc(SUN.x-sr2*.25,SUN.y-sr2*.1,sr2*.28,0,PI2); b.arc(SUN.x+sr2*.3,SUN.y+sr2*.25,sr2*.18,0,PI2); b.fill(); }
+  b.save(); b.translate(SUN.x,SUN.y); b.scale(1,.035);
+  var st=b.createRadialGradient(0,0,0,0,0,W*.75); st.addColorStop(0,T.streak+'0.55)'); st.addColorStop(.3,T.streak+'0.15)'); st.addColorStop(1,T.streak+'0)');
+  b.fillStyle=st; b.beginPath(); b.arc(0,0,W*.75,0,PI2); b.fill(); b.restore();
+  // 中景の草(静止)。ピントの外なので、半分の大きさで描いて少しボカす
+  var mq=.5, mc=mk(W*mq,H*mq), m=mc.getContext('2d'); m.setTransform(mq,0,0,mq,0,0); m.lineCap='round';
+  for(var cI=0;cI<3;cI++){
+    m.strokeStyle=T.grass[cI]; m.beginPath();
+    var cnt=cI===2?380:620;
+    for(i=0;i<cnt;i++){
+      var yy=hy+H*.004+Math.pow(Math.random(),1.15)*(H*.92-hy), dd=(yy-hy)/(H-hy), xx=Math.random()*W, hh=(2+dd*dd*42+Math.random()*dd*18)*U;
+      m.moveTo(xx,yy); m.quadraticCurveTo(xx+rnd(-.2,.2)*hh,yy-hh*.6,xx+rnd(-.35,.35)*hh,yy-hh);
+    }
+    m.globalAlpha=cI===2?.6:.8; m.lineWidth=Math.max(1,1.6*U); m.stroke();
+  }
+  b.setTransform(1,0,0,1,0,0); b.drawImage(blurCanvas(mc,1),0,0,bg.width,bg.height); b.setTransform(DPR,0,0,DPR,0,0);
+  b.globalAlpha=1;
+  // 光のボケ(地平と草の間)
+  b.globalCompositeOperation='lighter';
+  var nb=T.name==='春の昼'?10:22;
+  for(i=0;i<nb;i++){
+    var bx=SUN.x+rnd(-.75,.75)*W*(T.sunY<-.2?1.2:.9), by=hy+rnd(-.03,.22)*H, br=rnd(4,24)*U*(1+(by-hy)/H*3);
+    b.globalAlpha=rnd(.06,.28)*(1-Math.min(1,Math.abs(bx-SUN.x)/W)*.6);
+    b.drawImage(bokehSpr,bx-br,by-br,br*2,br*2);
+  }
+  b.globalCompositeOperation='source-over'; b.globalAlpha=1;
+  // フィルムの粒子
+  b.setTransform(1,0,0,1,0,0);
+  b.globalCompositeOperation='overlay'; b.globalAlpha=.16;
+  b.fillStyle=b.createPattern(grainTile,'repeat'); b.fillRect(0,0,bg.width,bg.height);
+  b.globalCompositeOperation='source-over'; b.globalAlpha=1;
+
+  // 3) 上にかぶせる光(ブルーム)と周辺の暗さ(ビネット)
+  bloomCv=mk(W*q,H*q); var o=bloomCv.getContext('2d'); o.setTransform(q,0,0,q,0,0);
+  var bl=o.createRadialGradient(SUN.x,SUN.y,0,SUN.x,SUN.y,Math.max(W,H)*.85);
+  bl.addColorStop(0,T.bloom+T.bloomA+')'); bl.addColorStop(.25,T.bloom+'0.08)'); bl.addColorStop(1,T.bloom+'0)');
+  o.fillStyle=bl; o.fillRect(0,0,W,H);
+  vigCv=mk(W*q,H*q); var v=vigCv.getContext('2d'); v.setTransform(q,0,0,q,0,0);
+  var vg=v.createRadialGradient(W*.5,H*.5,Math.min(W,H)*.42,W*.5,H*.5,Math.hypot(W,H)*.6);
+  vg.addColorStop(0,T.vig+'0)'); vg.addColorStop(1,T.vig+T.vigA+')');
+  v.fillStyle=vg; v.fillRect(0,0,W,H);
+  var bt=v.createLinearGradient(0,H*.75,0,H); bt.addColorStop(0,T.vig+'0)'); bt.addColorStop(1,T.vig+'0.35)');
+  v.fillStyle=bt; v.fillRect(0,H*.75,W,H*.25);
+  document.body.style.background=T.bg;
 }
 
-// ---- 手前の草(揺れる) ----
-var blades=[];
+// ---- 揺れる草(奥行きの層ごと) ----
+var blades=[], NB=6, nearBlades=[], nearCv=mk(1,1), NQ=.2;
 function buildBlades(){
-  blades=[];
-  var n=Math.round(W/3.2);
+  blades=[]; var hy=horizon(), n=Math.round(W*1.15);
   for(var i=0;i<n;i++){
-    var near=Math.random()<.55;
-    var y=near? H*(.93+.08*Math.random()) : H*(.78+.13*Math.random());
-    var d=(y-horizon())/(H-horizon());
-    blades.push({x:Math.random()*W, y:y, h:(near?(28+Math.random()*46):(10+Math.random()*20))*U*(.6+d*.6), w:(near?1.8:1.1)*U, lit:Math.random()<.4, ph:Math.random()*6.28, d:d});
+    var y=hy+H*.03+Math.pow(Math.random(),.85)*(H*1.04-hy-H*.03), z=zOfY(y);
+    var h=(9+42*Math.random())*U*zsc(z)*1.05, w=(1.4+2.2*Math.random())*U*zsc(z)*.75;
+    var r=Math.random(), ci=r<.38?0:(r<.72?1:2);
+    blades.push({x:Math.random()*W, y:y, z:z, h:h, w:w, ci:ci, lean:rnd(-.22,.22), ph:Math.random()*PI2, b:Math.min(NB-1,Math.floor(z/.2))});
   }
-  blades.sort(function(a,b){return a.y-b.y;});
+  nearBlades=[]; var m=Math.max(10,Math.round(W/16));
+  for(i=0;i<m;i++){
+    var edge=Math.random()<.65, x=edge?(Math.random()<.5?rnd(-.05,.3):rnd(.7,1.05))*W:Math.random()*W;
+    nearBlades.push({x:x, h:H*rnd(.08,edge?.34:.18), w:rnd(5,12)*U, lean:rnd(-.3,.3), ph:Math.random()*PI2, lit:Math.random()<.5});
+  }
+  nearCv=mk(W*NQ,H*.5*NQ);
 }
 
 // ---- 風 ----
-var gusts=[];          // 指で吹かせた風のかたまり
-var natGust=null;      // 自然の突風(帯が横切る)
-var calm=0, calmTarget=0;
-var BREEZE=1;          // そよ風の向き
+var gusts=[], natGust=null, calm=0, calmTarget=0, BREEZE=1;
 function wind(x,y,t){
   var wx=BREEZE*(11+7*Math.sin(t*.13)+5*Math.sin(t*.37+x*.004))*U;
   var wy=(-2+5*Math.sin(x*.012+t*.8)+3*Math.sin(y*.02-t*.6))*U;
-  if(natGust){ var gx=natGust.x, k=Math.exp(-Math.pow((x-gx)/(W*.28),2))*natGust.env; wx+=natGust.dir*natGust.s*k; wy-=natGust.s*.22*k; }
-  for(var i=0;i<gusts.length;i++){ var b=gusts[i]; var dx=x-b.x, dy=y-b.y; var k2=Math.exp(-(dx*dx+dy*dy)/(b.r*b.r))*(b.life/b.l0); wx+=b.vx*k2; wy+=b.vy*k2; }
+  if(natGust){ var k=Math.exp(-Math.pow((x-natGust.x)/(W*.28),2))*natGust.env; wx+=natGust.dir*natGust.s*k; wy-=natGust.s*.22*k; }
+  for(var i=0;i<gusts.length;i++){ var b=gusts[i], dx=x-b.x, dy=y-b.y, k2=Math.exp(-(dx*dx+dy*dy)/(b.r*b.r))*(b.life/b.l0); wx+=b.vx*k2; wy+=b.vy*k2; }
   var m=1-calm*.95;
   return [wx*m, wy*m];
 }
@@ -154,41 +349,34 @@ function wind(x,y,t){
 // ---- タンポポ ----
 // 一生(秒): 0-3 芽 / 3-7 茎とつぼみ / 7-15 花 / 15-18 閉じる / 18-21 綿毛がひらく / 21- 綿毛(ちぎれて飛ぶ)
 var ST={stem:3, flower:7, close:15, puff:18, ripe:21};
-var plants=[], flying=[], pollen=[];
+var plants=[], flying=[], motes=[];
 var MAXP=9;
 function fib(n){
   var a=[], ga=Math.PI*(3-Math.sqrt(5));
   for(var i=0;i<n;i++){ var y=1-2*(i+.5)/n, r=Math.sqrt(1-y*y), th=i*ga;
-    var d=[Math.cos(th)*r, y, Math.sin(th)*r];
-    // 少しだけ乱す(きれいすぎる並びを崩す)
-    d[0]+=(Math.random()-.5)*.08; d[1]+=(Math.random()-.5)*.08; d[2]+=(Math.random()-.5)*.08;
-    var l=Math.hypot(d[0],d[1],d[2]); a.push({d:[d[0]/l,d[1]/l,d[2]/l], on:true, len:.86+Math.random()*.18}); }
+    var d=[Math.cos(th)*r+rnd(-.05,.05), y+rnd(-.05,.05), Math.sin(th)*r+rnd(-.05,.05)];
+    var l=Math.hypot(d[0],d[1],d[2]); a.push({d:[d[0]/l,d[1]/l,d[2]/l], on:true, len:rnd(.86,1.02)}); }
   a.sort(function(p,q){return p.d[2]-q.d[2];});
   return a;
 }
-function leafShape(){
-  // ギザギザ(ライオンの歯)の葉
-  var pts=[], n=7;
-  for(var i=0;i<=n;i++){ var u=i/n, w=Math.sin(Math.PI*Math.pow(u,.8))*(.22+.05*Math.random()); pts.push([u,-w]); if(i<n) pts.push([u+.5/n,-w*.35]); }
-  for(i=n;i>=0;i--){ var u2=i/n, w2=Math.sin(Math.PI*Math.pow(u2,.8))*(.2+.05*Math.random()); if(i<n) pts.push([u2+.5/n,w2*.35]); pts.push([u2,w2]); }
-  return pts;
-}
 function newPlant(x,z,t0){
-  var leaves=[], nl=4+Math.floor(Math.random()*3);
-  for(var i=0;i<nl;i++){ var side=i%2?1:-1; leaves.push({a:(side>0?0:Math.PI)+side*(-.15-.45*Math.random()), L:.6+.5*Math.random(), shape:leafShape()}); }
-  return {x:x, z:z, sc:zsc(z), len:H*.3*zsc(z)*(.8+.35*Math.random()), t:t0||0, rate:.85+.35*Math.random(),
-          ph:Math.random()*6.28, lean:0, leanV:0, seeds:null, fade:1, leaves:leaves, hx:x, hy:0};
+  var sc=zsc(z);
+  return {x:x, z:z, sc:sc, lv:lvOf(z), len:H*(.03+.36*sc)*rnd(.86,1.1), t:t0||0, rate:rnd(.85,1.2),
+          ph:Math.random()*PI2, lean:0, leanV:0, seeds:null, fade:1, hx:x, hy:0, hl:0,
+          hc:null, hs:0, dirty:true, lastR:-1, kR:-1};
 }
 function seedPlants(){
-  plants=[ newPlant(W*.30,.86,24), newPlant(W*.68,.56,27), newPlant(W*.84,.16,10), newPlant(W*.14,.4,5), newPlant(W*.88,.95,1.5), newPlant(W*.47,.12,22) ];
+  plants=[ newPlant(W*.68,.98,24.5), newPlant(W*.20,.80,28), newPlant(W*.88,.62,11), newPlant(W*.42,.50,9.5),
+           newPlant(W*.08,.32,22.5), newPlant(W*.58,.24,16.5), newPlant(W*.33,.70,4) ];
   flying=[];
-  for(var i=0;i<26;i++) flying.push(newFlyer(Math.random()*W, H*(.08+.5*Math.random()), Math.random(), 0, 0));
+  for(var i=0;i<22;i++){ var z=Math.random(); flying.push(newFlyer(Math.random()*W, H*rnd(.06,.6), z, 0, 0)); }
+  for(i=0;i<2;i++) flying.push(newFlyer(Math.random()*W, H*rnd(.15,.6), rnd(1.08,1.4), 0, 0));
   gusts=[]; natGust=null;
 }
 function newFlyer(x,y,z,vx,vy){
-  return {x:x,y:y,z:z,sc:zsc(z),vx:vx,vy:vy,lift:.35+Math.random()*.9,drift:(Math.random()-.5)*36*U+BREEZE*10*U,rot:(Math.random()-.5)*.4,spin:(Math.random()-.5)*1.2,ph:Math.random()*6.28,landed:false,life:1};
+  return {x:x,y:y,z:z,sc:zsc(z),lv:lvOf(z),vx:vx,vy:vy,lift:rnd(.35,1.25),drift:rnd(-18,18)*U+BREEZE*10*U,rot:rnd(-.2,.2),spin:rnd(-.6,.6),ph:Math.random()*PI2,landed:false,life:1,lay:0};
 }
-function headR(p){ return 32*U*p.sc; }
+function headR(p){ return 36*U*p.sc; }
 
 // ---- 操作 ----
 var hint=document.getElementById('hint'), hinted=false;
@@ -228,26 +416,27 @@ cv.addEventListener('pointerup',up); cv.addEventListener('pointercancel',up);
 // タップ: 近くの綿毛をはじく
 function flick(x,y){
   var best=null, bd=1e9;
-  plants.forEach(function(p){ if(!p.seeds) return; var d=Math.hypot(p.hx-x,p.hy-y); if(d<headR(p)*1.8 && d<bd){ bd=d; best=p; } });
+  plants.forEach(function(p){ if(!p.seeds||p.t<ST.ripe-1) return; var d=Math.hypot(p.hx-x,p.hy-y); if(d<headR(p)*1.8 && d<bd){ bd=d; best=p; } });
   if(best){
     var R=headR(best);
     best.seeds.forEach(function(s){ if(s.on && Math.random()<.4) release(best,s,R,90*U); });
     best.leanV+=(best.hx<x?-1:1)*1.4;
   } else {
-    flying.forEach(function(f){ var dx=f.x-x, dy=f.y-y, d=Math.hypot(dx,dy); if(d<140*U){ var k=(1-d/(140*U))*160*U; f.vx+=dx/(d+1)*k; f.vy+=dy/(d+1)*k; } });
+    flying.forEach(function(f){ var dx=f.x-x, dy=f.y-y, d=Math.hypot(dx,dy), rr=140*U*Math.max(1,f.sc); if(d<rr){ var k=(1-d/rr)*160*U; f.vx+=dx/(d+1)*k; f.vy+=dy/(d+1)*k; } });
   }
 }
-function release(p,s,R,kick,up){
-  s.on=false;
-  if(flying.length>150) return;
+function release(p,s,R,kick,upv){
+  s.on=false; p.dirty=true;
+  if(flying.length>115) return;
   if(p.flyQuota!==undefined){ if(p.flyQuota<=0 && Math.random()<.85) return; p.flyQuota--; }
-  var sx=p.hx+s.d[0]*R*s.len, sy=p.hy-s.d[1]*R*s.len;
+  var rot=p.lean*.3, c=Math.cos(rot), sn=Math.sin(rot), ox=s.d[0]*R*s.len, oy=-s.d[1]*R*s.len;
+  var sx=p.hx+ox*c-oy*sn, sy=p.hy+ox*sn+oy*c;
   var w=wind(sx,sy,nowS());
-  flying.push(newFlyer(sx,sy,Math.max(0,Math.min(1,p.z+(Math.random()-.5)*.25)), w[0]+s.d[0]*kick, w[1]-s.d[1]*kick+(up||0)));
+  flying.push(newFlyer(sx,sy,clamp(p.z+rnd(-.14,.14)+s.d[2]*.06,0,1.12), w[0]+s.d[0]*kick, w[1]-s.d[1]*kick+(upv||0)));
 }
 
 // ---- 更新 ----
-var sproutCool=0, inflowT=0, natT=14;
+var sproutCool=0, inflowT=0, natT=14, closeT=3;
 function stepAll(dt,t){
   if(ptr && !ptr.moved && t-ptr.t0>.45) calmTarget=1;
   calm+=(calmTarget-calm)*Math.min(1,dt*3);
@@ -257,25 +446,23 @@ function stepAll(dt,t){
   if(natGust){ natGust.x+=natGust.dir*natGust.v*dt; natGust.env=Math.min(1,natGust.env+dt*1.5);
     if((natGust.dir>0&&natGust.x>W*1.4)||(natGust.dir<0&&natGust.x<-W*.4)) natGust=null; }
   else if(natT<=0){
-    if(t-lastTouch>5){ natGust={dir:BREEZE, x:BREEZE>0?-W*.4:W*1.4, v:W*.32+90*U, s:(85+65*Math.random())*U, env:0}; }
-    natT=9+Math.random()*8;
+    if(t-lastTouch>5){ natGust={dir:BREEZE, x:BREEZE>0?-W*.4:W*1.4, v:W*.32+90*U, s:rnd(85,150)*U, env:0}; }
+    natT=rnd(9,17);
   }
   // タンポポ
   for(i=plants.length-1;i>=0;i--){
     var p=plants[i]; p.t+=dt*p.rate;
-    if(p.t>=ST.puff && !p.seeds){ p.seeds=fib(Math.round(70+60*p.sc)); p.flyQuota=Math.round(14+16*p.sc); }
-    var grow=Math.min(1,Math.max(0,(p.t-ST.stem)/(ST.flower-ST.stem)));
-    var hl=p.len*(.15+.85*grow);
-    // 頭の位置(茎のしなり)
+    if(p.t>=ST.puff && !p.seeds){ p.seeds=fib(Math.round(110+80*Math.min(1.4,p.sc))); p.flyQuota=Math.round(14+16*p.sc); p.dirty=true; }
+    var grow=clamp((p.t-ST.stem)/(ST.flower-ST.stem),0,1);
+    var hl=p.len*(.15+.85*(grow*grow*(3-2*grow)));
     var w=wind(p.x,baseY(p.z)-hl,t);
-    var target=Math.max(-.5,Math.min(.5,w[0]/(260*U)))+.02*Math.sin(t*1.1+p.ph);
+    var target=clamp(w[0]/(260*U),-.5,.5)+.02*Math.sin(t*1.1+p.ph);
     p.leanV+=(target-p.lean)*dt*9; p.leanV*=Math.exp(-dt*2.2); p.lean+=p.leanV*dt;
     var by=baseY(p.z);
     p.hx=p.x+Math.sin(p.lean)*hl; p.hy=by-Math.cos(p.lean)*hl; p.hl=hl;
-    // 綿毛がちぎれる
     if(p.seeds && p.t>ST.ripe){
-      var wm=Math.hypot(w[0],w[1]), pr=dt*(.008+Math.max(0,wm-24*U)/(100*U)*.9), R=headR(p), left=0;
-      var rel=0; pr*=1.6; for(var k=0;k<p.seeds.length;k++){ var s=p.seeds[k]; if(!s.on) continue; left++; if(rel<2 && Math.random()<pr){ rel++; release(p,s,R,15*U,-(18+30*Math.random())*U); } }
+      var wm=Math.hypot(w[0],w[1]), pr=dt*(.008+Math.max(0,wm-24*U)/(100*U)*.9)*1.6, R=headR(p), left=0, rel=0;
+      for(var k=0;k<p.seeds.length;k++){ var s=p.seeds[k]; if(!s.on) continue; left++; if(rel<2 && Math.random()<pr){ rel++; release(p,s,R,15*U,-rnd(18,48)*U); } }
       if(left<p.seeds.length*.06){ p.fade-=dt/5; }
     }
     if(p.fade<=0) plants.splice(i,1);
@@ -285,168 +472,255 @@ function stepAll(dt,t){
   for(i=flying.length-1;i>=0;i--){
     var f=flying[i];
     if(f.landed){ f.life-=dt/.9; f.rot+=(f.lay-f.rot)*Math.min(1,dt*4); if(f.life<=0) flying.splice(i,1); continue; }
-    var gy0=baseY(f.z), near=Math.max(0,Math.min(1,(gy0-f.y)/(H*.12)));   // 地面が近いほど素直に落ちる
-    var wf=wind(f.x,f.y,t), fall=19*U*f.lift*(.5+.5*f.sc)*(.25+.75*(1-calm))*(1+.8*(1-near)), kk=Math.min(1,dt*(1.4+.6*(1-calm)));
-    f.vx+=(wf[0]+f.drift*(1-calm)-f.vx)*kk; f.vy+=(Math.min(wf[1]*near,wf[1])+fall+6*U*near*Math.sin(t*1.7+f.ph)-f.vy)*kk;
+    var close=f.z>1.02;
+    var gy0=baseY(f.z), near=clamp((gy0-f.y)/(H*.12),0,1);
+    var wf=wind(f.x,f.y,t), fall=19*U*f.lift*(.5+.5*Math.min(1.3,f.sc))*(.25+.75*(1-calm))*(1+.8*(1-near)), kk=Math.min(1,dt*(1.4+.6*(1-calm)));
+    var spd=close?1.25:1;
+    f.vx+=((wf[0]+f.drift*(1-calm))*spd-f.vx)*kk; f.vy+=(Math.min(wf[1]*near,wf[1])+fall*(close?.45:1)+6*U*near*Math.sin(t*1.7+f.ph)-f.vy)*kk;
     if(calm>.5){ f.vx*=Math.exp(-dt*2*calm); f.vy*=Math.exp(-dt*2*calm); }
     f.x+=f.vx*dt; f.y+=f.vy*dt;
     f.rot+=(-f.vx/(300*U)*.6-f.rot)*dt*1.5+f.spin*dt*.2;
+    if(close){
+      if(f.x<-W*.4||f.x>W*1.4||f.y>H*1.3||f.y<-H*.4) flying.splice(i,1);
+      continue;
+    }
     var gy=baseY(f.z);
-    if(f.y>=gy){ f.y=gy; f.landed=true; f.lay=(f.vx>=0?1:-1)*(1.1+.3*Math.random()); trySprout(f); }
+    if(f.y>=gy){ f.y=gy; f.landed=true; f.lay=(f.vx>=0?1:-1)*rnd(1.1,1.4); trySprout(f); }
     else if(f.y<-160) flying.splice(i,1);
     else if(f.x<-60) f.x+=W+120; else if(f.x>W+60) f.x-=W+120;   // 野原は左右に続いている
   }
+  // カメラのすぐ前をよぎる綿毛(ときどき)
+  closeT-=dt;
+  if(closeT<=0){ closeT=rnd(3,7);
+    var nc=flying.filter(function(f){return f.z>1.02;}).length;
+    if(nc<3 && calm<.5){ flying.push(newFlyer(BREEZE>0?-W*.25:W*1.25, H*rnd(.1,.75), rnd(1.08,1.45), BREEZE*50*U, 0)); } }
   // 綿毛が尽きたら、どこかの春から綿毛が飛んでくる
   inflowT-=dt;
   var ripe=plants.filter(function(p){return p.seeds&&p.t>ST.ripe;}).length;
-  if(inflowT<=0){ inflowT=4; if(ripe===0 && flying.length<12){ for(var j=0;j<4;j++){ var fx=BREEZE>0?-30:W+30; flying.push(newFlyer(fx,H*(.15+.45*Math.random()),Math.random(),BREEZE*40*U,0)); } } }
-  // 花粉の光
-  if(pollen.length<40) pollen.push({x:Math.random()*W,y:horizon()-Math.random()*H*.5,r:(1+Math.random()*2.5)*U,a:Math.random()*.5,ph:Math.random()*6.28});
-  pollen.forEach(function(q){ q.x+=BREEZE*(6+4*Math.sin(t*.3+q.ph))*U*dt; q.y+=Math.sin(t*.7+q.ph)*5*U*dt; if(q.x>W+10)q.x=-10; if(q.x<-10)q.x=W+10; });
+  if(inflowT<=0){ inflowT=4; if(ripe===0 && flying.length<12){ for(var j=0;j<4;j++){ flying.push(newFlyer(BREEZE>0?-30:W+30,H*rnd(.15,.6),Math.random(),BREEZE*40*U,0)); } } }
+  // 光の粒
+  motes.forEach(function(m){ m.x+=BREEZE*(5+4*Math.sin(t*.3+m.ph))*U*dt*(m.big?.5:1); m.y+=Math.sin(t*.6+m.ph)*4*U*dt; if(m.x>W+40)m.x=-40; if(m.x<-40)m.x=W+40; });
 }
 function trySprout(f){
   var alive=plants.filter(function(p){return p.fade>0;});
   if(sproutCool>0 || Math.random()>(alive.length<4?.9:.5)) return;
   if(alive.length>=MAXP) return;
   if(f.x<W*.05||f.x>W*.95) return;
-  for(var i=0;i<alive.length;i++){ var p=alive[i]; if(Math.abs(p.x-f.x)<46*U*p.sc && Math.abs(p.z-f.z)<.25) return; }
+  if(f.z>.85 && alive.filter(function(p){return p.z>.85;}).length>=2) return;   // 目の前の大きな株は2本まで
+  for(var i=0;i<alive.length;i++){ var p=alive[i]; if(Math.abs(p.x-f.x)<48*U*p.sc && Math.abs(p.z-f.z)<.25) return; }
   plants.push(newPlant(f.x,f.z,0)); sproutCool=1.2;
+}
+function buildMotes(){
+  motes=[]; var hy=horizon();
+  for(var i=0;i<26;i++) motes.push({x:Math.random()*W, y:hy-Math.random()*H*.45, r:rnd(1.2,3.2)*U, a:rnd(.25,.8), ph:Math.random()*PI2, big:false});
+  for(i=0;i<7;i++) motes.push({x:Math.random()*W, y:H*rnd(.15,.85), r:rnd(14,40)*U, a:rnd(.05,.13), ph:Math.random()*PI2, big:true});
 }
 
 // ---- 描画 ----
-function seedMat(x,y,ang,sx,sy){
-  var c=Math.cos(ang), s=Math.sin(ang);
-  ctx.setTransform(DPR*c*sx, DPR*s*sx, -DPR*s*sy, DPR*c*sy, DPR*x, DPR*y);
+function headCanvas(p){
+  var R=headR(p), hs=Math.ceil((R*1.42+6)*2);
+  if(!p.hc) p.hc=document.createElement('canvas');
+  var px=Math.ceil(hs*DPR);
+  if(p.hc.width!==px){ p.hc.width=px; p.hc.height=px; }
+  p.hs=hs;
+}
+function renderHead(p,k){
+  headCanvas(p);
+  var g=p.hc.getContext('2d'), hs=p.hs, c=hs/2, R=headR(p), RR=R*(.35+.65*k), lv=p.lv, spr=discSpr[lv];
+  g.setTransform(1,0,0,1,0,0); g.clearRect(0,0,p.hc.width,p.hc.height);
+  g.setTransform(DPR,0,0,DPR,0,0);
+  var ur=RR*.32, s=ur/DR, i, sd, ax, ay;
+  // くちばし(中心から冠毛まで、細い線)
+  g.strokeStyle=T.pap; g.globalAlpha=lv?.22:.3; g.lineWidth=Math.max(.35,.42*U*p.sc*(1+lv*.8)); g.lineCap='round';
+  g.beginPath();
+  for(i=0;i<p.seeds.length;i++){ sd=p.seeds[i]; if(!sd.on) continue; ax=sd.d[0]; ay=-sd.d[1]; g.moveTo(c+ax*RR*.14,c+ay*RR*.14); g.lineTo(c+ax*RR*sd.len,c+ay*RR*sd.len); }
+  g.stroke();
+  // 実(付け根に集まる)
+  g.fillStyle=T.achene; g.globalAlpha=.7; g.beginPath();
+  var ar=Math.max(.5,.8*U*p.sc);
+  for(i=0;i<p.seeds.length;i++){ sd=p.seeds[i]; if(!sd.on||sd.d[2]<-.2) continue; ax=c+sd.d[0]*RR*.12; ay=c-sd.d[1]*RR*.12; g.moveTo(ax+ar,ay); g.arc(ax,ay,ar,0,PI2); }
+  g.fill();
+  g.globalAlpha=1; g.fillStyle=T.achene; g.beginPath(); g.arc(c,c,Math.max(1.2,2.4*U*p.sc),0,PI2); g.fill();
+  // 冠毛の円盤(奥→手前)。綿毛の向きに合わせて楕円につぶす
+  for(i=0;i<p.seeds.length;i++){
+    sd=p.seeds[i]; if(!sd.on) continue;
+    ax=sd.d[0]; ay=-sd.d[1];
+    var ang=Math.atan2(ay,ax), fz=Math.max(.16,Math.abs(sd.d[2])), cs=Math.cos(ang), sn=Math.sin(ang);
+    var ux=c+ax*RR*sd.len, uy=c+ay*RR*sd.len;
+    g.globalAlpha=sd.d[2]<0?.32+.42*(1+sd.d[2]):1;
+    g.setTransform(DPR*cs*fz*s, DPR*sn*fz*s, -DPR*sn*s, DPR*cs*s, DPR*ux, DPR*uy);
+    g.drawImage(spr,-DC,-DC);
+  }
+  g.setTransform(1,0,0,1,0,0); g.globalAlpha=1;
+}
+function drawStem(p,a){
+  var by=baseY(p.z), sc=p.sc;
+  var mx=(p.x+p.hx)/2+Math.sin(p.lean)*p.hl*.14, my=(by+p.hy)/2;
+  var w=Math.max(1,2.6*U*sc), side=SUN.x>p.hx?1:-1;
+  var gr=ctx.createLinearGradient(0,by,0,p.hy);
+  gr.addColorStop(0,T.stemDark); gr.addColorStop(1,T.stem);
+  ctx.globalAlpha=a; ctx.strokeStyle=gr; ctx.lineWidth=w; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(p.x,by); ctx.quadraticCurveTo(mx,my,p.hx,p.hy); ctx.stroke();
+  // 逆光で光るふち
+  ctx.strokeStyle=T.rim+'0.55)'; ctx.lineWidth=Math.max(.5,w*.32);
+  var o=w*.32*side;
+  ctx.beginPath(); ctx.moveTo(p.x+o,by); ctx.quadraticCurveTo(mx+o,my,p.hx+o,p.hy); ctx.stroke();
 }
 function drawPlant(p,t){
-  var by=baseY(p.z), sc=p.sc, a=p.fade;
-  var dk=.55+.45*p.z;
-  ctx.globalAlpha=a;
-  // 葉
-  var lg=Math.min(1,p.t/ST.stem);
-  p.leaves.forEach(function(l){
-    var L=26*U*sc*l.L*(.3+.7*lg);
-    var c=Math.cos(l.a), s=Math.sin(l.a);
-    ctx.setTransform(DPR*c*L, DPR*s*L, -DPR*s*L, DPR*c*L, DPR*p.x, DPR*(by+1));
-    ctx.fillStyle=T.leaf; ctx.globalAlpha=a*dk;
-    ctx.beginPath(); l.shape.forEach(function(pt,i){ if(i===0) ctx.moveTo(pt[0],pt[1]); else ctx.lineTo(pt[0],pt[1]); }); ctx.closePath(); ctx.fill();
-  });
-  ctx.setTransform(DPR,0,0,DPR,0,0);
-  if(p.t<ST.stem*.6){ ctx.globalAlpha=1; return; }
-  // 茎
-  var mx=(p.x+p.hx)/2+Math.sin(p.lean)*p.hl*.12, my=(by+p.hy)/2;
-  ctx.globalAlpha=a; ctx.strokeStyle=T.stem; ctx.lineWidth=Math.max(1,2.4*U*sc); ctx.lineCap='round';
-  ctx.beginPath(); ctx.moveTo(p.x,by); ctx.quadraticCurveTo(mx,my,p.hx,p.hy); ctx.stroke();
-  ctx.strokeStyle='rgba(255,255,230,.35)'; ctx.lineWidth=Math.max(.5,.8*U*sc);
-  ctx.beginPath(); ctx.moveTo(p.x+.8,by); ctx.quadraticCurveTo(mx+.8,my,p.hx+.8,p.hy); ctx.stroke();
+  var a=p.fade;
+  if(p.t<ST.stem*.6) return;
+  drawStem(p,a);
   var hx=p.hx, hy=p.hy, R=headR(p);
   if(p.t<ST.flower){            // つぼみ
     var bs=Math.min(1,(p.t-ST.stem*.6)/(ST.flower-ST.stem*.6));
-    drawBud(hx,hy,7*U*sc*(.4+.6*bs),p.lean,a,0);
+    drawBud(hx,hy,8*U*p.sc*(.4+.6*bs),p.lean,a,0);
   } else if(p.t<ST.puff){       // 花 → 閉じる
     var open = p.t<ST.close ? Math.min(1,(p.t-ST.flower)/1.6) : Math.max(0,1-(p.t-ST.close)/(ST.puff-ST.close-.6));
-    drawBud(hx,hy,7*U*sc,p.lean,a,open);
-    if(open>0) drawFlower(hx,hy,R*.62*open,p.lean,a,t,p.ph);
+    drawBud(hx,hy,8*U*p.sc,p.lean,a,open);
+    if(open>0) drawFlower(hx,hy,R*.66*open,p.lean,a,p.lv);
   } else {                      // 綿毛
     var k=Math.min(1,(p.t-ST.puff)/(ST.ripe-ST.puff)); k=k*k*(3-2*k);
     var RR=R*(.35+.65*k);
-    // 逆光のにじみ
+    var now=performance.now()/1000;
+    if(p.kR<1 && Math.abs(k-p.kR)>.02) p.dirty=true;
+    if(p.dirty && now-p.lastR>.07){ renderHead(p,k); p.dirty=false; p.lastR=now; p.kR=k; }
+    if(!p.hc) return;
     var left=0; p.seeds.forEach(function(s){ if(s.on) left++; });
     var fr=left/p.seeds.length;
+    if(k<1) drawBud(hx,hy+RR*.2,7*U*p.sc,p.lean,a*(1-k),0);
+    // 逆光のにじみ(球のふちが光る)
+    ctx.setTransform(DPR,0,0,DPR,0,0);
     ctx.globalCompositeOperation='lighter';
-    ctx.globalAlpha=a*.55*k*fr*(TI===3?1.2:1);
-    ctx.drawImage(glowSpr,hx-RR*2.1,hy-RR*2.1,RR*4.2,RR*4.2);
+    ctx.globalAlpha=a*T.haloA*k*(.25+.75*fr);
+    var hr=RR*1.55; ctx.drawImage(haloSpr,hx-hr,hy-hr,hr*2,hr*2);
     ctx.globalCompositeOperation='source-over';
-    // 花托(綿毛の付け根)
-    ctx.globalAlpha=a; ctx.fillStyle=TI===3?'#5a6a6a':'#8f7a45';
-    ctx.beginPath(); ctx.arc(hx,hy,Math.max(1.2,2.6*U*sc),0,Math.PI*2); ctx.fill();
-    if(k<1) drawBud(hx,hy+RR*.15,6*U*sc,p.lean,a*(1-k),0);
-    var spr=RR/86;
-    for(var i=0;i<p.seeds.length;i++){
-      var s=p.seeds[i]; if(!s.on) continue;
-      var dx=s.d[0], dy=-s.d[1], f=Math.max(.18,Math.hypot(dx,dy));
-      var ang=Math.atan2(dx,-dy)+p.lean*.3;
-      ctx.globalAlpha=a*(s.d[2]<0?.5+.3*(1+s.d[2]):1);
-      seedMat(hx,hy,ang,spr*(.8+.2*f),spr*f*s.len);
-      ctx.drawImage(seedSpr,-SOX,-SOY);
-    }
+    var rot=p.lean*.3, cs=Math.cos(rot), sn=Math.sin(rot);
+    ctx.globalAlpha=a;
+    ctx.setTransform(DPR*cs,DPR*sn,-DPR*sn,DPR*cs,DPR*hx,DPR*hy);
+    ctx.drawImage(p.hc,-p.hs/2,-p.hs/2,p.hs,p.hs);
     ctx.setTransform(DPR,0,0,DPR,0,0);
   }
   ctx.globalAlpha=1;
 }
 function drawBud(x,y,r,lean,a,open){
   ctx.save(); ctx.translate(x,y); ctx.rotate(lean);
-  ctx.globalAlpha=a; ctx.fillStyle='#6f8f3e';
-  ctx.beginPath(); ctx.ellipse(0,-r*.7,r*.62,r*1.15,0,0,Math.PI*2); ctx.fill();
-  // 総苞(そり返った緑の葉)
-  ctx.strokeStyle='#5d7a33'; ctx.lineWidth=Math.max(.8,r*.18);
-  for(var i=0;i<6;i++){ var s=(i/5-.5)*2; ctx.beginPath(); ctx.moveTo(s*r*.4,0); ctx.quadraticCurveTo(s*r*1.1,r*.2,s*r*1.2,r*.7); ctx.stroke(); }
-  if(open===0){ ctx.fillStyle='#e8c23a'; ctx.globalAlpha=a*.8; ctx.beginPath(); ctx.ellipse(0,-r*1.6,r*.3,r*.35,0,0,Math.PI*2); ctx.fill(); }
+  ctx.globalAlpha=a;
+  var side=SUN.x>x?1:-1;
+  var gr=ctx.createLinearGradient(-r*side,0,r*side,0); gr.addColorStop(0,T.bud); gr.addColorStop(1,T.budLit);
+  ctx.fillStyle=gr;
+  if(open===0){ ctx.beginPath(); ctx.ellipse(0,-r*.75,r*.6,r*1.2,0,0,PI2); ctx.fill();
+    ctx.fillStyle='#e8b52a'; ctx.globalAlpha=a*.85; ctx.beginPath(); ctx.ellipse(0,-r*1.75,r*.26,r*.36,0,0,PI2); ctx.fill(); ctx.globalAlpha=a; }
+  else { ctx.beginPath(); ctx.ellipse(0,-r*.3,r*.75,r*.55,0,0,PI2); ctx.fill(); }
+  // 総苞(下にそり返った細い葉)
+  ctx.strokeStyle=T.bract; ctx.lineWidth=Math.max(.7,r*.16); ctx.lineCap='round';
+  ctx.beginPath();
+  for(var i=0;i<7;i++){ var s=(i/6-.5)*2; ctx.moveTo(s*r*.42,-r*.05); ctx.quadraticCurveTo(s*r*1.05,r*.15,s*r*1.15,r*.75+Math.abs(s)*r*.1); }
+  ctx.stroke();
   ctx.restore();
 }
-function drawFlower(x,y,r,lean,a,t,ph){
-  ctx.save(); ctx.translate(x,y-r*.15); ctx.rotate(lean*.5); ctx.scale(1,.72);
-  var rings=[{n:30,l:1,c:'#f7c722',w:.13},{n:24,l:.78,c:'#f5b90f',w:.14},{n:18,l:.55,c:'#eea00b',w:.16},{n:12,l:.32,c:'#e08e08',w:.2}];
-  rings.forEach(function(rg,ri){
-    ctx.fillStyle=rg.c; ctx.globalAlpha=a;
-    for(var i=0;i<rg.n;i++){
-      var an=i/rg.n*Math.PI*2+ri*.37+.03*Math.sin(t*1.3+ph+i);
-      ctx.save(); ctx.rotate(an);
-      ctx.beginPath(); ctx.ellipse(r*rg.l*.55,0,r*rg.l*.5,r*rg.w,0,0,Math.PI*2); ctx.fill();
-      ctx.restore();
-    }
-  });
-  // 花の光
-  ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=a*.25; ctx.fillStyle='#fff3b0';
-  ctx.beginPath(); ctx.arc(0,0,r*.5,0,Math.PI*2); ctx.fill();
+function drawFlower(x,y,r,lean,a,lv){
+  ctx.save(); ctx.translate(x,y-r*.18); ctx.rotate(lean*.5); ctx.scale(1,.7);
+  ctx.globalAlpha=a;
+  var s=r/FLR*1.08;
+  ctx.drawImage(flowerSpr,-128*s,-128*s,256*s,256*s);
+  // 花のかがやき
+  ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=a*(T.night?.12:.3);
+  ctx.drawImage(haloSpr,-r*1.25,-r*1.25,r*2.5,r*2.5);
   ctx.globalCompositeOperation='source-over';
   ctx.restore();
 }
 function drawFlyer(f){
-  var s=headR({sc:f.sc})/86*1.05;
-  ctx.globalAlpha=f.landed?f.life*.8:1;
-  seedMat(f.x,f.y,f.rot,s,s);
-  ctx.drawImage(seedSpr,-SOX,-SOY);
+  var s=headR(f)*.34/DR;
+  var spr=flySpr[f.lv];
+  ctx.globalAlpha=(f.landed?f.life*.8:1)*(f.z>1.02?.85:1);
+  var c=Math.cos(f.rot), sn=Math.sin(f.rot);
+  ctx.setTransform(DPR*c*s, DPR*sn*s, -DPR*sn*s, DPR*c*s, DPR*f.x, DPR*f.y);
+  ctx.drawImage(spr,-FOX,-FOY);
+}
+function drawBlades(list,t){
+  var paths=[new Path2D(),new Path2D(),new Path2D()], rim=new Path2D(), any=false;
+  for(var i=0;i<list.length;i++){
+    var b=list[i], w=wind(b.x,b.y-b.h,t);
+    var bend=clamp(w[0]/(170*U),-1.1,1.1)*b.h*.5+Math.sin(t*1.7+b.ph+b.x*.01)*b.h*.05;
+    var tx=b.x+b.lean*b.h+bend, ty=b.y-b.h+Math.abs(bend)*.25, cx=b.x+(b.lean*b.h+bend)*.28, cy=b.y-b.h*.55;
+    var P=paths[b.ci];
+    P.moveTo(b.x-b.w*.5,b.y); P.quadraticCurveTo(cx-b.w*.3,cy,tx,ty); P.quadraticCurveTo(cx+b.w*.3,cy,b.x+b.w*.5,b.y); P.closePath();
+    if(b.ci>0){ var sd=SUN.x>b.x?1:-1; rim.moveTo(cx+b.w*.3*sd,cy); rim.quadraticCurveTo((cx+tx)/2+b.w*.15*sd,(cy+ty)/2,tx,ty); }
+    any=true;
+  }
+  if(!any) return;
+  for(var k=0;k<3;k++){ ctx.fillStyle=T.grass[k]; ctx.globalAlpha=k===2?.92:1; ctx.fill(paths[k]); }
+  ctx.globalAlpha=1; ctx.strokeStyle=T.rim+'0.6)'; ctx.lineWidth=Math.max(.5,.7*U); ctx.stroke(rim);
+}
+function drawNear(t){
+  var g=nearCv.getContext('2d'), y0=H*.5;
+  g.setTransform(1,0,0,1,0,0); g.clearRect(0,0,nearCv.width,nearCv.height);
+  g.setTransform(NQ,0,0,NQ,0,-y0*NQ);
+  var P=new Path2D(), Rm=new Path2D();
+  for(var i=0;i<nearBlades.length;i++){
+    var b=nearBlades[i], w=wind(b.x,H-b.h,t);
+    var bend=clamp(w[0]/(170*U),-1,1)*b.h*.25+Math.sin(t*1.3+b.ph)*b.h*.03;
+    var bx=b.x, by=H+10, tx=bx+b.lean*b.h+bend, ty=by-b.h, cx=bx+(b.lean*b.h+bend)*.3, cy=by-b.h*.55;
+    P.moveTo(bx-b.w*.5,by); P.quadraticCurveTo(cx-b.w*.3,cy,tx,ty); P.quadraticCurveTo(cx+b.w*.3,cy,bx+b.w*.5,by); P.closePath();
+    if(b.lit){ var sd=SUN.x>bx?1:-1; Rm.moveTo(cx+b.w*.3*sd,cy); Rm.quadraticCurveTo((cx+tx)/2+b.w*.15*sd,(cy+ty)/2,tx,ty); }
+  }
+  g.fillStyle=T.near; g.globalAlpha=.94; g.fill(P);
+  g.globalAlpha=.55; g.strokeStyle=T.rim+'0.8)'; g.lineWidth=2.2*U; g.stroke(Rm); g.globalAlpha=1;
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.drawImage(nearCv,0,y0*DPR,W*DPR,H*.5*DPR);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
 }
 function render(t){
-  ctx.setTransform(1,0,0,1,0,0);
+  ctx.setTransform(1,0,0,1,0,0); ctx.globalAlpha=1;
   ctx.drawImage(bg,0,0);
   ctx.setTransform(DPR,0,0,DPR,0,0);
-  // 花粉の光
+  // 奥のボケ玉
   ctx.globalCompositeOperation='lighter';
-  pollen.forEach(function(q){ ctx.globalAlpha=q.a*(.6+.4*Math.sin(t*2+q.ph)); ctx.fillStyle=T.pollen+'1)'; ctx.beginPath(); ctx.arc(q.x,q.y,q.r,0,Math.PI*2); ctx.fill(); });
+  motes.forEach(function(m){ if(!m.big) return; ctx.globalAlpha=m.a*(.7+.3*Math.sin(t*.5+m.ph)); ctx.drawImage(bokehSpr,m.x-m.r,m.y-m.r,m.r*2,m.r*2); });
   ctx.globalCompositeOperation='source-over'; ctx.globalAlpha=1;
-  // 奥の草 → タンポポ(奥から) → 飛ぶ綿毛 → 手前の草
-  var ps=plants.slice().sort(function(a,b){return a.z-b.z;});
-  var fl=flying.slice().sort(function(a,b){return a.z-b.z;});
-  var fi=0;
-  ps.forEach(function(p){
-    while(fi<fl.length && fl[fi].z<p.z){ drawFlyer(fl[fi]); fi++; }
-    ctx.setTransform(DPR,0,0,DPR,0,0); drawPlant(p,t);
-  });
-  for(;fi<fl.length;fi++) drawFlyer(fl[fi]);
-  ctx.setTransform(DPR,0,0,DPR,0,0); ctx.globalAlpha=1;
-  // 手前の草
-  ctx.lineCap='round';
-  for(var i=0;i<blades.length;i++){
-    var b=blades[i]; var w=wind(b.x,b.y-b.h,t);
-    var bend=Math.max(-1,Math.min(1,w[0]/(200*U)))*b.h*.55+Math.sin(t*1.6+b.ph)*b.h*.06;
-    ctx.strokeStyle=b.lit?T.grassLit:T.grass; ctx.globalAlpha=.55+.45*b.d; ctx.lineWidth=b.w;
-    ctx.beginPath(); ctx.moveTo(b.x,b.y); ctx.quadraticCurveTo(b.x+bend*.3,b.y-b.h*.55,b.x+bend,b.y-b.h); ctx.stroke();
+  // 奥から手前へ: 草の層・タンポポ・飛ぶ綿毛を、奥行き順に重ねる
+  var items=[], i;
+  for(i=0;i<plants.length;i++) items.push({z:plants[i].z, k:0, o:plants[i]});
+  for(i=0;i<flying.length;i++) if(flying[i].z<=1.02) items.push({z:flying[i].z, k:1, o:flying[i]});
+  var buckets=[]; for(i=0;i<NB;i++) buckets.push([]);
+  for(i=0;i<blades.length;i++) buckets[blades[i].b].push(blades[i]);
+  for(i=0;i<NB;i++) items.push({z:(i+1)*.2-.001, k:2, o:buckets[i]});
+  items.sort(function(a,b){ return a.z-b.z; });
+  for(i=0;i<items.length;i++){
+    var it=items[i];
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+    if(it.k===0) drawPlant(it.o,t);
+    else if(it.k===1) drawFlyer(it.o);
+    else drawBlades(it.o,t);
   }
-  ctx.globalAlpha=1;
+  ctx.setTransform(DPR,0,0,DPR,0,0); ctx.globalAlpha=1;
+  // 光の粒
+  ctx.globalCompositeOperation='lighter';
+  motes.forEach(function(m){ if(m.big) return; var tw=T.night?Math.max(0,Math.sin(t*1.3+m.ph)):(.6+.4*Math.sin(t*2+m.ph)); ctx.globalAlpha=m.a*tw; var r=m.r*3; ctx.drawImage(glintSpr,m.x-r,m.y-r,r*2,r*2); });
+  ctx.globalCompositeOperation='source-over'; ctx.globalAlpha=1;
+  // 手前のボケた草
+  drawNear(t);
+  // カメラのすぐ前をよぎる綿毛(大きくボケる)
+  for(i=0;i<flying.length;i++){ if(flying[i].z>1.02){ drawFlyer(flying[i]); } }
+  ctx.setTransform(1,0,0,1,0,0); ctx.globalAlpha=1;
+  // 光のにじみと周辺の暗さ
+  ctx.globalCompositeOperation='lighter'; ctx.drawImage(bloomCv,0,0,W*DPR,H*DPR);
+  ctx.globalCompositeOperation='source-over'; ctx.drawImage(vigCv,0,0,W*DPR,H*DPR);
 }
 
 // ---- サイズ ----
 function resize(){
   var w=cv.clientWidth||innerWidth, h=cv.clientHeight||innerHeight;
-  var first=!W;
-  var ox=W, oy=H;
+  var first=!W, ox=W, oy=H;
   DPR=Math.min(window.devicePixelRatio||1,2); W=w; H=h; U=Math.min(W,H)/400;
   cv.width=Math.round(W*DPR); cv.height=Math.round(H*DPR);
-  buildSprites(); buildBg(); buildBlades();
+  if(!grainTile) buildGrain();
+  buildSprites(); buildBg(); buildBlades(); buildMotes();
   if(first){ seedPlants(); }
-  else if(ox&&oy){ plants.forEach(function(p){ p.x=p.x/ox*W; p.sc=zsc(p.z); p.len=p.len/oy*H; }); flying.forEach(function(f){ f.x=f.x/ox*W; f.y=f.y/oy*H; }); }
+  else if(ox&&oy){
+    plants.forEach(function(p){ p.x=p.x/ox*W; p.sc=zsc(p.z); p.len=p.len/oy*H; p.dirty=true; });
+    flying.forEach(function(f){ f.x=f.x/ox*W; f.y=f.y/oy*H; f.sc=zsc(f.z); });
+  }
 }
 addEventListener('resize',resize);
 if(window.ResizeObserver) new ResizeObserver(function(){ if((cv.clientWidth|0)!==(W|0)||(cv.clientHeight|0)!==(H|0)) resize(); }).observe(cv);
@@ -456,17 +730,20 @@ resize();
 function mutate(){
   TI=(TI+1)%TIMES.length; T=TIMES[TI];
   BREEZE=Math.random()<.75?1:-1;
-  buildSprites(); buildBg();
+  buildSprites(); buildBg(); buildMotes();
+  plants.forEach(function(p){ p.dirty=true; p.lastR=-1; });
 }
 function reset(){ seedPlants(); lastTouch=nowS(); natT=14; }
 
-window.__ns={ state:function(){ return {plants:plants.length, flying:flying.filter(function(f){return !f.landed;}).length}; } };
+var perf={n:0,ms:0};
+window.__ns={ state:function(){ return {plants:plants.length, flying:flying.filter(function(f){return !f.landed;}).length, time:T.name, msPerFrame:perf.n?+(perf.ms/perf.n).toFixed(2):0}; }, mutate:mutate };
 var last=performance.now();
 function frame(now){
   var dt=Math.min(.05,(now-last)/1000); last=now;
-  var t=nowS();
+  var t=nowS(), a=performance.now();
   stepAll(dt,t);
   render(t);
+  perf.ms+=performance.now()-a; perf.n++;
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
