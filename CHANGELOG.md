@@ -468,6 +468,7 @@
 - 試作: GRAFT LAW(`prototypes/graft-law.html`)を追加。ギャラリー未登録・採用待ち
 - 試作: CUBE COSMOS(`prototypes/cube-cosmos.html`)を追加。ギャラリー未登録・採用待ち
 - 試作: HINGE LAW(`prototypes/hinge-law.html`)を再構成。分割数・装飾を削り、画面内で大きく見せる調整済み。ギャラリー未登録・採用待ち
+- 試作: PARADOX ENGINE(`prototypes/paradox-engine.html`)を新規追加。錯視の立体プリズムが交差部の前後法則を変える作品。ギャラリー未登録・採用待ち
 - LOG先頭: SPLIT DEW(`art-v106-split-dew.html`)、その下にSTRATA SAND(`art-v105-strata-sand.html`)、PRISM SHELL(`art-v104-prism-shell.html`)、SNOW LEDGER(`art-v103-snow-ledger.html`)、ROSARY(`art-v102-rosary.html`)、WATERLINE(`art-v101-waterline.html`)、HAIRLINE(`art-v100-hairline.html`)、MORPHING FERN(`art-v99-morphing-fern.html`)、v98〜v94、LIVING REEF(`art-v93-living-reef.html`)
 - 作業ルール: `AGENTS.md`(ギャラリー追加の手順と命名ルールは13章)
 - 表示モード: iPhoneホーム画面から起動するとCURRENT作品を自動表示するstandalone Web App対応済み
@@ -479,6 +480,8 @@
 ---
 
 ## 履歴
+
+- 2026-10-20 チャッピー: PARADOX ENGINEを新規試作。3つの入れ子の三角プリズムが、交差部で前後関係の矛盾を起こし続ける錯視作品。タップで交差の法則・中心形状・配色が変わり、ドラッグで立体のねじれを操作。再帰フレーム3階層、アニメーション、ap-kit.jsの✦ランダム変異/↻リセットを実装。HTMLタグ対応・scriptタグ数を確認。**実ブラウザ描画・iPhone実機は未検証**(prototypes/paradox-engine.html)
 
 - 2026-09-19 クロード: CULTIVARが「コンセプトがピンとこない」とのことで、黒い蘭の法則を3方向に作り分け。A=BLEED「黒は色を溜め込んだ状態。触れた花弁が色を噴き出し、色は空中に残って花は灰になる」、B=DESCENT「花の中心には同じ花がある。触ると一段内側へ落ち、潜るほど別の生き物に変質し外へは戻れない」、C=GAZE「見られていると気づくと咲く。指を置いてじっとしている間だけ開き、動かすと閉じる。開ききった花は押し花になって二度と咲かない」。花の幾何と描画は3作共通の prototypes/orchid-engine.js に切り出した(このjsは3作が依存しているので編集時は3作とも要確認)(prototypes/orchid-engine.js, prototypes/orchid-a-bleed.html, prototypes/orchid-b-descent.html, prototypes/orchid-c-gaze.html)
 - 2026-09-19 クロード: おっちゃん提供の黒い蘭の写真から CULTIVAR を新規制作。法則は「触れた花弁が次の世代すべての祖先になる」人工選抜(6器官が同じ遺伝子のズレとして育ち、選んだ花弁の形質を花全体が受け継いで咲き直す/長押しで強制変異/世代は戻らず背後に系統の影が残る)。花弁の縁は同じ切れ込み規則を4〜5階層くり返す自己相似フリンジ。チャッピーの prototypes/black-orchid.html とは別法則なので、そちらは触らず別ファイルにした(prototypes/black-orchid-cultivar.html)
