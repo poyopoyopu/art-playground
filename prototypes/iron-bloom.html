@@ -3,18 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-<title>IRON BLOOM — 黒い液体は、指の磁力を覚えている</title>
+<title>IRON BLOOM — 黒い液体は、磁石の通った道を覚えている</title>
 <!-- IRON BLOOM — クロちゃん(Claude)作。ap-kit.js統合: クロちゃん。2026/10/20 試作
      おっちゃん「あっと驚く作品を作ってくれよ」→ 磁性流体(フェロフルイド)。
-     世界のルール: 黒い液体は、指の磁力を覚えている。
-       長押し = 磁力をこめる(こめるほどトゲの上にトゲ、その上にまたトゲが立つ。3階層の自己相似)
-       なぞる = 指の通った跡に磁力が残る(トゲの尾根になる)
-       離す   = 指の磁力はその場に「記憶」として残り、ゆっくり忘れていく
-                忘れるときは細かいトゲ(3段目)から先に消え、最後に大きなトゲが沈む
+     「なんだかよくわからない」「眺めるだけができないか」を受けて、光る磁石を3つ見せる形に。
+     世界のルール: 黒い液体は、磁石の通った道を覚えている。
+       磁石はふだん勝手に漂い、低く降りるほど液を強く引く(トゲが立ち、真下の液は磁石へ伸び上がる)
+       通った道には磁力が残り、液はしばらくその道をトゲで覚えている(細かいトゲから先に忘れる)
+       触る   = いちばん近い磁石が指のところへ降りてくる(なぞるとついてくる)
        タップ = その場の磁力が抜ける(トゲが一度跳ねて崩れ、波紋が広がる)
-     触らずにいると、見えない誰かがときどき磁石を当てに来る。
      描画: WebGL1。磁場を小さなテクスチャに焼き、黒い液面を高さ場としてレイマーチ。
-     色は液体ではなく、スタジオの照明の映り込み(✦で照明が変わる)。 -->
+     色は液体ではなく、スタジオの照明と磁石の光の映り込み(✦で照明が変わる)。 -->
 <script src="../ap-kit.js"></script>
 <style>
 html,body{margin:0;height:100%;background:#000;overflow:hidden;touch-action:none}
@@ -26,7 +25,7 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hint">長押しで磁力をこめる · なぞって描く<br>タップすると磁力が抜ける</div>
+<div id="hint">眺めているだけでも · 触ると磁石が指へ来る<br>タップすると磁力が抜ける</div>
 <div id="error">この端末では WebGL を利用できません。</div>
 <script>
 (function(){
@@ -66,6 +65,7 @@ var FS_MAIN = [
 'uniform float uS1,uH1,uSharp,uHM;',
 'uniform vec3 uC1,uC2,uC3,uAmb;uniform float uRain,uHueSpd;',
 'float gB;float gPix;uniform float uPx;',
+'uniform vec4 uMag[3];uniform vec3 uMagC[3];uniform float uMagS[3];',
 'float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}',
 'uniform vec2 uTexN;',
 'float dec(vec4 t){return t.r+t.g/255.;}',
@@ -87,6 +87,8 @@ var FS_MAIN = [
 '  float h=.10*B*B*(3.-2.*B);',
 '  h+=ripple(p);',
 '  h+=.0035*sin(p.x*3.1+uT*.6)*sin(p.y*2.7-uT*.5);',
+'  for(int i=0;i<3;i++){vec4 m=uMag[i];if(m.w<=0.||uMagS[i]<=0.)continue;float d=length(p-m.xz);',
+'    float A=uMagS[i]*(m.y-m.w-.04);h+=A*pow(max(1.-d/(.11+.12*uMagS[i]),0.),2.6);}',
 '  cav=0.;',
 '  if(B<.11)return h;',
 '  vec2 q=p/uS1;vec2 o=hexOff(q);vec2 c=q-o;vec2 id=floor(c/vec2(.5,.8660254)+.5);',
@@ -105,6 +107,10 @@ var FS_MAIN = [
 '  }',
 '  return h;',
 '}',
+'float sph(vec3 ro,vec3 rd,vec4 m){vec3 oc=ro-m.xyz;float b=dot(oc,rd);float c=dot(oc,oc)-m.w*m.w;float h=b*b-c;if(h<0.)return -1.;return -b-sqrt(h);}',
+'vec3 orbGlow(vec3 ro,vec3 rd,float tl){vec3 g=vec3(0.);for(int i=0;i<3;i++){vec4 m=uMag[i];if(m.w<=0.)continue;',
+'  float tc=max(dot(m.xyz-ro,rd),0.);if(tc>tl)continue;float dd=length(ro+rd*tc-m.xyz);',
+'  g+=uMagC[i]*(.45*exp(-dd*dd/(m.w*m.w*6.))+.08*exp(-dd*dd/(m.w*m.w*40.)));}return g;}',
 'vec3 hue(float x){return .5+.5*cos(6.2831853*(x+vec3(0.,.33,.67)));}',
 'float rbox(vec2 q,vec2 c,vec2 s,float k){vec2 d=abs(q-c)-s;float sd=length(max(d,0.))+min(max(d.x,d.y),0.);return 1.-smoothstep(-k,k,sd);}',
 'float band(float x,float c,float w,float k){return 1.-smoothstep(w-k,w+k,abs(x-c));}',
@@ -128,7 +134,7 @@ var FS_MAIN = [
 'void main(){',
 '  vec2 uv=(gl_FragCoord.xy-.5*uRes)/uRes.y;',
 '  vec3 rd=normalize(uF*1.1+uv.x*uR+uv.y*uU);',
-'  vec3 col;',
+'  vec3 col;float tL=1e9;',
 '  float n0=fract(sin(dot(gl_FragCoord.xy,vec2(12.9898,78.233)))*43758.5453);',
 '  if(rd.y>-.002){col=env(rd)*.45;}',
 '  else{',
@@ -155,11 +161,23 @@ var FS_MAIN = [
 '    float occ=1.-.7*cav;',
 '    vec3 rc=env(r);',
 '    if(r.y<0.)rc*=.35;',
+'    vec3 po=p+n*.004;',
+'    float sl=smoothstep(.995,.93,n.y);',
+'    for(int i=0;i<3;i++){vec4 m=uMag[i];if(m.w<=0.)continue;if(sph(po,r,m)>0.)rc=mix(rc,uMagC[i]*5.,sl);}',
+'    rc+=orbGlow(po,r,1e9)*.8*sl;',
 '    col=rc*F*occ;',
 '    col+=mix(uAmb,uC1,.3)*.07*(.35+.65*n.y)*occ;',
+'    for(int i=0;i<3;i++){vec4 m=uMag[i];if(m.w<=0.)continue;vec3 L=m.xyz-p;float dl=length(L);',
+'      col+=uMagC[i]*.035*max(dot(n,L/dl),0.)/(1.+dl*dl*25.)*occ;}',
 '    col+=(uC1*.5+uC2*.25+uC3*.25)*.02*smoothstep(.1,.25,h0-.1*B0)*pow(max(n.y,0.),4.);',
 '    col=mix(col,mix(uAmb,uC1,.35)*.55,1.-exp(-.16*max(t-3.5,0.)));',
+'    tL=t;',
 '  }',
+'  for(int i=0;i<3;i++){vec4 m=uMag[i];if(m.w<=0.)continue;float ts=sph(uRo,rd,m);',
+'    if(ts>0.&&ts<tL){tL=ts;vec3 q=uRo+rd*ts;vec3 N=normalize(q-m.xyz);float f=max(dot(N,-rd),0.);',
+'      vec3 er=env(reflect(rd,N));',
+'      col=uMagC[i]*(1.4+3.2*pow(f,2.))+vec3(1.)*2.5*pow(f,24.)+er*.25*pow(1.-f,2.);}}',
+'  col+=orbGlow(uRo,rd,tL);',
 '  col*=1.35;',
 '  col=col*(2.51*col+.03)/(col*(2.43*col+.59)+.14);',
 '  col=pow(clamp(col,0.,1.),vec3(.4545));',
@@ -182,9 +200,9 @@ var buf=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,buf);
 gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
 gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
 
-function locs(prog, names){ var o={}; names.forEach(function(k){ o[k]=gl.getUniformLocation(prog,(k==='uM'||k==='uRip')?k+'[0]':k); }); return o; }
+function locs(prog, names){ var o={}; names.forEach(function(k){ o[k]=gl.getUniformLocation(prog,(k==='uM'||k==='uRip'||k==='uMag'||k==='uMagC'||k==='uMagS')?k+'[0]':k); }); return o; }
 var UF=locs(pField,['uM','uTex','uDom']);
-var UM=locs(pMain,['uPx','uTexN','uRes','uT','uRo','uF','uR','uU','uFld','uDom','uRip','uS1','uH1','uSharp','uHM','uC1','uC2','uC3','uAmb','uRain','uHueSpd']);
+var UM=locs(pMain,['uMag','uMagC','uMagS','uPx','uTexN','uRes','uT','uRo','uF','uR','uU','uFld','uDom','uRip','uS1','uH1','uSharp','uHM','uC1','uC2','uC3','uAmb','uRain','uHueSpd']);
 
 // 磁場テクスチャ(16bitを2チャンネルに分けて持つ。線形補間しても値が正しく混ざる)
 var ftex=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,ftex);
@@ -216,9 +234,8 @@ var LU = lightUniforms();
 var stamps=[], ripples=[];
 function seedStamps(){
   stamps=[
-    {x:0.05, z:.05, s:2.3, r:.38, tau:45},
-    {x:-.6, z:1.25, s:1.6, r:.33, tau:40},
-    {x:.7,  z:2.3, s:1.2, r:.3, tau:35}
+    {x:.45, z:.35, s:1.6, r:.32, tau:30},
+    {x:-.6, z:1.5, s:1.2, r:.3, tau:25}
   ];
   ripples=[];
 }
@@ -284,82 +301,77 @@ function hideHint(){ if(!hinted){ hinted=true; hint.classList.add('off'); } }
 setTimeout(hideHint,8000);
 var clock0=performance.now();
 function nowS(){ return (performance.now()-clock0)/1000; }
-var finger=null, lastTouch=-100;
-var S_MAX=2.6, S_TAU=1.6;
+var lastTouch=-100;
 
+// ---- 光る磁石(3つ)。ふだんは勝手に漂い、低く降りるほど液を強く引く ----
+var MAG_R=.085;
+var mags=[
+  {ax:-.35,az:.15, w:[.071,.093,.13], ph:[0,1.7,.4]},
+  {ax:.42, az:1.0, w:[.083,.061,.11], ph:[2.1,.3,2.6]},
+  {ax:-.1, az:2.0, w:[.058,.077,.097],ph:[4.0,3.3,4.9]}
+];
+mags.forEach(function(m,i){ var p=magPath(m,0); m.x=p[0]; m.y=p[1]; m.z=p[2]; m.s=0; m.lx=m.x; m.lz=m.z; m.held=false; m.wasStrong=false; m.ci=i; });
+function magPath(m,t){
+  return [m.ax+.55*Math.sin(t*m.w[0]+m.ph[0])+.18*Math.sin(t*m.w[1]*2.3+m.ph[1]),
+          .9+.45*Math.sin(t*m.w[2]+m.ph[2]),
+          m.az+.6*Math.sin(t*m.w[1]+m.ph[1])];
+}
+function magStrength(y){ var k=Math.min(1,Math.max(0,(1.35-y)/(1.35-.42))); return 2.7*Math.pow(k*k*(3-2*k),1.15); }
+function magR(s){ return .26+.12*s/2.7; }
+
+var touch=null;
 canvas.addEventListener('pointerdown',function(ev){
   if(window.APKit && APKit.isUI(ev.clientX,ev.clientY)) return true;
   ev.preventDefault(); hideHint();
-  if(finger) return;
+  if(touch) return;
   var p=toPool(ev.clientX,ev.clientY);
-  finger={id:ev.pointerId, sx:ev.clientX, sy:ev.clientY, t0:nowS(), x:p.x, z:p.z, lx:p.x, lz:p.z, s:.25, moved:false};
-  ghost.reset();
+  // いちばん近い磁石が指のところへ来る
+  var best=null,bd=1e9; mags.forEach(function(m){ var d=Math.hypot(m.x-p.x,m.z-p.z); if(d<bd){bd=d;best=m;} });
+  touch={id:ev.pointerId, sx:ev.clientX, sy:ev.clientY, t0:nowS(), x:p.x, z:p.z, moved:false, mag:best};
+  best.held=true; best.fx=p.x; best.fz=p.z;
   lastTouch=nowS();
   try{ canvas.setPointerCapture(ev.pointerId); }catch(e){}
 });
 canvas.addEventListener('pointermove',function(ev){
-  if(!finger||ev.pointerId!==finger.id) return;
+  if(!touch||ev.pointerId!==touch.id) return;
   var p=toPool(ev.clientX,ev.clientY);
-  finger.x=p.x; finger.z=p.z;
-  if(Math.hypot(ev.clientX-finger.sx,ev.clientY-finger.sy)>12) finger.moved=true;
-  lastTouch=nowS();
+  touch.x=p.x; touch.z=p.z; touch.mag.fx=p.x; touch.mag.fz=p.z;
+  if(Math.hypot(ev.clientX-touch.sx,ev.clientY-touch.sy)>12) touch.moved=true;
 });
 function up(ev){
-  if(!finger||ev.pointerId!==finger.id) return;
-  var dur=nowS()-finger.t0;
-  if(!finger.moved && dur<.28){
-    tapAt(finger.x,finger.z);
-  } else {
-    // 離す: 指の磁力はその場に記憶として残る
-    addStamp(finger.x,finger.z,finger.s*.92,fingerR(finger.s),22);
-  }
-  finger=null; lastTouch=nowS();
+  if(!touch||ev.pointerId!==touch.id) return;
+  var dur=nowS()-touch.t0;
+  touch.mag.held=false;
+  if(!touch.moved && dur<.28) tapAt(touch.x,touch.z);
+  touch=null; lastTouch=nowS();
 }
 canvas.addEventListener('pointerup',up); canvas.addEventListener('pointercancel',up);
-function fingerR(s){ return .28+.1*(s/S_MAX); }
 
 // タップ: その場の磁力が抜ける。トゲは一度跳ねてから崩れる
 function tapAt(x,z){
   stamps.forEach(function(st){
     var d=Math.hypot(st.x-x,st.z-z);
-    if(d<.55+st.r*.5){ st.s*=1.3; st.tau=Math.min(st.tau,.32+d*.4); st.kill=true; }
+    if(d<.55+st.r*.5){ st.s*=1.3; st.tau=Math.min(st.tau,.32+d*.4); }
   });
-  stamps.push({x:x,z:z,s:1.0,r:.27,tau:.3,kill:true});
+  stamps.push({x:x,z:z,s:1.0,r:.27,tau:.3});
   addRipple(x,z,.022);
 }
 
-// ---- 触らないでいると、見えない誰かが磁石を当てに来る ----
-var ghost={
-  phase:'off', t:0, x:0, z:1, tx:0, tz:1, s:0,
-  reset:function(){ this.phase='off'; this.t=0; this.s=0; },
-  step:function(dt,t){
-    if(finger || t-lastTouch<9){ this.phase='off'; this.s=0; return; }
-    this.t+=dt;
-    if(this.phase==='off'){ this.phase='move'; this.t=0; this.tx=(Math.random()-.5)*1.3; this.tz=-.3+Math.random()*2.3; }
-    if(this.phase==='move'){ this.x+=(this.tx-this.x)*Math.min(1,dt*2); this.z+=(this.tz-this.z)*Math.min(1,dt*2); this.s=0;
-      if(this.t>1.2){ this.phase='hold'; this.t=0; this.s=.25; this.dur=2+Math.random()*3; } }
-    else if(this.phase==='hold'){
-      this.s+= (S_MAX-this.s)*(1-Math.exp(-dt/S_TAU));
-      // ときどき少しずつ動いて尾根を描く
-      this.x+=Math.sin(t*.9)*dt*.08; this.z+=Math.cos(t*.7)*dt*.06;
-      if(this.t>this.dur){ addStamp(this.x,this.z,this.s*.92,fingerR(this.s),22); this.phase='rest'; this.t=0; this.s=0; this.rest=3+Math.random()*4; }
-    }
-    else if(this.phase==='rest'){ if(this.t>this.rest){ this.phase='off'; } }
-  }
-};
-
 // ---- 毎フレームの更新 ----
 function step(dt,t){
-  if(finger){
-    finger.s+=(S_MAX-finger.s)*(1-Math.exp(-dt/S_TAU));
-    // なぞった跡に磁力が残る
-    var d=Math.hypot(finger.x-finger.lx,finger.z-finger.lz);
-    if(d>.085 && finger.s>.35){
-      addStamp(finger.x,finger.z,finger.s*.62,.23,16);
-      finger.lx=finger.x; finger.lz=finger.z;
-    }
-  }
-  ghost.step(dt,t);
+  mags.forEach(function(m){
+    var tx,ty,tz,rate;
+    if(m.held){ tx=m.fx; tz=m.fz; ty=.42; rate=3.2; }
+    else { var p=magPath(m,t); tx=p[0]; ty=p[1]; tz=p[2]; rate=.7; }
+    var k=1-Math.exp(-dt*rate);
+    m.x+=(tx-m.x)*k; m.z+=(tz-m.z)*k; m.y+=(ty-m.y)*(m.held?k:1-Math.exp(-dt*1.2));
+    m.s=magStrength(m.y);
+    // 通った跡に磁力が残る(その道を液は覚えている)
+    if(m.s>1.3 && Math.hypot(m.x-m.lx,m.z-m.lz)>.1){ addStamp(m.x,m.z,m.s*.36,.19,10); m.lx=m.x; m.lz=m.z; }
+    // 磁石が離れていくと、立っていたトゲが崩れて波紋が出る
+    if(m.s>1.6) m.wasStrong=true;
+    if(m.wasStrong && m.s<1.0){ m.wasStrong=false; addRipple(m.x,m.z,.012); }
+  });
   // 忘れる(強いほどゆっくり。細かいトゲから先に消える)
   for(var i=stamps.length-1;i>=0;i--){
     var st=stamps[i];
@@ -378,10 +390,10 @@ function mutate(){
   LU=lightUniforms();
   stamps.forEach(function(st){ addRipple(st.x,st.z,.006); });
 }
-function reset(){ seedStamps(); finger=null; ghost.reset(); lastTouch=nowS(); }
+function reset(){ seedStamps(); lastTouch=nowS(); }
 
 // ---- 描画 ----
-var mArr=new Float32Array(NM*4), rArr=new Float32Array(NR*4);
+var mArr=new Float32Array(NM*4), rArr=new Float32Array(NR*4), magArr=new Float32Array(12), magC=new Float32Array(9), magS=new Float32Array(3);
 var SPEED=1, last=performance.now(), ftAvg=16, ftN=0, ftAcc=0;
 function frame(now){
   var dtms=now-last; last=now;
@@ -395,8 +407,12 @@ function frame(now){
   updateCam(t);
 
   mArr.fill(0); var k=0;
-  if(finger){ mArr[0]=finger.x; mArr[1]=finger.z; mArr[2]=finger.s; mArr[3]=fingerR(finger.s); k=1; }
-  else if(ghost.s>0){ mArr[0]=ghost.x; mArr[1]=ghost.z; mArr[2]=ghost.s; mArr[3]=fingerR(ghost.s); k=1; }
+  mags.forEach(function(m){ mArr[k*4]=m.x; mArr[k*4+1]=m.z; mArr[k*4+2]=m.s; mArr[k*4+3]=magR(m.s); k++; });
+  var maxPeak=0;
+  mags.forEach(function(m,j){ magArr[j*4]=m.x; magArr[j*4+1]=m.y; magArr[j*4+2]=m.z; magArr[j*4+3]=MAG_R;
+    var ms=Math.min(1,Math.max(0,(m.s-1.5)/1.1)); ms=ms*ms*(3-2*ms); magS[j]=ms;
+    var c=[LU.c2,LU.c3,LU.c1][j]; magC[j*3]=c[0]; magC[j*3+1]=c[1]; magC[j*3+2]=c[2];
+    maxPeak=Math.max(maxPeak,ms*(m.y-MAG_R)); });
   for(var i=0;i<stamps.length && k<NM;i++,k++){ var st=stamps[i]; mArr[k*4]=st.x; mArr[k*4+1]=st.z; mArr[k*4+2]=st.s; mArr[k*4+3]=st.r; }
   rArr.fill(0);
   ripples.forEach(function(r,j){ rArr[j*4]=r.x; rArr[j*4+1]=r.z; rArr[j*4+2]=r.age; rArr[j*4+3]=r.amp; });
@@ -416,7 +432,8 @@ function frame(now){
   gl.uniform4f(UM.uDom,DOM.x0,DOM.z0,1/DOM.w,1/DOM.d);
   gl.uniform4fv(UM.uRip,rArr);
   gl.uniform1f(UM.uS1,P.S1); gl.uniform1f(UM.uH1,P.H1); gl.uniform1f(UM.uSharp,P.sharp);
-  gl.uniform1f(UM.uHM,P.H1*1.55+.16);
+  gl.uniform1f(UM.uHM,Math.max(P.H1*1.55+.16,maxPeak+.12));
+  gl.uniform4fv(UM.uMag,magArr); gl.uniform3fv(UM.uMagC,magC); gl.uniform1fv(UM.uMagS,magS);
   gl.uniform3fv(UM.uC1,LU.c1); gl.uniform3fv(UM.uC2,LU.c2); gl.uniform3fv(UM.uC3,LU.c3); gl.uniform3fv(UM.uAmb,LU.amb);
   gl.uniform1f(UM.uRain,LU.rain); gl.uniform1f(UM.uHueSpd,.012);
   gl.drawArrays(gl.TRIANGLES,0,3);
@@ -425,7 +442,7 @@ function frame(now){
 requestAnimationFrame(frame);
 
 // 動作確認用
-window.__iron={ speed:function(v){ SPEED=v; }, state:function(){ return {stamps:stamps.length, finger:!!finger, ghost:ghost.phase, W:W, H:H, budget:budget, ft:ftAvg, light:LIGHTS[P.light].name}; } };
+window.__iron={ speed:function(v){ SPEED=v; }, skip:function(v){ clock0-=v*1000; }, state:function(){ return {stamps:stamps.length, touch:!!touch, mags:mags.map(function(m){return +m.y.toFixed(2);}), W:W, H:H, budget:budget, ft:ftAvg, light:LIGHTS[P.light].name}; } };
 
 if(window.APKit){
   APKit.init({
