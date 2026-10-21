@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>OXIDE STAIR — 冷やした所から、階段の結晶が育つ</title>
+<!-- OXIDE STAIR — クロちゃん(Claude)作。ap-kit.js統合: クロちゃん。2026/10/21 試作
+     おっちゃんが候補4つから「③夜光虫の波打ち際」「④ビスマス結晶」が気になる、と選んだうちの④。
+     題材: ビスマスの骨格結晶(ホッパー結晶)。溶けたビスマスが冷えると、結晶は縁だけが先に伸びるので、
+     中がくぼんだ四角い階段になる。表面は空気で酸化し、膜の厚さで光が干渉して金→赤紫→青→緑と色が変わる。
+     世界のルール: 指で冷やした所から結晶が育つ。結晶は外側に新しい段を足していくので、
+       中ほど古く、外ほど新しい。色は「空気に触れていた時間」で決まるので、育てた順番がそのまま色の地層として残る。
+       何もしなくても: 溶けたビスマスの湯面がゆっくり光る。最初に1つだけ結晶が育つ
+       タップ = 小さな結晶の種   長押し = 触れている結晶が外へ段を足して大きくなる(既存の結晶の上でも)
+       なぞる = 指の通った道に、同じ向きの結晶が連なって育つ
+       ✦ = 別の炉(色の進み方・始まりの色・光の向きが変わる。今ある結晶も塗り替わる)
+       ↻ = ぜんぶ溶かして湯面に戻す
+     自己相似: 大きくなった結晶は四隅に半分の大きさの結晶を、その結晶もまた四隅に半分の結晶を持つ(3階層)。
+       どの階層も同じ「四角の中に四角」の階段。
+     色: 酸化膜の薄膜干渉を赤650/緑540/青450nmの3色で計算(膜の屈折率2.4)。膜厚は経過時間のおよそ0.6乗で増えるので、
+       色はずっと少しずつ進み、古い段と新しい段の差が残る。
+     描画: Canvas 2D。結晶ごとに別キャンバスへ描いておき(育っている間は毎フレーム、ほかは0.4秒ごとに描き直す。1段=約10px、最大13段)、
+       画面にはそれを並べるだけ。 -->
+<script src="../ap-kit.js"></script>
+<style>
+html,body{margin:0;height:100%;background:#07080a;overflow:hidden;touch-action:none}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+#hint{position:fixed;left:16px;right:16px;top:calc(env(safe-area-inset-top) + 18px);text-align:center;color:rgba(240,236,228,.9);font:500 11px/1.7 system-ui,sans-serif;letter-spacing:.12em;text-shadow:0 1px 6px rgba(0,0,0,.8);pointer-events:none;transition:opacity 1.2s}
+#hint.off{opacity:0}
+#toast{position:fixed;left:50%;top:44%;transform:translate(-50%,-50%);color:rgba(245,240,232,.95);font:500 13px/1.6 system-ui,sans-serif;letter-spacing:.16em;text-shadow:0 1px 8px rgba(0,0,0,.9);pointer-events:none;opacity:0;transition:opacity .5s;white-space:nowrap}
+#toast.on{opacity:1}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">触れて冷やすと結晶が育つ · 長く触れるほど大きく<br>色は空気に触れた時間。育てた順に色の地層が残る</div>
+<div id="toast"></div>
+<script>
+(function(){
+'use strict';
+var cv=document.getElementById('c'), ctx=cv.getContext('2d',{alpha:false});
+var W=1,H=1,DPR=1,UNIT=1, bg=null;
+
+/* ---------- 炉(✦で切りかわる) ---------- */
+var FURNACES=[
+  {name:'いつもの炉',          off:0,  rate:24, light:-2.3},
+  {name:'熱い炉 — 色が早く進む', off:0,  rate:40, light:-1.6},
+  {name:'青から始まる炉',       off:70, rate:20, light:-2.8},
+  {name:'金と紫の炉',          off:18, rate:9,  light:-2.0},
+  {name:'緑の炉',             off:120,rate:16, light:-0.9}
+];
+var furnI=0, furn=FURNACES[0];
+var lightBase=furn.light;
+
+/* ---------- 酸化膜の色(薄膜干渉) ---------- */
+function film(d,shade,out){
+  // d=膜厚nm。cosの位相 4π n d / λ、n=2.4。d=0で銀色(全部1)
+  var k=4*Math.PI*2.4*d;
+  var r=0.62+0.38*Math.cos(k/650), g=0.62+0.38*Math.cos(k/540), b=0.62+0.38*Math.cos(k/450);
+  var m=(r+g+b)/3, s=d<8?0.6:1.7;          // 薄いうちは銀に近く、厚くなると鮮やかに
+  r=m+(r-m)*s; g=m+(g-m)*s; b=m+(b-m)*s;
+  var lum=0.86*shade;
+  out[0]=Math.max(0,Math.min(255,r*255*lum)); out[1]=Math.max(0,Math.min(255,g*255*lum)); out[2]=Math.max(0,Math.min(255,b*255*lum));
+  return out;
+}
+var tmpC=[0,0,0];
+function rgb(c){ return 'rgb('+(c[0]|0)+','+(c[1]|0)+','+(c[2]|0)+')'; }
+function thick(age){ return furn.off + furn.rate*Math.pow(Math.max(0,age),0.62); }
+
+/* ---------- 結晶 ---------- */
+var crystals=[], MAXC=14, MAXN=13;
+function newCrystal(x,y,ang,n0,now){
+  var c={x:x,y:y,ang:ang,frames:[],step:10*UNIT,cv:document.createElement('canvas'),dirty:true,lastDraw:-1,alpha:1,melting:false,born:now,tw:Math.random()*6.28};
+  c.cx=c.cv.getContext('2d');
+  for(var i=0;i<n0;i++) c.frames.push(now-(n0-i)*0.03);
+  crystals.push(c);
+  var alive=crystals.filter(function(q){return !q.melting;});
+  if(alive.length>MAXC) alive[0].melting=true;
+  return c;
+}
+function outerR(c){ return c.step*(c.frames.length+1.2); }
+
+// 1つの階段(四角の中に四角)を描く。frames=生まれた時刻の並び(内→外)。
+// 段ごとに「縁(平らな上面)」と「内側の壁(一段下へ落ちる斜面)」の2つ。色は縁にそって少しずつ移ろう(金属の玉虫色)。
+function drawHopper(g,cx,cy,ang,step,frames,now,depth,tw){
+  var n=frames.length; if(n<1) return;
+  var t=step*0.46, wl=step-t;
+  var la=lightBase+now*0.05;                          // 光の向きはゆっくり回る
+  var Lx=Math.cos(la), Ly=Math.sin(la);
+  var ca=Math.cos(ang), sa=Math.sin(ang);
+  function P(x,y){ return [cx+x*ca-y*sa, cy+x*sa+y*ca]; }
+  // 辺 e: 0=上 1=右 2=下 3=左。外向きの法線
+  var ON=[[0,-1],[1,0],[0,1],[-1,0]];
+  function facing(e,sign){ var nx=ON[e][0]*sign, ny=ON[e][1]*sign; return (nx*ca-ny*sa)*Lx+(nx*sa+ny*ca)*Ly; }
+  function quad(a,b,c,d){ g.beginPath(); g.moveTo(a[0],a[1]); g.lineTo(b[0],b[1]); g.lineTo(c[0],c[1]); g.lineTo(d[0],d[1]); g.closePath(); g.fill(); }
+  function grad(a,b,d0,shade,spread){
+    var gr=g.createLinearGradient(a[0],a[1],b[0],b[1]);
+    gr.addColorStop(0,rgb(film(d0-spread,shade,tmpC)));
+    gr.addColorStop(0.5,rgb(film(d0+spread*0.8,shade*1.04,tmpC)));
+    gr.addColorStop(1,rgb(film(d0-spread*0.4,shade,tmpC)));
+    return gr;
+  }
+  var lw=Math.max(0.6,step*0.07);
+  for(var k=n-1;k>=0;k--){
+    var R=step*(k+1.2), S=R-t, S2=Math.max(0,S-wl);
+    var d=thick(now-frames[k]) + depth*5 + 6*Math.sin(k*1.7+tw);
+    var rim=[[-R,-R,R,-R,S,-S,-S,-S],[R,-R,R,R,S,S,S,-S],[R,R,-R,R,-S,S,S,S],[-R,R,-R,-R,-S,-S,-S,S]];
+    var wal=[[-S,-S,S,-S,S2,-S2,-S2,-S2],[S,-S,S,S,S2,S2,S2,-S2],[S,S,-S,S,-S2,S2,S2,S2],[-S,S,-S,-S,-S2,-S2,-S2,S2]];
+    for(var e=0;e<4;e++){
+      var q=rim[e], A=P(q[0],q[1]), B=P(q[2],q[3]);
+      var f=facing(e,1);                                   // 縁はほぼ平ら。光の側の縁が少し明るい
+      g.fillStyle=grad(A,B,d+e*4,1.0+0.16*f,10+depth*3);
+      quad(A,B,P(q[4],q[5]),P(q[6],q[7]));
+      if(f>0.25){ g.strokeStyle='rgba(255,248,236,'+(0.5*f).toFixed(3)+')'; g.lineWidth=lw; g.beginPath(); g.moveTo(A[0],A[1]); g.lineTo(B[0],B[1]); g.stroke(); }
+    }
+    for(e=0;e<4;e++){
+      q=wal[e]; A=P(q[0],q[1]); B=P(q[2],q[3]);
+      f=facing(e,-1);                                      // 壁は内向き。光の来る向きの壁が明るい
+      g.fillStyle=grad(A,B,d+8+e*3,0.5+0.38*f,14);
+      quad(A,B,P(q[4],q[5]),P(q[6],q[7]));
+    }
+    if(S2>0.5){ // 段の付け根に細い影
+      g.strokeStyle='rgba(0,0,0,0.32)'; g.lineWidth=lw;
+      var c0=P(-S2,-S2),c1=P(S2,-S2),c2=P(S2,S2),c3=P(-S2,S2);
+      g.beginPath(); g.moveTo(c0[0],c0[1]); g.lineTo(c1[0],c1[1]); g.lineTo(c2[0],c2[1]); g.lineTo(c3[0],c3[1]); g.closePath(); g.stroke();
+    }
+    if(k===0 && S2>0.5){ // いちばん奥の穴
+      g.fillStyle=rgb(film(d+30,0.2,tmpC));
+      quad(P(-S2,-S2),P(S2,-S2),P(S2,S2),P(-S2,S2));
+    }
+  }
+}
+// 自己相似: 外の段が3段を超えると四隅に半分の結晶、その結晶も四隅に半分の結晶(3階層)
+function childFrames(frames,start,ratio){
+  var n=frames.length, m=Math.floor((n-start)*ratio), out=[];
+  for(var j=0;j<m;j++) out.push(frames[Math.min(n-1,start+Math.floor(j/ratio))]);
+  return out;
+}
+function drawFamily(g,cx,cy,ang,step,frames,now,depth,tw){
+  drawHopper(g,cx,cy,ang,step,frames,now,depth,tw);
+  if(depth>=2) return;
+  var kids=childFrames(frames,3,0.75); if(kids.length<1) return;
+  var R=step*(frames.length+1.2), off=R*0.8, ca=Math.cos(ang), sa=Math.sin(ang);
+  var corners=[[-1,-1],[1,-1],[1,1],[-1,1]];
+  for(var i=0;i<4;i++){
+    var x=corners[i][0]*off, y=corners[i][1]*off;
+    drawFamily(g,cx+x*ca-y*sa,cy+x*sa+y*ca,ang,step*0.5,kids,now,depth+1,tw+i*1.3);
+  }
+}
+// 描き先のキャンバスの大きさ: 回った四角の対角(×1.42)+四隅の子+影
+function familyR(c){
+  var R=outerR(c), kids=Math.max(0,Math.floor((c.frames.length-3)*0.75));
+  var kr=kids>0? c.step*0.5*(kids+1.2):0;
+  return Math.max(R*1.45, (R*0.8+kr)*1.42)+30*UNIT;
+}
+
+function renderCrystal(c,now){
+  var half=familyR(c), sz=Math.ceil(half*2*DPR);
+  if(c.cv.width<sz || c.cv.width>sz*1.6){ c.cv.width=sz; c.cv.height=sz; }
+  var g=c.cx, s=c.cv.width;
+  g.setTransform(1,0,0,1,0,0); g.clearRect(0,0,s,s);
+  g.setTransform(DPR,0,0,DPR,0,0);
+  var mid=s/DPR/2, R=outerR(c);
+  // 影
+  g.save(); g.translate(mid+5*UNIT,mid+9*UNIT); g.rotate(c.ang);
+  g.shadowColor='rgba(0,0,0,0.75)'; g.shadowBlur=16*UNIT*DPR; g.fillStyle='rgba(0,0,0,0.6)';
+  g.fillRect(-R*1.02,-R*1.02,R*2.04,R*2.04); g.restore();
+  drawFamily(g,mid,mid,c.ang,c.step,c.frames,now,0,c.tw);
+  c.half=s/DPR/2; c.lastDraw=now; c.dirty=false;
+}
+
+/* ---------- 湯面 ---------- */
+function makeBg(){
+  bg=document.createElement('canvas'); bg.width=cv.width; bg.height=cv.height;
+  var g=bg.getContext('2d'), w=bg.width, h=bg.height;
+  var gr=g.createRadialGradient(w*0.42,h*0.36,0,w*0.5,h*0.5,Math.max(w,h)*0.75);
+  gr.addColorStop(0,'#2a2c31'); gr.addColorStop(0.45,'#15161a'); gr.addColorStop(1,'#050506');
+  g.fillStyle=gr; g.fillRect(0,0,w,h);
+  // 溶けた金属のにぶい映りこみ(横に流れる帯)
+  for(var i=0;i<14;i++){
+    var y=Math.random()*h, hh=(20+Math.random()*90)*DPR;
+    var lg=g.createLinearGradient(0,y-hh,0,y+hh);
+    lg.addColorStop(0,'rgba(200,205,215,0)'); lg.addColorStop(0.5,'rgba(200,205,215,'+(0.02+Math.random()*0.04).toFixed(3)+')'); lg.addColorStop(1,'rgba(200,205,215,0)');
+    g.fillStyle=lg; g.fillRect(0,y-hh,w,hh*2);
+  }
+}
+
+function setup(){
+  DPR=Math.min(2,window.devicePixelRatio||1);
+  W=window.innerWidth; H=window.innerHeight;
+  cv.width=Math.round(W*DPR); cv.height=Math.round(H*DPR);
+  UNIT=Math.max(0.8,Math.min(1.8,Math.min(W,H)/390));
+  makeBg();
+  crystals.forEach(function(c){ c.dirty=true; });
+}
+
+/* ---------- 操作 ---------- */
+var hint=document.getElementById('hint'), hinted=false;
+function hideHint(){ if(!hinted){ hinted=true; hint.classList.add('off'); } }
+setTimeout(hideHint,10000);
+var toastEl=document.getElementById('toast'), toastT=0;
+function toast(s,ms){ toastEl.textContent=s; toastEl.classList.add('on'); clearTimeout(toastT); toastT=setTimeout(function(){ toastEl.classList.remove('on'); },ms||2200); }
+
+var ptrs={};
+function hit(x,y){
+  for(var i=crystals.length-1;i>=0;i--){
+    var c=crystals[i]; if(c.melting) continue;
+    var dx=x-c.x, dy=y-c.y, ca=Math.cos(-c.ang), sa=Math.sin(-c.ang);
+    var lx=dx*ca-dy*sa, ly=dx*sa+dy*ca, R=outerR(c);
+    if(Math.abs(lx)<R && Math.abs(ly)<R) return c;
+  }
+  return null;
+}
+function nowS(){ return performance.now()/1000; }
+cv.addEventListener('pointerdown',function(ev){
+  if(window.APKit && APKit.isUI(ev.clientX,ev.clientY)) return true;
+  ev.preventDefault(); hideHint();
+  var x=ev.clientX, y=ev.clientY, t=nowS();
+  var c=hit(x,y);
+  if(!c) c=newCrystal(x,y,Math.random()*Math.PI/2,3,t);   // 新しい種の向きはばらばら
+  ptrs[ev.pointerId]={x:x,y:y,c:c,lastAdd:t};
+  try{ cv.setPointerCapture(ev.pointerId); }catch(e){}
+});
+cv.addEventListener('pointermove',function(ev){
+  var p=ptrs[ev.pointerId]; if(!p) return;
+  p.x=ev.clientX; p.y=ev.clientY;
+  var c=p.c, d=Math.hypot(p.x-c.x,p.y-c.y);
+  // 指が今の結晶の外へ出たら、そこに同じ向きの結晶が続いて生まれる
+  if(d>outerR(c)*1.05+6*UNIT){
+    var t=nowS(), n0=Math.max(2,Math.min(6,Math.round(c.frames.length*0.45)));
+    var nc=newCrystal(p.x,p.y,c.ang+(Math.random()-0.5)*0.12,n0,t);
+    p.c=nc; p.lastAdd=t;
+  }
+});
+function endPtr(ev){ delete ptrs[ev.pointerId]; }
+cv.addEventListener('pointerup',endPtr);
+cv.addEventListener('pointercancel',endPtr);
+
+function setFurnace(i){ furnI=i; furn=FURNACES[i]; lightBase=furn.light; crystals.forEach(function(c){ c.dirty=true; }); }
+function mutate(){ var n=furnI; while(n===furnI) n=(Math.random()*FURNACES.length)|0; setFurnace(n); toast(furn.name); }
+function reset(){ crystals.forEach(function(c){ c.melting=true; }); ptrs={}; toast('ぜんぶ溶かした',1500); }
+
+/* ---------- ループ ---------- */
+var resizeT=0;
+window.addEventListener('resize',function(){ clearTimeout(resizeT); resizeT=setTimeout(setup,200); });
+setup();
+// 最初の1つ: 画面のまん中で、ひとりでに少し育つ
+var intro={c:null,until:0};
+(function(){ var t=nowS(); intro.c=newCrystal(W*0.5,H*0.47,0.18,3,t); intro.until=t+2.4; })();
+
+var GROW_DT=0.14, last=performance.now(), perf={ms:0,n:0};
+function frame(nowMs){
+  var a0=performance.now(), now=nowMs/1000;
+  var dtF=Math.min(0.05,(nowMs-last)/1000); last=nowMs;
+  // 育つ: 押さえている結晶に段を足す
+  for(var id in ptrs){
+    var p=ptrs[id], c=p.c;
+    if(c.melting) continue;
+    if(now-p.lastAdd>=GROW_DT && c.frames.length<MAXN){ c.frames.push(now); p.lastAdd=now; c.dirty=true; }
+  }
+  if(intro.c && now<intro.until){
+    if(intro.c.frames.length<9 && now-(intro.last||0)>0.16){ intro.c.frames.push(now); intro.last=now; intro.c.dirty=true; }
+  }
+  ctx.setTransform(1,0,0,1,0,0); ctx.globalAlpha=1; ctx.globalCompositeOperation='source-over';
+  ctx.drawImage(bg,0,0);
+  // 湯面にゆっくり動く光
+  var hx=(0.5+0.32*Math.sin(now*0.11))*cv.width, hy=(0.4+0.22*Math.cos(now*0.083))*cv.height;
+  var hg=ctx.createRadialGradient(hx,hy,0,hx,hy,cv.width*0.55);
+  hg.addColorStop(0,'rgba(210,215,225,0.07)'); hg.addColorStop(1,'rgba(210,215,225,0)');
+  ctx.fillStyle=hg; ctx.fillRect(0,0,cv.width,cv.height);
+  // 結晶
+  var redraws=0;
+  for(var i=0;i<crystals.length;i++){
+    c=crystals[i];
+    if(c.melting){ c.alpha-=dtF*0.9; if(c.alpha<=0){ crystals.splice(i,1); i--; continue; } }
+    if(c.dirty || (now-c.lastDraw>0.4 && redraws<3)){ renderCrystal(c,now); redraws++; }
+    var hs=c.half;
+    ctx.globalAlpha=Math.max(0,c.alpha);
+    var sink=c.melting?(1-c.alpha)*0.25:0;
+    ctx.drawImage(c.cv,(c.x-hs*(1-sink))*DPR,(c.y-hs*(1-sink))*DPR,hs*2*(1-sink)*DPR,hs*2*(1-sink)*DPR);
+  }
+  ctx.globalAlpha=1;
+  perf.ms+=performance.now()-a0; perf.n++;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+window.__os={perf:perf,mutate:mutate,reset:reset,get crystals(){return crystals;}};
+
+if(window.APKit){
+  APKit.init({
+    canvas: cv,
+    gifName: 'oxide-stair-loop',
+    clockFormat: 'spec',
+    dock: true,
+    autoHide: true,
+    fullscreenButton: false,
+    buttons: [
+      {label:'✦', name:'mutate', onClick:function(){ mutate(); }},
+      {label:'↻', name:'reset',  onClick:function(){ reset(); }}
+    ]
+  });
+}
+})();
+</script>
+</body>
+</html>

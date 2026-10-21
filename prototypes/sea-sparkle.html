@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>SEA SPARKLE — 切られた光は、渦になって止まらない</title>
+<!-- SEA SPARKLE — クロちゃん(Claude)作。ap-kit.js統合: クロちゃん。2026/10/21 試作
+     おっちゃんが候補4つから「③夜光虫の波打ち際」「④ビスマス結晶」が気になる、と選んだうちの③。
+     題材: 夜光虫(ノクチルカ。英名 sea sparkle)。刺激されると青く光り、その光が刺激になって隣も光る。
+     一度光った所はしばらく光れない(不応期)。
+     世界のルール: 光は隣へ伝わり、光った所はしばらく光れない。だから光の波を途中で切ると、
+       切り口の端が行き場を失って巻きこみ、らせんの波になって回り続ける(触った所が新しい中心になる)。
+       何もしなくても: 沖(画面の上)から光の波がときどき寄せてくる
+       タップ = そこに光の輪   長押し = 輪が次々に生まれる
+       なぞる = 指の下の光を消して、しばらく光れなくする(=光の波を切る)。光っている波を切ると、切り口から渦が生まれる
+       ✦ = 別の夜(光の色と、波の太さ・速さが変わる。今ある渦はそのまま)
+       ↻ = 暗い海に戻す
+     仕組み: Barkleyモデル(興奮性媒体の反応拡散)。u=光、v=疲れ(不応)。格子は1マス約3px(スマホ幅で130×280ほど)。
+     描画: Canvas 2D。格子を小さな画像にして拡大+縮小を重ねた光のにじみ+光っている所に夜光虫の粒をちらす。 -->
+<script src="../ap-kit.js"></script>
+<style>
+html,body{margin:0;height:100%;background:#01040a;overflow:hidden;touch-action:none}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+#hint{position:fixed;left:16px;right:16px;top:calc(env(safe-area-inset-top) + 18px);text-align:center;color:rgba(214,240,255,.9);font:500 11px/1.7 system-ui,sans-serif;letter-spacing:.12em;text-shadow:0 1px 6px rgba(0,0,0,.8);pointer-events:none;transition:opacity 1.2s}
+#hint.off{opacity:0}
+#toast{position:fixed;left:50%;top:44%;transform:translate(-50%,-50%);color:rgba(214,240,255,.95);font:500 13px/1.6 system-ui,sans-serif;letter-spacing:.16em;text-shadow:0 1px 8px rgba(0,0,0,.9);pointer-events:none;opacity:0;transition:opacity .5s;white-space:nowrap}
+#toast.on{opacity:1}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">タップで光の輪 · 長押しで次々に<br>光っている波をなぞって切ると、切り口が渦になる</div>
+<div id="toast"></div>
+<script>
+(function(){
+'use strict';
+var cv=document.getElementById('c'), ctx=cv.getContext('2d',{alpha:false});
+var W=1,H=1,DPR=1, CELL=3, GW=1, GH=1, GP=1;   // GP = 外周1マスを足した横幅
+var u,v,un, small, sctx, img, glowS, gsctx, gimg, b1,b1c,b2,b2c,b3,b3c;
+
+/* ---------- 夜(✦で切りかわる) ---------- */
+var NIGHTS=[   // どれも「切ると渦が残る」範囲(b小さめ)で選んでいる
+  {name:'青い夜',      a:0.75, b:0.02, eps:0.020, speed:3.4, tint:[40,140,255], core:[190,235,255]},
+  {name:'水色の夜',    a:0.80, b:0.02, eps:0.015, speed:3.2, tint:[30,220,255], core:[205,250,255]},
+  {name:'緑がかる夜',  a:0.60, b:0.02, eps:0.020, speed:3.6, tint:[40,255,170], core:[210,255,235]},
+  {name:'すみれ色の夜', a:0.75, b:0.03, eps:0.018, speed:3.4, tint:[110,120,255], core:[225,225,255]},
+  {name:'細い波の夜',  a:0.85, b:0.01, eps:0.012, speed:3.0, tint:[50,170,255], core:[200,240,255]}
+];
+var nightI=0, night=NIGHTS[0];
+var DX=0.4, DT=0.026, simAcc=0, simT=0;   // DXを大きめにして、渦の大きさを画面に合わせている
+
+function setup(){
+  DPR=Math.min(2,window.devicePixelRatio||1);
+  W=window.innerWidth; H=window.innerHeight;
+  cv.width=Math.round(W*DPR); cv.height=Math.round(H*DPR);
+  CELL=Math.max(3,Math.round(Math.sqrt(W*H/36000)));
+  var ow=GW, oh=GH, ou=u, ov=v;
+  GW=Math.ceil(W/CELL); GH=Math.ceil(H/CELL); GP=GW+2;
+  var N=GP*(GH+2);
+  u=new Float32Array(N); v=new Float32Array(N); un=new Float32Array(N);
+  if(ou){ // サイズ変更時は近いマスを引きつぐ
+    var op=ow+2;
+    for(var y=0;y<GH;y++)for(var x=0;x<GW;x++){
+      var sx=Math.min(ow-1,Math.floor(x*ow/GW)), sy=Math.min(oh-1,Math.floor(y*oh/GH));
+      u[(y+1)*GP+x+1]=ou[(sy+1)*op+sx+1]; v[(y+1)*GP+x+1]=ov[(sy+1)*op+sx+1];
+    }
+  }
+  small=document.createElement('canvas'); small.width=GW; small.height=GH; sctx=small.getContext('2d'); img=sctx.createImageData(GW,GH);
+  glowS=document.createElement('canvas'); glowS.width=GW; glowS.height=GH; gsctx=glowS.getContext('2d'); gimg=gsctx.createImageData(GW,GH);
+  function mk(div){ var c=document.createElement('canvas'); c.width=Math.max(2,Math.ceil(GW/div)); c.height=Math.max(2,Math.ceil(GH/div)); return c; }
+  b1=mk(2); b1c=b1.getContext('2d'); b2=mk(4); b2c=b2.getContext('2d'); b3=mk(8); b3c=b3.getContext('2d');
+}
+
+/* ---------- Barkleyモデル ---------- */
+function step(){
+  var a=night.a, b=night.b, ie=1/night.eps, k=1/(DX*DX), dt=DT;
+  var i, x, y, row;
+  // 外周は鏡写し(光が壁で跳ね返らず、外へ抜けるようにふるまう)
+  for(x=1;x<=GW;x++){ u[x]=u[GP+x]; u[(GH+1)*GP+x]=u[GH*GP+x]; }
+  for(y=0;y<GH+2;y++){ row=y*GP; u[row]=u[row+1]; u[row+GW+1]=u[row+GW]; }
+  for(y=1;y<=GH;y++){
+    row=y*GP;
+    for(x=1;x<=GW;x++){
+      i=row+x;
+      var uu=u[i], vv=v[i];
+      var lap=(u[i-1]+u[i+1]+u[i-GP]+u[i+GP]-4*uu)*k;
+      var th=(vv+b)/a;
+      var nu=uu+dt*(uu*(1-uu)*(uu-th)*ie+lap);
+      un[i]= nu<0?0:(nu>1?1:nu);
+      v[i]=vv+dt*(uu-vv);
+    }
+  }
+  var t=u; u=un; un=t;
+}
+
+/* ---------- 刺激 ---------- */
+function excite(cx,cy,r,onlyRested){ // 画面座標
+  var gx=cx/CELL, gy=cy/CELL, R=r, R2=R*R;
+  var x0=Math.max(0,Math.floor(gx-R)), x1=Math.min(GW-1,Math.ceil(gx+R));
+  var y0=Math.max(0,Math.floor(gy-R)), y1=Math.min(GH-1,Math.ceil(gy+R));
+  for(var y=y0;y<=y1;y++)for(var x=x0;x<=x1;x++){
+    var dx=x+0.5-gx, dy=y+0.5-gy; if(dx*dx+dy*dy>R2) continue;
+    var i=(y+1)*GP+x+1;
+    if(onlyRested && v[i]>0.16) continue;
+    if(u[i]<0.95) u[i]=0.95;
+  }
+}
+function cut(cx,cy,r){ // 光を消して、しばらく光れなくする
+  var gx=cx/CELL, gy=cy/CELL, R2=r*r;
+  var x0=Math.max(0,Math.floor(gx-r)), x1=Math.min(GW-1,Math.ceil(gx+r));
+  var y0=Math.max(0,Math.floor(gy-r)), y1=Math.min(GH-1,Math.ceil(gy+r));
+  for(var y=y0;y<=y1;y++)for(var x=x0;x<=x1;x++){
+    var dx=x+0.5-gx, dy=y+0.5-gy; if(dx*dx+dy*dy>R2) continue;
+    var i=(y+1)*GP+x+1;
+    u[i]=0; if(v[i]<2.4) v[i]=2.4;
+  }
+}
+// 沖から寄せる光の波: 上の端をゆるく波打つ線で光らせる
+var nextSea=0.8, seaPhase=0, noSea=false;
+function seaWave(){
+  seaPhase=Math.random()*6.28;
+  var amp=2+Math.random()*4, k=(0.03+Math.random()*0.04);
+  for(var x=0;x<GW;x++){
+    var yy=Math.round(1.5+amp*(1+Math.sin(x*k+seaPhase)));
+    for(var y=0;y<=yy && y<GH;y++){
+      var i=(y+1)*GP+x+1;
+      if(v[i]<0.16 && u[i]<0.95) u[i]=0.95;
+    }
+  }
+}
+
+/* ---------- 描画 ---------- */
+var sparks=[];
+function render(now){
+  var t=now/1000, d=img.data, g=gimg.data, tint=night.tint, core=night.core;
+  var p=0;
+  for(var y=0;y<GH;y++){
+    var row=(y+1)*GP+1, fy=y/GH;
+    for(var x=0;x<GW;x++){
+      var i=row+x, uu=u[i], vv=v[i];
+      // 夜の海: ゆっくり動くうねりの濃淡
+      var sw=Math.sin(x*0.09+y*0.05+t*0.7)+Math.sin(x*0.04-y*0.11-t*0.5)*0.8+Math.sin((x+y)*0.21+t*1.3)*0.25;
+      var base=0.55+0.12*sw;
+      var br=2+3*base, bg=6+9*base+fy*4, bb=16+18*base+fy*8;
+      // 光: 先頭(u)は明るく白っぽく、後ろ(v)はゆっくり消える青い尾
+      // 光るのは波の先頭だけ(疲れvがたまる前)。うしろは疲れとともに薄い尾になる
+      var fr=uu*Math.exp(-vv*5.5);
+      var tail=vv>0? (vv<1?vv:1)*(1-uu*0.6)*0.22 : 0;
+      var gl=fr*1.05+uu*0.10+tail;
+      var c2=fr*fr*fr*0.85;
+      var r=tint[0]*gl+(core[0]-tint[0])*c2, gg=tint[1]*gl+(core[1]-tint[1])*c2, bl=tint[2]*gl+(core[2]-tint[2])*c2;
+      d[p]=br+r; d[p+1]=bg+gg; d[p+2]=bb+bl; d[p+3]=255;
+      g[p]=r; g[p+1]=gg; g[p+2]=bl; g[p+3]=255;
+      p+=4;
+    }
+  }
+  sctx.putImageData(img,0,0); gsctx.putImageData(gimg,0,0);
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+  ctx.globalCompositeOperation='source-over'; ctx.globalAlpha=1;
+  ctx.drawImage(small,0,0,GW,GH,0,0,GW*CELL*DPR,GH*CELL*DPR);
+  // にじみ: 1/2→1/4→1/8 に縮めたものを広げて足す
+  b1c.clearRect(0,0,b1.width,b1.height); b1c.drawImage(glowS,0,0,b1.width,b1.height);
+  b2c.clearRect(0,0,b2.width,b2.height); b2c.drawImage(b1,0,0,b2.width,b2.height);
+  b3c.clearRect(0,0,b3.width,b3.height); b3c.drawImage(b2,0,0,b3.width,b3.height);
+  ctx.globalCompositeOperation='lighter';
+  var Wd=GW*CELL*DPR, Hd=GH*CELL*DPR;
+  ctx.globalAlpha=0.45; ctx.drawImage(b1,0,0,Wd,Hd);
+  ctx.globalAlpha=0.42; ctx.drawImage(b2,0,0,Wd,Hd);
+  ctx.globalAlpha=0.38; ctx.drawImage(b3,0,0,Wd,Hd);
+  // 夜光虫の粒: 光っている所にちらばる点
+  ctx.globalAlpha=1;
+  var n=Math.round(GW*GH/40);
+  for(var s=0;s<n;s++){
+    var x=(Math.random()*GW)|0, y=(Math.random()*GH)|0, i=(y+1)*GP+x+1;
+    var e=u[i]*Math.exp(-v[i]*5.5)+Math.max(0,v[i]*(1-u[i]))*0.12;
+    if(Math.random()>e*1.4) continue;
+    var a=Math.min(1,e*1.3);
+    var sz=(0.8+Math.random()*1.2)*DPR;
+    ctx.fillStyle='rgba('+core[0]+','+core[1]+','+core[2]+','+(a*0.9).toFixed(3)+')';
+    ctx.fillRect((x+Math.random())*CELL*DPR-sz/2,(y+Math.random())*CELL*DPR-sz/2,sz,sz);
+  }
+  // なぞった跡: 水面のさざ波(すぐ消える)
+  ctx.globalCompositeOperation='source-over';
+  for(var j=trails.length-1;j>=0;j--){
+    var tr=trails[j], age=t-tr.t; if(age>0.9){ trails.splice(j,1); continue; }
+    ctx.globalAlpha=(1-age/0.9)*0.22;
+    ctx.strokeStyle='#cfe6ff'; ctx.lineWidth=(1+age*5)*DPR;
+    ctx.beginPath(); ctx.moveTo(tr.x0*DPR,tr.y0*DPR); ctx.lineTo(tr.x1*DPR,tr.y1*DPR); ctx.stroke();
+  }
+  ctx.globalAlpha=1;
+}
+
+/* ---------- 操作 ---------- */
+var hint=document.getElementById('hint'), hinted=false;
+function hideHint(){ if(!hinted){ hinted=true; hint.classList.add('off'); } }
+setTimeout(hideHint,10000);
+var toastEl=document.getElementById('toast'), toastT=0;
+function toast(s,ms){ toastEl.textContent=s; toastEl.classList.add('on'); clearTimeout(toastT); toastT=setTimeout(function(){ toastEl.classList.remove('on'); },ms||2200); }
+
+var ptrs={}, trails=[];
+var CUT_R=5;   // マス。スマホ幅で直径およそ30px(指の腹くらい)
+cv.addEventListener('pointerdown',function(ev){
+  if(window.APKit && APKit.isUI(ev.clientX,ev.clientY)) return true;
+  ev.preventDefault(); hideHint();
+  // 押した瞬間には光らせない: なぞる(=切る)つもりの指が、切り口を自分の光で埋めてしまうため。
+  // タップは離した時、長押しは0.15秒じっとしていたら光る。
+  ptrs[ev.pointerId]={x:ev.clientX,y:ev.clientY,sx:ev.clientX,sy:ev.clientY,moved:false,t0:performance.now(),lit:false};
+  try{ cv.setPointerCapture(ev.pointerId); }catch(e){}
+});
+cv.addEventListener('pointermove',function(ev){
+  var p=ptrs[ev.pointerId]; if(!p) return;
+  var x=ev.clientX, y=ev.clientY;
+  if(!p.moved && Math.hypot(x-p.sx,y-p.sy)>14){ p.moved=true; }
+  if(p.moved){
+    var len=Math.hypot(x-p.x,y-p.y), n=Math.max(1,Math.ceil(len/(CELL*1.2)));
+    for(var k=1;k<=n;k++) cut(p.x+(x-p.x)*k/n, p.y+(y-p.y)*k/n, CUT_R);
+    trails.push({x0:p.x,y0:p.y,x1:x,y1:y,t:performance.now()/1000});
+    // 生まれたての渦は沖からの波にかき消されやすいので、切った直後は次の波を少し待たせる
+    if(nextSea<simT+night.speed*5) nextSea=simT+night.speed*5;
+  }
+  p.x=x; p.y=y;
+});
+function endPtr(ev){
+  var p=ptrs[ev.pointerId];
+  if(p && ev.type==='pointerup' && !p.moved && !p.lit) excite(p.x,p.y,3.2,false);   // タップ
+  delete ptrs[ev.pointerId];
+}
+cv.addEventListener('pointerup',endPtr);
+cv.addEventListener('pointercancel',endPtr);
+
+function setNight(i){ nightI=i; night=NIGHTS[i]; }
+function mutate(){ var n=nightI; while(n===nightI) n=(Math.random()*NIGHTS.length)|0; setNight(n); toast(night.name); }
+function reset(){ u.fill(0); v.fill(0); un.fill(0); nextSea=simT+1.2; toast('暗い海に戻した',1500); }
+
+/* ---------- ループ ---------- */
+var resizeT=0;
+window.addEventListener('resize',function(){ clearTimeout(resizeT); resizeT=setTimeout(setup,200); });
+setup();
+var last=performance.now(), perf={ms:0,n:0};
+function frame(now){
+  var dtF=Math.min(0.05,(now-last)/1000); last=now;
+  var a0=performance.now();
+  // 長押し中は、休んでいるマスだけを光らせ続ける(=輪が次々に生まれる)
+  for(var id in ptrs){
+    var p=ptrs[id]; if(p.moved || now-p.t0<150) continue;
+    if(!p.lit){ excite(p.x,p.y,3.2,false); p.lit=true; } else excite(p.x,p.y,3.2,true);
+  }
+  simAcc+=dtF*night.speed;
+  var guard=0;
+  while(simAcc>=DT && guard<8){ step(); simAcc-=DT; simT+=DT; guard++; }
+  if(guard>=8) simAcc=0;
+  if(!noSea && simT>=nextSea){ seaWave(); nextSea=simT+night.speed*(6+Math.random()*4); }
+  render(now);
+  perf.ms+=performance.now()-a0; perf.n++;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+window.__ss={perf:perf,excite:excite,cut:cut,mutate:mutate,reset:reset,seaWave:seaWave,get u(){return u;},get v(){return v;},set noSea(b){noSea=b;},get grid(){return {GW:GW,GH:GH,GP:GP,CELL:CELL};}};
+
+if(window.APKit){
+  APKit.init({
+    canvas: cv,
+    gifName: 'sea-sparkle-loop',
+    clockFormat: 'spec',
+    dock: true,
+    autoHide: true,
+    fullscreenButton: false,
+    buttons: [
+      {label:'✦', name:'mutate', onClick:function(){ mutate(); }},
+      {label:'↻', name:'reset',  onClick:function(){ reset(); }}
+    ]
+  });
+}
+})();
+</script>
+</body>
+</html>
