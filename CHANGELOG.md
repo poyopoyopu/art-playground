@@ -1,3 +1,4 @@
+- 2026-10-21 クロちゃん: NORTH DRAWを採用・art-v110として昇格し、CURRENTに設定、録画の対象にも追加(おっちゃん「良いね、採用カレントへ、録画もね」)。それまでのCURRENTだったNEXT SPRING(v109)はLOG先頭(IRON BLOOM v108の上)へ移動、Published worksは先頭をNORTH DRAWにしてNEXT SPRINGをその直後へ。ap-kit.jsの相対パスをルート用に修正、テスト用フック(window.__au)は外した。自動撮影(navigator.webdriver)の時は画質の自動調整を止める(ポスターが粗くならないように。試作版にも同じ修正)。`META`に操作ヒント「空をなぞるとオーロラが寄ってくる。タップで爆発」を1行追加。`REC_WORKS`に`art-v110-north-draw.html`を追加: スマホ(Android Chrome)のUA・390×844のヘッドレスChromiumで、ギャラリーから開き、本物の録画ボタン→なぞる・タップ→録画を通し、mp4(720×1558・約28秒)にオーロラ・森・湖と2行の透かしが映り、時間でカーテンが動くことを確認(preserveDrawingBuffer有効のWebGL1。確認中だけ他作品の読み込みを止めた)。`tools/poster-config.json`に`hide:#hint,#toast`・待ち6秒を追加し、ポスター(ヒーロー含む)とOGPカードを生成、`gen_posters.py --check`・`gen_og.py --check`とも終了コード0(文字が写らずオーロラと森が写っていることを目視で確認)。試作版`prototypes/aurora-pull.html`は残す。「現在の状態」も更新。**スマホ実機での録画中の重さは未確認**(全画面シェーダー、カーテン3枚×24段。作品側で重い端末は画質を自動で下げる。録画で極端に重ければ`REC_WORKS`から外す)(art-v110-north-draw.html, index.html, posters/, og/, tools/poster-config.json, prototypes/aurora-pull.html, CHANGELOG.md)
 - 2026-10-21 クロちゃん: NORTH DRAW(試作)の木を作り直し(おっちゃんのiPhone実機スクショで「木？がなんかよく分かんないね」)。原因は黒い木が同じく真っ黒な山の前にあって溶けていたこと・山の稜線より高い部分が描かれていなかったこと。木を大きなトウヒ形(段になって垂れる枝・幹・細いてっぺん)にして、オーロラの空まで突き出るように(山より先に判定)。山は雪をかぶった少し明るい色にして、木との差をつけた。湖にも木が映る(prototypes/aurora-pull.html, CHANGELOG.md)
 - 2026-10-21 クロちゃん: NORTH DRAW(試作)をさらに本物寄りに(おっちゃん「なるほど、これがリアルの限界？」→「ひだ」と「動き」の改善を提案→「よろしくお願いします」)。カーテンにひだ(横へ流れるS字の折れ)を足し、視線に沿って進んで幕を貫くたび光を足す方式に変更(ひだで幕が折り返すと何重にも重なって明るくなり、真横から見える折り目が光る)。光の筋・明るい塊が幕に沿って横へ流れ、ところどころが脈打つように明滅、爆発中は光が上へ駆け上がる。上端はなめらかに消える(以前は硬く切れていた)、刻みを画素ごとにずらしてギザギザを抑えた、全体を少し明るく。見えうる高さの範囲だけ調べて軽くした(本体24段・湖9段)。ヘッドレスChromium(390×844・960×540)で目視確認、スマホ実機は未確認(prototypes/aurora-pull.html, CHANGELOG.md)
 - 2026-10-21 クロちゃん: NORTH DRAW(prototypes/aurora-pull.html)を新規試作。おっちゃん「もう思い付かないのよねー」→クロちゃんの3案(オーロラ/同期するホタル/墨流し)から「オーロラいいね、リアルなやつね」。世界のルール=「なぞった線に、オーロラの裾が寄ってくる。寄せた形は波になってカーテンを伝わる」。タップ=ブレイクアップ(その場所から明るくなって横へ広がり、上が赤・裾が紫に)、何もしなくても30〜60秒ごとに自然なブレイクアップ。✦=別の夜(山と森・カーテン配置・種類: ふつうの緑/嵐の夜/静かな夜/日本で見える赤いオーロラ)、↻=寄せた形を戻す。WebGL1のシェーダ1枚: 3枚のカーテン(地上から立つ縦の幕)と視線の交点を解いて高さで色(下の縁=緑・上=赤・激しい時の裾=紫)、幕を斜めに見るほど明るい(ひだが光る)。星空・天の川・山と針葉樹のシルエット・それを映す湖(さざ波)。寄せた形は64区間の波としてテクスチャで渡す。重い端末では描画解像度を自動で下げる(#q=0.7で固定可、テスト用)。preserveDrawingBuffer有効。ヘッドレスChromium(SwiftShader、390×844・1280×720)で目視確認。スマホ実機は未確認。GIFなし。HELD CHARGEは本日ボツ(prototypes/aurora-pull.html, CHANGELOG.md)
@@ -477,17 +478,17 @@
 
 ## 現在の状態(変わったら書き換える)
 
-- CURRENT: NEXT SPRING(`art-v109-next-spring.html`)。それまでのCURRENTだったEYE LOOM(v107)はLOGのIRON BLOOM(v108)の下へ
+- CURRENT: NORTH DRAW(`art-v110-north-draw.html`)。それまでのCURRENTだったNEXT SPRING(v109)はLOG先頭へ
 - 試作: GRAFT LAW(`prototypes/graft-law.html`)を追加。ギャラリー未登録・採用待ち
 - 試作: CUBE COSMOS(`prototypes/cube-cosmos.html`)を追加。ギャラリー未登録・採用待ち
 - 試作: HINGE LAW(`prototypes/hinge-law.html`)を再構成。分割数・装飾を削り、画面内で大きく見せる調整済み。ギャラリー未登録・採用待ち
 - 試作: PARADOX ENGINE(`prototypes/paradox-engine.html`)を新規追加。錯視の立体プリズムが交差部の前後法則を変える作品。ギャラリー未登録・採用待ち
-- LOG先頭: IRON BLOOM(`art-v108-iron-bloom.html`)、その下にEYE LOOM(`art-v107-eye-loom.html`)、SPLIT DEW(`art-v106-split-dew.html`)、STRATA SAND(`art-v105-strata-sand.html`)、PRISM SHELL(`art-v104-prism-shell.html`)、SNOW LEDGER(`art-v103-snow-ledger.html`)、ROSARY(`art-v102-rosary.html`)、WATERLINE(`art-v101-waterline.html`)、HAIRLINE(`art-v100-hairline.html`)、MORPHING FERN(`art-v99-morphing-fern.html`)、v98〜v94、LIVING REEF(`art-v93-living-reef.html`)
+- LOG先頭: NEXT SPRING(`art-v109-next-spring.html`)、その下にIRON BLOOM(`art-v108-iron-bloom.html`)、EYE LOOM(`art-v107-eye-loom.html`)、SPLIT DEW(`art-v106-split-dew.html`)、STRATA SAND(`art-v105-strata-sand.html`)、PRISM SHELL(`art-v104-prism-shell.html`)、SNOW LEDGER(`art-v103-snow-ledger.html`)、ROSARY(`art-v102-rosary.html`)、WATERLINE(`art-v101-waterline.html`)、HAIRLINE(`art-v100-hairline.html`)、MORPHING FERN(`art-v99-morphing-fern.html`)、v98〜v94、LIVING REEF(`art-v93-living-reef.html`)
 - 作業ルール: `AGENTS.md`(ギャラリー追加の手順と命名ルールは13章)
 - 表示モード: iPhoneホーム画面から起動するとCURRENT作品を自動表示するstandalone Web App対応済み
 - 一言説明: ヒーロー/タイルの一言は各作品の`<title>`(`NAME — 日本語の一言`)から自動取得。上書き・ヒントは`index.html`の`META`(ルールはAGENTS.md 13章)
 - 運用メモ: `NOTES.md`(GitHub操作は可能性を確認してから実行)
-- 採用作品作業: NEXT SPRING(v109)をCURRENTに登録済み(ポスター・OGP生成と目視確認、ヘッドレスでの録画確認は完了)。STRATA SAND(v105)〜NEXT SPRING(v109)とも、録画のスマホ実機での重さ・iPhone負荷の検証は未完了。
+- 採用作品作業: NORTH DRAW(v110)をCURRENTに登録済み(ポスター・OGP生成と目視確認、ヘッドレスでの録画確認は完了)。STRATA SAND(v105)〜NORTH DRAW(v110)とも、録画のスマホ実機での重さ・iPhone負荷の検証は未完了。
 - ポスター: ギャラリーのタイルの静止画。`posters/`と`tools/gen_posters.py`、ルールはAGENTS.md 14章。作品追加・作品修正・CURRENT変更のたびに`python3 tools/gen_posters.py`(`--check`で点検)
 
 ---
