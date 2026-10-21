@@ -50,39 +50,64 @@ float disp(float x){ return texture2D(uDisp,vec2(clamp((x+8.)/16.,0.,1.),.5)).r*
 float curtainZ(float x,float k,float z0){
   float s=uSeed*3.7+k*17.;
   float slope=(hash(vec2(k,uSeed))-.5)*1.1;
+  float fold=.8+.5*hash(vec2(k+3.,uSeed));
   return z0+slope*x
-    +2.6*(n1(x*.32+uTime*.016,s)-.5)
-    +.9*(n1(x*1.1-uTime*.04,s+5.)-.5)
-    +.22*(n1(x*4.2+uTime*.12,s+9.)-.5)
+    +2.4*(n1(x*.3+uTime*.016,s)-.5)
+    +fold*sin(x*1.35+2.4*n1(x*.4-uTime*.03,s+2.)*3.14-uTime*.33)*(.55+.45*n1(x*.21,s+4.))   // ひだ(横へ流れる)
+    +.35*(n1(x*3.6+uTime*.12,s+9.)-.5)
     +disp(x)*(1.-k*.25);
 }
 
-/* オーロラのカーテン=地上から立つ縦の幕。視線が幕を貫く点を求め、その高さで色、幕を斜めに見るほど明るく(ひだが光る) */
-vec3 curtain(vec3 rd,float k,float z0){
-  float s=z0/rd.z;
-  for(int i=0;i<6;i++){ float zn=curtainZ(rd.x*s,k,z0)/rd.z; s=mix(s,zn,.65); }
-  float x=rd.x*s, h=rd.y*s, hh=h-1.;
-  if(s<=0. || hh<-.25 || hh>3.2) return vec3(0.);
+/* 幕を1回貫くごとの光。幕を斜めに見るほど明るい(ひだの折り返しが光る) */
+vec3 hitGlow(vec3 rd,float s,float x,float k,float z0){
+  float h=rd.y*s, hh=h-1.;
+  if(hh<-.3 || hh>3.6) return vec3(0.);
+  float topf=1.-smoothstep(2.3,3.5,hh);
   float e=.02, dzx=(curtainZ(x+e,k,z0)-curtainZ(x-e,k,z0))/(2.*e);
   float cosi=abs(rd.z-dzx*rd.x)/sqrt(1.+dzx*dzx);
-  float L=1./max(cosi,.14);
-  float pg=smoothstep(-.05,.06,hh)*(exp(-max(hh,0.)*2.)+.7*exp(-max(hh,0.)*12.)) + .15*smoothstep(-.25,0.,hh)*step(hh,0.);
+  float L=min(1./max(cosi,.14),4.5);
+  float hp=max(hh,0.);
+  float flame=1.+uBurst*.5*sin(hh*7.-uTime*6.+x*2.);                              // 爆発中は光が上へ駆け上がる
+  float pg=(smoothstep(-.05,.06,hh)*(exp(-hp*2.)+.7*exp(-hp*12.)) + .12*smoothstep(-.3,0.,hh)*step(hh,0.))*flame;
   float pr=smoothstep(.5,1.6,hh)*exp(-(hh-1.6)*.8)*uRed*(.45+uBurst*1.2);
   float pp=smoothstep(-.03,0.,hh)*(1.-smoothstep(0.,.12,hh))*uPurple*(.25+uBurst*1.6);
   vec3 c=vec3(.18,1.,.48)*pg*uGreen+vec3(1.,.13,.28)*pr+vec3(.7,.25,1.)*pp;
-  float r1=n1(x*7.+uTime*(.3+uBurst*1.4)+k*31.,uSeed+k);
-  float r2=n1(x*24.-uTime*(.9+uBurst*3.)+k*7.,uSeed+k+.5);
-  float r3=n1(x*61.+uTime*(2.+uBurst*4.),uSeed+k+.9);
+  float sp=.6+uBurst*2.;
+  float r1=n1(x*7.+uTime*(.9*sp)+k*31.,uSeed+k);                // 光の筋は幕に沿って横へ走る
+  float r2=n1(x*24.-uTime*(1.6*sp)+k*7.,uSeed+k+.5);
+  float r3=n1(x*61.+uTime*(3.*sp),uSeed+k+.9);
   float rays=mix(1.,.12+1.2*r1*r1+.45*r2+.25*r3,uRays);
-  float patch=.25+1.*n1(x*.35+uTime*.04,uSeed+k*3.);
+  float patch=.2+1.1*n1(x*.35-uTime*.22,uSeed+k*3.);           // 明るい塊が横へ流れる
+  float cell=floor(x*1.6);                                       // ところどころ脈打つ
+  float pul=.75+.25*sin(uTime*(1.2+hash(vec2(cell,k))*2.5)+hash(vec2(cell,k+9.))*6.28);
   float bw=1.4+uBurstAge*2.2;
   float b=1.+uBurst*3.2*exp(-(x-uBurstX)*(x-uBurstX)/(bw*bw));
-  return c*rays*patch*b*L*(1.-k*.2)/(1.+s*.04);
+  return c*rays*patch*pul*b*L*topf*(1.-k*.2)/(1.+s*.04);
+}
+/* 視線に沿って進み、幕を貫くたび(ひだがあれば何回も)光を足す */
+vec3 curtain(vec3 rd,float k,float z0,float NS){
+  vec3 acc=vec3(0.);
+  float s0=max(max(.5,(z0-3.2)/rd.z),.7/rd.y), s1=min((z0+3.8)/rd.z,4.6/rd.y);   // 幕が見えうる高さの範囲だけ調べる
+  if(s1<=s0) return acc;
+  float jit=hash(gl_FragCoord.xy*.7+k)*.9;                   // 刻みを画素ごとにずらして、ギザギザを目立たなくする
+  float sPrev=s0, fPrev=rd.z*s0-curtainZ(rd.x*s0,k,z0);
+  for(int i=1;i<=26;i++){
+    if(float(i)>NS) break;
+    float t=min(1.,(float(i)-jit+.45)/NS);
+    float sc=mix(s0,s1,t);
+    float f=rd.z*sc-curtainZ(rd.x*sc,k,z0);
+    if(f*fPrev<0.){
+      float sr=sPrev+(sc-sPrev)*fPrev/(fPrev-f);
+      acc+=hitGlow(rd,sr,rd.x*sr,k,z0);
+    }
+    sPrev=sc; fPrev=f;
+  }
+  return acc;
 }
 vec3 aurora(vec3 rd,float N){
   if(rd.y<.002||rd.z<.05) return vec3(0.);
-  vec3 a=curtain(rd,0.,uZ.x)+curtain(rd,1.,uZ.y)+curtain(rd,2.,uZ.z);
-  return a*.33;
+  vec3 a=curtain(rd,0.,uZ.x,N)+curtain(rd,1.,uZ.y,N)+curtain(rd,2.,uZ.z,N);
+  return a*.42;
 }
 
 float ridge(float x){ return uHor+.05+.075*fb2(vec2(x*2.2+uSeed*7.,uSeed))-.02*n1(x*11.+uSeed*3.,uSeed+2.); }
@@ -155,11 +180,11 @@ void main(){
     float dy=uHor-p.y;
     float rip=(n2(vec2(p.x*90.,p.y*420.+uTime*.8))-.5)*.006*(.3+dy*6.);
     vec2 q=vec2(p.x+rip,2.*uHor-p.y+rip*.3);
-    col=scene(q,16.,g)*vec3(.5,.6,.68);
+    col=scene(q,9.,g)*vec3(.5,.6,.68);
     col*=1.-smoothstep(.0,.35,dy)*.55;
     col+=vec3(.01,.015,.02)*smoothstep(.003,.0,dy);
   } else {
-    col=scene(p,36.,g);
+    col=scene(p,24.,g);
   }
   // 写真らしい階調
   col=1.-exp(-col*1.6);
