@@ -19,7 +19,13 @@
      描画: Canvas 2D。格子を小さな画像にして拡大+縮小を重ねた光のにじみ+光っている所に夜光虫の粒をちらす。
      2026/10/21 v2: おっちゃんのiPhone実機スクショで「キラキラしてないね」→ なめらかな光の帯を0.4倍に抑え、
        光の絵に「黒地に白い粒の模様」を掛け合わせて、光っている所だけ無数の粒が光るように。模様は3コマごとに位置と種類が
-       入れかわって粒がまたたく。明るい所の粒には、ときどき十字のきらめき。 -->
+       入れかわって粒がまたたく。明るい所の粒には、ときどき十字のきらめき。
+     2026/10/21 v3: おっちゃん「これで完成なの？」→ 足りない3点(海に見えない・光り方が均一・光りっぱなし)を
+       「ドローンで真上から撮った夜光虫の浜辺」に寄せて直す(おっちゃん「やってくれ」)。
+       ・画面の下を砂浜に。波打ち際はゆるく曲がり、光の波が届くと波が砂に駆け上がって(遡上)青く光り、引いていく
+       ・夜光虫の濃さに場所ごとのムラ(ゆっくり流れる)。濃い所ほど強く光り、薄い所は暗い
+       ・疲れ: 光るほど暗くなり、休むと戻る(光の明るさだけ。波の伝わり方=渦のルールは変えない)。渦の中は少し暗く脈打つ
+       ・砂を踏む(タップ/なぞる)と、打ち上げられた夜光虫が足あとの形にまたたく(本物の浜でも起きる)。濡れた砂ほど強い -->
 <script src="../ap-kit.js"></script>
 <style>
 html,body{margin:0;height:100%;background:#01040a;overflow:hidden;touch-action:none}
@@ -32,7 +38,7 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hint">タップで光の輪 · 長押しで次々に<br>光っている波をなぞって切ると、切り口が渦になる</div>
+<div id="hint">海をタップで光の輪 · 光る波をサッと切ると渦になる<br>濡れた砂を踏むと光る</div>
 <div id="toast"></div>
 <script>
 (function(){
@@ -40,6 +46,7 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
 var cv=document.getElementById('c'), ctx=cv.getContext('2d',{alpha:false});
 var W=1,H=1,DPR=1, CELL=3, GW=1, GH=1, GP=1;   // GP = 外周1マスを足した横幅
 var u,v,un, small, sctx, img, glowS, gsctx, gimg, b1,b1c,b2,b2c,b3,b3c;
+var sand, en, sandN, shore, wetW, dens, DW=1, DH=1, DPAD=48;   // 砂のマス・疲れ・砂の粒・波打ち際の行・濃さのムラ
 
 /* ---------- 夜(✦で切りかわる) ---------- */
 var NIGHTS=[   // どれも「切ると渦が残る」範囲(b小さめ)で選んでいる
@@ -57,17 +64,24 @@ function setup(){
   W=window.innerWidth; H=window.innerHeight;
   cv.width=Math.round(W*DPR); cv.height=Math.round(H*DPR);
   CELL=Math.max(3,Math.round(Math.sqrt(W*H/36000)));
-  var ow=GW, oh=GH, ou=u, ov=v;
+  var ow=GW, oh=GH, ou=u, ov=v, x, y;
   GW=Math.ceil(W/CELL); GH=Math.ceil(H/CELL); GP=GW+2;
   var N=GP*(GH+2);
   u=new Float32Array(N); v=new Float32Array(N); un=new Float32Array(N);
   if(ou){ // サイズ変更時は近いマスを引きつぐ
     var op=ow+2;
-    for(var y=0;y<GH;y++)for(var x=0;x<GW;x++){
+    for(y=0;y<GH;y++)for(x=0;x<GW;x++){
       var sx=Math.min(ow-1,Math.floor(x*ow/GW)), sy=Math.min(oh-1,Math.floor(y*oh/GH));
       u[(y+1)*GP+x+1]=ou[(sy+1)*op+sx+1]; v[(y+1)*GP+x+1]=ov[(sy+1)*op+sx+1];
     }
   }
+  // 波打ち際(行)。縦長は下から22%、横長は26%が砂浜
+  var frac=H>W?0.78:0.74, ph1=Math.random()*6.28, ph2=Math.random()*6.28;
+  shore=new Float32Array(GW); wetW=new Float32Array(GW);
+  for(x=0;x<GW;x++){ shore[x]=GH*frac+4*Math.sin(x*0.045+ph1)+2.2*Math.sin(x*0.11+ph2); wetW[x]=0.7+0.3*Math.sin(x*0.08+ph2*1.7); }
+  sand=new Uint8Array(N); en=new Float32Array(N); sandN=new Float32Array(N);
+  for(y=0;y<GH;y++)for(x=0;x<GW;x++){ var ii=(y+1)*GP+x+1; en[ii]=1; sandN[ii]=Math.random(); if(y>=shore[x]){ sand[ii]=1; u[ii]=0; v[ii]=0; } }
+  makeDensity();
   small=document.createElement('canvas'); small.width=GW; small.height=GH; sctx=small.getContext('2d'); img=sctx.createImageData(GW,GH);
   glowS=document.createElement('canvas'); glowS.width=GW; glowS.height=GH; gsctx=glowS.getContext('2d'); gimg=gsctx.createImageData(GW,GH);
   function mk(div){ var c=document.createElement('canvas'); c.width=Math.max(2,Math.ceil(GW/div)); c.height=Math.max(2,Math.ceil(GH/div)); return c; }
@@ -75,6 +89,29 @@ function setup(){
   sp=document.createElement('canvas'); sp.width=cv.width; sp.height=cv.height; spc=sp.getContext('2d');
   spH=document.createElement('canvas'); spH.width=Math.ceil(cv.width/3); spH.height=Math.ceil(cv.height/3); spHc=spH.getContext('2d');
   texA=makeSpeckle(cv.width+TEXPAD,cv.height+TEXPAD); texB=makeSpeckle(cv.width+TEXPAD,cv.height+TEXPAD);
+}
+
+/* ---------- 夜光虫の濃さのムラ: なめらかなノイズ2段。ゆっくり流れる ---------- */
+function makeDensity(){
+  DW=GW+DPAD*2; DH=GH+DPAD*2; dens=new Float32Array(DW*DH);
+  function layer(cell,amp){
+    var cw=Math.ceil(DW/cell)+2, ch=Math.ceil(DH/cell)+2, L=new Float32Array(cw*ch);
+    for(var i=0;i<L.length;i++) L[i]=Math.random();
+    for(var y=0;y<DH;y++)for(var x=0;x<DW;x++){
+      var fx=x/cell, fy=y/cell, ix=fx|0, iy=fy|0, tx=fx-ix, ty=fy-iy;
+      tx=tx*tx*(3-2*tx); ty=ty*ty*(3-2*ty);
+      var a=L[iy*cw+ix], b=L[iy*cw+ix+1], c=L[(iy+1)*cw+ix], d=L[(iy+1)*cw+ix+1];
+      dens[y*DW+x]+=amp*((a*(1-tx)+b*tx)*(1-ty)+(c*(1-tx)+d*tx)*ty);
+    }
+  }
+  layer(26,0.65); layer(9,0.35);
+  // 継ぎ目が格子に見えないよう、ぼかしを3回
+  var tmp=new Float32Array(dens.length);
+  for(var r=0;r<3;r++){
+    for(var y=0;y<DH;y++)for(var x=0;x<DW;x++){ var a=0,n=0; for(var k=-3;k<=3;k++){ var xx=x+k; if(xx<0||xx>=DW) continue; a+=dens[y*DW+xx]; n++; } tmp[y*DW+x]=a/n; }
+    for(y=0;y<DH;y++)for(x=0;x<DW;x++){ a=0;n=0; for(k=-3;k<=3;k++){ var yy=y+k; if(yy<0||yy>=DH) continue; a+=tmp[yy*DW+x]; n++; } dens[y*DW+x]=a/n; }
+  }
+  for(var i=0;i<dens.length;i++){ var q=(dens[i]-0.3)/0.4; q=q<0?0:(q>1?1:q); dens[i]=0.12+0.88*q*q*(3-2*q); }
 }
 
 /* ---------- 夜光虫の粒: 黒地に白い点をちらした模様。光の絵と掛け合わせると、光っている所の点だけが光る ---------- */
@@ -106,6 +143,7 @@ function step(){
     row=y*GP;
     for(x=1;x<=GW;x++){
       i=row+x;
+      if(sand[i]){ un[i]=0; continue; }
       var uu=u[i], vv=v[i];
       var lap=(u[i-1]+u[i+1]+u[i-GP]+u[i+GP]-4*uu)*k;
       var th=(vv+b)/a;
@@ -125,6 +163,7 @@ function excite(cx,cy,r,onlyRested){ // 画面座標
   for(var y=y0;y<=y1;y++)for(var x=x0;x<=x1;x++){
     var dx=x+0.5-gx, dy=y+0.5-gy; if(dx*dx+dy*dy>R2) continue;
     var i=(y+1)*GP+x+1;
+    if(sand[i]) continue;
     if(onlyRested && v[i]>0.16) continue;
     if(u[i]<0.95) u[i]=0.95;
   }
@@ -148,34 +187,96 @@ function seaWave(){
     var yy=Math.round(1.5+amp*(1+Math.sin(x*k+seaPhase)));
     for(var y=0;y<=yy && y<GH;y++){
       var i=(y+1)*GP+x+1;
-      if(v[i]<0.16 && u[i]<0.95) u[i]=0.95;
+      if(!sand[i] && v[i]<0.16 && u[i]<0.95) u[i]=0.95;
     }
   }
 }
 
+/* ---------- 波打ち際の遡上(波が砂に駆け上がって引く) ---------- */
+var swashT=99, lastSwash=-99, SWASH_A=12;
+function swashExt(x){ // 今どこまで駆け上がっているか(マス)
+  var t=swashT, A=SWASH_A*wetW[x];
+  if(t<0.7) return A*Math.pow(t/0.7,0.6);
+  var q=1-(t-0.7)/1.9; return q>0? A*q*q : 0;
+}
+function swashGlow(){ var t=swashT; return t<0.9? 1 : Math.max(0,1-(t-0.9)/2.4); }
+function checkSwash(now){
+  if(now-lastSwash<2.6) return;
+  var hit=0;
+  for(var x=0;x<GW;x+=2){
+    var y0=Math.floor(shore[x])-5;
+    for(var y=y0;y<y0+4;y++){ if(y<0) continue; var i=(y+1)*GP+x+1; if(u[i]*Math.exp(-v[i]*5.5)>0.35){ hit++; break; } }
+  }
+  if(hit>GW*0.5*0.3){ swashT=0; lastSwash=now; }
+}
+
+/* ---------- 砂の足あと: 打ち上げられた夜光虫がまたたく ---------- */
+var foot=[], glowSpr=null, glowSprNight=-1;
+function getGlowSprite(){   // 粒のまわりの丸いにじみ(夜の色で作り置き)
+  if(glowSprNight===nightI && glowSpr) return glowSpr;
+  var c=document.createElement('canvas'); c.width=c.height=32; var g=c.getContext('2d'), t=night.tint;
+  var gr=g.createRadialGradient(16,16,0,16,16,16);
+  gr.addColorStop(0,'rgba('+t[0]+','+t[1]+','+t[2]+',0.55)'); gr.addColorStop(0.35,'rgba('+t[0]+','+t[1]+','+t[2]+',0.18)'); gr.addColorStop(1,'rgba('+t[0]+','+t[1]+','+t[2]+',0)');
+  g.fillStyle=gr; g.fillRect(0,0,32,32); glowSpr=c; glowSprNight=nightI; return c;
+}
+function stepOnSand(x,y,n){
+  var gx=Math.min(GW-1,Math.max(0,(x/CELL)|0)), wet=wetness(gx,y/CELL);
+  for(var k=0;k<n;k++){
+    var a=Math.random()*6.28, r=Math.sqrt(Math.random());
+    foot.push({x:x+Math.cos(a)*r*11, y:y+Math.sin(a)*r*16, t:0, life:1.4+Math.random()*1.6*(0.6+wet), b:(0.7+0.3*wet)*(0.55+Math.random()*0.45), s:1.1+Math.random()*1.6});
+  }
+  if(foot.length>2500) foot.splice(0,foot.length-2500);
+}
+function wetness(gx,gy){ var dd=gy-shore[gx]; var w=1-dd/(SWASH_A*wetW[gx]+10); return w<0.08?0.08:(w>1?1:w); }
+
 /* ---------- 描画 ---------- */
-var sparks=[];
 function render(now){
-  var t=now/1000, d=img.data, g=gimg.data, tint=night.tint, core=night.core;
+  var j, t=now/1000, d=img.data, g=gimg.data, tint=night.tint, core=night.core;
+  var ox=(DPAD+DPAD*0.9*Math.sin(t*0.031))|0, oy=(DPAD+DPAD*0.9*Math.sin(t*0.023+1.3))|0;   // ムラがゆっくり流れる
+  var sg=swashGlow();
   var p=0;
   for(var y=0;y<GH;y++){
-    var row=(y+1)*GP+1, fy=y/GH;
+    var row=(y+1)*GP+1, fy=y/GH, drow=(y+oy)*DW+ox;
     for(var x=0;x<GW;x++){
-      var i=row+x, uu=u[i], vv=v[i];
-      // 夜の海: ゆっくり動くうねりの濃淡
+      var i=row+x, dn=dens[drow+x];
+      var sh=shore[x];
+      if(sand[i]){
+        // 砂浜: 波打ち際に近いほど濡れて暗く、つやがある
+        var dd=y-sh, ext=swashExt(x), wet=1-dd/(SWASH_A*wetW[x]+10); if(wet<0) wet=0;
+        var gn=sandN[i];
+        var sr=30+10*gn, sgc=27+9*gn, sb=24+8*gn;                 // 乾いた砂(夜)
+        sr=sr*(1-wet*0.55)+wet*8; sgc=sgc*(1-wet*0.5)+wet*11; sb=sb*(1-wet*0.4)+wet*18;
+        var rr=0,gg2=0,bb2=0;
+        if(dd<ext){
+          // 駆け上がった波のうすい水: 先っぽの泡ほど明るく光る
+          var front=1-(ext-dd)/(ext+0.001), lit=sg*dn*(0.35+0.65*front*front);
+          sr=sr*0.6+4; sgc=sgc*0.6+9; sb=sb*0.6+18;
+          rr=tint[0]*lit; gg2=tint[1]*lit; bb2=tint[2]*lit;
+          if(ext-dd<1.6){ sr+=26; sgc+=30; sb+=36; }               // 泡のふち
+        }
+        d[p]=sr+rr*0.45; d[p+1]=sgc+gg2*0.45; d[p+2]=sb+bb2*0.45; d[p+3]=255;
+        var w2=rr>0? lit*90:0;
+        g[p]=rr*1.6+w2; g[p+1]=gg2*1.6+w2; g[p+2]=bb2*1.6+w2; g[p+3]=255;
+        p+=4; continue;
+      }
+      var uu=u[i], vv=v[i];
+      // 夜の海: ゆっくり動くうねりの濃淡。岸に近いほど少し明るい(浅い)
       var sw=Math.sin(x*0.09+y*0.05+t*0.7)+Math.sin(x*0.04-y*0.11-t*0.5)*0.8+Math.sin((x+y)*0.21+t*1.3)*0.25;
-      var base=0.55+0.12*sw;
-      var br=2+3*base, bg=6+9*base+fy*4, bb=16+18*base+fy*8;
-      // 光: 先頭(u)は明るく白っぽく、後ろ(v)はゆっくり消える青い尾
+      var base=0.55+0.12*sw, near=Math.max(0,1-(sh-y)/22);
+      var br=2+3*base+near*4, bg=6+9*base+fy*4+near*6, bb=16+18*base+fy*8+near*8;
+      var fo=1-Math.abs(sh-(y+0.5))/1.3; if(fo>0){ br+=16*fo; bg+=20*fo; bb+=24*fo; }   // 波打ち際の白いふち(なめらかに)
       // 光るのは波の先頭だけ(疲れvがたまる前)。うしろは疲れとともに薄い尾になる
       var fr=uu*Math.exp(-vv*5.5);
       var tail=vv>0? (vv<1?vv:1)*(1-uu*0.6)*0.22 : 0;
-      var gl=fr*1.05+uu*0.10+tail;
-      var c2=fr*fr*fr*0.85;
+      var L=dn*(0.15+0.85*en[i]);                                    // 濃さのムラ × 夜光虫の疲れ
+      var gl=(fr*1.05+uu*0.10+tail)*L;
+      var c2=fr*fr*fr*0.85*L;
       var r=tint[0]*gl+(core[0]-tint[0])*c2, gg=tint[1]*gl+(core[1]-tint[1])*c2, bl=tint[2]*gl+(core[2]-tint[2])*c2;
       // 下地の帯は控えめ(0.4倍)。光そのものは粒(キラキラ)で見せる
+      var cov=y+1-sh;                                                // このマスにかかる砂の割合(境目をなめらかに)
+      if(cov>0){ var gn2=sandN[i]; br=br*(1-cov)+(10+6*gn2)*cov; bg=bg*(1-cov)+(13+6*gn2)*cov; bb=bb*(1-cov)+(19+6*gn2)*cov; }
       d[p]=br+r*0.4; d[p+1]=bg+gg*0.4; d[p+2]=bb+bl*0.4; d[p+3]=255;
-      var wb=fr*150;                                   // 波の先頭の粒は白く
+      var wb=fr*150*L;                                 // 波の先頭の粒は白く
       g[p]=r*1.8+wb; g[p+1]=gg*1.8+wb; g[p+2]=bl*1.8+wb; g[p+3]=255;
       p+=4;
     }
@@ -210,7 +311,8 @@ function render(now){
   var n=Math.round(GW*GH/22);
   for(var s=0;s<n;s++){
     var x=(Math.random()*GW)|0, y=(Math.random()*GH)|0, i=(y+1)*GP+x+1;
-    var e=u[i]*Math.exp(-v[i]*5.5)+Math.max(0,v[i]*(1-u[i]))*0.12;
+    if(sand[i]) continue;
+    var e=(u[i]*Math.exp(-v[i]*5.5)+Math.max(0,v[i]*(1-u[i]))*0.12)*dens[(y+oy)*DW+x+ox]*(0.15+0.85*en[i]);
     if(Math.random()>e*1.4) continue;
     var a=Math.min(1,e*1.3);
     var sz=(0.8+Math.random()*1.2)*DPR;
@@ -223,9 +325,21 @@ function render(now){
       ctx.fillRect(px-L,py-th/2,L*2,th); ctx.fillRect(px-th/2,py-L,th,L*2);
     }
   }
+  // 砂の足あと: またたく粒
+  var fdt=Math.min(0.05,t-(render.lt||t)); render.lt=t;
+  ctx.globalCompositeOperation='lighter';
+  var spr=getGlowSprite();
+  for(j=foot.length-1;j>=0;j--){
+    var f=foot[j]; f.t+=fdt; if(f.t>f.life){ foot.splice(j,1); continue; }
+    var k=1-f.t/f.life, fl=(0.4+0.6*Math.random())*f.b*k*(f.t<0.12?f.t/0.12:1);
+    var fs=f.s*DPR;
+    ctx.globalAlpha=Math.min(1,fl); ctx.drawImage(spr,f.x*DPR-fs*4,f.y*DPR-fs*4,fs*8,fs*8); ctx.globalAlpha=1;
+    ctx.fillStyle='rgba('+core[0]+','+core[1]+','+core[2]+','+Math.min(1,fl*1.5).toFixed(3)+')';
+    ctx.fillRect(f.x*DPR-fs/2,f.y*DPR-fs/2,fs,fs);
+  }
   // なぞった跡: 水面のさざ波(すぐ消える)
   ctx.globalCompositeOperation='source-over';
-  for(var j=trails.length-1;j>=0;j--){
+  for(j=trails.length-1;j>=0;j--){
     var tr=trails[j], age=t-tr.t; if(age>0.9){ trails.splice(j,1); continue; }
     ctx.globalAlpha=(1-age/0.9)*0.22;
     ctx.strokeStyle='#cfe6ff'; ctx.lineWidth=(1+age*5)*DPR;
@@ -242,20 +356,26 @@ var toastEl=document.getElementById('toast'), toastT=0;
 function toast(s,ms){ toastEl.textContent=s; toastEl.classList.add('on'); clearTimeout(toastT); toastT=setTimeout(function(){ toastEl.classList.remove('on'); },ms||2200); }
 
 var ptrs={}, trails=[];
+function isSand(px,py){ var gx=Math.min(GW-1,Math.max(0,(px/CELL)|0)); return py/CELL>=shore[gx]; }
 var CUT_R=5;   // マス。スマホ幅で直径およそ30px(指の腹くらい)
 cv.addEventListener('pointerdown',function(ev){
   if(window.APKit && APKit.isUI(ev.clientX,ev.clientY)) return true;
   ev.preventDefault(); hideHint();
   // 押した瞬間には光らせない: なぞる(=切る)つもりの指が、切り口を自分の光で埋めてしまうため。
   // タップは離した時、長押しは0.15秒じっとしていたら光る。
-  ptrs[ev.pointerId]={x:ev.clientX,y:ev.clientY,sx:ev.clientX,sy:ev.clientY,moved:false,t0:performance.now(),lit:false};
+  var onSand=isSand(ev.clientX,ev.clientY);
+  ptrs[ev.pointerId]={x:ev.clientX,y:ev.clientY,sx:ev.clientX,sy:ev.clientY,moved:false,t0:performance.now(),lit:false,sand:onSand,fx:ev.clientX,fy:ev.clientY};
+  if(onSand) stepOnSand(ev.clientX,ev.clientY,90);   // 砂を踏む
   try{ cv.setPointerCapture(ev.pointerId); }catch(e){}
 });
 cv.addEventListener('pointermove',function(ev){
   var p=ptrs[ev.pointerId]; if(!p) return;
   var x=ev.clientX, y=ev.clientY;
   if(!p.moved && Math.hypot(x-p.sx,y-p.sy)>14){ p.moved=true; }
-  if(p.moved){
+  if(isSand(x,y)){
+    // 砂の上をなぞる: 足あとが続く
+    if(Math.hypot(x-p.fx,y-p.fy)>12){ stepOnSand(x,y,22); p.fx=x; p.fy=y; }
+  } else if(p.moved){
     var len=Math.hypot(x-p.x,y-p.y), n=Math.max(1,Math.ceil(len/(CELL*1.2)));
     for(var k=1;k<=n;k++) cut(p.x+(x-p.x)*k/n, p.y+(y-p.y)*k/n, CUT_R);
     trails.push({x0:p.x,y0:p.y,x1:x,y1:y,t:performance.now()/1000});
@@ -266,7 +386,7 @@ cv.addEventListener('pointermove',function(ev){
 });
 function endPtr(ev){
   var p=ptrs[ev.pointerId];
-  if(p && ev.type==='pointerup' && !p.moved && !p.lit) excite(p.x,p.y,3.2,false);   // タップ
+  if(p && ev.type==='pointerup' && !p.moved && !p.lit && !p.sand) excite(p.x,p.y,3.2,false);   // 海をタップ
   delete ptrs[ev.pointerId];
 }
 cv.addEventListener('pointerup',endPtr);
@@ -274,7 +394,7 @@ cv.addEventListener('pointercancel',endPtr);
 
 function setNight(i){ nightI=i; night=NIGHTS[i]; }
 function mutate(){ var n=nightI; while(n===nightI) n=(Math.random()*NIGHTS.length)|0; setNight(n); toast(night.name); }
-function reset(){ u.fill(0); v.fill(0); un.fill(0); nextSea=simT+1.2; toast('暗い海に戻した',1500); }
+function reset(){ u.fill(0); v.fill(0); un.fill(0); en.fill(1); foot=[]; nextSea=simT+1.2; toast('静かな浜に戻した',1500); }
 
 /* ---------- ループ ---------- */
 var resizeT=0;
@@ -286,20 +406,24 @@ function frame(now){
   var a0=performance.now();
   // 長押し中は、休んでいるマスだけを光らせ続ける(=輪が次々に生まれる)
   for(var id in ptrs){
-    var p=ptrs[id]; if(p.moved || now-p.t0<150) continue;
+    var p=ptrs[id]; if(p.moved || p.sand || now-p.t0<150) continue;
     if(!p.lit){ excite(p.x,p.y,3.2,false); p.lit=true; } else excite(p.x,p.y,3.2,true);
   }
   simAcc+=dtF*night.speed;
   var guard=0;
   while(simAcc>=DT && guard<8){ step(); simAcc-=DT; simT+=DT; guard++; }
   if(guard>=8) simAcc=0;
-  if(!noSea && simT>=nextSea){ seaWave(); nextSea=simT+night.speed*(6+Math.random()*4); }
+  // 夜光虫の疲れ: 光っている間は減り、休むと戻る(明るさだけに効く)
+  var sdt=guard*DT, drain=0.12*sdt, rec=0.07*sdt, N=u.length;
+  if(sdt>0) for(var i=0;i<N;i++){ var e=en[i]-drain*u[i]+rec*(1-en[i]); en[i]=e<0?0:e; }
+  if(!noSea && simT>=nextSea){ seaWave(); nextSea=simT+night.speed*(4.5+Math.random()*3); }
+  swashT+=dtF; checkSwash(now/1000);
   render(now);
   perf.ms+=performance.now()-a0; perf.n++;
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-window.__ss={perf:perf,excite:excite,cut:cut,mutate:mutate,reset:reset,seaWave:seaWave,get u(){return u;},get v(){return v;},set noSea(b){noSea=b;},get grid(){return {GW:GW,GH:GH,GP:GP,CELL:CELL};}};
+window.__ss={get foot(){return foot;},get swashT(){return swashT;},get en(){return en;},perf:perf,excite:excite,cut:cut,mutate:mutate,reset:reset,seaWave:seaWave,get u(){return u;},get v(){return v;},set noSea(b){noSea=b;},get grid(){return {GW:GW,GH:GH,GP:GP,CELL:CELL};}};
 
 if(window.APKit){
   APKit.init({
