@@ -1,3 +1,4 @@
+- 2026-10-21 クロちゃん: NEXT SPRINGを採用・art-v109として昇格し、CURRENTに設定、録画の対象にも追加(おっちゃん「採用でカレントへ、録画もね」)。それまでのCURRENTだったEYE LOOM(v107)はLOGのIRON BLOOM(v108)の下へ移動(LOGの並び順ルール)、Published worksは先頭をNEXT SPRINGにして、IRON BLOOM・EYE LOOMの順に。ap-kit.jsの相対パスをルート用に修正、テスト用フック(window.__ns)は外した。`META`に操作ヒント「眺めているだけでも。なぞると風が吹く」を1行追加。`REC_WORKS`に`art-v109-next-spring.html`を追加: スマホ(Android Chrome)のUA・390×844のヘッドレスChromiumで、ギャラリーから開き、本物の録画ボタン→なぞる→上限まで録画を通し、動画(720×1558・約30秒)にタンポポの野原と2行の透かしが映り、始めと終わりで株と綿毛の様子が変わることを確認(Canvas 2D)。テストでは、ほかのライブタイル(特にIRON BLOOMのレイマーチ)がGPUなしの環境で重く、ギャラリーごと固まったので、確認中だけ他作品の読み込みを止めた。`tools/poster-config.json`に`hide:#hint`・待ち7秒を追加し、ポスター(ヒーロー含む)とOGPカードを生成、`gen_posters.py --check`・`gen_og.py --check`とも終了コード0(文字が写らずタンポポと夕暮れの空が写っていることを目視で確認)。試作版`prototypes/next-spring.html`は残す。「現在の状態」も更新。**スマホ実機での重さ・録画中の重さは未確認**(Canvas 2Dで、空・雲2層・地上を毎フレーム重ねる。重ければ`REC_WORKS`から外すか、草の本数を減らす)(art-v109-next-spring.html, index.html, posters/, og/, tools/poster-config.json, CHANGELOG.md)
 - 2026-10-21 クロちゃん: NEXT SPRING(試作)の背景を動かした(おっちゃんに「背景は止まった1枚絵」と伝えたうえで、雲・奥の野原の風・日差しのゆらぎを足す)。背景を1枚絵から「空(静止)/雲の帯2層(流れる)/地上(静止)」に分けた。雲: 端と端がつながる横長の帯を2層作り、遠くの低い帯はゆっくり・近くの高い帯は速めに風向き(✦の向き)へ流す。自然の突風が来ると少しだけ速まり、長押しで風がやむと雲もほぼ止まる。半透明の丘の向こうに雲が透けないよう、丘の下に空の色を敷いた。奥の野原: 風の強さに合わせて明るい帯(と少し暗い谷)が野原を渡る。自然の突風のときは遠くから手前まで一列の波が横切る(なぞった風でも波が強まる)。日差し: 太陽(月)から放射する光の筋をゆっくり回して揺らし、横の光の筋・ブルームの強さもゆらがせる。雲が太陽にかかると光が弱まる。月夜は雲が月の前を流れ、星も雲に隠れる。粒子は透明部分に乗らないよう層ごとに付けた。テスト用フック window.__ns に gust(突風を起こす)を追加。スマホ幅(390×844、DPR2)のヘッドレスChromiumで4時間帯・突風を確認しエラーなし(1フレームの時間は前回比で1〜3割増)。**スマホ実機での重さは未確認**(prototypes/next-spring.html, CHANGELOG.md)
 - 2026-10-21 クロちゃん: NEXT SPRING(試作)の茎と草を作り直し(おっちゃんのiPhone実機スクショで「茎？草の部分がショボいね」)。茎: 同じ太さの線をやめ、上に向かって細くなる筒を塗りで描く(影の側を暗く、太陽の側のふちを逆光で光らせ、中央につや)。根元から少しだけしなり、花の付け根にふくらみ、綿毛の下に下向きにそり返った総苞。根元にギザギザの葉(ロゼット)を地面に寝かせて描く。揺れる草: 細い線+白いふちの線(夜に引っかき傷のように見えていた)をやめ、先細りの葉を塗りで描き、層ごとに根元は暗く先へなめらかに明るくする。太陽の側のふちの光は時間帯ごとに強さを変える(夜は弱く)。数を約2倍(最大1500)にし、穂のある草を少し混ぜた。静止の中景の草も塗りの葉にし、画面下ほど背が高く密な草むらと根元の暗がりを足した。4時間帯・45秒放置でエラーなし(ヘッドレスで1フレーム約10ms、前回の約1.5倍)。**スマホ実機での重さは未確認**(prototypes/next-spring.html, CHANGELOG.md)
 - 2026-10-20 クロちゃん: NEXT SPRING(試作)の描画を全面作り直し(おっちゃん「ちゃっちいなー」)。世界のルールと操作(なぞる=風・タップ=はじく・長押し=風がやむ・✦=時間帯・↻)はそのまま。構図を「草むらに寝転んで逆光のタンポポを見上げる写真」に: 地平を低く、手前の株ほど背が高く頭が空に抜ける。被写界深度(奥の株・遠くの野原・カメラ直前を横切る綿毛と手前の草はボケる、ピントは中〜手前)。綿毛の頭は1粒ずつ「くちばし+実+冠毛の円盤」を球の上の向きに合わせて楕円につぶして描き(株ごとの作り置きキャンバス、綿毛が減った時だけ描き直す)、ふちが光る逆光のにじみ。飛ぶ綿毛は横から見た冠毛(少し反った円盤)+くちばし+実で、奥行きに応じて4段階のぼかし。花は切れ込みのある舌状花を5重に重ねた作り置きの絵。草は先細りの葉を奥行き6層で揺らし、逆光のふちを光らせる。背景は雲の帯(太陽側のふちが明るい)・2段の丘と木立・地平のもや・ボケた遠くの花畑・光のボケ玉・横に伸びる光の筋、上からブルームとビネット、フィルムの粒子。時間帯ごとにブルーム・ビネット・にじみの強さを調整(昼と朝は白飛びしないよう弱め)。見えて飛ぶ綿毛の上限150→115。スマホ幅(390×844、DPR2)・横画面のヘッドレスChromiumで4時間帯・なぞる・タップ・長押し・2分放置(株が絶えず回る)を確認しエラーなし(1フレーム約4〜8ms)。**スマホ実機での重さは未確認**(prototypes/next-spring.html, CHANGELOG.md)
@@ -468,17 +469,17 @@
 
 ## 現在の状態(変わったら書き換える)
 
-- CURRENT: EYE LOOM(`art-v107-eye-loom.html`)。それまでのCURRENTだったSPLIT DEW(v106)はLOG先頭へ
+- CURRENT: NEXT SPRING(`art-v109-next-spring.html`)。それまでのCURRENTだったEYE LOOM(v107)はLOGのIRON BLOOM(v108)の下へ
 - 試作: GRAFT LAW(`prototypes/graft-law.html`)を追加。ギャラリー未登録・採用待ち
 - 試作: CUBE COSMOS(`prototypes/cube-cosmos.html`)を追加。ギャラリー未登録・採用待ち
 - 試作: HINGE LAW(`prototypes/hinge-law.html`)を再構成。分割数・装飾を削り、画面内で大きく見せる調整済み。ギャラリー未登録・採用待ち
 - 試作: PARADOX ENGINE(`prototypes/paradox-engine.html`)を新規追加。錯視の立体プリズムが交差部の前後法則を変える作品。ギャラリー未登録・採用待ち
-- LOG先頭: SPLIT DEW(`art-v106-split-dew.html`)、その下にSTRATA SAND(`art-v105-strata-sand.html`)、PRISM SHELL(`art-v104-prism-shell.html`)、SNOW LEDGER(`art-v103-snow-ledger.html`)、ROSARY(`art-v102-rosary.html`)、WATERLINE(`art-v101-waterline.html`)、HAIRLINE(`art-v100-hairline.html`)、MORPHING FERN(`art-v99-morphing-fern.html`)、v98〜v94、LIVING REEF(`art-v93-living-reef.html`)
+- LOG先頭: IRON BLOOM(`art-v108-iron-bloom.html`)、その下にEYE LOOM(`art-v107-eye-loom.html`)、SPLIT DEW(`art-v106-split-dew.html`)、STRATA SAND(`art-v105-strata-sand.html`)、PRISM SHELL(`art-v104-prism-shell.html`)、SNOW LEDGER(`art-v103-snow-ledger.html`)、ROSARY(`art-v102-rosary.html`)、WATERLINE(`art-v101-waterline.html`)、HAIRLINE(`art-v100-hairline.html`)、MORPHING FERN(`art-v99-morphing-fern.html`)、v98〜v94、LIVING REEF(`art-v93-living-reef.html`)
 - 作業ルール: `AGENTS.md`(ギャラリー追加の手順と命名ルールは13章)
 - 表示モード: iPhoneホーム画面から起動するとCURRENT作品を自動表示するstandalone Web App対応済み
 - 一言説明: ヒーロー/タイルの一言は各作品の`<title>`(`NAME — 日本語の一言`)から自動取得。上書き・ヒントは`index.html`の`META`(ルールはAGENTS.md 13章)
 - 運用メモ: `NOTES.md`(GitHub操作は可能性を確認してから実行)
-- 採用作品作業: EYE LOOM(v107)をCURRENTに登録済み(ポスター・OGP生成と目視確認、ヘッドレスでの録画確認は完了)。STRATA SAND(v105)・SPLIT DEW(v106)・EYE LOOM(v107)とも、録画のスマホ実機での重さ・iPhone負荷の検証は未完了。
+- 採用作品作業: NEXT SPRING(v109)をCURRENTに登録済み(ポスター・OGP生成と目視確認、ヘッドレスでの録画確認は完了)。STRATA SAND(v105)〜NEXT SPRING(v109)とも、録画のスマホ実機での重さ・iPhone負荷の検証は未完了。
 - ポスター: ギャラリーのタイルの静止画。`posters/`と`tools/gen_posters.py`、ルールはAGENTS.md 14章。作品追加・作品修正・CURRENT変更のたびに`python3 tools/gen_posters.py`(`--check`で点検)
 
 ---
