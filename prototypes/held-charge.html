@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>HELD CHARGE — 長く触れた所に、雷が住みつく</title>
+<!-- HELD CHARGE — クロちゃん(Claude)作。ap-kit.js統合: クロちゃん。2026/10/21 試作
+     HUNGER MAP(粘菌)に「発想は面白いけど、あんまり面白くない」(見た目が地味・触った手応えが薄い・題材ごと別のがいい)を受けて、
+     触った瞬間に派手に応える題材として「プラズマボール」にした。
+     世界のルール: 雷は、ガラスに触れた指に集まる。長く触れた所はガラスに焼きつき、指を離しても雷を呼び続ける(雷が住みつく)。
+       何もしなくても: 十数本の雷がガラスの中をさまよい、ちらつく
+       タップ/なぞる = 近くの雷が2〜3本、指に集まって太く明るくなる(なぞると指についてくる)
+       長押し(約1.5秒) = その場所が焼きつき、雷が1本住みつく(最大6か所。古いものから消える)
+       ✦ = 中のガスを入れ替える(ネオン=赤橙・アルゴン=紫・キセノン=青・クリプトン=白緑・ヘリウム=桃・虹)
+       ↻ = 焼きつきを消す
+     雷の形: 中心の電極からガラスまでを、中点を横にずらす分割を6階層くり返す(どの階層も同じ比率=自己相似のギザギザ)。先の方で枝分かれする。
+     描画: Canvas 2D。雷は加算合成で3層(にじみ・本体・白い芯)、さらに縮小キャンバスに描いて引き伸ばした光のにじみを重ねる。 -->
+<script src="../ap-kit.js"></script>
+<style>
+html,body{margin:0;height:100%;background:#050308;overflow:hidden;touch-action:none}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+#hint{position:fixed;left:16px;right:16px;top:calc(env(safe-area-inset-top) + 18px);text-align:center;color:rgba(255,236,252,.9);font:500 11px/1.7 system-ui,sans-serif;letter-spacing:.12em;text-shadow:0 1px 6px rgba(0,0,0,.7);pointer-events:none;transition:opacity 1.2s}
+#hint.off{opacity:0}
+#toast{position:fixed;left:16px;right:16px;bottom:calc(env(safe-area-inset-bottom) + 112px);text-align:center;color:rgba(255,236,252,.88);font:500 11px/1.7 system-ui,sans-serif;letter-spacing:.12em;text-shadow:0 1px 6px rgba(0,0,0,.8);pointer-events:none;opacity:0;transition:opacity .7s}
+#toast.on{opacity:1}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">ガラスに触れると、雷が指に集まる<br>長く触れると、そこに雷が住みつく · ✦ ガスを入れ替える</div>
+<div id="toast"></div>
+<script>
+(function(){
+'use strict';
+var cv=document.getElementById('c'), ctx=cv.getContext('2d');
+var PI2=Math.PI*2;
+function rnd(a,b){ return a+Math.random()*(b-a); }
+function clamp(v,a,b){ return v<a?a:v>b?b:v; }
+function mk(w,h){ var c=document.createElement('canvas'); c.width=Math.max(1,Math.round(w)); c.height=Math.max(1,Math.round(h)); return c; }
+function norm3(v){ var l=Math.hypot(v[0],v[1],v[2])||1; v[0]/=l; v[1]/=l; v[2]/=l; return v; }
+function rgb(h){ var n=parseInt(h.slice(1),16); return [n>>16,n>>8&255,n&255]; }
+function hsl2rgb(h,s,l){ h=((h%360)+360)%360/360; var q=l<.5?l*(1+s):l+s-l*s, p=2*l-q;
+  function f(t){ t=(t+1)%1; return t<1/6?p+(q-p)*6*t:t<.5?q:t<2/3?p+(q-p)*(2/3-t)*6:p; }
+  return [Math.round(f(h+1/3)*255),Math.round(f(h)*255),Math.round(f(h-1/3)*255)]; }
+
+/* ---------- ガス ---------- */
+var GASES=[
+  {name:'アルゴン(Ar)',  core:'#fff0ff', mid:'#ff5ad8', out:'#8a2cff', haze:'#5a1aa0'},
+  {name:'ネオン(Ne)',    core:'#fff4e6', mid:'#ff6a24', out:'#ff2208', haze:'#7a1a06'},
+  {name:'キセノン(Xe)',  core:'#f2f6ff', mid:'#6fa6ff', out:'#3546ff', haze:'#14227a'},
+  {name:'クリプトン(Kr)',core:'#f6fff2', mid:'#c8ff8a', out:'#3fd58e', haze:'#0f5a40'},
+  {name:'ヘリウム(He)',  core:'#fff2f0', mid:'#ffa0a8', out:'#ff5c86', haze:'#6a1a36'},
+  {name:'虹',           rainbow:true, core:'#ffffff', mid:'#ff5ad8', out:'#8a2cff', haze:'#3a2070'}
+];
+var gasI=0, gas=null, gasC={};
+function setGas(i){
+  gasI=i; gas=GASES[i];
+  gasC={core:rgb(gas.core), mid:rgb(gas.mid), out:rgb(gas.out), haze:rgb(gas.haze)};
+}
+function col(c,a){ return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'; }
+
+/* ---------- 画面 ---------- */
+var W=0,H=0,DPR=1, cx=0, cy=0, R=100, r0=16;
+var glowCv, glowCtx, GS=0.25, glow2Cv, glow2Ctx, bgCv, glassCv, standCv;
+function setup(){
+  DPR=Math.min(2,window.devicePixelRatio||1);
+  W=window.innerWidth; H=window.innerHeight;
+  cv.width=Math.round(W*DPR); cv.height=Math.round(H*DPR);
+  R=Math.min(W*0.45,H*0.36); r0=R*0.15;
+  cx=W/2; cy=H*0.45;
+  if(cy+R*1.5>H-8) cy=H-8-R*1.5;
+  glowCv=mk(W*GS,H*GS); glowCtx=glowCv.getContext('2d');
+  glow2Cv=mk(W*GS*0.5,H*GS*0.5); glow2Ctx=glow2Cv.getContext('2d');
+  buildStatic();
+}
+
+/* 背景・ガラスのツヤ・台は作り置き */
+function buildStatic(){
+  bgCv=mk(W*DPR,H*DPR); var g=bgCv.getContext('2d'); g.scale(DPR,DPR);
+  var gr=g.createRadialGradient(cx,cy,R*0.5,cx,cy,Math.hypot(W,H)*0.7);
+  gr.addColorStop(0,'#120c18'); gr.addColorStop(1,'#030205');
+  g.fillStyle=gr; g.fillRect(0,0,W,H);
+  // 机
+  var ty=cy+R*1.45;
+  var tg=g.createLinearGradient(0,ty-R*0.1,0,H); tg.addColorStop(0,'rgba(30,22,36,0)'); tg.addColorStop(0.08,'rgba(30,22,36,.55)'); tg.addColorStop(1,'rgba(8,6,10,.9)');
+  g.fillStyle=tg; g.fillRect(0,ty-R*0.1,W,H-ty+R*0.1);
+  // ガラスのツヤ(上に重ねる)
+  glassCv=mk(W*DPR,H*DPR); var q=glassCv.getContext('2d'); q.scale(DPR,DPR);
+  var rim=q.createRadialGradient(cx,cy,R*0.82,cx,cy,R*1.01);
+  rim.addColorStop(0,'rgba(255,255,255,0)'); rim.addColorStop(0.85,'rgba(220,210,255,.07)'); rim.addColorStop(0.97,'rgba(240,235,255,.22)'); rim.addColorStop(1,'rgba(255,255,255,0)');
+  q.fillStyle=rim; q.beginPath(); q.arc(cx,cy,R*1.01,0,PI2); q.fill();
+  q.save(); q.beginPath(); q.arc(cx,cy,R,0,PI2); q.clip();
+  var sp=q.createRadialGradient(cx-R*0.42,cy-R*0.5,0,cx-R*0.42,cy-R*0.5,R*0.55);
+  sp.addColorStop(0,'rgba(255,255,255,.16)'); sp.addColorStop(1,'rgba(255,255,255,0)');
+  q.fillStyle=sp; q.fillRect(cx-R,cy-R,R*2,R*2);
+  q.lineCap='round';
+  q.strokeStyle='rgba(255,255,255,.28)'; q.lineWidth=R*0.035; q.beginPath(); q.arc(cx,cy,R*0.86,Math.PI*1.12,Math.PI*1.38); q.stroke();
+  q.strokeStyle='rgba(255,255,255,.12)'; q.lineWidth=R*0.02; q.beginPath(); q.arc(cx,cy,R*0.88,Math.PI*0.15,Math.PI*0.32); q.stroke();
+  q.restore();
+  // 台
+  standCv=mk(W*DPR,H*DPR); var s=standCv.getContext('2d'); s.scale(DPR,DPR);
+  var top=cy+R*0.93, bot=cy+R*1.45, tw=R*0.42, bw=R*0.78;
+  s.beginPath(); s.moveTo(cx-tw,top); s.lineTo(cx+tw,top); s.quadraticCurveTo(cx+bw*0.9,bot-R*0.18,cx+bw,bot); s.lineTo(cx-bw,bot); s.quadraticCurveTo(cx-bw*0.9,bot-R*0.18,cx-tw,top); s.closePath();
+  var sg=s.createLinearGradient(cx-bw,0,cx+bw,0);
+  sg.addColorStop(0,'#09080c'); sg.addColorStop(0.3,'#24212b'); sg.addColorStop(0.42,'#3a3644'); sg.addColorStop(0.55,'#1b1920'); sg.addColorStop(1,'#060508');
+  s.fillStyle=sg; s.fill();
+  s.strokeStyle='rgba(255,255,255,.06)'; s.lineWidth=1; s.stroke();
+  // 首(ガラスの下の口)
+  var nk=s.createLinearGradient(cx-tw,0,cx+tw,0); nk.addColorStop(0,'#0b0a0e'); nk.addColorStop(0.4,'#3b3742'); nk.addColorStop(1,'#08070a');
+  s.fillStyle=nk; s.beginPath(); s.ellipse(cx,top,tw,R*0.07,0,0,PI2); s.fill();
+}
+
+/* ---------- 雷 ---------- */
+var LV=6, NSEG=1<<LV;
+var fils=[];
+function makeFil(){
+  var d=norm3([rnd(-1,1),rnd(-1,1),rnd(-1,1)]);
+  var f={d:d, t:d.slice(), v:[0,0,0], off:[], fork:[], hue:rnd(0,360), bright:1, held:0, flick:1, w:rnd(0.8,1.15)};
+  for(var L=0;L<LV;L++){ var a=new Float32Array(1<<L); for(var i=0;i<a.length;i++) a[i]=rnd(-1,1); f.off.push(a); }
+  newForks(f);
+  return f;
+}
+function newForks(f){
+  f.fork=[];
+  var n=Math.random()<0.75?(Math.random()<0.5?1:2):0;
+  for(var k=0;k<n;k++){ var o=[]; for(var L=0;L<4;L++){ var a=new Float32Array(1<<L); for(var i=0;i<a.length;i++) a[i]=rnd(-1,1); o.push(a); }
+    f.fork.push({at:rnd(0.45,0.85), ang:(Math.random()<0.5?-1:1)*rnd(0.35,0.9), len:rnd(0.12,0.28), off:o}); }
+}
+function resetFils(){ fils=[]; for(var i=0;i<13;i++) fils.push(makeFil()); }
+
+/* 中点を横にずらす分割: どの階層も同じ比率 → 自己相似のギザギザ */
+var bufX=new Float32Array(NSEG+1), bufY=new Float32Array(NSEG+1);
+function bolt(x0,y0,x1,y1,off,lv,amp,outX,outY){
+  var n=1<<lv;
+  outX[0]=x0; outY[0]=y0; outX[n]=x1; outY[n]=y1;
+  for(var L=0;L<lv;L++){
+    var step=n>>L, half=step>>1, o=off[L];
+    for(var i=0,k=0;i<n;i+=step,k++){
+      var ax=outX[i], ay=outY[i], bx=outX[i+step], by=outY[i+step];
+      var dx=bx-ax, dy=by-ay;
+      outX[i+half]=(ax+bx)/2-dy*amp*o[k];
+      outY[i+half]=(ay+by)/2+dx*amp*o[k];
+    }
+  }
+}
+
+/* ---------- 触った場所(引き寄せ) ---------- */
+var touches={}, scars=[];
+function screenToDir(x,y){
+  var dx=(x-cx)/R, dy=(y-cy)/R, r2=dx*dx+dy*dy;
+  if(r2>=0.97){ var l=Math.sqrt(r2); return [dx/l,dy/l,0.05]; }   // ガラスの外を触ったら、いちばん近い縁へ
+  return norm3([dx,dy,Math.sqrt(1-r2)]);
+}
+
+/* ---------- 動き ---------- */
+var clock=0, flash=0;
+function update(dt){
+  clock+=dt;
+  for(var i=0;i<fils.length;i++){ fils[i].held=0; fils[i].tgt=null; }
+  // 引き寄せ: 触った所は近い雷を3本、焼きつきは1本
+  var att=[];
+  for(var id in touches){ var t=touches[id]; att.push({d:t.d, n:3, s:1, touch:t}); }
+  for(i=0;i<scars.length;i++) att.push({d:scars[i].d, n:1, s:scars[i].life, scar:scars[i]});
+  for(var a=0;a<att.length;a++){
+    var A=att[a];
+    for(var k=0;k<A.n;k++){
+      var best=-1, bd=-9;
+      for(i=0;i<fils.length;i++){ var f=fils[i]; if(f.tgt) continue; var dt3=f.d[0]*A.d[0]+f.d[1]*A.d[1]+f.d[2]*A.d[2]; if(dt3>bd){bd=dt3;best=i;} }
+      if(best<0) break;
+      var F=fils[best]; var j=k*0.035;
+      F.tgt=norm3([A.d[0]+rnd(-j,j),A.d[1]+rnd(-j,j),A.d[2]]); F.held=A.touch?1:0.6; F.att=A;
+    }
+  }
+  for(i=0;i<fils.length;i++){
+    f=fils[i];
+    if(f.tgt){
+      var rate=Math.min(1,dt*(f.held>=1?9:4));
+      f.d[0]+=(f.tgt[0]-f.d[0])*rate; f.d[1]+=(f.tgt[1]-f.d[1])*rate; f.d[2]+=(f.tgt[2]-f.d[2])*rate; norm3(f.d);
+      f.bright+=(1.7-f.bright)*Math.min(1,dt*6);
+    } else {
+      // さまよう + となりの雷と反発
+      f.v[0]+=rnd(-1,1)*dt*2.2; f.v[1]+=rnd(-1,1)*dt*2.2; f.v[2]+=rnd(-1,1)*dt*2.2;
+      for(var m=0;m<fils.length;m++){ if(m===i) continue; var g=fils[m]; var dd=f.d[0]*g.d[0]+f.d[1]*g.d[1]+f.d[2]*g.d[2];
+        if(dd>0.82){ var p=(dd-0.82)*dt*6; f.v[0]+=(f.d[0]-g.d[0])*p; f.v[1]+=(f.d[1]-g.d[1])*p; f.v[2]+=(f.d[2]-g.d[2])*p; } }
+      f.v[0]*=Math.pow(0.35,dt); f.v[1]*=Math.pow(0.35,dt); f.v[2]*=Math.pow(0.35,dt);
+      f.d[0]+=f.v[0]*dt; f.d[1]+=f.v[1]*dt; f.d[2]+=f.v[2]*dt;
+      if(f.d[1]>0.82) f.v[1]-=dt*3;          // 台の口のあたりは避ける
+      norm3(f.d);
+      f.bright+=(1-f.bright)*Math.min(1,dt*2);
+    }
+    // ギザギザが細かく震える。ときどきパチッと形が変わる
+    var jit=dt*(f.held?7:4.5);
+    for(var L=0;L<LV;L++){ var o=f.off[L]; for(var q=0;q<o.length;q++){ o[q]=clamp(o[q]+rnd(-1,1)*jit,-1,1); } }
+    if(Math.random()<dt*(f.held?5:1.6)){ var LL=(Math.random()*LV)|0, oo=f.off[LL]; for(q=0;q<oo.length;q++) oo[q]=rnd(-1,1); }
+    if(Math.random()<dt*2.5) newForks(f);
+    for(var fk=0;fk<f.fork.length;fk++){ var fo=f.fork[fk].off; for(L=0;L<fo.length;L++) for(q=0;q<fo[L].length;q++) fo[L][q]=clamp(fo[L][q]+rnd(-1,1)*jit*1.5,-1,1); }
+    f.flick=0.75+0.25*Math.random();
+    f.hue+=dt*20;
+  }
+  // 長押しで焼きつく
+  for(var id2 in touches){
+    var T=touches[id2]; T.hold+=dt;
+    if(!T.scarred && T.hold>1.5){
+      T.scarred=true; flash=1;
+      scars.push({d:T.d.slice(), x:T.x, y:T.y, age:0, life:1, hue:rnd(0,360)});
+      if(scars.length>6) scars.shift();
+      if(fils.length<13+scars.length) fils.push(makeFil());
+      toast('ここに雷が住みついた('+scars.length+')',1800);
+    }
+  }
+  for(i=0;i<scars.length;i++) scars[i].age+=dt;
+  flash=Math.max(0,flash-dt*2.5);
+}
+
+/* ---------- 描画 ---------- */
+var segX=new Float32Array(NSEG+1), segY=new Float32Array(NSEG+1), fkX=new Float32Array(17), fkY=new Float32Array(17);
+function filColor(f){ return gas.rainbow? {mid:hsl2rgb(f.hue,1,0.62), out:hsl2rgb(f.hue+30,1,0.5)} : {mid:gasC.mid, out:gasC.out}; }
+function drawFil(f,g,scale,glowOnly){
+  var d=f.d, sx=cx+d[0]*r0*0.95, sy=cy+d[1]*r0*0.95, ex=cx+d[0]*R*0.975, ey=cy+d[1]*R*0.975;
+  var depth=0.55+0.45*(d[2]*0.5+0.5);
+  var amp=0.2*(f.held?0.85:1);
+  bolt(sx,sy,ex,ey,f.off,LV,amp,segX,segY);
+  var c=filColor(f), B=f.bright*f.flick*depth, wB=(f.held?1.9:1)*f.w*(0.7+0.3*depth)*R/170;
+  g.beginPath(); g.moveTo(segX[0]*scale,segY[0]*scale);
+  for(var i=1;i<=NSEG;i++) g.lineTo(segX[i]*scale,segY[i]*scale);
+  // 枝
+  var len=Math.hypot(ex-sx,ey-sy);
+  for(var k=0;k<f.fork.length;k++){ var fk=f.fork[k], idx=(fk.at*NSEG)|0, px=segX[idx], py=segY[idx];
+    var dx=(ex-sx)/len, dy=(ey-sy)/len, ca=Math.cos(fk.ang), sa=Math.sin(fk.ang), L=len*fk.len;
+    var qx=px+(dx*ca-dy*sa)*L, qy=py+(dx*sa+dy*ca)*L;
+    bolt(px,py,qx,qy,fk.off,4,0.24,fkX,fkY);
+    g.moveTo(fkX[0]*scale,fkY[0]*scale); for(i=1;i<=16;i++) g.lineTo(fkX[i]*scale,fkY[i]*scale); }
+  if(glowOnly){ g.strokeStyle=col(c.mid,0.55*B); g.lineWidth=Math.max(1,6*wB*scale); g.stroke(); return; }
+  g.strokeStyle=col(c.out,0.16*B); g.lineWidth=9*wB; g.stroke();
+  g.strokeStyle=col(c.mid,0.55*B); g.lineWidth=3*wB; g.stroke();
+  g.strokeStyle=col(gasC.core,Math.min(1,0.85*B)); g.lineWidth=Math.max(0.7,1.1*wB); g.stroke();
+  // ガラスに当たった所の光
+  var rr=(f.held?R*0.12:R*0.06)*(0.8+0.4*f.flick);
+  var sp=g.createRadialGradient(ex,ey,0,ex,ey,rr);
+  sp.addColorStop(0,col(gasC.core,0.75*B)); sp.addColorStop(0.35,col(c.mid,0.35*B)); sp.addColorStop(1,col(c.out,0));
+  g.fillStyle=sp; g.fillRect(ex-rr,ey-rr,rr*2,rr*2);
+}
+function render(){
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.globalCompositeOperation='source-over';
+  ctx.drawImage(bgCv,0,0);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  var act=0; for(var id in touches) act++;
+  var energy=Math.min(1.6,0.6+act*0.35+scars.length*0.06+flash*0.8);
+  ctx.globalCompositeOperation='lighter';
+  // 部屋に落ちる光
+  var room=ctx.createRadialGradient(cx,cy,R*0.6,cx,cy,Math.max(W,H)*0.75);
+  room.addColorStop(0,col(gasC.haze,0.32*energy)); room.addColorStop(1,col(gasC.haze,0));
+  ctx.fillStyle=room; ctx.fillRect(0,0,W,H);
+  // 机への映りこみ
+  var ty=cy+R*1.45, rf=ctx.createRadialGradient(cx,ty+R*0.15,0,cx,ty+R*0.15,R*1.4);
+  rf.addColorStop(0,col(gasC.mid,0.16*energy)); rf.addColorStop(1,col(gasC.mid,0));
+  ctx.save(); ctx.translate(cx,ty+R*0.15); ctx.scale(1,0.22); ctx.translate(-cx,-(ty+R*0.15)); ctx.fillStyle=rf; ctx.fillRect(cx-R*1.5,ty-R*1.3,R*3,R*3); ctx.restore();
+  // ガラスの中のガス
+  var gz=ctx.createRadialGradient(cx,cy,r0,cx,cy,R);
+  gz.addColorStop(0,col(gasC.out,0.22*energy)); gz.addColorStop(0.6,col(gasC.haze,0.14*energy)); gz.addColorStop(1,col(gasC.haze,0.05));
+  ctx.fillStyle=gz; ctx.beginPath(); ctx.arc(cx,cy,R,0,PI2); ctx.fill();
+  // 奥の雷 → 電極 → 手前の雷
+  ctx.lineCap='round'; ctx.lineJoin='round';
+  var i;
+  for(i=0;i<fils.length;i++) if(fils[i].d[2]<0) drawFil(fils[i],ctx,1,false);
+  drawCore(energy);
+  for(i=0;i<fils.length;i++) if(fils[i].d[2]>=0) drawFil(fils[i],ctx,1,false);
+  // 焼きつき
+  for(i=0;i<scars.length;i++){ var s=scars[i], p=0.75+0.25*Math.sin(clock*5+i*2), x=cx+s.d[0]*R*0.975, y=cy+s.d[1]*R*0.975, rr=R*0.09;
+    var cc=gas.rainbow?hsl2rgb(s.hue+clock*20,1,0.65):gasC.mid;
+    var sg=ctx.createRadialGradient(x,y,0,x,y,rr*(1+0.3*Math.min(1,s.age)));
+    sg.addColorStop(0,col(gasC.core,0.6*p)); sg.addColorStop(0.3,col(cc,0.5*p)); sg.addColorStop(1,col(cc,0));
+    ctx.fillStyle=sg; ctx.fillRect(x-rr*1.4,y-rr*1.4,rr*2.8,rr*2.8);
+    ctx.strokeStyle=col(cc,0.35*p); ctx.lineWidth=1; ctx.beginPath(); ctx.arc(x,y,rr*0.45,0,PI2); ctx.stroke(); }
+  // 光のにじみ(縮小して描いて、引き伸ばす)
+  glowCtx.setTransform(1,0,0,1,0,0); glowCtx.globalCompositeOperation='source-over'; glowCtx.clearRect(0,0,glowCv.width,glowCv.height);
+  glowCtx.globalCompositeOperation='lighter'; glowCtx.lineCap='round'; glowCtx.lineJoin='round';
+  for(i=0;i<fils.length;i++) drawFil(fils[i],glowCtx,GS,true);
+  var cg=glowCtx.createRadialGradient(cx*GS,cy*GS,0,cx*GS,cy*GS,r0*2.2*GS); cg.addColorStop(0,col(gasC.mid,0.8)); cg.addColorStop(1,col(gasC.mid,0));
+  glowCtx.fillStyle=cg; glowCtx.fillRect(0,0,glowCv.width,glowCv.height);
+  glow2Ctx.setTransform(1,0,0,1,0,0); glow2Ctx.clearRect(0,0,glow2Cv.width,glow2Cv.height); glow2Ctx.drawImage(glowCv,0,0,glow2Cv.width,glow2Cv.height);
+  ctx.imageSmoothingEnabled=true;
+  ctx.globalAlpha=0.75; ctx.drawImage(glowCv,0,0,W,H);
+  ctx.globalAlpha=0.9; ctx.drawImage(glow2Cv,0,0,W,H);
+  ctx.globalAlpha=1;
+  if(flash>0){ ctx.fillStyle=col(gasC.core,0.18*flash); ctx.beginPath(); ctx.arc(cx,cy,R,0,PI2); ctx.fill(); }
+  ctx.globalCompositeOperation='source-over';
+  // 台とガラスのツヤ
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.drawImage(standCv,0,0);
+  ctx.globalCompositeOperation='lighter'; ctx.drawImage(glassCv,0,0); ctx.globalCompositeOperation='source-over';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  // 台の縁に光が映る
+  var top=cy+R*0.93, tw=R*0.42;
+  ctx.globalCompositeOperation='lighter';
+  var ng=ctx.createLinearGradient(cx-tw,0,cx+tw,0); ng.addColorStop(0,col(gasC.mid,0)); ng.addColorStop(0.5,col(gasC.mid,0.35*energy)); ng.addColorStop(1,col(gasC.mid,0));
+  ctx.strokeStyle=ng; ctx.lineWidth=1.5; ctx.beginPath(); ctx.ellipse(cx,top,tw,R*0.07,0,Math.PI*1.05,Math.PI*1.95); ctx.stroke();
+  ctx.globalCompositeOperation='source-over';
+}
+function drawCore(energy){
+  var fl=0.9+0.1*Math.random();
+  var g=ctx.createRadialGradient(cx-r0*0.3,cy-r0*0.35,r0*0.1,cx,cy,r0*1.9);
+  g.addColorStop(0,col(gasC.core,0.95*fl)); g.addColorStop(0.42,col(gasC.mid,0.75*fl)); g.addColorStop(0.55,col(gasC.out,0.35)); g.addColorStop(1,col(gasC.out,0));
+  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(cx,cy,r0*1.9,0,PI2); ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,.18)'; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(cx,cy,r0*0.98,0,PI2); ctx.stroke();
+}
+
+/* ---------- 操作 ---------- */
+var hint=document.getElementById('hint'), hinted=false;
+function hideHint(){ if(!hinted){ hinted=true; hint.classList.add('off'); } }
+setTimeout(hideHint,9000);
+var toastEl=document.getElementById('toast'), toastT=0;
+function toast(s,ms){ toastEl.textContent=s; toastEl.classList.add('on'); clearTimeout(toastT); toastT=setTimeout(function(){ toastEl.classList.remove('on'); },ms||2500); }
+
+cv.addEventListener('pointerdown',function(ev){
+  if(window.APKit && APKit.isUI(ev.clientX,ev.clientY)) return true;
+  ev.preventDefault(); hideHint();
+  touches[ev.pointerId]={x:ev.clientX,y:ev.clientY,d:screenToDir(ev.clientX,ev.clientY),hold:0,scarred:false,ax:ev.clientX,ay:ev.clientY};
+  try{ cv.setPointerCapture(ev.pointerId); }catch(e){}
+});
+cv.addEventListener('pointermove',function(ev){
+  var t=touches[ev.pointerId]; if(!t) return;
+  t.x=ev.clientX; t.y=ev.clientY; t.d=screenToDir(ev.clientX,ev.clientY);
+  if(Math.hypot(t.x-t.ax,t.y-t.ay)>R*0.12){ t.ax=t.x; t.ay=t.y; t.hold=0; t.scarred=false; }   // 動かすと焼きつきの時間はやり直し
+});
+function endPtr(ev){ delete touches[ev.pointerId]; }
+cv.addEventListener('pointerup',endPtr);
+cv.addEventListener('pointercancel',endPtr);
+
+function mutate(){ var n=gasI; while(n===gasI) n=(Math.random()*GASES.length)|0; setGas(n); flash=0.8; toast(gas.name,2000); }
+function reset(){ scars=[]; resetFils(); toast('焼きつきを消した',1600); }
+
+/* ---------- ループ ---------- */
+var resizeT=0;
+window.addEventListener('resize',function(){ clearTimeout(resizeT); resizeT=setTimeout(setup,200); });
+setGas(0); setup(); resetFils();
+var last=performance.now(), perf={ms:0,n:0};
+function frame(now){
+  var dt=Math.min(0.05,(now-last)/1000); last=now;
+  var a=performance.now();
+  update(dt); render();
+  perf.ms+=performance.now()-a; perf.n++;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+window.__hc={perf:perf,mutate:mutate,setGas:setGas,get scars(){return scars;}};
+
+if(window.APKit){
+  APKit.init({
+    canvas: cv,
+    gifName: 'held-charge-loop',
+    clockFormat: 'spec',
+    dock: true,
+    autoHide: true,
+    fullscreenButton: false,
+    buttons: [
+      {label:'✦', name:'mutate', onClick:function(){ mutate(); }},
+      {label:'↻', name:'reset',  onClick:function(){ reset(); }}
+    ]
+  });
+}
+})();
+</script>
+</body>
+</html>
