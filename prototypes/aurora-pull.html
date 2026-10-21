@@ -111,21 +111,27 @@ vec3 aurora(vec3 rd,float N){
 }
 
 float ridge(float x){ return uHor+.05+.075*fb2(vec2(x*2.2+uSeed*7.,uSeed))-.02*n1(x*11.+uSeed*3.,uSeed+2.); }
-float forest(float x,float y){         // 針葉樹の並び(1=木の中)
+float forest(float x,float y){         // 針葉樹(トウヒ)の並び(1=木の中)。枝が段になって垂れる形
   float yr=y-uHor;
-  if(yr>.075) return 0.;
-  float m=step(yr,.006+.004*n1(x*60.,uSeed));
-  for(int j=-1;j<=1;j++){
-    float w=.0105, ci=floor(x/w)+float(j);
+  if(yr>.13) return 0.;
+  float m=step(yr,.008+.005*n1(x*50.,uSeed));
+  for(int j=-2;j<=2;j++){
+    float w=.017, ci=floor(x/w)+float(j);
     float hs=hash(vec2(ci,uSeed*5.));
-    if(hs<.18) continue;
-    float cxp=(ci+.5+(hash(vec2(ci,uSeed*9.))-.5)*.6)*w;
-    float hgt=.012+.045*pow(hash(vec2(ci,uSeed*13.)),1.6);
+    if(hs<.12) continue;
+    float cxp=(ci+.5+(hash(vec2(ci,uSeed*9.))-.5)*.7)*w;
+    float hgt=.028+.09*pow(hash(vec2(ci,uSeed*13.)),1.5);
+    if(yr>hgt) continue;
     float u=abs(x-cxp);
-    float tier=fract(yr/(.0055+hgt*.06));
-    float half_=(hgt-yr)*.26*(.75+.5*tier);
-    if(yr<hgt && u<half_) m=1.;
-    if(yr<hgt*.25 && u<.0009) m=1.;
+    float trunk=hgt*.07;
+    if(yr<trunk){ if(u<hgt*.012+.0006) m=1.; continue; }
+    float tierH=hgt*.105;
+    float tier=1.-fract((yr-trunk)/tierH);              // 段の下ほど枝が広い
+    float rel=(hgt-yr)/(hgt-trunk);
+    float half_=(hgt-yr)*.21*(.55+.6*tier*tier)+.0006;
+    half_*=1.+.25*(hash(vec2(ci,floor((yr-trunk)/tierH)))-.5);
+    if(rel<.08) half_=(hgt-yr)*.12+.0004;               // てっぺんの細い芯
+    if(u<half_) m=1.;
   }
   return m;
 }
@@ -160,13 +166,14 @@ vec3 sky(vec3 rd,vec2 p,float N){
 vec3 scene(vec2 p,float N,out float glow){
   vec3 rd=normalize(vec3(p.x,p.y-uHor,uFl));
   glow=0.;
+  if(forest(p.x,p.y)>.5) return vec3(.002,.003,.006);      // 木はまっ黒なシルエット
   float rg=ridge(p.x);
   if(p.y<rg){
-    // 山: 雪の稜線がオーロラの光をうっすら受ける
+    // 山: 雪をかぶった斜面が、オーロラの光をうっすら受ける(木より明るくして、木が見えるように)
     float k=(rg-p.y);
-    vec3 m=vec3(.012,.018,.03)+vec3(.02,.035,.03)*exp(-k*90.)*(.6+uBurst);
-    m+=vec3(.025,.03,.04)*fb2(vec2(p.x*40.,p.y*80.))*exp(-k*25.);
-    if(forest(p.x,p.y)>.5) m=vec3(.003,.005,.009);
+    vec3 m=vec3(.03,.045,.06)+vec3(.03,.075,.05)*exp(-k*60.)*(.7+uBurst);
+    m+=vec3(.04,.05,.06)*fb2(vec2(p.x*30.,p.y*60.))*exp(-k*12.);
+    m+=vec3(.01,.03,.02)*(.6+uBurst);
     return m;
   }
   return sky(rd,p,N);
