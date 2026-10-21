@@ -40,7 +40,12 @@
      2026/10/21 v6: おっちゃん「レインボーはできる？」→ ✦の夜に「虹の夜」を足し、最初はこの夜から始める。
        光は隣へ伝わるたびに色相が2度進む(1マス約3px)。だから波は進むほど色が変わり、渦は腕を重ねるごとに色が進んで虹の縞になる。
        タップ・沖の波・魚がかき回した光など、新しく起こした光の色は時刻で決まる(9秒で一周)。
-       ※最初は「生まれた時刻で色を決める」にしたが、波の先頭はいつも今光った所なので全部同じ色になった -->
+       ※最初は「生まれた時刻で色を決める」にしたが、波の先頭はいつも今光った所なので全部同じ色になった
+     2026/10/21 v7: おっちゃん「めちゃくちゃいいね！あと2匹くらい生き物を追加して」「砂浜にもなんか工夫して」→
+       ・クラゲ2匹: 潮にゆっくり流され、脈打つたびに少し泳ぎ上がる。脈打つと、まわりの休んでいる夜光虫が光の輪になる(光を起こす側)
+       ・イルカ2頭: ときどき猛スピードで横切り、長い線で光の波を切る(大きな渦が生まれる)。海が渦だらけの時は来ない
+       ・砂浜: カニが濡れた砂を横歩きし、足あとがまたたく。指が近づくと逃げ、波が駆け上がると砂の奥へ逃げる
+       ・砂浜: 打ち上げの跡。岸に届いた光の色が、波の駆け上がった所まで濡れた砂に染みこみ、粒ごとにきらめきながら6秒ほどで消える -->
 <script src="../ap-kit.js"></script>
 <style>
 html,body{margin:0;height:100%;background:#01040a;overflow:hidden;touch-action:none}
@@ -53,7 +58,7 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hint">海をタップで光の輪 · 光る波をサッと切ると渦になる<br>魚も波を切る · 渦は潮に流され砂浜で消える</div>
+<div id="hint">海をタップで光の輪 · 光る波をサッと切ると渦になる<br>魚やイルカは波を切り、クラゲは光の輪を出す</div>
 <div id="toast"></div>
 <script>
 (function(){
@@ -110,6 +115,8 @@ function setup(){
   for(y=0;y<GH;y++)for(x=0;x<GW;x++){ var ii=(y+1)*GP+x+1; en[ii]=1; sandN[ii]=Math.random(); if(y>=shore[x]){ sand[ii]=1; u[ii]=0; v[ii]=0; } }
   makeRocks();   // sand=2 が岩(光らない・伝えないマス)
   makeFish();
+  makeCritters();
+  sandGlow=new Float32Array(N); sandHue=new Float32Array(N);
   makeDensity();
   small=document.createElement('canvas'); small.width=GW; small.height=GH; sctx=small.getContext('2d'); img=sctx.createImageData(GW,GH);
   glowS=document.createElement('canvas'); glowS.width=GW; glowS.height=GH; gsctx=glowS.getContext('2d'); gimg=gsctx.createImageData(GW,GH);
@@ -462,9 +469,183 @@ function drawFish(t){
   ctx.setTransform(1,0,0,1,0,0); ctx.globalCompositeOperation='source-over'; ctx.globalAlpha=1;
 }
 
+/* ---------- v7 の生き物: クラゲ(光の輪を出す)・イルカ(長い線で波を切る)・カニ(砂浜を横歩き) ---------- */
+var jellies=[], pod=null, crabs=[], lastPoke={x:-999,y:-999,t:-99};
+function lineCol(h,core,a){ // 線の色。虹の夜は色相hの色、それ以外は夜の色
+  var c;
+  if(night.rainbow) c=colOf(h,core);
+  else { var t=core?night.core:night.tint; c=t[0]+','+t[1]+','+t[2]; }
+  return 'rgba('+c+','+a.toFixed(3)+')';
+}
+function makeCritters(){
+  var s=SCALE, k;
+  jellies=[];
+  for(k=0;k<2;k++) jellies.push({x:W*(0.2+0.6*Math.random()),y:H*(0.15+0.45*Math.random()),vx:0,vy:0,a:-1.57,ph:Math.random(),per:2.8+Math.random()*1.2,R:(13+Math.random()*4)*s,seed:Math.random()*99,wt:0});
+  pod={away:true,timer:10+Math.random()*10,m:[]};
+  crabs=[];
+  var nc=W>700?4:3;
+  for(k=0;k<nc;k++){ var x=W*(0.1+0.8*(k+Math.random()*0.6)/nc); crabs.push({x:x,y:seaBottom(x)+12*s+Math.random()*20*s,face:-1.57+(Math.random()-0.5)*0.6,walk:0,timer:Math.random()*3,dir:1,sp:0,leg:0,dist:0,seed:Math.random()*99}); }
+}
+function updateCritters(dtF,t){
+  var s=SCALE, k;
+  // クラゲ: 潮にゆっくり流され、脈打つたびに少し泳ぎ上がる。脈打つと、まわりの休んでいる夜光虫が光の輪になる
+  for(k=0;k<jellies.length;k++){
+    var j=jellies[k]; j.wt+=dtF;
+    j.ph+=dtF/j.per;
+    if(j.ph>=1){
+      j.ph-=1;
+      j.vx+=Math.cos(j.a)*26*s; j.vy+=Math.sin(j.a)*26*s;
+      if(act<0.045){ excite(j.x,j.y,2.6,true); }   // 海が静かな時だけ輪を出す(にぎやかな時も出すと、海が静まる時間がなくなる)
+    }
+    var dmp=Math.exp(-dtF*1.3); j.vx*=dmp; j.vy*=dmp;
+    var want=-1.57+0.7*Math.sin(j.wt*0.23+j.seed);
+    var bot=seaBottom(j.x);
+    if(j.x<40*s) want=-0.9; if(j.x>W-40*s) want=-2.2;
+    if(j.y>bot-90*s) want=-1.57+0.3*Math.sin(j.seed);
+    j.a=angTo(j.a,want,0.5*dtF);
+    j.x+=j.vx*dtF; j.y+=(j.vy+6*s)*dtF;   // 6px/秒で岸へ流される
+    if(j.y<H*0.06) j.y=H*0.06; if(j.y>bot-30*s) j.y=bot-30*s; if(j.x<10) j.x=10; if(j.x>W-10) j.x=W-10;
+  }
+  // イルカ: ときどき2頭で猛スピードで横切る。体の下の夜光虫を光り切らせて、長い線で光の波を切る
+  if(pod.away){
+    pod.timer-=dtF;
+    if(pod.timer<=0){
+      if(act>0.08){ pod.timer=3; }   // 海が渦だらけの時は来ない
+      else {
+        var fromL=Math.random()<0.5, y0=H*0.12+Math.random()*Math.max(20,H*0.62), ang=(fromL?0:Math.PI)+(Math.random()-0.5)*0.5;
+        pod.away=false; pod.m=[];
+        for(var q=0;q<2;q++){
+          var back=q*58*s, side=(q?1:0)*(Math.random()<0.5?-1:1)*20*s;
+          pod.m.push({x:(fromL?-40*s:W+40*s)-Math.cos(ang)*back-Math.sin(ang)*side, y:y0-Math.sin(ang)*back+Math.cos(ang)*side, a:ang, sp:(150+Math.random()*20)*s, L:42*s, turn:(Math.random()-0.5)*0.35, ph:Math.random()*6, px:0, py:0});
+        }
+      }
+    }
+  } else {
+    var gone=0;
+    for(k=0;k<pod.m.length;k++){
+      var d=pod.m[k]; d.px=d.x; d.py=d.y; d.ph+=dtF*9;
+      d.a+=d.turn*dtF;
+      var bt=seaBottom(d.x)-40*s; if(d.y>bt) d.a=angTo(d.a,-1.57,1.5*dtF);   // 岸に寄りすぎたら沖へ曲がる
+      d.x+=Math.cos(d.a)*d.sp*dtF; d.y+=Math.sin(d.a)*d.sp*dtF;
+      if(d.x<-80*s||d.x>W+80*s||d.y<-80*s) { gone++; continue; }
+      if(d.x>-5&&d.x<W+5&&d.y>0){
+        var len=Math.hypot(d.x-d.px,d.y-d.py), n=Math.max(1,Math.ceil(len/CELL));
+        for(var q2=1;q2<=n;q2++) cutCells((d.px+(d.x-d.px)*q2/n)/CELL,(d.py+(d.y-d.py)*q2/n)/CELL,1.8);
+        // 鼻先の白い波と、うしろに残る光の筋
+        for(q2=0;q2<3;q2++){ var bx=d.x-Math.cos(d.a)*d.L*(0.5*Math.random()), by=d.y-Math.sin(d.a)*d.L*(0.5*Math.random()), sd=(Math.random()-0.5)*10*s;
+          bx+=-Math.sin(d.a)*sd; by+=Math.cos(d.a)*sd; spark(bx,by,plank(bx,by)*1.7+0.08,0.5+Math.random()*1.1,0.9+Math.random()*1.2); }
+      }
+    }
+    if(gone>=pod.m.length){ pod.away=true; pod.timer=18+Math.random()*20; }
+  }
+  // カニ: 濡れた砂を横歩き。歩くと足あとの夜光虫がまたたく。指が近づくと、波が来ると逃げる
+  for(k=0;k<crabs.length;k++){
+    var c=crabs[k], gx=Math.min(GW-1,Math.max(0,(c.x/CELL)|0)), sy=shore[gx]*CELL;
+    var poke=t-lastPoke.t<1.2 && Math.hypot(c.x-lastPoke.x,c.y-lastPoke.y)<95*s;
+    var wave=(c.y/CELL-shore[gx])<swashExt(gx)+2;
+    c.timer-=dtF;
+    if(poke||wave){
+      var mx=poke? c.x-lastPoke.x : (Math.random()-0.5)*0.3, my=poke? c.y-lastPoke.y : 1, ma=Math.atan2(my,mx);
+      if(wave && !poke) ma=1.57+(Math.random()-0.5)*0.8;   // 波からは砂の奥へ
+      c.dir=1; c.face=ma-1.57; c.walk=1; c.sp=(poke?125:85)*s; c.timer=poke? 0.5+Math.random()*0.4 : 0.3+Math.random()*0.25;
+    } else if(c.timer<=0){
+      if(c.walk){ c.walk=0; c.timer=1+Math.random()*3.5; }
+      else {
+        c.walk=1; c.dir=Math.random()<0.5?-1:1; c.sp=(45+Math.random()*35)*s; c.timer=0.4+Math.random()*1.1; c.face=angTo(c.face,-1.57+(Math.random()-0.5)*0.8,1);
+        if(c.y>sy+(H-sy)*0.5){ c.dir=1; c.face=-Math.PI+(Math.random()-0.5)*0.5; }   // 砂の奥にいたら、横歩きで波打ち際の方へ戻る
+      }
+    }
+    if(c.walk){
+      var ma2=c.face+1.57*c.dir, ddx=Math.cos(ma2)*c.sp*dtF, ddy=Math.sin(ma2)*c.sp*dtF;
+      c.x+=ddx; c.y+=ddy; c.leg+=dtF*28; c.dist+=Math.hypot(ddx,ddy);
+      if(c.dist>7*s){ c.dist=0; crabStep(c); }
+    }
+    var ymin=sy+7*s, ymax=H-16*s;
+    if(c.x<8){ c.x=8; c.dir=-c.dir; } if(c.x>W-8){ c.x=W-8; c.dir=-c.dir; }
+    if(c.y<ymin) c.y=ymin; if(c.y>ymax) c.y=ymax;
+  }
+}
+function crabStep(c){
+  var gx=Math.min(GW-1,Math.max(0,(c.x/CELL)|0)), wet=wetness(gx,c.y/CELL), h=beachHue?beachHue[gx]:0;
+  for(var q=0;q<3;q++){
+    var ox2=(Math.random()-0.5)*9*SCALE, oy2=(Math.random()-0.5)*7*SCALE;
+    foot.push({x:c.x+ox2,y:c.y+oy2,t:0,life:0.9+Math.random()*1.3*(0.5+wet),b:(0.45+0.55*wet)*(0.5+Math.random()*0.5),s:0.8+Math.random()*0.9,h:h});
+  }
+}
+function drawCritters(t){
+  var s=SCALE, k, q;
+  // クラゲ(真上から): 半透明のかさ、四つ葉の模様(ミズクラゲ)、ふちの細かい触手
+  for(k=0;k<jellies.length;k++){
+    var j=jellies[k], h=(j.seed*37+t*25)%360;
+    var pl=j.ph<0.22? Math.sin(j.ph/0.22*Math.PI) : 0, R=j.R*(1-0.16*pl);
+    ctx.setTransform(DPR,0,0,DPR,j.x*DPR,j.y*DPR);
+    ctx.globalCompositeOperation='lighter';
+    var gr=ctx.createRadialGradient(0,0,0,0,0,R*1.35);
+    gr.addColorStop(0,lineCol(h,false,0.20+0.25*pl)); gr.addColorStop(0.7,lineCol(h,false,0.08)); gr.addColorStop(1,lineCol(h,false,0));
+    ctx.fillStyle=gr; ctx.beginPath(); ctx.arc(0,0,R*1.35,0,6.2832); ctx.fill();
+    ctx.beginPath();
+    for(q=0;q<=48;q++){ var th=q/48*6.2832, rr=R*(1+0.04*Math.sin(th*8+t*3)); if(q) ctx.lineTo(Math.cos(th)*rr,Math.sin(th)*rr); else ctx.moveTo(rr,0); }
+    ctx.closePath(); ctx.strokeStyle=lineCol(h,true,0.42+0.3*pl); ctx.lineWidth=1.1; ctx.stroke();
+    for(q=0;q<4;q++){ var ga=q*1.5708+j.seed+t*0.15; ctx.beginPath(); ctx.arc(Math.cos(ga)*R*0.36,Math.sin(ga)*R*0.36,R*0.2,0,6.2832); ctx.strokeStyle=lineCol(h,true,0.35+0.25*pl); ctx.lineWidth=1; ctx.stroke(); }
+    ctx.beginPath();
+    for(q=0;q<24;q++){ var ta=q/24*6.2832, r0=R*1.02, r1=R*(1.12+0.08*Math.sin(t*4+q)); ctx.moveTo(Math.cos(ta)*r0,Math.sin(ta)*r0); ctx.lineTo(Math.cos(ta+0.05)*r1,Math.sin(ta+0.05)*r1); }
+    ctx.strokeStyle=lineCol(h,false,0.3); ctx.lineWidth=0.8; ctx.stroke();
+  }
+  // イルカ(真上から): 細長い体、胸びれ、尾びれ
+  if(!pod.away) for(k=0;k<pod.m.length;k++){
+    var d=pod.m[k], L=d.L, c=Math.cos(d.a), sn=Math.sin(d.a), dh=night.rainbow? hueAt(Math.min(W-1,Math.max(0,d.x)),Math.min(H-1,Math.max(0,d.y))) : 0;
+    ctx.setTransform(DPR*c,DPR*sn,-DPR*sn,DPR*c,d.x*DPR,d.y*DPR);
+    var fl=Math.sin(d.ph)*0.25;
+    ctx.beginPath();
+    ctx.moveTo(L*0.58,0);
+    ctx.quadraticCurveTo(L*0.5,-L*0.05,L*0.36,-L*0.08);
+    ctx.quadraticCurveTo(L*0.12,-L*0.14,L*0.08,-L*0.13);
+    ctx.lineTo(-L*0.02,-L*0.27); ctx.lineTo(0,-L*0.12);   // 胸びれ
+    ctx.quadraticCurveTo(-L*0.25,-L*0.1,-L*0.4,-L*0.035);
+    ctx.lineTo(-L*0.5,-L*(0.18+fl*0.3)); ctx.lineTo(-L*0.47,0); ctx.lineTo(-L*0.5,L*(0.18-fl*0.3));   // 尾びれ
+    ctx.lineTo(-L*0.4,L*0.035);
+    ctx.quadraticCurveTo(-L*0.25,L*0.1,0,L*0.12);
+    ctx.lineTo(-L*0.02,L*0.27); ctx.lineTo(L*0.08,L*0.13);
+    ctx.quadraticCurveTo(L*0.12,L*0.14,L*0.36,L*0.08);
+    ctx.quadraticCurveTo(L*0.5,L*0.05,L*0.58,0);
+    ctx.closePath(); ctx.lineJoin='round';
+    ctx.globalCompositeOperation='source-over'; ctx.fillStyle='rgba(2,6,14,0.6)'; ctx.fill();
+    ctx.globalCompositeOperation='lighter';
+    ctx.strokeStyle=lineCol(dh,false,0.18); ctx.lineWidth=4; ctx.stroke();
+    ctx.strokeStyle=lineCol(dh,true,0.5); ctx.lineWidth=1; ctx.stroke();
+  }
+  // カニ(真上から): 丸いこうら、4対の足、はさみ。浜の光でうっすら見える
+  for(k=0;k<crabs.length;k++){
+    var cr=crabs[k], fc=Math.cos(cr.face), fs=Math.sin(cr.face), w=8.5*s, hgt=6.5*s, lg=cr.walk? Math.sin(cr.leg) : 0;
+    ctx.setTransform(DPR*fc,DPR*fs,-DPR*fs,DPR*fc,cr.x*DPR,cr.y*DPR);   // +x = 前(海の方)
+    ctx.globalCompositeOperation='source-over';
+    ctx.strokeStyle='rgba(205,195,175,0.6)'; ctx.lineWidth=1.1*s; ctx.lineCap='round'; ctx.lineJoin='round';
+    var rx=hgt*0.62, ry=w*0.6;   // こうらの半径(前後・左右)
+    ctx.beginPath();
+    for(var sd2=-1;sd2<=1;sd2+=2){
+      // 足4対: 体のわきから外へ放射状に。歩くと1本おきに前後へゆれる
+      for(q=0;q<4;q++){
+        var th=(1.25+q*0.38)*sd2, kick=(q%2?lg:-lg)*0.18;
+        var ex=Math.cos(th)*rx, ey=Math.sin(th)*ry, kx=Math.cos(th+kick*sd2)*rx*1.9, ky=Math.sin(th+kick*sd2)*ry*1.75;
+        var fx=Math.cos(th+(0.35+kick)*sd2)*rx*2.6, fy=Math.sin(th+(0.35+kick)*sd2)*ry*2.15;
+        ctx.moveTo(ex,ey); ctx.lineTo(kx,ky); ctx.lineTo(fx,fy);
+      }
+      // はさみの腕
+      ctx.moveTo(Math.cos(0.55*sd2)*rx,Math.sin(0.55*sd2)*ry); ctx.lineTo(rx*1.55,sd2*ry*0.95); ctx.lineTo(rx*1.95,sd2*ry*0.55);
+    }
+    ctx.stroke();
+    ctx.fillStyle='rgba(215,205,185,0.6)';
+    for(sd2=-1;sd2<=1;sd2+=2){ ctx.beginPath(); ctx.ellipse(rx*2.05,sd2*ry*0.5,1.9*s,1.4*s,0,0,6.2832); ctx.fill(); }
+    ctx.beginPath(); ctx.ellipse(0,0,rx,ry,0,0,6.2832); ctx.fillStyle='rgba(195,185,165,0.62)'; ctx.fill();
+    ctx.fillStyle='rgba(20,18,15,0.85)';
+    for(sd2=-1;sd2<=1;sd2+=2){ ctx.beginPath(); ctx.arc(rx*0.85,sd2*ry*0.35,0.9*s,0,6.2832); ctx.fill(); }
+  }
+  ctx.setTransform(1,0,0,1,0,0); ctx.globalCompositeOperation='source-over'; ctx.globalAlpha=1; ctx.lineCap='butt';
+}
+
 /* ---------- 波打ち際の遡上(波が砂に駆け上がって引く) ---------- */
 var swashT=99, lastSwash=-99, SWASH_A=12;
-var beachGlow=null, beachHue=null;   // 列ごと: 波が岸に触れた所の濡れた砂が光り、少しずつ消える(打ち上げられた光)
+var beachGlow=null, beachHue=null, sandGlow=null, sandHue=null;   // sandGlow: 打ち上げの跡(届いた光の色が濡れた砂にしばらく残る)   // 列ごと: 波が岸に触れた所の濡れた砂が光り、少しずつ消える(打ち上げられた光)
 function updateBeachGlow(dtF){
   if(!beachGlow || beachGlow.length!==GW){ beachGlow=new Float32Array(GW); beachHue=new Float32Array(GW); }
   var dec=Math.exp(-dtF/1.4);
@@ -474,6 +655,13 @@ function updateBeachGlow(dtF){
     f=Math.min(1,f*1.4);
     var gNew=beachGlow[x]*dec; if(f>gNew){ gNew=f; beachHue[x]=fh; }
     beachGlow[x]=gNew;
+    // 打ち上げの跡: 光が岸に届いた列は、波が駆け上がった所まで濡れた砂にその色が染みこみ、6秒ほどかけて消える
+    var s0=Math.ceil(shore[x]), reach=s0+Math.max(3,swashExt(x))+2, sdec=Math.exp(-dtF/6);
+    for(var yy=s0;yy<s0+SWASH_A+8 && yy<GH;yy++){
+      var k=(yy+1)*GP+x+1, gv=sandGlow[k]*sdec;
+      if(f>0.25 && yy<reach){ var dep=f*0.75*(1-(yy-s0)/(reach-s0+2)); if(dep>gv){ gv=dep; sandHue[k]=fh; } }
+      sandGlow[k]=gv;
+    }
   }
 }
 function swashExt(x){ // 今どこまで駆け上がっているか(マス)
@@ -546,6 +734,13 @@ function render(now){
           if(sl>lit){ lit=sl; rr=tint[0]*lit; gg2=tint[1]*lit; bb2=tint[2]*lit; }
           if(ext-dd<1.6){ sr+=26; sgc+=30; sb+=36; }               // 泡のふち
         }
+        // 打ち上げの跡: 粒ごとにムラをつけて、砂がきらきら光る
+        var sgw=sandGlow[i]*(0.3+1.1*sandN[i]*sandN[i])*(0.55+0.45*dn);
+        if(sgw>0.01){
+          var S0=tint[0],S1=tint[1],S2=tint[2];
+          if(rb){ hk=((sandHue[i]|0)%360)*3; S0=RBT[hk]; S1=RBT[hk+1]; S2=RBT[hk+2]; }
+          rr+=S0*sgw; gg2+=S1*sgw; bb2+=S2*sgw; if(sgw>lit) lit=sgw;
+        }
         d[p]=sr+rr*0.45; d[p+1]=sgc+gg2*0.45; d[p+2]=sb+bb2*0.45; d[p+3]=255;
         var w2=rr>0? lit*90:0;
         g[p]=rr*1.6+w2; g[p+1]=gg2*1.6+w2; g[p+2]=bb2*1.6+w2; g[p+3]=255;
@@ -601,7 +796,7 @@ function render(now){
   ctx.globalAlpha=1; ctx.drawImage(spH,0,0,cv.width,cv.height);
   ctx.globalAlpha=0.7; ctx.drawImage(spH,0,0,cv.width,cv.height);
   ctx.globalAlpha=1; ctx.globalCompositeOperation='source-over';
-  drawRocks(t); drawFish(t);
+  drawRocks(t); drawFish(t); drawCritters(t);
   ctx.globalCompositeOperation='lighter';
   // 夜光虫の粒: 光っている所にちらばる点
   ctx.globalAlpha=1;
@@ -664,6 +859,7 @@ cv.addEventListener('pointerdown',function(ev){
   var onSand=isSand(ev.clientX,ev.clientY);
   ptrs[ev.pointerId]={x:ev.clientX,y:ev.clientY,sx:ev.clientX,sy:ev.clientY,moved:false,t0:performance.now(),lit:false,sand:onSand,fx:ev.clientX,fy:ev.clientY};
   if(onSand) stepOnSand(ev.clientX,ev.clientY,90);   // 砂を踏む
+  lastPoke={x:ev.clientX,y:ev.clientY,t:performance.now()/1000};   // カニは指が近づくと逃げる
   try{ cv.setPointerCapture(ev.pointerId); }catch(e){}
 });
 cv.addEventListener('pointermove',function(ev){
@@ -673,6 +869,7 @@ cv.addEventListener('pointermove',function(ev){
   if(isSand(x,y)){
     // 砂の上をなぞる: 足あとが続く
     if(Math.hypot(x-p.fx,y-p.fy)>12){ stepOnSand(x,y,22); p.fx=x; p.fy=y; }
+    lastPoke={x:x,y:y,t:performance.now()/1000};
   } else if(p.moved){
     var len=Math.hypot(x-p.x,y-p.y), n=Math.max(1,Math.ceil(len/(CELL*1.2)));
     for(var k=1;k<=n;k++) stir(p.x+(x-p.x)*k/n, p.y+(y-p.y)*k/n, CUT_R, 3, 1.3);   // 一瞬またたいてから暗くなる
@@ -692,7 +889,7 @@ cv.addEventListener('pointercancel',endPtr);
 
 function setNight(i){ nightI=i; night=NIGHTS[i]; }
 function mutate(){ var n=nightI; while(n===nightI) n=(Math.random()*NIGHTS.length)|0; setNight(n); toast(night.name); }
-function reset(){ u.fill(0); v.fill(0); un.fill(0); en.fill(1); foot=[]; nextSea=simT+1.2; toast('静かな浜に戻した',1500); }
+function reset(){ u.fill(0); v.fill(0); un.fill(0); en.fill(1); foot=[]; sandGlow.fill(0); nextSea=simT+1.2; toast('静かな浜に戻した',1500); }
 
 /* ---------- ループ ---------- */
 var resizeT=0;
@@ -719,14 +916,14 @@ function frame(now){
     if(offshoreRested()){ seaWave(); nextSea=simT+night.speed*(4.5+Math.random()*3); }
     else nextSea=simT+night.speed*0.8;   // 沖がまだ光っている・疲れているなら少し待つ
   }
-  if(guard>0){ measureAct(dtF); updateFish(dtF); rockWakes(dtF); }
+  if(guard>0){ measureAct(dtF); updateFish(dtF); rockWakes(dtF); updateCritters(dtF,now/1000); }
   swashT+=dtF; checkSwash(now/1000); updateBeachGlow(dtF);
   render(now);
   perf.ms+=performance.now()-a0; perf.n++;
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-window.__ss={get foot(){return foot;},get swashT(){return swashT;},get en(){return en;},perf:perf,excite:excite,cut:cut,mutate:mutate,reset:reset,seaWave:seaWave,get u(){return u;},get v(){return v;},set noSea(b){noSea=b;},get rocks(){return rocks;},get sand(){return sand;},get rockHits(){return rockHits;},get act(){return act;},get fishes(){return fishes;},get grid(){return {GW:GW,GH:GH,GP:GP,CELL:CELL};}};
+window.__ss={get foot(){return foot;},get swashT(){return swashT;},get en(){return en;},perf:perf,excite:excite,cut:cut,mutate:mutate,reset:reset,seaWave:seaWave,get u(){return u;},get v(){return v;},set noSea(b){noSea=b;},get rocks(){return rocks;},get sand(){return sand;},get rockHits(){return rockHits;},get act(){return act;},get fishes(){return fishes;},get jellies(){return jellies;},get pod(){return pod;},get crabs(){return crabs;},get grid(){return {GW:GW,GH:GH,GP:GP,CELL:CELL};}};
 
 if(window.APKit){
   APKit.init({
