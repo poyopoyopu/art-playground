@@ -33,6 +33,7 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
 var cv=document.getElementById('c'), ctx=cv.getContext('2d');
 var W=0,H=0,DPR=1,U=1;
 var PI2=Math.PI*2;
+function rgbaOf(h){ var n=parseInt(h.slice(1),16); return 'rgba('+(n>>16)+','+(n>>8&255)+','+(n&255)+','; }
 function rnd(a,b){ return a+Math.random()*(b-a); }
 function clamp(v,a,b){ return v<a?a:v>b?b:v; }
 function mk(w,h){ var c=document.createElement('canvas'); c.width=Math.max(1,Math.round(w)); c.height=Math.max(1,Math.round(h)); return c; }
@@ -45,7 +46,7 @@ var TIMES=[
    sun:'#fff7e0', sunGlow:'rgba(255,196,128,', streak:'rgba(255,214,160,',
    hillFar:'#9a86a8', hillNear:'#6f6288', trees:'#4f4870', haze:'rgba(255,200,165,',
    meadow:['#9c8f5c','#6b6c3c','#3b4527'], dotY:'#ffd24a', dotW:'#fff4dc',
-   grass:['#26361d','#3f5629','#7c8a3e'], rim:'rgba(255,214,140,', near:'#141c10',
+   grass:['#26361d','#3f5629','#7c8a3e'], rim:'rgba(255,214,140,', near:'#141c10', grassTip:'#b9ad5e', rimA:.55, leaf:'#3f5a26', leafLit:'#8ea552',
    stem:'#a3b26c', stemDark:'#6f7e46', pap:'#fff8ea', achene:'#6b4a2e', glow:'rgba(255,222,165,',
    bud:'#5f7c33', budLit:'#a9c05f', bract:'#4c6629', fdim:0,
    bokeh:'rgba(255,212,150,', mote:'rgba(255,236,190,', vig:'rgba(46,22,40,', vigA:.48, bloomA:.3, haloA:.38, bloom:'rgba(255,190,120,', bg:'#e9b98f'},
@@ -54,7 +55,7 @@ var TIMES=[
    sun:'#ffffff', sunGlow:'rgba(255,238,205,', streak:'rgba(255,246,225,',
    hillFar:'#a9b7cb', hillNear:'#8597b0', trees:'#6a7c97', haze:'rgba(244,246,255,',
    meadow:['#9fae76','#6c8a48','#3f5a2c'], dotY:'#ffdd55', dotW:'#ffffff',
-   grass:['#2c4524','#4c6d33','#9db35e'], rim:'rgba(255,248,215,', near:'#16241a',
+   grass:['#2c4524','#4c6d33','#9db35e'], rim:'rgba(255,248,215,', near:'#16241a', grassTip:'#c9d991', rimA:.5, leaf:'#3d6128', leafLit:'#97bb62',
    stem:'#a9c27a', stemDark:'#6f8a4a', pap:'#ffffff', achene:'#6e5038', glow:'rgba(255,252,236,',
    bud:'#638a36', budLit:'#b4d073', bract:'#4f7030', fdim:0,
    bokeh:'rgba(255,248,222,', mote:'rgba(255,255,240,', vig:'rgba(24,34,52,', vigA:.3, bloomA:.16, haloA:.16, bloom:'rgba(255,240,210,', bg:'#dfe6ea'},
@@ -63,7 +64,7 @@ var TIMES=[
    sun:'#ffffff', sunGlow:'rgba(255,255,248,', streak:'rgba(255,255,250,',
    hillFar:'#9cc0b2', hillNear:'#6e9f72', trees:'#4d8155', haze:'rgba(232,246,255,',
    meadow:['#9cc66a','#6aa14a','#3f7530'], dotY:'#ffe04a', dotW:'#ffffff',
-   grass:['#2f5a24','#4f8a36','#a8d36a'], rim:'rgba(250,255,215,', near:'#173019',
+   grass:['#2f5a24','#4f8a36','#a8d36a'], rim:'rgba(250,255,215,', near:'#173019', grassTip:'#d2ee92', rimA:.42, leaf:'#3b6f2a', leafLit:'#9fd068',
    stem:'#b0cf80', stemDark:'#76a04e', pap:'#ffffff', achene:'#735536', glow:'rgba(255,255,255,',
    bud:'#5f9038', budLit:'#b9dc7c', bract:'#4b7a30', fdim:0,
    bokeh:'rgba(255,255,245,', mote:'rgba(255,255,255,', vig:'rgba(18,40,60,', vigA:.24, bloomA:.12, haloA:.18, bloom:'rgba(255,255,240,', bg:'#cfe6f7'},
@@ -72,7 +73,7 @@ var TIMES=[
    sun:'#f3f5ff', sunGlow:'rgba(180,200,255,', streak:'rgba(190,210,255,',
    hillFar:'#2c3c6c', hillNear:'#1e2b52', trees:'#141e3c', haze:'rgba(150,175,235,',
    meadow:['#2b3c4a','#1a2a34','#0d171e'], dotY:'#b9a85a', dotW:'#dfe9ff',
-   grass:['#0b161b','#16282e','#3f6070'], rim:'rgba(180,210,255,', near:'#04080b',
+   grass:['#0b161b','#16282e','#3f6070'], rim:'rgba(180,210,255,', near:'#04080b', grassTip:'#47697a', rimA:.22, leaf:'#1c3330', leafLit:'#4f7470',
    stem:'#728f90', stemDark:'#3f5759', pap:'#eaf2ff', achene:'#4a5468', glow:'rgba(175,205,255,',
    bud:'#3a5a48', budLit:'#6f9480', bract:'#2c4838', fdim:.45,
    bokeh:'rgba(185,212,255,', mote:'rgba(225,255,170,', vig:'rgba(2,4,14,', vigA:.52, bloomA:.14, haloA:.42, bloom:'rgba(150,180,255,', bg:'#0f1a44'}
@@ -275,17 +276,31 @@ function buildBg(){
   b.save(); b.translate(SUN.x,SUN.y); b.scale(1,.035);
   var st=b.createRadialGradient(0,0,0,0,0,W*.75); st.addColorStop(0,T.streak+'0.55)'); st.addColorStop(.3,T.streak+'0.15)'); st.addColorStop(1,T.streak+'0)');
   b.fillStyle=st; b.beginPath(); b.arc(0,0,W*.75,0,PI2); b.fill(); b.restore();
-  // 中景の草(静止)。ピントの外なので、半分の大きさで描いて少しボカす
-  var mq=.5, mc=mk(W*mq,H*mq), m=mc.getContext('2d'); m.setTransform(mq,0,0,mq,0,0); m.lineCap='round';
+  // 中景の草(静止)。先細りの葉を塗りで描く(根元は濃く、先は明るい)。ピントの外なので半分の大きさで描いて少しボカす
+  var mq=.5, mc=mk(W*mq,H*mq), m=mc.getContext('2d'); m.setTransform(mq,0,0,mq,0,0);
+  var tipP=new Path2D(), tipN=0;
   for(var cI=0;cI<3;cI++){
-    m.strokeStyle=T.grass[cI]; m.beginPath();
-    var cnt=cI===2?380:620;
+    var P=new Path2D(), cnt=Math.round((cI===2?1.6:2.6)*W);
     for(i=0;i<cnt;i++){
-      var yy=hy+H*.004+Math.pow(Math.random(),1.15)*(H*.92-hy), dd=(yy-hy)/(H-hy), xx=Math.random()*W, hh=(2+dd*dd*42+Math.random()*dd*18)*U;
-      m.moveTo(xx,yy); m.quadraticCurveTo(xx+rnd(-.2,.2)*hh,yy-hh*.6,xx+rnd(-.35,.35)*hh,yy-hh);
+      var yy=hy+H*.004+Math.pow(Math.random(),1.1)*(H*.95-hy), dd=(yy-hy)/(H-hy), xx=Math.random()*W;
+      var hh=(2.5+dd*dd*46+Math.random()*dd*22)*U, ww=(.8+dd*4.5)*U*rnd(.7,1.3), dx=rnd(-.35,.35)*hh;
+      var tx=xx+dx, ty=yy-hh+Math.abs(dx)*.3, cx=xx+dx*.18, cy=yy-hh*.58;
+      P.moveTo(xx-ww*.5,yy); P.quadraticCurveTo(cx-ww*.3,cy,tx,ty); P.quadraticCurveTo(cx+ww*.3,cy,xx+ww*.5,yy); P.closePath();
+      if(Math.random()<.5){ var mx=(xx+cx)/2+(tx-xx)*.25, my=yy-hh*.5; tipP.moveTo(mx-ww*.22,my); tipP.quadraticCurveTo(cx+(tx-cx)*.5-ww*.12,cy+(ty-cy)*.5,tx,ty); tipP.quadraticCurveTo(cx+(tx-cx)*.5+ww*.12,cy+(ty-cy)*.5,mx+ww*.22,my); tipP.closePath(); }
     }
-    m.globalAlpha=cI===2?.6:.8; m.lineWidth=Math.max(1,1.6*U); m.stroke();
+    m.globalAlpha=cI===2?.75:.95; m.fillStyle=T.grass[cI]; m.fill(P);
   }
+  m.globalAlpha=.3; m.fillStyle=T.grassTip; m.fill(tipP);
+  for(cI=0;cI<2;cI++){
+    var Q=new Path2D(), cn=Math.round(W*1.3);
+    for(i=0;i<cn;i++){
+      var fy=H*rnd(.8,1.03), fh=rnd(40,120)*U*((fy-H*.75)/(H*.28)), fw=rnd(3,6.5)*U, fdx=rnd(-.35,.35)*fh, fx=Math.random()*W;
+      Q.moveTo(fx-fw*.5,fy); Q.quadraticCurveTo(fx+fdx*.18-fw*.3,fy-fh*.58,fx+fdx,fy-fh+Math.abs(fdx)*.3); Q.quadraticCurveTo(fx+fdx*.18+fw*.3,fy-fh*.58,fx+fw*.5,fy); Q.closePath();
+    }
+    m.globalAlpha=.9; m.fillStyle=T.grass[cI]; m.fill(Q);
+  }
+  var dg2=m.createLinearGradient(0,H*.72,0,H); dg2.addColorStop(0,T.vig+'0)'); dg2.addColorStop(1,T.vig+'0.55)');
+  m.globalAlpha=1; m.fillStyle=dg2; m.fillRect(0,H*.72,W,H*.28);
   b.setTransform(1,0,0,1,0,0); b.drawImage(blurCanvas(mc,1),0,0,bg.width,bg.height); b.setTransform(DPR,0,0,DPR,0,0);
   b.globalAlpha=1;
   // 光のボケ(地平と草の間)
@@ -320,12 +335,13 @@ function buildBg(){
 // ---- 揺れる草(奥行きの層ごと) ----
 var blades=[], NB=6, nearBlades=[], nearCv=mk(1,1), NQ=.2;
 function buildBlades(){
-  blades=[]; var hy=horizon(), n=Math.round(W*1.15);
+  blades=[]; var hy=horizon(), n=Math.round(Math.min(W*2.1,1500));
   for(var i=0;i<n;i++){
-    var y=hy+H*.03+Math.pow(Math.random(),.85)*(H*1.04-hy-H*.03), z=zOfY(y);
-    var h=(9+42*Math.random())*U*zsc(z)*1.05, w=(1.4+2.2*Math.random())*U*zsc(z)*.75;
-    var r=Math.random(), ci=r<.38?0:(r<.72?1:2);
-    blades.push({x:Math.random()*W, y:y, z:z, h:h, w:w, ci:ci, lean:rnd(-.22,.22), ph:Math.random()*PI2, b:Math.min(NB-1,Math.floor(z/.2))});
+    var y=hy+H*.03+Math.pow(Math.random(),.8)*(H*1.04-hy-H*.03), z=zOfY(y);
+    var h=(12+50*Math.random())*U*zsc(z)*1.05, w=(1.8+3*Math.random())*U*zsc(z)*.72;
+    var r=Math.random(), ci=r<.36?0:(r<.72?1:2), spike=z>.25&&Math.random()<.055;
+    if(spike){ h*=1.45; }
+    blades.push({x:Math.random()*W, y:y, z:z, h:h, w:w, ci:ci, lean:rnd(-.24,.24), ph:Math.random()*PI2, spike:spike, b:Math.min(NB-1,Math.floor(z/.2))});
   }
   nearBlades=[]; var m=Math.max(10,Math.round(W/16));
   for(i=0;i<m;i++){
@@ -359,9 +375,17 @@ function fib(n){
   a.sort(function(p,q){return p.d[2]-q.d[2];});
   return a;
 }
+function leafShape(){
+  // ギザギザ(ライオンの歯)の葉。u=根元0→先1、v=幅
+  var pts=[], n=6, i, u, w;
+  for(i=0;i<=n;i++){ u=i/n; w=Math.sin(Math.PI*Math.pow(u,.75))*(.2+.05*Math.random()); pts.push([u,-w]); if(i<n) pts.push([u+.55/n,-w*.3]); }
+  for(i=n;i>=0;i--){ u=i/n; w=Math.sin(Math.PI*Math.pow(u,.75))*(.19+.05*Math.random()); if(i<n) pts.push([u+.55/n,w*.3]); pts.push([u,w]); }
+  return pts;
+}
 function newPlant(x,z,t0){
-  var sc=zsc(z);
-  return {x:x, z:z, sc:sc, lv:lvOf(z), len:H*(.03+.36*sc)*rnd(.86,1.1), t:t0||0, rate:rnd(.85,1.2),
+  var sc=zsc(z), leaves=[], nl=4+Math.floor(Math.random()*3), a0=Math.random()*PI2;
+  for(var i=0;i<nl;i++) leaves.push({a:a0+i/nl*PI2+rnd(-.3,.3), L:rnd(.7,1.15), lift:rnd(.1,.45), shape:leafShape()});
+  return {curve:rnd(-1,1), leaves:leaves, x:x, z:z, sc:sc, lv:lvOf(z), len:H*(.03+.36*sc)*rnd(.86,1.1), t:t0||0, rate:rnd(.85,1.2),
           ph:Math.random()*PI2, lean:0, leanV:0, seeds:null, fade:1, hx:x, hy:0, hl:0,
           hc:null, hs:0, dirty:true, lastR:-1, kR:-1};
 }
@@ -554,20 +578,59 @@ function renderHead(p,k){
   g.setTransform(1,0,0,1,0,0); g.globalAlpha=1;
 }
 function drawStem(p,a){
-  var by=baseY(p.z), sc=p.sc;
-  var mx=(p.x+p.hx)/2+Math.sin(p.lean)*p.hl*.14, my=(by+p.hy)/2;
-  var w=Math.max(1,2.6*U*sc), side=SUN.x>p.hx?1:-1;
-  var gr=ctx.createLinearGradient(0,by,0,p.hy);
-  gr.addColorStop(0,T.stemDark); gr.addColorStop(1,T.stem);
-  ctx.globalAlpha=a; ctx.strokeStyle=gr; ctx.lineWidth=w; ctx.lineCap='round';
-  ctx.beginPath(); ctx.moveTo(p.x,by); ctx.quadraticCurveTo(mx,my,p.hx,p.hy); ctx.stroke();
-  // 逆光で光るふち
-  ctx.strokeStyle=T.rim+'0.55)'; ctx.lineWidth=Math.max(.5,w*.32);
-  var o=w*.32*side;
-  ctx.beginPath(); ctx.moveTo(p.x+o,by); ctx.quadraticCurveTo(mx+o,my,p.hx+o,p.hy); ctx.stroke();
+  var by=baseY(p.z), L=p.hl, sl=Math.sin(p.lean), cl=Math.cos(p.lean);
+  var x0=p.x, y0=by, x1=p.x+p.curve*L*.05, y1=by-L*.4, x2=p.hx-sl*L*.3+p.curve*L*.02, y2=p.hy+cl*L*.38, x3=p.hx, y3=p.hy;
+  var w0=Math.max(1.3,3.6*U*p.sc), n=18, C=[], side=SUN.x>p.hx?1:-1, i;
+  for(i=0;i<=n;i++){
+    var t=i/n, u=1-t;
+    var x=u*u*u*x0+3*u*u*t*x1+3*u*t*t*x2+t*t*t*x3, y=u*u*u*y0+3*u*u*t*y1+3*u*t*t*y2+t*t*t*y3;
+    var dx=3*u*u*(x1-x0)+6*u*t*(x2-x1)+3*t*t*(x3-x2), dy=3*u*u*(y1-y0)+6*u*t*(y2-y1)+3*t*t*(y3-y2), l=Math.hypot(dx,dy)||1;
+    C.push([x,y,-dy/l*side,dx/l*side,w0*(1-.25*t)*.5]);   // 法線は太陽の側を向ける
+  }
+  function strip(o1,o2){
+    ctx.beginPath();
+    for(var k=0;k<C.length;k++){ var c=C[k]; if(k) ctx.lineTo(c[0]+c[2]*c[4]*o1,c[1]+c[3]*c[4]*o1); else ctx.moveTo(c[0]+c[2]*c[4]*o1,c[1]+c[3]*c[4]*o1); }
+    for(k=C.length-1;k>=0;k--){ c=C[k]; ctx.lineTo(c[0]+c[2]*c[4]*o2,c[1]+c[3]*c[4]*o2); }
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.globalAlpha=a;
+  var gr=ctx.createLinearGradient(0,by,0,p.hy); gr.addColorStop(0,T.stemDark); gr.addColorStop(.55,T.stem); gr.addColorStop(1,T.stem);
+  ctx.fillStyle=gr; strip(-1,1);
+  ctx.fillStyle=T.stemDark; ctx.globalAlpha=a*.6; strip(-1,-.15);          // 影の側
+  ctx.fillStyle=T.rim+'1)'; ctx.globalAlpha=a*T.rimA*.9; strip(.4,1);      // 逆光で透けるふち
+  ctx.globalAlpha=a*T.rimA*.5; strip(-.05,.12);                            // 筒のつや
+  ctx.globalAlpha=a;
+  // 花の付け根のふくらみ
+  ctx.fillStyle=T.stem; ctx.beginPath(); ctx.ellipse(p.hx,p.hy+w0*.4,w0*.62,w0*.9,p.lean,0,PI2); ctx.fill();
+}
+function drawLeaves(p,a){
+  var by=baseY(p.z), lg=clamp(p.t/ST.stem,0,1)*(p.t>ST.ripe+6?Math.max(.5,1-(p.t-ST.ripe-6)/20):1);
+  if(lg<=0) return;
+  for(var i=0;i<p.leaves.length;i++){
+    var l=p.leaves[i], L=32*U*p.sc*l.L*(.25+.75*lg), c=Math.cos(l.a), s=Math.sin(l.a);
+    // 地面に寝た葉を、低い目線から見る(縦につぶれる)。先が少し持ち上がる
+    var fy=.28+l.lift*.5*Math.max(0,-s);
+    ctx.setTransform(DPR*c*L, DPR*(s*fy*L-l.lift*L*.35), -DPR*s*L*.9, DPR*c*fy*L*.9, DPR*p.x, DPR*by);
+    ctx.globalAlpha=a*(s<0?.85:1);
+    var g=ctx.createLinearGradient(0,0,1,0); g.addColorStop(0,T.leaf); g.addColorStop(1,T.leafLit);
+    ctx.fillStyle=g; ctx.beginPath();
+    l.shape.forEach(function(pt,k){ if(k) ctx.lineTo(pt[0],pt[1]); else ctx.moveTo(pt[0],pt[1]); });
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle=T.rim+'1)'; ctx.globalAlpha=a*T.rimA*.45; ctx.lineWidth=.035;
+    ctx.beginPath(); ctx.moveTo(.05,0); ctx.lineTo(.9,0); ctx.stroke();
+  }
+  ctx.setTransform(DPR,0,0,DPR,0,0); ctx.globalAlpha=1;
+}
+function drawBracts(x,y,r,lean,a){
+  // 綿毛の下で、下向きにそり返った総苞
+  ctx.save(); ctx.translate(x,y); ctx.rotate(lean); ctx.globalAlpha=a;
+  ctx.strokeStyle=T.bract; ctx.lineWidth=Math.max(.6,r*.14); ctx.lineCap='round'; ctx.beginPath();
+  for(var i=0;i<9;i++){ var s=(i/8-.5)*2; ctx.moveTo(s*r*.25,r*.1); ctx.quadraticCurveTo(s*r*.9,r*.35,s*r*.75+s*r*.2,r*1.25+Math.abs(s)*r*.2); }
+  ctx.stroke(); ctx.restore();
 }
 function drawPlant(p,t){
   var a=p.fade;
+  drawLeaves(p,a);
   if(p.t<ST.stem*.6) return;
   drawStem(p,a);
   var hx=p.hx, hy=p.hy, R=headR(p);
@@ -588,6 +651,7 @@ function drawPlant(p,t){
     var left=0; p.seeds.forEach(function(s){ if(s.on) left++; });
     var fr=left/p.seeds.length;
     if(k<1) drawBud(hx,hy+RR*.2,7*U*p.sc,p.lean,a*(1-k),0);
+    drawBracts(hx,hy,7*U*p.sc,p.lean,a*k);
     // 逆光のにじみ(球のふちが光る)
     ctx.setTransform(DPR,0,0,DPR,0,0);
     ctx.globalCompositeOperation='lighter';
@@ -638,19 +702,41 @@ function drawFlyer(f){
   ctx.drawImage(spr,-FOX,-FOY);
 }
 function drawBlades(list,t){
-  var paths=[new Path2D(),new Path2D(),new Path2D()], rim=new Path2D(), any=false;
+  if(!list.length) return;
+  var top=1e9, bot=-1e9, all=new Path2D();
+  var paths=[new Path2D(),new Path2D(),new Path2D()], tip=new Path2D(), rim=new Path2D(), stalk=new Path2D(), ear=new Path2D(), t0=.42, u=1-t0;
   for(var i=0;i<list.length;i++){
     var b=list[i], w=wind(b.x,b.y-b.h,t);
-    var bend=clamp(w[0]/(170*U),-1.1,1.1)*b.h*.5+Math.sin(t*1.7+b.ph+b.x*.01)*b.h*.05;
-    var tx=b.x+b.lean*b.h+bend, ty=b.y-b.h+Math.abs(bend)*.25, cx=b.x+(b.lean*b.h+bend)*.28, cy=b.y-b.h*.55;
+    var bend=clamp(w[0]/(170*U),-1.1,1.1)*b.h*.5+Math.sin(t*1.7+b.ph+b.x*.01)*b.h*.05, dx=b.lean*b.h+bend;
+    var tx=b.x+dx, ty=b.y-b.h+Math.abs(dx)*.3, cx=b.x+dx*.18, cy=b.y-b.h*.58, y=b.y;
+    if(b.spike){
+      stalk.moveTo(b.x,y); stalk.quadraticCurveTo(cx,cy,tx,ty);
+      var ang=Math.atan2(ty-cy,tx-cx), el=b.h*.13;
+      ear.moveTo(tx+Math.cos(ang)*el*.2,ty+Math.sin(ang)*el*.2); ear.ellipse(tx-Math.cos(ang)*el*.6,ty-Math.sin(ang)*el*.6,el,Math.max(.9,b.w*.42),ang,0,PI2);
+      continue;
+    }
+    var x0=b.x-b.w*.5, x1=b.x+b.w*.5, lcx=cx-b.w*.32, rcx=cx+b.w*.32;
     var P=paths[b.ci];
-    P.moveTo(b.x-b.w*.5,b.y); P.quadraticCurveTo(cx-b.w*.3,cy,tx,ty); P.quadraticCurveTo(cx+b.w*.3,cy,b.x+b.w*.5,b.y); P.closePath();
-    if(b.ci>0){ var sd=SUN.x>b.x?1:-1; rim.moveTo(cx+b.w*.3*sd,cy); rim.quadraticCurveTo((cx+tx)/2+b.w*.15*sd,(cy+ty)/2,tx,ty); }
-    any=true;
+    P.moveTo(x0,y); P.quadraticCurveTo(lcx,cy,tx,ty); P.quadraticCurveTo(rcx,cy,x1,y); P.closePath();
+    all.moveTo(x0,y); all.quadraticCurveTo(lcx,cy,tx,ty); all.quadraticCurveTo(rcx,cy,x1,y); all.closePath();
+    if(ty<top) top=ty; if(y>bot) bot=y;
+    // 先の半分(明るい)
+    var sy=u*u*y+2*u*t0*cy+t0*t0*ty, lsx=u*u*x0+2*u*t0*lcx+t0*t0*tx, rsx=u*u*x1+2*u*t0*rcx+t0*t0*tx;
+    var lc2=lcx+(tx-lcx)*t0, rc2=rcx+(tx-rcx)*t0, cy2=cy+(ty-cy)*t0;
+    tip.moveTo(lsx,sy); tip.quadraticCurveTo(lc2,cy2,tx,ty); tip.quadraticCurveTo(rc2,cy2,rsx,sy); tip.closePath();
+    // 太陽の側のふち
+    if(SUN.x>b.x){ rim.moveTo(rsx,sy); rim.quadraticCurveTo(rc2,cy2,tx,ty); rim.quadraticCurveTo(rc2-b.w*.2,cy2,rsx-b.w*.3,sy); rim.closePath(); }
+    else { rim.moveTo(lsx,sy); rim.quadraticCurveTo(lc2,cy2,tx,ty); rim.quadraticCurveTo(lc2+b.w*.2,cy2,lsx+b.w*.3,sy); rim.closePath(); }
   }
-  if(!any) return;
-  for(var k=0;k<3;k++){ ctx.fillStyle=T.grass[k]; ctx.globalAlpha=k===2?.92:1; ctx.fill(paths[k]); }
-  ctx.globalAlpha=1; ctx.strokeStyle=T.rim+'0.6)'; ctx.lineWidth=Math.max(.5,.7*U); ctx.stroke(rim);
+  for(var k=0;k<3;k++){ ctx.fillStyle=T.grass[k]; ctx.globalAlpha=k===2?.94:1; ctx.fill(paths[k]); }
+  if(bot>top){ var gg=ctx.createLinearGradient(0,top,0,bot), tc=rgbaOf(T.grassTip);
+    gg.addColorStop(0,tc+'0.55)'); gg.addColorStop(.45,tc+'0.18)'); gg.addColorStop(.8,tc+'0)'); gg.addColorStop(1,T.vig+'0.35)');
+    ctx.globalAlpha=1; ctx.fillStyle=gg; ctx.fill(all); }
+  ctx.globalAlpha=T.rimA; ctx.fillStyle=T.rim+'1)'; ctx.fill(rim);
+  ctx.globalAlpha=.9; ctx.strokeStyle=T.grass[1]; ctx.lineWidth=Math.max(.6,1.1*U); ctx.lineCap='round'; ctx.stroke(stalk);
+  ctx.fillStyle=T.grass[2]; ctx.fill(ear);
+  ctx.globalAlpha=T.rimA*.7; ctx.fillStyle=T.rim+'1)'; ctx.fill(ear);
+  ctx.globalAlpha=1;
 }
 function drawNear(t){
   var g=nearCv.getContext('2d'), y0=H*.5;
