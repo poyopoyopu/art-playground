@@ -49,7 +49,7 @@ function col(c,a){ return 'rgba('+c[0]+','+c[1]+','+c[2]+','+(a>1?1:a<0?0:a)+')'
 
 /* ---------- ガス ---------- */
 var GASES=[
-  {name:'アルゴン(Ar)',  core:'#fff2ff', mid:'#ff5ae0', out:'#9a30ff', haze:'#4a128a'},
+  {name:'アルゴン(Ar)',  core:'#ffeefc', mid:'#ff6ee6', out:'#7448ff', haze:'#24104e'},
   {name:'ネオン(Ne)',    core:'#fff6ea', mid:'#ff7a2a', out:'#ff2a0a', haze:'#6a1404'},
   {name:'キセノン(Xe)',  core:'#f2f6ff', mid:'#78b0ff', out:'#3a4cff', haze:'#101e70'},
   {name:'クリプトン(Kr)',core:'#f6fff2', mid:'#cfff92', out:'#36d48e', haze:'#0c4e38'},
@@ -113,14 +113,17 @@ function buildStatic(){
 }
 
 /* ---------- 雷 ---------- */
-var LV=6, NSEG=1<<LV, NF=20;
+var LV=6, NSEG=1<<LV, NF=24;
 var fils=[];
 function makeFil(){
-  var d=norm3([rnd(-1,1),rnd(-1,0.7),rnd(-1,1)]);
+  var d=norm3([rnd(-1,1),rnd(-1,0.75),rnd(-1,1)]);
   var f={d:d, v:[0,0,0], off:[], fork:[], hue:rnd(0,360), bright:1, held:0, flick:1, w:rnd(0.75,1.2),
          ph1:rnd(0,PI2), ph2:rnd(0,PI2), sp1:rnd(0.6,1.4), sp2:rnd(1.2,2.4), wa:rnd(0.04,0.09)};
-  for(var L=0;L<LV;L++){ var a=new Float32Array(1<<L); for(var i=0;i<a.length;i++) a[i]=rnd(-1,1); f.off.push(a); }
-  newForks(f);
+  f.ph=[]; f.fq=[];
+  for(var L=0;L<LV;L++){ var n=1<<L, a=new Float32Array(n), ph=new Float32Array(n), fq=new Float32Array(n);
+    for(var i=0;i<n;i++){ ph[i]=rnd(0,PI2); fq[i]=rnd(1.5,4)*(1+L*0.5); }
+    f.off.push(a); f.ph.push(ph); f.fq.push(fq); }
+  f.tips=[]; for(var t=0;t<5;t++) f.tips.push({k:rnd(-1,1), ph:rnd(0,PI2), fq:rnd(3,7), len:rnd(0.6,1.1)});
   return f;
 }
 function newForks(f){
@@ -189,13 +192,12 @@ function update(dt){
       norm3(f.d);
       f.bright+=(1-f.bright)*Math.min(1,dt*2);
     }
-    var jit=dt*(f.held?7:4);
-    for(var L=0;L<LV;L++){ var o=f.off[L]; for(var q=0;q<o.length;q++) o[q]=clamp(o[q]+rnd(-1,1)*jit,-1,1); }
-    if(Math.random()<dt*(f.held?5:1.5)){ var oo=f.off[(Math.random()*LV)|0]; for(q=0;q<oo.length;q++) oo[q]=rnd(-1,1); }
-    if(Math.random()<dt*2.2) newForks(f);
-    for(var fk=0;fk<f.fork.length;fk++){ var fo=f.fork[fk].off; for(L=0;L<fo.length;L++) for(q=0;q<fo[L].length;q++) fo[L][q]=clamp(fo[L][q]+rnd(-1,1)*jit*1.5,-1,1); }
+    // なめらかに揺れる(本物の放電の糸は、ギザギザではなく、ゆらゆら細かく震える)
+    var sp=f.held?1.8:1;
+    for(var L=0;L<LV;L++){ var o=f.off[L], ph=f.ph[L], fq=f.fq[L]; for(var q=0;q<o.length;q++){ ph[q]+=dt*fq[q]*sp; o[q]=Math.sin(ph[q])*0.8+Math.sin(ph[q]*2.37+q)*0.2; } }
+    for(q=0;q<f.tips.length;q++) f.tips[q].ph+=dt*f.tips[q].fq;
     f.ph1+=dt*f.sp1; f.ph2+=dt*f.sp2;
-    f.flick=0.78+0.22*Math.random();
+    f.flick=0.86+0.14*Math.sin(clock*37+f.ph1*3)*Math.sin(clock*23+f.ph2);
     f.hue+=dt*24;
   }
   for(var id2 in touches){
@@ -216,40 +218,50 @@ function update(dt){
 var segX=new Float32Array(NSEG+1), segY=new Float32Array(NSEG+1), fkX=new Float32Array(17), fkY=new Float32Array(17);
 function fcol(f){ return gas.rainbow? {mid:hsl2rgb(f.hue,1,0.64), out:hsl2rgb(f.hue+40,1,0.52)} : {mid:G.mid, out:G.out}; }
 function drawFil(f,g){
-  var d=f.d, sx=cx+d[0]*r0*0.9, sy=cy+d[1]*r0*0.9, ex=cx+d[0]*R*0.975, ey=cy+d[1]*R*0.975;
-  var depth=0.5+0.5*(d[2]*0.5+0.5);
-  bolt(sx,sy,ex,ey,f.off,LV,f.held?0.1:0.13,segX,segY);
+  var d=f.d, sx=cx+d[0]*r0*0.95, sy=cy+d[1]*r0*0.95, ex=cx+d[0]*R*0.975, ey=cy+d[1]*R*0.975;
+  var depth=0.45+0.55*(d[2]*0.5+0.5);
+  bolt(sx,sy,ex,ey,f.off,LV,f.held?0.045:0.07,segX,segY);
   // 大きなうねり(ゆっくり流れる波)
-  var dx=ex-sx, dy=ey-sy, len=Math.hypot(dx,dy)||1, nx=-dy/len, ny=dx/len, wa=len*f.wa*(f.held?0.4:1);
+  var dx=ex-sx, dy=ey-sy, len=Math.hypot(dx,dy)||1, nx=-dy/len, ny=dx/len, ux=dx/len, uy=dy/len, wa=len*f.wa*(f.held?0.35:0.8);
   for(var i=1;i<NSEG;i++){ var t=i/NSEG, env=Math.sin(Math.PI*t);
-    var w=(Math.sin(t*5.5+f.ph1)*0.7+Math.sin(t*11+f.ph2)*0.3)*env*wa; segX[i]+=nx*w; segY[i]+=ny*w; }
-  var c=fcol(f), B=f.bright*f.flick*depth, s=R/170, wB=(f.held>=1?1.6:f.held?1.3:1)*f.w*(0.65+0.35*depth)*s;
+    var w=(Math.sin(t*4.5+f.ph1)*0.7+Math.sin(t*9+f.ph2)*0.3)*env*wa; segX[i]+=nx*w; segY[i]+=ny*w; }
+  var c=fcol(f), B=f.bright*f.flick*depth, s=R/170, wB=(f.held>=1?1.5:f.held?1.25:1)*f.w*(0.6+0.4*depth)*s;
+  var tipI=(NSEG*0.86)|0;
   g.beginPath(); g.moveTo(segX[0],segY[0]);
-  for(i=1;i<=NSEG;i++) g.lineTo(segX[i],segY[i]);
-  for(var k=0;k<f.fork.length;k++){ var fk=f.fork[k], idx=(fk.at*NSEG)|0, px=segX[idx], py=segY[idx];
-    var ux=dx/len, uy=dy/len, ca=Math.cos(fk.ang), sa=Math.sin(fk.ang), Lk=len*fk.len;
-    bolt(px,py,px+(ux*ca-uy*sa)*Lk,py+(ux*sa+uy*ca)*Lk,fk.off,4,0.22,fkX,fkY);
-    g.moveTo(fkX[0],fkY[0]); for(i=1;i<=16;i++) g.lineTo(fkX[i],fkY[i]); }
-  g.strokeStyle=col(c.out,0.1*B); g.lineWidth=16*wB; g.stroke();
-  g.strokeStyle=col(c.out,0.22*B); g.lineWidth=7*wB; g.stroke();
-  g.strokeStyle=col(c.mid,0.6*B); g.lineWidth=2.8*wB; g.stroke();
-  g.strokeStyle=col(G.core,0.95*B); g.lineWidth=Math.max(0.8,1.15*wB); g.stroke();
-  // ガラスに当たった所: 光が小さく広がる
-  var rr=(f.held>=1?R*0.12:f.held?R*0.09:R*0.06)*(0.8+0.4*f.flick);
-  var sp=g.createRadialGradient(ex,ey,0,ex,ey,rr);
-  sp.addColorStop(0,col(G.core,0.45*B)); sp.addColorStop(0.3,col(c.mid,0.28*B)); sp.addColorStop(1,col(c.out,0));
-  g.fillStyle=sp; g.fillRect(ex-rr,ey-rr,rr*2,rr*2);
+  for(i=1;i<=tipI;i++) g.lineTo(segX[i],segY[i]);
+  for(i=tipI+1;i<=NSEG;i++) g.lineTo(segX[i],segY[i]);
+  g.strokeStyle=col(c.out,0.07*B); g.lineWidth=12*wB; g.stroke();
+  g.strokeStyle=col(c.out,0.2*B); g.lineWidth=4.5*wB; g.stroke();
+  g.strokeStyle=col(c.mid,0.5*B); g.lineWidth=1.9*wB; g.stroke();
+  g.strokeStyle=col(G.core,0.8*B); g.lineWidth=Math.max(0.6,0.8*wB); g.stroke();
+  // 先は、ガラスに沿って細い根のように、ぼんやり広がる
+  var px=segX[tipI], py=segY[tipI], fan=len*0.06*(f.held?0.5:1);
+  g.beginPath();
+  for(var k=0;k<f.tips.length;k++){ var tp=f.tips[k], sw=tp.k*fan+Math.sin(tp.ph)*fan*0.35, L=tp.len;
+    var qx=ex+nx*sw-ux*fan*0.3*(1-L), qy=ey+ny*sw-uy*fan*0.3*(1-L);
+    g.moveTo(px,py); g.quadraticCurveTo((px+qx)/2+nx*sw*0.2+Math.sin(tp.ph*1.7)*fan*0.15,(py+qy)/2+ny*sw*0.2,qx,qy); }
+  var tb=B*(0.55+0.45*Math.sin(f.ph2*3));
+  g.strokeStyle=col(c.out,0.12*tb); g.lineWidth=5*wB; g.stroke();
+  g.strokeStyle=col(c.mid,0.28*tb); g.lineWidth=1.1*wB; g.stroke();
+  // 電極の近くは太く明るい
+  g.beginPath(); g.moveTo(segX[0],segY[0]); for(i=1;i<=10;i++) g.lineTo(segX[i],segY[i]);
+  g.strokeStyle=col(c.mid,0.35*B); g.lineWidth=3.2*wB; g.stroke();
+  // ガラスに当たった所: ぼんやり光がにじむ
+  var rr=(f.held>=1?R*0.11:f.held?R*0.08:R*0.055)*(0.85+0.3*f.flick);
+  var spg=g.createRadialGradient(ex,ey,0,ex,ey,rr);
+  spg.addColorStop(0,col(G.core,0.32*B)); spg.addColorStop(0.35,col(c.mid,0.18*B)); spg.addColorStop(1,col(c.out,0));
+  g.fillStyle=spg; g.fillRect(ex-rr,ey-rr,rr*2,rr*2);
 }
 function drawCore(g,energy){
   var fl=0.9+0.1*Math.random();
-  var gl=g.createRadialGradient(cx,cy,0,cx,cy,r0*2.6);
-  gl.addColorStop(0,col(G.core,0.9*fl)); gl.addColorStop(0.3,col(G.mid,0.65*fl)); gl.addColorStop(0.6,col(G.out,0.25*energy)); gl.addColorStop(1,col(G.out,0));
-  g.fillStyle=gl; g.beginPath(); g.arc(cx,cy,r0*2.6,0,PI2); g.fill();
+  var gl=g.createRadialGradient(cx,cy,0,cx,cy,r0*2.1);
+  gl.addColorStop(0,col(G.core,0.85*fl)); gl.addColorStop(0.4,col(G.mid,0.55*fl)); gl.addColorStop(0.55,col(G.out,0.22*energy)); gl.addColorStop(1,col(G.out,0));
+  g.fillStyle=gl; g.beginPath(); g.arc(cx,cy,r0*2.1,0,PI2); g.fill();
   // 内側のガラス玉で渦巻く光
   g.save(); g.beginPath(); g.arc(cx,cy,r0,0,PI2); g.clip();
   g.lineCap='round';
-  for(var i=0;i<14;i++){ var a=clock*(1.2+i*0.13)+i*2.1, rr=r0*rnd(0.25,0.9), sw=rnd(0.6,1.6);
-    g.strokeStyle=col(i%3?G.mid:G.core,rnd(0.25,0.6)); g.lineWidth=r0*rnd(0.05,0.14);
+  for(var i=0;i<10;i++){ var a=clock*(1.2+i*0.13)+i*2.1, rr=r0*(0.3+0.06*i), sw=0.8+0.5*Math.sin(clock+i);
+    g.strokeStyle=col(i%3?G.mid:G.core,0.28); g.lineWidth=r0*rnd(0.05,0.14);
     g.beginPath(); g.arc(cx,cy,rr,a,a+sw); g.stroke(); }
   g.restore();
 }
@@ -260,7 +272,7 @@ function render(){
   lx.setTransform(1,0,0,1,0,0); lx.globalCompositeOperation='source-over'; lx.clearRect(0,0,lCv.width,lCv.height);
   lx.setTransform(DPR,0,0,DPR,0,0); lx.globalCompositeOperation='lighter'; lx.lineCap='round'; lx.lineJoin='round';
   var gz=lx.createRadialGradient(cx,cy,r0,cx,cy,R);
-  gz.addColorStop(0,col(G.out,0.25*energy)); gz.addColorStop(0.55,col(G.haze,0.18*energy)); gz.addColorStop(1,col(G.haze,0.08*energy));
+  gz.addColorStop(0,col(G.out,0.14*energy)); gz.addColorStop(0.5,col(G.haze,0.08*energy)); gz.addColorStop(1,col(G.haze,0.05*energy));
   lx.fillStyle=gz; lx.beginPath(); lx.arc(cx,cy,R,0,PI2); lx.fill();
   var i;
   for(i=0;i<fils.length;i++) if(fils[i].d[2]<0) drawFil(fils[i],lx);
@@ -292,10 +304,10 @@ function render(){
   ctx.imageSmoothingEnabled=true;
   ctx.globalCompositeOperation='lighter';
   // 部屋に広がる光
-  ctx.globalAlpha=0.9*Math.min(1,energy); ctx.drawImage(b4,0,0,CW,CH);
-  ctx.globalAlpha=0.8; ctx.drawImage(b3,0,0,CW,CH);
-  ctx.globalAlpha=0.65; ctx.drawImage(b2,0,0,CW,CH);
-  ctx.globalAlpha=0.35; ctx.drawImage(b1,0,0,CW,CH);
+  ctx.globalAlpha=0.6*Math.min(1,energy); ctx.drawImage(b4,0,0,CW,CH);
+  ctx.globalAlpha=0.5; ctx.drawImage(b3,0,0,CW,CH);
+  ctx.globalAlpha=0.42; ctx.drawImage(b2,0,0,CW,CH);
+  ctx.globalAlpha=0.3; ctx.drawImage(b1,0,0,CW,CH);
   ctx.globalAlpha=1; ctx.drawImage(lCv,0,0);
   ctx.globalCompositeOperation='source-over';
   // 台
