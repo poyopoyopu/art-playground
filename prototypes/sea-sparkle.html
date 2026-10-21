@@ -52,7 +52,10 @@
          指が近づくと首をすくめて止まる。波打ち際に着く(波にさらわれる)と泳ぎ出し、沖へ泳いで深みに消える
      2026/10/21 v7.2: おっちゃん「クラゲは要らない」「イルカはなんか変」「亀は小さすぎて虫に見えるかも」→
        クラゲ0匹(仕組みは残す)。イルカを「光をまとった体」に描き直し(丸い頭・短い口先・胸びれ・三日月の尾びれ・体のしなり、
-       体じゅうに夜光虫の粒)、大きさ1.4倍。子ガメを約1.8倍に -->
+       体じゅうに夜光虫の粒)、大きさ1.4倍。子ガメを約1.8倍に
+     2026/10/21 v7.3: おっちゃん「カメよりカニの方が良かったかなー」「ヤドカリは？」→ 子ガメを止めて(仕組みは残す)ヤドカリ3匹(横長は4匹)に。
+       色ちがいの巻き貝を背負ってトコトコ前へ歩き、足あとと貝殻を引きずった跡が光る。指が近づくとぴゃっと貝殻に引っこみ、
+       2〜4秒すると目からそーっと出てくる。波が駆け上がってくると引っこんで、少し砂の奥へころがされる -->
 <script src="../ap-kit.js"></script>
 <style>
 html,body{margin:0;height:100%;background:#01040a;overflow:hidden;touch-action:none}
@@ -123,6 +126,7 @@ function setup(){
   makeRocks();   // sand=2 が岩(光らない・伝えないマス)
   makeFish();
   makeCritters();
+  makeHermits();
   sandGlow=new Float32Array(N); sandHue=new Float32Array(N);
   makeDensity();
   small=document.createElement('canvas'); small.width=GW; small.height=GH; sctx=small.getContext('2d'); img=sctx.createImageData(GW,GH);
@@ -477,7 +481,8 @@ function drawFish(t){
 }
 
 /* ---------- v7 の生き物: クラゲ(光の輪を出す)・イルカ(長い線で波を切る)・カニ(砂浜を横歩き) ---------- */
-var jellies=[], pod=null, crabs=[], lastPoke={x:-999,y:-999,t:-99}, nests=[], hatch=[], nestT=3;
+var TURTLES=false;   // v7.3: おっちゃん「カメよりカニの方が良かったかなー」「ヤドカリは？」→ 子ガメを止めてヤドカリに(子ガメの仕組みは残してある)
+var jellies=[], pod=null, crabs=[], hermits=[], lastPoke={x:-999,y:-999,t:-99}, nests=[], hatch=[], nestT=3;
 function lineCol(h,core,a){ // 線の色。虹の夜は色相hの色、それ以外は夜の色
   var c;
   if(night.rainbow) c=colOf(h,core);
@@ -578,7 +583,7 @@ function updateCritters(dtF,t){
 /* ---------- 子ガメ: 砂が盛り上がって生まれ、光る足あとを残して海へ。海に入ると泳いで沖へ消える ---------- */
 function updateTurtles(dtF,t){
   var s=SCALE, k;
-  nestT-=dtF;
+  if(TURTLES) nestT-=dtF;
   if(nestT<=0 && hatch.length<5){
     var nx=W*(0.1+Math.random()*0.8), ngx=Math.min(GW-1,Math.max(0,(nx/CELL)|0)), nsy=shore[ngx]*CELL;
     nests.push({x:nx,y:nsy+(H-nsy)*(0.5+Math.random()*0.22),t:0,n:2+((Math.random()*2.5)|0),next:1.6});
@@ -643,6 +648,129 @@ function dolphinOutline(d){ // イルカの輪郭(+x=前)。uは口先0→尾の
   bot.push([tx-L*0.05,ty+L*0.15*(1-fl)],[tx-L*0.11,ty+L*0.2*(1-fl)],[tx-L*0.06,ty+L*0.04]);
   top.push([tx-L*0.04,ty]); bot.push([tx-L*0.04,ty]);
   return {top:top,bot:bot,spine:spine,wid:wid};
+}
+/* ---------- ヤドカリ: 貝殻を背負ってトコトコ歩く。指が近づくと貝殻に引っこみ、しばらくすると目からそーっと出てくる。
+   波が駆け上がってくると引っこんで、少し砂の奥へ転がされる。歩いたあとに、足と貝殻を引きずった光る跡 ---------- */
+var SHELLS=[[236,214,186],[232,190,170],[205,196,214],[226,206,160],[214,186,196]];
+function makeHermits(){
+  hermits=[];
+  var n=W>700?4:3;
+  for(var k=0;k<n;k++){
+    var x=W*(0.12+0.76*(k+0.2+Math.random()*0.6)/n), gx=Math.min(GW-1,Math.max(0,(x/CELL)|0)), sy=shore[gx]*CELL;
+    hermits.push({x:x,y:sy+(H-sy)*(0.35+Math.random()*0.3),a:(Math.random()<0.5?0:Math.PI)+(Math.random()-0.5)*0.8,out:1,hide:0,walk:0,timer:Math.random()*2,
+      sp:0,leg:0,dist:0,drag:0,rot:0,vr:0,push:0,L:(22+Math.random()*5)*SCALE,col:SHELLS[(Math.random()*SHELLS.length)|0],big:Math.random()<0.5?1:-1,seed:Math.random()*9});
+  }
+}
+function updateHermits(dtF,t){
+  var s=SCALE;
+  for(var k=0;k<hermits.length;k++){
+    var c=hermits[k], gx=Math.min(GW-1,Math.max(0,(c.x/CELL)|0)), sy=shore[gx]*CELL;
+    var poke=t-lastPoke.t<0.4 && Math.hypot(c.x-lastPoke.x,c.y-lastPoke.y)<80*s;
+    var wave=(c.y/CELL-shore[gx])<swashExt(gx)+1.5;
+    if(poke){ c.hide=2.2+Math.random()*1.5; c.walk=0; c.vr+=(Math.random()-0.5)*3; }   // ぴゃっと引っこむ(貝殻が少しゆれる)
+    if(wave && c.hide<=0.5){ c.hide=2.5+Math.random(); c.walk=0; c.push=0.6; c.vr+=(Math.random()<0.5?-1:1)*(3+Math.random()*3); }   // 波にころがされる
+    if(c.push>0){ c.push-=dtF; c.y+=34*s*dtF; c.x+=Math.sin(c.rot)*10*s*dtF; }
+    c.rot+=c.vr*dtF; c.vr*=Math.exp(-dtF*3);
+    if(c.hide>0){ c.hide-=dtF; c.out+=(0-c.out)*Math.min(1,dtF*14); }
+    else {
+      c.out+=(1-c.out)*Math.min(1,dtF*(c.out<0.4?1.6:5));   // 目から、そーっと出てくる
+      c.rot*=Math.exp(-dtF*2);
+      c.timer-=dtF;
+      if(c.timer<=0 && c.out>0.9){
+        if(c.walk){ c.walk=0; c.timer=1+Math.random()*3; }
+        else {
+          c.walk=1; c.timer=1.2+Math.random()*2.5; c.sp=(13+Math.random()*10)*s;
+          var mid=sy+(H-sy)*0.45, want=(Math.random()<0.5?0:Math.PI)+(Math.random()-0.5)*0.9;
+          if(c.y>mid+20*s) want=-1.57+(Math.random()-0.5)*1.2; else if(c.y<sy+14*s) want=1.57+(Math.random()-0.5)*1.2;
+          if(c.x<30*s) want=0; if(c.x>W-30*s) want=Math.PI;
+          c.want=want;
+        }
+      }
+      if(c.walk){
+        if(c.want!==undefined) c.a=angTo(c.a,c.want,1.6*dtF);
+        var wob=0.6+0.4*Math.sin(c.leg*0.5);
+        var ddx=Math.cos(c.a)*c.sp*wob*dtF, ddy=Math.sin(c.a)*c.sp*wob*dtF;
+        c.x+=ddx; c.y+=ddy; c.leg+=dtF*16; c.dist+=Math.hypot(ddx,ddy); c.drag+=Math.hypot(ddx,ddy);
+        if(c.dist>5*s){ c.dist=0; hermitStep(c,gx,false); }
+        if(c.drag>9*s){ c.drag=0; hermitStep(c,gx,true); }
+      }
+    }
+    var ymin=sy+8*s, ymax=H-18*s;
+    if(c.x<10){ c.x=10; } if(c.x>W-10){ c.x=W-10; }
+    if(c.y<ymin) c.y=ymin; if(c.y>ymax) c.y=ymax;
+  }
+}
+function hermitStep(c,gx,drag){
+  var wet=wetness(gx,c.y/CELL), h=beachHue?beachHue[gx]:0, ca=Math.cos(c.a), sa=Math.sin(c.a), L=c.L;
+  if(drag){ // 貝殻を引きずった跡(まん中に1本)
+    var bx=c.x-ca*L*0.55, by=c.y-sa*L*0.55;
+    foot.push({x:bx,y:by,t:0,life:1.8+Math.random()*1.6*(0.5+wet),b:(0.35+0.5*wet)*(0.6+Math.random()*0.4),s:0.9+Math.random()*0.6,h:h});
+    return;
+  }
+  for(var sd=-1;sd<=1;sd+=2){ // 左右の足あと
+    var lx=c.x+ca*L*0.3-sa*sd*L*0.36+(Math.random()-0.5)*3, ly=c.y+sa*L*0.3+ca*sd*L*0.36+(Math.random()-0.5)*3;
+    foot.push({x:lx,y:ly,t:0,life:1.2+Math.random()*1.3*(0.5+wet),b:(0.4+0.55*wet)*(0.5+Math.random()*0.5),s:0.8+Math.random()*0.7,h:h});
+  }
+}
+function drawHermits(t){
+  var k, q;
+  for(k=0;k<hermits.length;k++){
+    var c=hermits[k], L=c.L, e=c.out, ang=c.a+c.rot*0.25, ca=Math.cos(ang), sa=Math.sin(ang), lg=c.walk? Math.sin(c.leg) : 0;
+    ctx.setTransform(DPR*ca,DPR*sa,-DPR*sa,DPR*ca,c.x*DPR,c.y*DPR);   // +x = 前
+    ctx.globalCompositeOperation='source-over'; ctx.lineCap='round'; ctx.lineJoin='round';
+    // 貝殻から出ている体(足・はさみ・目)。引っこむと、貝殻の口へ縮んで消える
+    if(e>0.03){
+      var ox3=L*0.18, sc=e;
+      ctx.globalAlpha=Math.min(1,e*1.3);
+      ctx.strokeStyle='rgb(206,112,82)'; ctx.lineWidth=Math.max(1.2,L*0.06);
+      ctx.beginPath();
+      for(var sd=-1;sd<=1;sd+=2) for(q=0;q<2;q++){ // 歩く足2対(1本おきに前後へ)
+        var kick=(q?lg:-lg)*0.12, bxq=ox3+L*(0.02-q*0.1)*sc;
+        ctx.moveTo(bxq,sd*L*0.1*sc);
+        ctx.lineTo(bxq+L*(0.16+kick)*sc,sd*L*(0.32-q*0.02)*sc);
+        ctx.lineTo(bxq+L*(0.3+kick*1.5-q*0.08)*sc,sd*L*(0.38+q*0.02)*sc);
+      }
+      ctx.stroke();
+      // はさみ: 片方が大きい
+      ctx.fillStyle='rgb(214,120,86)';
+      for(sd=-1;sd<=1;sd+=2){ var bg=sd===c.big, cr2=L*(bg?0.15:0.09)*sc;
+        ctx.beginPath(); ctx.ellipse(ox3+L*0.3*sc,sd*L*(bg?0.12:0.1)*sc,cr2,cr2*0.75,sd*0.4,0,6.2832); ctx.fill(); }
+      // 目(柄の先の黒い点)と触角
+      ctx.strokeStyle='rgb(200,120,90)'; ctx.lineWidth=Math.max(0.8,L*0.03);
+      ctx.beginPath();
+      for(sd=-1;sd<=1;sd+=2){ ctx.moveTo(ox3+L*0.05*sc,sd*L*0.04*sc); ctx.lineTo(ox3+L*0.24*sc,sd*L*0.08*sc);
+        ctx.moveTo(ox3+L*0.2*sc,sd*L*0.03*sc); ctx.quadraticCurveTo(ox3+L*0.45*sc,sd*L*0.1*sc,ox3+L*(0.62+0.03*Math.sin(t*6+sd))*sc,sd*L*0.2*sc); }
+      ctx.stroke();
+      ctx.fillStyle='rgb(25,20,18)';
+      for(sd=-1;sd<=1;sd+=2){ ctx.beginPath(); ctx.arc(ox3+L*0.25*sc,sd*L*0.085*sc,Math.max(1,L*0.045),0,6.2832); ctx.fill(); }
+      ctx.globalAlpha=1;
+    }
+    // 貝殻(巻き貝を上から): 後ろがとがり、うずまきの線
+    var sh=c.col, cx=-L*0.12;
+    var gr=ctx.createRadialGradient(cx+L*0.06,-L*0.1,L*0.04,cx,0,L*0.5);
+    gr.addColorStop(0,'rgb('+Math.min(255,sh[0]+15)+','+Math.min(255,sh[1]+15)+','+Math.min(255,sh[2]+15)+')');
+    gr.addColorStop(1,'rgb('+(sh[0]*0.55|0)+','+(sh[1]*0.55|0)+','+(sh[2]*0.55|0)+')');
+    ctx.beginPath();
+    ctx.moveTo(L*0.22,0);
+    ctx.bezierCurveTo(L*0.24,-L*0.3,-L*0.22,-L*0.36,-L*0.42,-L*0.14);
+    ctx.quadraticCurveTo(-L*0.62,L*0.02,-L*0.66,L*0.06);   // とがった先
+    ctx.quadraticCurveTo(-L*0.5,L*0.16,-L*0.36,L*0.26);
+    ctx.bezierCurveTo(-L*0.14,L*0.38,L*0.24,L*0.3,L*0.22,0);
+    ctx.closePath(); ctx.fillStyle=gr; ctx.fill();
+    // 浜の光が貝殻のふちをうっすら照らす(貝殻の形に沿って)
+    var gx=Math.min(GW-1,Math.max(0,(c.x/CELL)|0)), bgv=beachGlow? beachGlow[gx] : 0;
+    ctx.globalCompositeOperation='lighter'; ctx.strokeStyle=lineCol(beachHue?beachHue[gx]:0,true,0.1+0.35*bgv); ctx.lineWidth=1.2; ctx.stroke();
+    ctx.globalCompositeOperation='source-over';
+    // うずまき
+    ctx.beginPath();
+    for(q=0;q<=60;q++){ var th=q/60*12.566, f=q/60, rr=L*0.27*(1-f*0.88), ccx=cx-L*0.3*f;
+      var px=ccx+Math.cos(th+0.6)*rr*1.05, py=Math.sin(th+0.6)*rr*0.8;
+      if(q) ctx.lineTo(px,py); else ctx.moveTo(px,py); }
+    ctx.strokeStyle='rgba('+(sh[0]*0.4|0)+','+(sh[1]*0.4|0)+','+(sh[2]*0.4|0)+',0.75)'; ctx.lineWidth=Math.max(0.8,L*0.035); ctx.stroke();
+    // 貝殻の口(体が出入りする所)
+    ctx.beginPath(); ctx.ellipse(L*0.14,0,L*0.07,L*0.2,0,0,6.2832); ctx.fillStyle='rgba(40,28,24,0.75)'; ctx.fill();
+  }
+  ctx.setTransform(1,0,0,1,0,0); ctx.globalCompositeOperation='source-over'; ctx.globalAlpha=1; ctx.lineCap='butt';
 }
 function drawTurtles(t){
   var s=SCALE, k, q;
@@ -933,7 +1061,7 @@ function render(now){
   ctx.globalAlpha=1; ctx.drawImage(spH,0,0,cv.width,cv.height);
   ctx.globalAlpha=0.7; ctx.drawImage(spH,0,0,cv.width,cv.height);
   ctx.globalAlpha=1; ctx.globalCompositeOperation='source-over';
-  drawRocks(t); drawFish(t); drawCritters(t); drawTurtles(t);
+  drawRocks(t); drawFish(t); drawCritters(t); drawTurtles(t); drawHermits(t);
   ctx.globalCompositeOperation='lighter';
   // 夜光虫の粒: 光っている所にちらばる点
   ctx.globalAlpha=1;
@@ -1053,14 +1181,14 @@ function frame(now){
     if(offshoreRested()){ seaWave(); nextSea=simT+night.speed*(4.5+Math.random()*3); }
     else nextSea=simT+night.speed*0.8;   // 沖がまだ光っている・疲れているなら少し待つ
   }
-  if(guard>0){ measureAct(dtF); updateFish(dtF); rockWakes(dtF); updateCritters(dtF,now/1000); updateTurtles(dtF,now/1000); }
+  if(guard>0){ measureAct(dtF); updateFish(dtF); rockWakes(dtF); updateCritters(dtF,now/1000); updateTurtles(dtF,now/1000); updateHermits(dtF,now/1000); }
   swashT+=dtF; checkSwash(now/1000); updateBeachGlow(dtF);
   render(now);
   perf.ms+=performance.now()-a0; perf.n++;
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-window.__ss={get foot(){return foot;},get swashT(){return swashT;},get en(){return en;},perf:perf,excite:excite,cut:cut,mutate:mutate,reset:reset,seaWave:seaWave,get u(){return u;},get v(){return v;},set noSea(b){noSea=b;},get rocks(){return rocks;},get sand(){return sand;},get rockHits(){return rockHits;},get act(){return act;},get fishes(){return fishes;},get jellies(){return jellies;},get pod(){return pod;},get crabs(){return crabs;},get hatch(){return hatch;},get nests(){return nests;},set nestT(v){nestT=v;},get grid(){return {GW:GW,GH:GH,GP:GP,CELL:CELL};}};
+window.__ss={get foot(){return foot;},get swashT(){return swashT;},get en(){return en;},perf:perf,excite:excite,cut:cut,mutate:mutate,reset:reset,seaWave:seaWave,get u(){return u;},get v(){return v;},set noSea(b){noSea=b;},get rocks(){return rocks;},get sand(){return sand;},get rockHits(){return rockHits;},get act(){return act;},get fishes(){return fishes;},get jellies(){return jellies;},get pod(){return pod;},get crabs(){return crabs;},get hatch(){return hatch;},get nests(){return nests;},set nestT(v){nestT=v;},get hermits(){return hermits;},get grid(){return {GW:GW,GH:GH,GP:GP,CELL:CELL};}};
 
 if(window.APKit){
   APKit.init({
