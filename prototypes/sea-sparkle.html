@@ -25,7 +25,11 @@
        ・画面の下を砂浜に。波打ち際はゆるく曲がり、光の波が届くと波が砂に駆け上がって(遡上)青く光り、引いていく
        ・夜光虫の濃さに場所ごとのムラ(ゆっくり流れる)。濃い所ほど強く光り、薄い所は暗い
        ・疲れ: 光るほど暗くなり、休むと戻る(光の明るさだけ。波の伝わり方=渦のルールは変えない)。渦の中は少し暗く脈打つ
-       ・砂を踏む(タップ/なぞる)と、打ち上げられた夜光虫が足あとの形にまたたく(本物の浜でも起きる)。濡れた砂ほど強い -->
+       ・砂を踏む(タップ/なぞる)と、打ち上げられた夜光虫が足あとの形にまたたく(本物の浜でも起きる)。濡れた砂ほど強い
+     2026/10/21 v4: おっちゃん「一回切るともうループなのは砂浜の意味がないなー」→ 潮の流れ(岸向きの移流)を足した。
+       渦は回りながら岸へ流され、砂浜に着くと消える(打ち上がる)。渦は永遠ではなく、生まれてから岸に着くまでの命になった。
+       世界のルール(v4): 光の波を切ると渦が生まれ、回り続ける。でも潮が渦ごと岸へ運び、砂浜に打ち上げて終わらせる。
+       ※夜光虫は本物では隣の光で光らない。渦の法則はBZ反応や心臓の電気の波など「興奮性の媒質」の本物の法則を借りた架空の海 -->
 <script src="../ap-kit.js"></script>
 <style>
 html,body{margin:0;height:100%;background:#01040a;overflow:hidden;touch-action:none}
@@ -38,7 +42,7 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hint">海をタップで光の輪 · 光る波をサッと切ると渦になる<br>濡れた砂を踏むと光る</div>
+<div id="hint">海をタップで光の輪 · 光る波をサッと切ると渦になる<br>渦は潮に流され、砂浜に打ち上がって消える</div>
 <div id="toast"></div>
 <script>
 (function(){
@@ -58,6 +62,7 @@ var NIGHTS=[   // どれも「切ると渦が残る」範囲(b小さめ)で選�
 ];
 var nightI=0, night=NIGHTS[0];
 var DX=0.4, DT=0.026, simAcc=0, simT=0;   // DXを大きめにして、渦の大きさを画面に合わせている
+var DRIFT=1.5;   // 潮の速さ(空間単位/時間)。渦の芯はスマホ幅でおよそ15px/秒で岸へ流れ、画面の上の方で生まれた渦も30秒ほどで岸に着く
 
 function setup(){
   DPR=Math.min(2,window.devicePixelRatio||1);
@@ -135,6 +140,7 @@ function makeSpeckle(w,h){
 /* ---------- Barkleyモデル ---------- */
 function step(){
   var a=night.a, b=night.b, ie=1/night.eps, k=1/(DX*DX), dt=DT;
+  var adv=DRIFT/DX;   // 潮の流れ(岸=下向き)。光も疲れも同じ速さで運ばれるので、渦はまるごと岸へ流れる
   var i, x, y, row;
   // 外周は鏡写し(光が壁で跳ね返らず、外へ抜けるようにふるまう)
   for(x=1;x<=GW;x++){ u[x]=u[GP+x]; u[(GH+1)*GP+x]=u[GH*GP+x]; }
@@ -147,9 +153,9 @@ function step(){
       var uu=u[i], vv=v[i];
       var lap=(u[i-1]+u[i+1]+u[i-GP]+u[i+GP]-4*uu)*k;
       var th=(vv+b)/a;
-      var nu=uu+dt*(uu*(1-uu)*(uu-th)*ie+lap);
+      var nu=uu+dt*(uu*(1-uu)*(uu-th)*ie+lap-adv*(uu-u[i-GP]));
       un[i]= nu<0?0:(nu>1?1:nu);
-      v[i]=vv+dt*(uu-vv);
+      v[i]=vv+dt*(uu-vv-adv*(vv-v[i-GP]));
     }
   }
   var t=u; u=un; un=t;
@@ -194,6 +200,18 @@ function seaWave(){
 
 /* ---------- 波打ち際の遡上(波が砂に駆け上がって引く) ---------- */
 var swashT=99, lastSwash=-99, SWASH_A=12;
+var beachGlow=null;   // 列ごと: 波が岸に触れた所の濡れた砂が光り、少しずつ消える(打ち上げられた光)
+function updateBeachGlow(dtF){
+  if(!beachGlow || beachGlow.length!==GW) beachGlow=new Float32Array(GW);
+  var dec=Math.exp(-dtF/1.4);
+  for(var x=0;x<GW;x++){
+    var f=0, y0=Math.floor(shore[x])-1;   // 岸の手前4マスで、いちばん強い光の先頭
+    for(var y=y0;y>y0-4 && y>=0;y--){ var i=(y+1)*GP+x+1, q=u[i]*Math.exp(-v[i]*5.5); if(q>f) f=q; }
+    f=Math.min(1,f*1.4);
+    var gNew=beachGlow[x]*dec; if(f>gNew) gNew=f;
+    beachGlow[x]=gNew;
+  }
+}
 function swashExt(x){ // 今どこまで駆け上がっているか(マス)
   var t=swashT, A=SWASH_A*wetW[x];
   if(t<0.7) return A*Math.pow(t/0.7,0.6);
@@ -246,12 +264,14 @@ function render(now){
         var gn=sandN[i];
         var sr=30+10*gn, sgc=27+9*gn, sb=24+8*gn;                 // 乾いた砂(夜)
         sr=sr*(1-wet*0.55)+wet*8; sgc=sgc*(1-wet*0.5)+wet*11; sb=sb*(1-wet*0.4)+wet*18;
-        var rr=0,gg2=0,bb2=0;
+        var rr=0,gg2=0,bb2=0, lit=0;
+        var bgl=beachGlow? Math.min(1,beachGlow[x]*Math.max(0,1-dd/10)*(0.5+dn)*1.3) : 0;   // 打ち上げられた光(波打ち際から10マス)
+        if(bgl>0.01){ rr=tint[0]*bgl; gg2=tint[1]*bgl; bb2=tint[2]*bgl; lit=bgl; }
         if(dd<ext){
           // 駆け上がった波のうすい水: 先っぽの泡ほど明るく光る
-          var front=1-(ext-dd)/(ext+0.001), lit=sg*dn*(0.35+0.65*front*front);
+          var front=1-(ext-dd)/(ext+0.001), sl=sg*dn*(0.35+0.65*front*front);
           sr=sr*0.6+4; sgc=sgc*0.6+9; sb=sb*0.6+18;
-          rr=tint[0]*lit; gg2=tint[1]*lit; bb2=tint[2]*lit;
+          if(sl>lit){ lit=sl; rr=tint[0]*lit; gg2=tint[1]*lit; bb2=tint[2]*lit; }
           if(ext-dd<1.6){ sr+=26; sgc+=30; sb+=36; }               // 泡のふち
         }
         d[p]=sr+rr*0.45; d[p+1]=sgc+gg2*0.45; d[p+2]=sb+bb2*0.45; d[p+3]=255;
@@ -417,7 +437,7 @@ function frame(now){
   var sdt=guard*DT, drain=0.12*sdt, rec=0.07*sdt, N=u.length;
   if(sdt>0) for(var i=0;i<N;i++){ var e=en[i]-drain*u[i]+rec*(1-en[i]); en[i]=e<0?0:e; }
   if(!noSea && simT>=nextSea){ seaWave(); nextSea=simT+night.speed*(4.5+Math.random()*3); }
-  swashT+=dtF; checkSwash(now/1000);
+  swashT+=dtF; checkSwash(now/1000); updateBeachGlow(dtF);
   render(now);
   perf.ms+=performance.now()-a0; perf.n++;
   requestAnimationFrame(frame);
