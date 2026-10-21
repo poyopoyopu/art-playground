@@ -193,41 +193,99 @@ function buildSprites(){
 }
 
 // ---- 背景(静止部分はまとめて作り置き) ----
-var bg=mk(1,1), bloomCv=mk(1,1), vigCv=mk(1,1), grainTile=null;
+var skyCv=mk(1,1), landCv=mk(1,1), bloomCv=mk(1,1), vigCv=mk(1,1), grainTile=null;
+var clouds=[], raysCv=null, streakG=null, sheenSpr=null, troughSpr=null, waves=[], LIGHT={cov:0,v:1};
 function buildGrain(){
   var c=mk(160,160), g=c.getContext('2d'), im=g.createImageData(160,160);
   for(var i=0;i<im.data.length;i+=4){ var v=110+Math.random()*36|0; im.data[i]=im.data[i+1]=im.data[i+2]=v; im.data[i+3]=255; }
   g.putImageData(im,0,0); grainTile=c;
 }
-function buildBg(){
-  var hy=horizon();
-  SUN.x=W*T.sunX; SUN.y=T.sunY<-.2? H*(-T.sunY*.3) : hy+H*T.sunY;
-  if(T.sunY<-.2) SUN.y=H*(T.night?.17:.11);
-  // 1) やわらかい層: 1/4の大きさで描いて引き伸ばす(遠くはボケて見える)
-  var q=.25, sw=W*q, sh=H*q, s=mk(sw,sh), g=s.getContext('2d');
-  g.setTransform(q,0,0,q,0,0);
-  var sk=g.createLinearGradient(0,0,0,hy);
-  sk.addColorStop(0,T.sky[0]); sk.addColorStop(.35,T.sky[1]); sk.addColorStop(.68,T.sky[2]); sk.addColorStop(.88,T.sky[3]); sk.addColorStop(1,T.sky[4]);
-  g.fillStyle=sk; g.fillRect(0,0,W,hy+4);
-  var R=Math.max(W,H)*1.0, sg=g.createRadialGradient(SUN.x,SUN.y,0,SUN.x,SUN.y,R);
-  sg.addColorStop(0,T.sunGlow+'0.95)'); sg.addColorStop(.06,T.sunGlow+'0.55)'); sg.addColorStop(.22,T.sunGlow+'0.22)'); sg.addColorStop(.6,T.sunGlow+'0.05)'); sg.addColorStop(1,T.sunGlow+'0)');
-  g.fillStyle=sg; g.fillRect(0,0,W,hy+4);
-  // 雲: 横に流れる薄い雲の帯。小さな塊をたくさん重ねてから、しっかりぼかす
-  var cq=.25, cc=mk(W*cq,hy*cq), cg2=cc.getContext('2d'); cg2.setTransform(cq,0,0,cq,0,0);
-  var nc=W>H?6:5, i, k;
-  for(i=0;i<nc;i++){
-    var cy=hy*rnd(.08,.72), cx=rnd(-.1,1.1)*W, cw=W*rnd(.5,1.0), ch=H*rnd(.01,.026), lit=[];
+function addGrain(c,a){   // 透明なところには粒子を乗せない
+  var t=mk(c.width,c.height), g=t.getContext('2d');
+  g.fillStyle=g.createPattern(grainTile,'repeat'); g.fillRect(0,0,t.width,t.height);
+  g.globalCompositeOperation='destination-in'; g.drawImage(c,0,0);
+  var x=c.getContext('2d'); x.setTransform(1,0,0,1,0,0); x.globalCompositeOperation='overlay'; x.globalAlpha=a;
+  x.drawImage(t,0,0); x.globalCompositeOperation='source-over'; x.globalAlpha=1;
+}
+// 雲の帯: 横につながる(端と端が継ぎ目なく続く)帯を作って、風に流す
+function buildCloudStrip(hy,y0,y1,nc,size,alpha,speed){
+  var cq=.25, SW=W*1.6, pad=W*.25, cc=mk((SW+pad*2)*cq,hy*cq), g=cc.getContext('2d'); g.setTransform(cq,0,0,cq,0,0);
+  for(var i=0;i<nc;i++){
+    var cy=hy*rnd(y0,y1), cx=Math.random()*SW, cw=W*rnd(.5,1.0)*size, ch=H*rnd(.01,.026)*size, lit=[], k;
+    var sdy=SUN.y>cy?1:-1;
     for(k=0;k<46;k++){
-      var u=rnd(-.5,.5), ex=cx+u*cw, ey=cy+rnd(-.5,.5)*ch*2+Math.sin(u*5+i)*ch, rx=W*rnd(.03,.09)*(1-Math.abs(u)*.8), ry=rx*rnd(.14,.3);
-      cg2.globalAlpha=T.cloudA*.4; cg2.fillStyle=T.cloud; cg2.beginPath(); cg2.ellipse(ex,ey,rx,ry,0,0,PI2); cg2.fill();
+      var u=rnd(-.5,.5), ex=cx+u*cw, ey=cy+rnd(-.5,.5)*ch*2+Math.sin(u*5+i)*ch, rx=W*rnd(.03,.09)*size*(1-Math.abs(u)*.8), ry=rx*rnd(.14,.3);
       lit.push([ex,ey,rx,ry]);
     }
-    var sdy=SUN.y>cy?1:-1, sdx=(SUN.x-cx)/W;   // 太陽の方を向いたふちが明るい
-    lit.forEach(function(e){ cg2.globalAlpha=T.cloudA*.36; cg2.fillStyle=T.cloudLit; cg2.beginPath(); cg2.ellipse(e[0]+sdx*e[2]*.3,e[1]+sdy*e[3]*.6,e[2]*.8,e[3]*.5,0,0,PI2); cg2.fill(); });
+    [-SW,0,SW].forEach(function(o){
+      lit.forEach(function(e){ g.globalAlpha=T.cloudA*.4*alpha; g.fillStyle=T.cloud; g.beginPath(); g.ellipse(pad+e[0]+o,e[1],e[2],e[3],0,0,PI2); g.fill(); });
+      lit.forEach(function(e){ var sdx=(SUN.x-((e[0]+o)%SW))/W; g.globalAlpha=T.cloudA*.36*alpha; g.fillStyle=T.cloudLit; g.beginPath(); g.ellipse(pad+e[0]+o+sdx*e[2]*.3,e[1]+sdy*e[3]*.6,e[2]*.8,e[3]*.5,0,0,PI2); g.fill(); });
+    });
   }
-  g.globalAlpha=1;
-  g.drawImage(blurCanvas(cc,2),0,0,W,hy);
-  // 遠い丘・木立
+  var bl=blurCanvas(cc,2), out=mk(SW*cq,hy*cq), og=out.getContext('2d');
+  og.drawImage(bl,pad*cq,0,SW*cq,hy*cq,0,0,out.width,out.height);
+  // 太陽の高さの行の濃さを覚えておく(雲が太陽にかかったら光を弱める)
+  var row=Math.max(0,Math.min(out.height-1,Math.round(SUN.y*cq))), dat=og.getImageData(0,row,out.width,1).data, dens=new Float32Array(out.width);
+  for(i=0;i<out.width;i++) dens[i]=dat[i*4+3]/255;
+  return {cv:out, SW:SW, hy:hy, dens:dens, speed:speed, off:Math.random()*SW};
+}
+function softSpr(col){
+  var c=mk(64,64), g=c.getContext('2d'), r=g.createRadialGradient(32,32,0,32,32,32);
+  r.addColorStop(0,col+'1)'); r.addColorStop(.45,col+'0.45)'); r.addColorStop(1,col+'0)');
+  g.fillStyle=r; g.fillRect(0,0,64,64); return c;
+}
+function buildRays(){
+  var R=Math.max(W,H)*1.15, q=.25, c=mk(R*2*q,R*2*q), g=c.getContext('2d'); g.setTransform(q,0,0,q,R*q,R*q);
+  var n=T.night?9:16, col=rgbaOf(T.sun);
+  for(var i=0;i<n;i++){
+    var a=Math.random()*PI2, w=rnd(.018,.075), gr=g.createRadialGradient(0,0,0,0,0,R*rnd(.6,1));
+    gr.addColorStop(0,col+rnd(.35,.8)+')'); gr.addColorStop(.35,col+'0.14)'); gr.addColorStop(1,col+'0)');
+    g.fillStyle=gr; g.beginPath(); g.moveTo(0,0); g.arc(0,0,R,a-w,a+w); g.closePath(); g.fill();
+  }
+  raysCv={cv:blurCanvas(c,2), R:R};
+}
+function newWave(x){
+  var rows=[], n=5+(Math.random()*4|0), d0=rnd(.02,.34), k;
+  for(k=0;k<n;k++) rows.push({d:clamp(d0+(k-n/2)*.02*(1+d0*2)+rnd(-.004,.004),.006,.46), dx:rnd(-.03,.03)+(k-n/2)*.01});
+  return {x:x, rows:rows, a:rnd(.55,1), v:rnd(.75,1.3)};
+}
+function buildWaves(){
+  waves=[]; var n=W>H?8:6;
+  for(var i=0;i<n;i++) waves.push(newWave(rnd(-.2,1.2)*W));
+}
+function buildBg(){
+  var hy=horizon(), i, k;
+  SUN.x=W*T.sunX; SUN.y=T.sunY<-.2? H*(-T.sunY*.3) : hy+H*T.sunY;
+  if(T.sunY<-.2) SUN.y=H*(T.night?.17:.11);
+  var q=.25;
+  // 1) 空(動かない): グラデーションと太陽のにじみを1/4で描いて引き伸ばし、星と太陽(月)はくっきり描く
+  var s1=mk(W*q,(hy+6)*q), g=s1.getContext('2d'); g.setTransform(q,0,0,q,0,0);
+  var sk=g.createLinearGradient(0,0,0,hy);
+  sk.addColorStop(0,T.sky[0]); sk.addColorStop(.35,T.sky[1]); sk.addColorStop(.68,T.sky[2]); sk.addColorStop(.88,T.sky[3]); sk.addColorStop(1,T.sky[4]);
+  g.fillStyle=sk; g.fillRect(0,0,W,hy+6);
+  var R=Math.max(W,H)*1.0, sg=g.createRadialGradient(SUN.x,SUN.y,0,SUN.x,SUN.y,R);
+  sg.addColorStop(0,T.sunGlow+'0.95)'); sg.addColorStop(.06,T.sunGlow+'0.55)'); sg.addColorStop(.22,T.sunGlow+'0.22)'); sg.addColorStop(.6,T.sunGlow+'0.05)'); sg.addColorStop(1,T.sunGlow+'0)');
+  g.fillStyle=sg; g.fillRect(0,0,W,hy+6);
+  skyCv=mk(W*DPR,(hy+6)*DPR); var b=skyCv.getContext('2d');
+  b.imageSmoothingEnabled=true; b.imageSmoothingQuality='high';
+  b.drawImage(s1,0,0,skyCv.width,skyCv.height);
+  b.setTransform(DPR,0,0,DPR,0,0);
+  if(T.night){
+    for(i=0;i<170;i++){ var sx=Math.random()*W, sy=Math.pow(Math.random(),1.4)*hy*.85, sr=Math.random()<.92?rnd(.35,.8):rnd(.9,1.4);
+      b.globalAlpha=rnd(.35,.95); b.fillStyle='#eef2ff'; b.beginPath(); b.arc(sx,sy,sr*U,0,PI2); b.fill(); }
+    b.globalAlpha=1;
+  }
+  var sr2=Math.min(W,H)*(T.night?.05:.042);
+  var dg=b.createRadialGradient(SUN.x,SUN.y,0,SUN.x,SUN.y,sr2*1.5);
+  dg.addColorStop(0,T.sun); dg.addColorStop(.62,T.sun); dg.addColorStop(.7,T.sunGlow+'0.6)'); dg.addColorStop(1,T.sunGlow+'0)');
+  b.fillStyle=dg; b.beginPath(); b.arc(SUN.x,SUN.y,sr2*1.5,0,PI2); b.fill();
+  if(T.night){ b.fillStyle='rgba(150,165,210,.18)'; b.beginPath(); b.arc(SUN.x-sr2*.25,SUN.y-sr2*.1,sr2*.28,0,PI2); b.arc(SUN.x+sr2*.3,SUN.y+sr2*.25,sr2*.18,0,PI2); b.fill(); }
+  addGrain(skyCv,.16);
+  // 2) 雲(流れる): 遠い低い帯はゆっくり、近い高い帯は速め
+  clouds=[ buildCloudStrip(hy,.42,.8,W>H?6:5,.8,.85,4.5),
+           buildCloudStrip(hy,.06,.46,W>H?5:4,1.15,1,10) ];
+  // 3) 地上(動かない): 丘・木立・もや・遠くの野原・中景の草
+  var s2=mk(W*q,H*q); g=s2.getContext('2d'); g.setTransform(q,0,0,q,0,0);
   function ridge(col,y0,amp,f,ph,alpha,bumps){
     g.globalAlpha=alpha; g.fillStyle=col; g.beginPath(); g.moveTo(-10,H);
     for(var x=-10;x<=W+10;x+=6){
@@ -237,14 +295,17 @@ function buildBg(){
     }
     g.lineTo(W+10,H); g.closePath(); g.fill(); g.globalAlpha=1;
   }
+  // 丘は空の色を下に敷いてから重ねる(半透明の丘の向こうに雲が透けないように)
+  g.save(); g.beginPath(); g.moveTo(-10,H);
+  for(var x0=-10;x0<=W+10;x0+=6){ var y0=hy-H*.05-H*.03*(.55*Math.sin(x0*.005+1.2)+.3*Math.sin(x0*.005*2.3+1.2*1.7)+.15*Math.sin(x0*.005*5.1+1.2*.3)); g.lineTo(x0,y0); }
+  g.lineTo(W+10,H); g.closePath(); g.clip();
+  g.drawImage(s1,0,0,W,hy+6); g.restore();
   ridge(T.hillFar,hy-H*.05,H*.03,.005,1.2,.6,0);
   ridge(T.hillNear,hy-H*.022,H*.018,.009,4.1,.75,0);
   ridge(T.trees,hy-H*.004,H*.006,.02,2.2,.85,H*.018);
-  // 地平のもや
   var mg=g.createLinearGradient(0,hy-H*.08,0,hy+H*.06);
   mg.addColorStop(0,T.haze+'0)'); mg.addColorStop(.62,T.haze+'0.6)'); mg.addColorStop(1,T.haze+'0)');
   g.fillStyle=mg; g.fillRect(0,hy-H*.08,W,H*.14);
-  // 遠くの野原と、ボケた花たち
   var gr=g.createLinearGradient(0,hy,0,H);
   gr.addColorStop(0,T.meadow[0]); gr.addColorStop(.35,T.meadow[1]); gr.addColorStop(1,T.meadow[2]);
   g.fillStyle=gr; g.fillRect(0,hy,W,H-hy);
@@ -257,28 +318,13 @@ function buildBg(){
     g.beginPath(); g.ellipse(x,y,r,r*.7,0,0,PI2); g.fill();
   }
   g.globalAlpha=1;
-  // 2) 本番の背景
-  bg=mk(W*DPR,H*DPR); var b=bg.getContext('2d');
+  landCv=mk(W*DPR,H*DPR); b=landCv.getContext('2d');
   b.imageSmoothingEnabled=true; b.imageSmoothingQuality='high';
-  b.drawImage(s,0,0,bg.width,bg.height);
+  b.drawImage(s2,0,0,landCv.width,landCv.height);
   b.setTransform(DPR,0,0,DPR,0,0);
-  if(T.night){
-    for(i=0;i<170;i++){ var sx=Math.random()*W, sy=Math.pow(Math.random(),1.4)*hy*.85, sr=Math.random()<.92?rnd(.35,.8):rnd(.9,1.4);
-      b.globalAlpha=rnd(.35,.95); b.fillStyle='#eef2ff'; b.beginPath(); b.arc(sx,sy,sr*U,0,PI2); b.fill(); }
-    b.globalAlpha=1;
-  }
-  // 太陽(月)と、横に伸びる光の筋
-  var sr2=Math.min(W,H)*(T.night?.05:.042);
-  var dg=b.createRadialGradient(SUN.x,SUN.y,0,SUN.x,SUN.y,sr2*1.5);
-  dg.addColorStop(0,T.sun); dg.addColorStop(.62,T.sun); dg.addColorStop(.7,T.sunGlow+'0.6)'); dg.addColorStop(1,T.sunGlow+'0)');
-  b.fillStyle=dg; b.beginPath(); b.arc(SUN.x,SUN.y,sr2*1.5,0,PI2); b.fill();
-  if(T.night){ b.fillStyle='rgba(150,165,210,.18)'; b.beginPath(); b.arc(SUN.x-sr2*.25,SUN.y-sr2*.1,sr2*.28,0,PI2); b.arc(SUN.x+sr2*.3,SUN.y+sr2*.25,sr2*.18,0,PI2); b.fill(); }
-  b.save(); b.translate(SUN.x,SUN.y); b.scale(1,.035);
-  var st=b.createRadialGradient(0,0,0,0,0,W*.75); st.addColorStop(0,T.streak+'0.55)'); st.addColorStop(.3,T.streak+'0.15)'); st.addColorStop(1,T.streak+'0)');
-  b.fillStyle=st; b.beginPath(); b.arc(0,0,W*.75,0,PI2); b.fill(); b.restore();
   // 中景の草(静止)。先細りの葉を塗りで描く(根元は濃く、先は明るい)。ピントの外なので半分の大きさで描いて少しボカす
   var mq=.5, mc=mk(W*mq,H*mq), m=mc.getContext('2d'); m.setTransform(mq,0,0,mq,0,0);
-  var tipP=new Path2D(), tipN=0;
+  var tipP=new Path2D();
   for(var cI=0;cI<3;cI++){
     var P=new Path2D(), cnt=Math.round((cI===2?1.6:2.6)*W);
     for(i=0;i<cnt;i++){
@@ -301,9 +347,8 @@ function buildBg(){
   }
   var dg2=m.createLinearGradient(0,H*.72,0,H); dg2.addColorStop(0,T.vig+'0)'); dg2.addColorStop(1,T.vig+'0.55)');
   m.globalAlpha=1; m.fillStyle=dg2; m.fillRect(0,H*.72,W,H*.28);
-  b.setTransform(1,0,0,1,0,0); b.drawImage(blurCanvas(mc,1),0,0,bg.width,bg.height); b.setTransform(DPR,0,0,DPR,0,0);
+  b.setTransform(1,0,0,1,0,0); b.drawImage(blurCanvas(mc,1),0,0,landCv.width,landCv.height); b.setTransform(DPR,0,0,DPR,0,0);
   b.globalAlpha=1;
-  // 光のボケ(地平と草の間)
   b.globalCompositeOperation='lighter';
   var nb=T.name==='春の昼'?10:22;
   for(i=0;i<nb;i++){
@@ -312,13 +357,12 @@ function buildBg(){
     b.drawImage(bokehSpr,bx-br,by-br,br*2,br*2);
   }
   b.globalCompositeOperation='source-over'; b.globalAlpha=1;
-  // フィルムの粒子
-  b.setTransform(1,0,0,1,0,0);
-  b.globalCompositeOperation='overlay'; b.globalAlpha=.16;
-  b.fillStyle=b.createPattern(grainTile,'repeat'); b.fillRect(0,0,bg.width,bg.height);
-  b.globalCompositeOperation='source-over'; b.globalAlpha=1;
-
-  // 3) 上にかぶせる光(ブルーム)と周辺の暗さ(ビネット)
+  addGrain(landCv,.16);
+  // 4) 日差し(ゆらぐ): 光の筋・放射する光・ブルーム
+  streakG=ctx.createRadialGradient(0,0,0,0,0,W*.75); streakG.addColorStop(0,T.streak+'0.55)'); streakG.addColorStop(.3,T.streak+'0.15)'); streakG.addColorStop(1,T.streak+'0)');
+  buildRays();
+  sheenSpr=softSpr(rgbaOf(T.grassTip)); troughSpr=softSpr(rgbaOf(T.grass[0]));
+  buildWaves();
   bloomCv=mk(W*q,H*q); var o=bloomCv.getContext('2d'); o.setTransform(q,0,0,q,0,0);
   var bl=o.createRadialGradient(SUN.x,SUN.y,0,SUN.x,SUN.y,Math.max(W,H)*.85);
   bl.addColorStop(0,T.bloom+T.bloomA+')'); bl.addColorStop(.25,T.bloom+'0.08)'); bl.addColorStop(1,T.bloom+'0)');
@@ -330,6 +374,81 @@ function buildBg(){
   var bt=v.createLinearGradient(0,H*.75,0,H); bt.addColorStop(0,T.vig+'0)'); bt.addColorStop(1,T.vig+'0.35)');
   v.fillStyle=bt; v.fillRect(0,H*.75,W,H*.25);
   document.body.style.background=T.bg;
+}
+// ---- 動く背景: 雲・野原を渡る風・日差し ----
+var cloudGust=0;
+function stepSky(dt,t){
+  var ge=natGust?natGust.env*Math.min(1,natGust.s/(120*U)):0;
+  cloudGust+=(ge-cloudGust)*Math.min(1,dt*.6);
+  var cov=0;
+  clouds.forEach(function(c){
+    c.off+=BREEZE*c.speed*U*(1+.6*cloudGust)*(1-calm*.85)*dt;
+    c.off=((c.off%c.SW)+c.SW)%c.SW;
+    var sx=((SUN.x-(-c.off))%c.SW+c.SW)%c.SW, ix=Math.min(c.dens.length-1,Math.max(0,Math.round(sx/c.SW*c.dens.length)));
+    cov+=c.dens[ix];
+  });
+  cov=Math.min(1,cov*1.15);
+  LIGHT.cov+=(cov-LIGHT.cov)*Math.min(1,dt*1.2);
+  LIGHT.v=(.92+.05*Math.sin(t*.53)+.03*Math.sin(t*1.71+.4)+.02*Math.sin(t*3.1+1.3))*(1-.6*LIGHT.cov);
+  var hy=horizon();
+  for(var i=0;i<waves.length;i++){
+    var w=waves[i], wd=wind(w.x,hy+H*.08,t);
+    w.x+=(wd[0]*1.6+BREEZE*14*U)*w.v*dt;
+    if(w.x>W*1.3||w.x<-W*.3){ waves[i]=newWave(BREEZE>0?-W*.25:W*1.25); }
+  }
+}
+function drawClouds(){
+  ctx.setTransform(1,0,0,1,0,0); ctx.globalAlpha=1;
+  clouds.forEach(function(c){
+    var x=-c.off;
+    ctx.drawImage(c.cv,x*DPR,0,c.SW*DPR,c.hy*DPR);
+    ctx.drawImage(c.cv,(x+c.SW)*DPR,0,c.SW*DPR,c.hy*DPR);
+  });
+}
+function drawMeadowWind(t){
+  var hy=horizon(), span=H-hy, night=T.night?.5:1;
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  function row(x,d,k,dir){
+    var y=hy+d*span, fade=Math.min(1,d/.03)*Math.max(0,1-d/.46), ww=(50+620*d)*U*(.7+.6*k), hh=(5+60*d)*U*(.8+.4*k);
+    if(fade<=0) return;
+    ctx.globalCompositeOperation='source-over'; ctx.globalAlpha=Math.min(.5,.09*k)*fade*night;
+    ctx.drawImage(troughSpr,x+dir*ww*.55-ww*.5,y-hh*.5,ww,hh);
+    ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=Math.min(.5,.11*k)*fade*night;
+    ctx.drawImage(sheenSpr,x-ww*.5,y-hh*.5,ww,hh);
+  }
+  for(var i=0;i<waves.length;i++){
+    var w=waves[i];
+    for(var j=0;j<w.rows.length;j++){
+      var r=w.rows[j], x=w.x+r.dx*W, y=hy+r.d*span, wd=wind(x,y,t), wm=Math.abs(wd[0]);
+      var k=w.a*(.22+clamp((wm-14*U)/(70*U),0,1)*.95);
+      row(x,r.d,k,-BREEZE);
+    }
+  }
+  // 突風の前線: 遠くから手前まで、波が一列になって渡っていく
+  if(natGust && natGust.env>.05){
+    var gk=natGust.env*Math.min(1.2,natGust.s/(110*U));
+    for(var d=.012;d<.46;d+=.016+d*.05){
+      var lag=-natGust.dir*d*W*.25, x2=natGust.x+lag+Math.sin(d*23+t*.7)*18*U;
+      row(x2,d,gk*(.65+.35*Math.sin(d*37+1.7)),-natGust.dir);
+    }
+  }
+  ctx.globalCompositeOperation='source-over'; ctx.globalAlpha=1;
+}
+function drawSunlight(t){
+  var L=LIGHT.v;
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.globalCompositeOperation='lighter';
+  // 放射する光(ゆっくり回って、雲がかかると弱まる)
+  if(raysCv){
+    var ra=(T.night?.14:T.name==='春の昼'?.16:.26)*L*(.8+.2*Math.sin(t*.37));
+    ctx.save(); ctx.translate(SUN.x,SUN.y); ctx.rotate(Math.sin(t*.045)*.06+t*.004);
+    ctx.globalAlpha=ra; ctx.drawImage(raysCv.cv,-raysCv.R,-raysCv.R,raysCv.R*2,raysCv.R*2);
+    ctx.restore();
+  }
+  // 横に伸びる光の筋
+  ctx.save(); ctx.translate(SUN.x,SUN.y); ctx.scale(1+.04*Math.sin(t*.6),.035*(1+.15*Math.sin(t*.9+1)));
+  ctx.globalAlpha=Math.min(1,L*1.05); ctx.fillStyle=streakG; ctx.beginPath(); ctx.arc(0,0,W*.75,0,PI2); ctx.fill(); ctx.restore();
+  ctx.globalCompositeOperation='source-over'; ctx.globalAlpha=1;
 }
 
 // ---- 揺れる草(奥行きの層ごと) ----
@@ -758,7 +877,12 @@ function drawNear(t){
 }
 function render(t){
   ctx.setTransform(1,0,0,1,0,0); ctx.globalAlpha=1;
-  ctx.drawImage(bg,0,0);
+  ctx.drawImage(skyCv,0,0);
+  drawClouds();
+  ctx.setTransform(1,0,0,1,0,0); ctx.globalAlpha=1;
+  ctx.drawImage(landCv,0,0);
+  drawMeadowWind(t);
+  drawSunlight(t);
   ctx.setTransform(DPR,0,0,DPR,0,0);
   // 奥のボケ玉
   ctx.globalCompositeOperation='lighter';
@@ -790,7 +914,7 @@ function render(t){
   for(i=0;i<flying.length;i++){ if(flying[i].z>1.02){ drawFlyer(flying[i]); } }
   ctx.setTransform(1,0,0,1,0,0); ctx.globalAlpha=1;
   // 光のにじみと周辺の暗さ
-  ctx.globalCompositeOperation='lighter'; ctx.drawImage(bloomCv,0,0,W*DPR,H*DPR);
+  ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=Math.min(1,.35+.7*LIGHT.v); ctx.drawImage(bloomCv,0,0,W*DPR,H*DPR); ctx.globalAlpha=1;
   ctx.globalCompositeOperation='source-over'; ctx.drawImage(vigCv,0,0,W*DPR,H*DPR);
 }
 
@@ -822,12 +946,13 @@ function mutate(){
 function reset(){ seedPlants(); lastTouch=nowS(); natT=14; }
 
 var perf={n:0,ms:0};
-window.__ns={ state:function(){ return {plants:plants.length, flying:flying.filter(function(f){return !f.landed;}).length, time:T.name, msPerFrame:perf.n?+(perf.ms/perf.n).toFixed(2):0}; }, mutate:mutate };
+window.__ns={ state:function(){ return {plants:plants.length, flying:flying.filter(function(f){return !f.landed;}).length, time:T.name, msPerFrame:perf.n?+(perf.ms/perf.n).toFixed(2):0}; }, mutate:mutate, gust:function(){ natGust={dir:BREEZE, x:BREEZE>0?-W*.1:W*1.1, v:W*.32+90*U, s:130*U, env:0}; } };
 var last=performance.now();
 function frame(now){
   var dt=Math.min(.05,(now-last)/1000); last=now;
   var t=nowS(), a=performance.now();
   stepAll(dt,t);
+  stepSky(dt,t);
   render(t);
   perf.ms+=performance.now()-a; perf.n++;
   requestAnimationFrame(frame);
