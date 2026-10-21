@@ -1,0 +1,602 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>HUNGER MAP — 粘菌が、餌と餌をいちばん短い網でつなぐ</title>
+<!-- HUNGER MAP — クロちゃん(Claude)作。ap-kit.js統合: クロちゃん。2026/10/21 試作
+     おっちゃん「では新たな作品を作ってくれ」(題材はおまかせ)。
+     これまでの好み(自然現象・本物っぽさ・眺めるだけで成立・暗すぎない・自律的な構造)を受けて、
+     実在の生き物「モジホコリ(粘菌)」を題材にした。
+     世界のルール: 粘菌は餌と餌を、いちばん短い網でつなぐ。たくさん流れる管は太り、使われない管はやせて消える。光の当たる所は避ける。
+       何もしなくても: 粘菌が網目になって寒天の上へ広がり、見つけたオートミールどうしを管でつなぎ、
+                       食べ終わると管を組み替える。消えた管の跡は、乾いた粘液のすじとして寒天に残る
+       タップ        = その場所にオートミールを置く(管がそこへ伸び、全体の道が組み替わる)
+       長押し/なぞる = 光を当てる(粘菌は光を嫌う。光の下の管はやせて消え、なぞった光の線は数秒残って管を断ち切る)
+       ◎            = 関東の街の位置に餌を置き、海と地図の外に光を当てる
+                        (2010年、粘菌が首都圏の鉄道網に似た網を作った実験(Teroら, Science)の再現)
+     しくみ: Teroらの「Physarum Solver」。寒天を細かい網(三角格子)に分け、毎フレーム餌の1つを入口・残りを出口にして
+       管の流れ(キルヒホッフの法則)を解き、流れの多い管を太く、少ない管を細くする。入口は数秒ごとに入れ替わる
+       (本物の粘菌の、行ったり来たりする原形質流動)。管の中を流れる光のすじは、その流れの向き。
+     描画: Canvas 2D。管は太さごとにまとめて、影→本体→ツヤ(流れるすじ)の3層で描く。 -->
+<script src="../ap-kit.js"></script>
+<style>
+html,body{margin:0;height:100%;background:#1c1b15;overflow:hidden;touch-action:none}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+#hint{position:fixed;left:16px;right:16px;top:calc(env(safe-area-inset-top) + 18px);text-align:center;color:rgba(255,246,214,.9);font:500 11px/1.7 system-ui,sans-serif;letter-spacing:.12em;text-shadow:0 1px 6px rgba(0,0,0,.6);pointer-events:none;transition:opacity 1.2s}
+#hint.off{opacity:0}
+#toast{position:fixed;left:16px;right:16px;bottom:calc(env(safe-area-inset-bottom) + 76px);text-align:center;color:rgba(255,246,214,.88);font:500 11px/1.7 system-ui,sans-serif;letter-spacing:.1em;text-shadow:0 1px 6px rgba(0,0,0,.7);pointer-events:none;opacity:0;transition:opacity .8s}
+#toast.on{opacity:1}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">黄色いのは生きた粘菌 · タップでオートミールを置く<br>長押し・なぞると光を当てる(粘菌は光を嫌う)<br>◎ 関東の街に餌を置く</div>
+<div id="toast"></div>
+<script>
+(function(){
+'use strict';
+var cv=document.getElementById('c'), ctx=cv.getContext('2d');
+var PI2=Math.PI*2;
+function rnd(a,b){ return a+Math.random()*(b-a); }
+function clamp(v,a,b){ return v<a?a:v>b?b:v; }
+function mk(w,h){ var c=document.createElement('canvas'); c.width=Math.max(1,Math.round(w)); c.height=Math.max(1,Math.round(h)); return c; }
+function smooth(e0,e1,x){ var t=clamp((x-e0)/(e1-e0),0,1); return t*t*(3-2*t); }
+
+/* ---------- パラメータ ---------- */
+var P={};
+function baseParams(){
+  var o={ I0:2.2, GAM:1.8, RATE:0.42, DINIT:0.24, SPREAD:1.7, EAT:0.010, NODES:4600, GF:0.0005, IT:70, HOLD:3.5, ISC:0.5 };
+  try{ var h=location.hash.slice(1); if(h){ var q=JSON.parse(decodeURIComponent(h)); for(var k in q) o[k]=q[k]; } }catch(e){}
+  return o;
+}
+function mutateParams(){            // 気質のちがう粘菌: 太い1本道を好むか、迂回路を残すか、広がる速さ
+  P.GAM=rnd(1.35,2.3); P.I0=rnd(1.6,3.2); P.RATE=rnd(0.32,0.55); P.SPREAD=rnd(1.3,2.3);
+}
+
+/* ---------- 画面 ---------- */
+var W=0,H=0,DPR=1, mode='dish';
+var bgCv, vigCv, trCv, trCtx, msCv, msCtx, MSS=0.34;
+
+/* ---------- 網(三角格子) ---------- */
+var h=8, cols=0, rows=0, nN=0, nE=0;
+var BX,BY,PX,PY,ALV,LS,LDN,SM,FN;        // 格子の元位置, 今の位置, 生きているか, 固定の光, ランプの光, におい, 餌の番号
+var EA,EB,EL,ED,EG,EQ,EQS,ETR;               // 辺: 両端, 長さ, 太さD, 伝導度, 流量, 跡を残したか
+var NS,NL,NEI;                           // 隣接(CSR): 開始位置, 隣の節, 隣への辺
+var Pp,Bv,Rv,Zv,Dv,Av,DG;                // 圧力と共役勾配法の作業用
+var front=[];
+
+function buildNet(){
+  h=Math.sqrt(W*H/(P.NODES*0.866));
+  h=clamp(h,6,16);
+  var dy=h*0.866;
+  cols=Math.ceil(W/h)+2; rows=Math.ceil(H/dy)+2;
+  nN=cols*rows;
+  BX=new Float32Array(nN); BY=new Float32Array(nN); PX=new Float32Array(nN); PY=new Float32Array(nN);
+  ALV=new Uint8Array(nN); LS=new Float32Array(nN); LDN=new Float32Array(nN); SM=new Float32Array(nN); FN=new Int16Array(nN);
+  Pp=new Float32Array(nN); Bv=new Float32Array(nN); Rv=new Float32Array(nN); Zv=new Float32Array(nN); Dv=new Float32Array(nN); Av=new Float32Array(nN); DG=new Float32Array(nN);
+  for(var r=0;r<rows;r++) for(var c=0;c<cols;c++){
+    var i=r*cols+c;
+    BX[i]=(c-0.5+(r&1)*0.5)*h+rnd(-0.3,0.3)*h; BY[i]=(r-0.5)*dy+rnd(-0.3,0.3)*h;
+    PX[i]=BX[i]; PY[i]=BY[i];
+  }
+  var ea=[],eb=[];
+  for(r=0;r<rows;r++) for(c=0;c<cols;c++){
+    i=r*cols+c;
+    if(c+1<cols){ ea.push(i); eb.push(i+1); }
+    if(r+1<rows){
+      if(r&1){ ea.push(i); eb.push(i+cols); if(c+1<cols){ ea.push(i); eb.push(i+cols+1); } }
+      else   { ea.push(i); eb.push(i+cols); if(c>0){ ea.push(i); eb.push(i+cols-1); } }
+    }
+  }
+  nE=ea.length;
+  EA=new Int32Array(ea); EB=new Int32Array(eb); EL=new Float32Array(nE); ED=new Float32Array(nE); EG=new Float32Array(nE); EQ=new Float32Array(nE); EQS=new Float32Array(nE); ETR=new Uint8Array(nE);
+  for(var e=0;e<nE;e++) EL[e]=Math.max(0.3,Math.hypot(BX[EA[e]]-BX[EB[e]],BY[EA[e]]-BY[EB[e]])/h);
+  var deg=new Int32Array(nN);
+  for(e=0;e<nE;e++){ deg[EA[e]]++; deg[EB[e]]++; }
+  NS=new Int32Array(nN+1); for(i=0;i<nN;i++) NS[i+1]=NS[i]+deg[i];
+  NL=new Int32Array(NS[nN]); NEI=new Int32Array(NS[nN]); var fill=new Int32Array(nN);
+  for(e=0;e<nE;e++){ var a=EA[e], b=EB[e]; NL[NS[a]+fill[a]]=b; NEI[NS[a]+fill[a]++]=e; NL[NS[b]+fill[b]]=a; NEI[NS[b]+fill[b]++]=e; }
+}
+function nearestNode(x,y){
+  var r=Math.round(y/(h*0.866)+0.5), best=-1, bd=1e9;
+  for(var rr=r-2;rr<=r+2;rr++){ if(rr<0||rr>=rows) continue;
+    var c=Math.round(x/h+0.5-(rr&1)*0.5);
+    for(var cc=c-2;cc<=c+2;cc++){ if(cc<0||cc>=cols) continue; var i=rr*cols+cc, d=(PX[i]-x)*(PX[i]-x)+(PY[i]-y)*(PY[i]-y); if(d<bd){bd=d;best=i;} } }
+  return best;
+}
+
+/* ---------- 東京(関東) ---------- */
+var CITIES=[
+ ['東京',139.767,35.681,'b'],['新宿',139.700,35.690,'l'],['横浜',139.622,35.466],['川崎',139.703,35.531],
+ ['千葉',140.123,35.613],['船橋',139.985,35.712],['柏',139.976,35.862],['大宮',139.624,35.906],
+ ['川越',139.486,35.925],['所沢',139.469,35.799],['立川',139.414,35.698],['八王子',139.339,35.656],
+ ['町田',139.446,35.542],['厚木',139.363,35.441],['藤沢',139.487,35.338],['横須賀',139.655,35.262],
+ ['小田原',139.165,35.272],['成田',140.318,35.776],['木更津',139.935,35.383],['つくば',140.112,36.083],
+ ['春日部',139.752,35.975],['熊谷',139.389,36.147],['取手',140.050,35.911]
+];
+var SEA=[[138.5,35.15],[139.05,35.18],[139.15,35.25],[139.31,35.30],[139.40,35.32],[139.48,35.30],[139.55,35.305],
+ [139.575,35.29],[139.585,35.25],[139.61,35.17],[139.62,35.135],[139.745,35.255],[139.68,35.29],[139.64,35.34],
+ [139.65,35.45],[139.75,35.52],[139.79,35.55],[139.755,35.61],[139.775,35.635],[139.86,35.64],[139.91,35.645],
+ [139.98,35.685],[140.04,35.645],[140.10,35.595],[140.07,35.52],[139.96,35.43],[139.89,35.37],[139.78,35.31],
+ [139.83,35.25],[139.82,35.16],[139.85,34.99],[139.88,34.90],[140.10,35.11],[140.32,35.15],[140.40,35.37],
+ [140.47,35.55],[140.62,35.67],[140.87,35.72],[141.8,35.75],[141.8,33.8],[138.5,33.8]];
+var MAP={lon0:139.08,lon1:140.42,lat0:35.10,lat1:36.22};
+var mapT={s:1,ox:0,oy:0,k:1};
+function mapFit(){
+  var k=Math.cos(35.66*Math.PI/180);
+  var mw=(MAP.lon1-MAP.lon0)*k, mh=(MAP.lat1-MAP.lat0);
+  var s=Math.min(W*0.94/mw, H*0.80/mh);
+  mapT.s=s; mapT.k=k; mapT.ox=(W-mw*s)/2; mapT.oy=(H-mh*s)/2+H*0.02;
+}
+function ll(lon,lat){ return [mapT.ox+(lon-MAP.lon0)*mapT.k*mapT.s, mapT.oy+(MAP.lat1-lat)*mapT.s]; }
+function roundRect(g,x,y,w,hh,r){ g.moveTo(x+r,y); g.arcTo(x+w,y,x+w,y+hh,r); g.arcTo(x+w,y+hh,x,y+hh,r); g.arcTo(x,y+hh,x,y,r); g.arcTo(x,y,x+w,y,r); g.closePath(); }
+function seaPath(g){ g.beginPath(); for(var i=0;i<SEA.length;i++){ var p=ll(SEA[i][0],SEA[i][1]); if(i) g.lineTo(p[0],p[1]); else g.moveTo(p[0],p[1]); } g.closePath(); }
+function mapBox(){ var a=ll(MAP.lon0,MAP.lat1), b=ll(MAP.lon1,MAP.lat0); return [a[0],a[1],b[0]-a[0],b[1]-a[1]]; }
+
+/* 固定の光(東京モード: 海と地図の外) */
+function buildStaticLight(){
+  LS.fill(0);
+  if(mode!=='tokyo') return;
+  var sc=0.5, c=mk(W*sc,H*sc), g=c.getContext('2d');
+  g.scale(sc,sc); g.fillStyle='#fff';
+  seaPath(g); g.fill();
+  var bx=mapBox(); g.beginPath(); g.rect(-10,-10,W+20,H+20); roundRect(g,bx[0],bx[1],bx[2],bx[3],8); g.fill('evenodd');
+  var d=g.getImageData(0,0,c.width,c.height).data, cw=c.width, ch=c.height;
+  for(var i=0;i<nN;i++){ var x=clamp((PX[i]*sc)|0,0,cw-1), y=clamp((PY[i]*sc)|0,0,ch-1); LS[i]=d[(y*cw+x)*4+3]/255; }
+}
+
+/* ---------- 餌(オートミール) ---------- */
+var foods=[];
+function makeFlakeSprite(r){
+  var px=Math.ceil(r*2.6*DPR)+4, c=mk(px,px), g=c.getContext('2d');
+  g.translate(px/2,px/2); g.scale(DPR,DPR);
+  var pts=[], m=11, ax=rnd(0.75,1);
+  for(var i=0;i<m;i++){ var a=i/m*PI2, rr=r*(0.82+Math.random()*0.3); pts.push([Math.cos(a)*rr, Math.sin(a)*rr*ax]); }
+  g.rotate(rnd(0,PI2));
+  g.shadowColor='rgba(0,0,0,.45)'; g.shadowBlur=r*0.5; g.shadowOffsetY=r*0.15;
+  g.beginPath();
+  for(i=0;i<=m;i++){ var p=pts[i%m], q=pts[(i+1)%m]; var mx=(p[0]+q[0])/2, my=(p[1]+q[1])/2; if(!i) g.moveTo(mx,my); else g.quadraticCurveTo(p[0],p[1],mx,my); }
+  g.closePath();
+  var gr=g.createRadialGradient(-r*0.3,-r*0.35,r*0.1,0,0,r*1.1);
+  gr.addColorStop(0,'#efe0bd'); gr.addColorStop(0.55,'#d6bf91'); gr.addColorStop(1,'#a88a5c');
+  g.fillStyle=gr; g.fill();
+  g.shadowColor='transparent';
+  g.save(); g.clip();
+  for(i=0;i<9;i++){ g.strokeStyle='rgba(120,92,52,'+rnd(.08,.2)+')'; g.lineWidth=rnd(.4,1); var y=rnd(-r,r); g.beginPath(); g.moveTo(-r,y); g.quadraticCurveTo(0,y+rnd(-r*.3,r*.3),r,y+rnd(-r*.2,r*.2)); g.stroke(); }
+  for(i=0;i<14;i++){ g.fillStyle='rgba(255,250,230,'+rnd(.05,.18)+')'; g.beginPath(); g.arc(rnd(-r,r),rnd(-r,r),rnd(.4,1.4),0,PI2); g.fill(); }
+  g.restore();
+  g.strokeStyle='rgba(255,245,215,.25)'; g.lineWidth=.6; g.stroke();
+  return c;
+}
+function addFood(x,y,r,opt){
+  opt=opt||{};
+  if(foods.length>=40) return null;
+  var n=nearestNode(x,y); if(n<0) return null;
+  if(LS[n]>0.5) return null;                       // 光の中(海)には置けない
+  for(var j=0;j<foods.length;j++) if(foods[j].node===n) return null;
+  var f={x:PX[n],y:PY[n],r:r,node:n,amt:1,age:0,dead:0,label:opt.label||'',lpos:opt.lpos||'r',fixed:!!opt.fixed,
+         sprite:makeFlakeSprite(r*(opt.label?0.95:1)), drop:opt.drop?1:0, cover:0};
+  foods.push(f); markFoods(); return f;
+}
+function markFoods(){ FN.fill(-1); for(var j=0;j<foods.length;j++) if(foods[j].amt>0) FN[foods[j].node]=j; }
+function randomFoodSpot(minGap){
+  var m=Math.min(W,H);
+  for(var t=0;t<60;t++){
+    var x=rnd(m*.09,W-m*.09), y=rnd(H*.08,H-m*.12), ok=true;
+    for(var j=0;j<foods.length;j++) if(Math.hypot(x-foods[j].x,y-foods[j].y)<minGap){ ok=false; break; }
+    if(ok) return [x,y];
+  }
+  return null;
+}
+
+/* ---------- におい(餌の方へ広がるように) ---------- */
+function computeSmell(){
+  SM.fill(0);
+  var m=Math.min(W,H), l1=m*0.35;
+  for(var j=0;j<foods.length;j++){ var f=foods[j]; if(f.amt<=0) continue;
+    for(var i=0;i<nN;i++){ var dx=PX[i]-f.x, dy=PY[i]-f.y; SM[i]+=Math.exp(-Math.sqrt(dx*dx+dy*dy)/l1); } }
+  var mx=0; for(i=0;i<nN;i++) if(SM[i]>mx) mx=SM[i];
+  if(mx>0) for(i=0;i<nN;i++) SM[i]/=mx;
+}
+
+/* ---------- はじまり ---------- */
+var src=-1, srcUntil=0, clock=0, feedTimer=0, agarTone=0;
+function makeAlive(i){
+  if(ALV[i]) return; ALV[i]=1; front.push(i);
+  for(var k=NS[i];k<NS[i+1];k++){ var j=NL[k]; if(ALV[j]){ var e=NEI[k]; ED[e]=Math.max(ED[e],P.DINIT*rnd(0.4,1.1)); } }
+}
+function inoculate(x,y,rad){
+  for(var i=0;i<nN;i++){ var d=Math.hypot(PX[i]-x,PY[i]-y); if(d<rad && LS[i]<0.3) makeAlive(i); }
+}
+function clearAll(){
+  ALV.fill(0); ED.fill(0); EQ.fill(0); EQS.fill(0); ETR.fill(0); Pp.fill(0); LDN.fill(0); front=[]; foods=[]; FN.fill(-1); src=-1; lampTrail=[];
+  for(var i=0;i<nN;i++){ PX[i]=BX[i]; PY[i]=BY[i]; }
+  trCtx.setTransform(1,0,0,1,0,0); trCtx.clearRect(0,0,trCv.width,trCv.height); trCtx.setTransform(DPR,0,0,DPR,0,0);
+}
+function startDish(){
+  mode='dish'; clearAll(); buildStaticLight(); buildBg();
+  var m=Math.min(W,H);
+  var cx=W*rnd(.35,.65), cy=H*rnd(.4,.6);
+  var want=Math.round(rnd(6,8));
+  for(var t=0;t<200 && foods.length<want;t++){
+    var x=rnd(m*.09,W-m*.09), y=rnd(H*.08,H-m*.12), ok=Math.hypot(x-cx,y-cy)>m*0.2;
+    for(var j=0;j<foods.length&&ok;j++) if(Math.hypot(x-foods[j].x,y-foods[j].y)<m*0.22) ok=false;
+    if(ok) addFood(x,y,m*rnd(.022,.03));
+  }
+  inoculate(cx,cy,m*0.06);
+  computeSmell(); feedTimer=0;
+}
+function startTokyo(){
+  mode='tokyo'; P.HOLD=0.8; P.ISC=0.5; P.RATE=0.7; P.GAM=2.1; P.GF=0.015; clearAll(); mapFit(); buildStaticLight(); buildBg();
+  var r=Math.max(3.2,mapT.s*0.011);
+  for(var i=0;i<CITIES.length;i++){ var p=ll(CITIES[i][1],CITIES[i][2]); addFood(p[0],p[1],r,{label:CITIES[i][0],lpos:CITIES[i][3],fixed:true}); }
+  var t=ll(139.767,35.681);
+  inoculate(t[0],t[1],r*3);
+  computeSmell();
+}
+
+/* ---------- 背景(寒天) ---------- */
+function buildBg(){
+  agarTone=Math.random();
+  bgCv=mk(W*DPR,H*DPR); var g=bgCv.getContext('2d'); g.scale(DPR,DPR);
+  var R=Math.hypot(W,H)/2;
+  var gr=g.createRadialGradient(W*.5,H*.42,0,W*.5,H*.5,R);
+  var c0=agarTone>0.5?'#48452f':'#3d4433', c1=agarTone>0.5?'#2c2a1d':'#262b1f';
+  gr.addColorStop(0,c0); gr.addColorStop(.55,c1); gr.addColorStop(1,'#15150f');
+  g.fillStyle=gr; g.fillRect(0,0,W,H);
+  for(var i=0;i<26;i++){ var x=rnd(0,W),y=rnd(0,H),r=rnd(40,180); var q=g.createRadialGradient(x,y,0,x,y,r); var a=rnd(.02,.05); q.addColorStop(0,'rgba(200,205,170,'+a+')'); q.addColorStop(1,'rgba(200,205,170,0)'); g.fillStyle=q; g.fillRect(x-r,y-r,r*2,r*2); }
+  var nC=mk(128,128), ng=nC.getContext('2d'), nd=ng.createImageData(128,128);
+  for(i=0;i<nd.data.length;i+=4){ var v=Math.random()*255; nd.data[i]=nd.data[i+1]=nd.data[i+2]=v; nd.data[i+3]=10; }
+  ng.putImageData(nd,0,0); g.fillStyle=g.createPattern(nC,'repeat'); g.fillRect(0,0,W,H);
+  for(i=0;i<160;i++){
+    var x2=rnd(0,W), y2=rnd(0,H), r2=Math.pow(Math.random(),2.4)*3.6+0.5;
+    g.fillStyle='rgba(220,230,210,.05)'; g.beginPath(); g.arc(x2,y2,r2,0,PI2); g.fill();
+    g.fillStyle='rgba(255,255,245,.16)'; g.beginPath(); g.arc(x2-r2*.35,y2-r2*.35,r2*.32,0,PI2); g.fill();
+  }
+  if(mode==='tokyo') drawMapBg(g);
+  vigCv=mk(W*DPR,H*DPR); var v=vigCv.getContext('2d'); v.scale(DPR,DPR);
+  var vg=v.createRadialGradient(W*.5,H*.48,Math.min(W,H)*.35,W*.5,H*.5,R*1.05);
+  vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,'rgba(0,0,0,.5)'); v.fillStyle=vg; v.fillRect(0,0,W,H);
+  var sh=v.createLinearGradient(0,0,W,H*.6);
+  sh.addColorStop(0,'rgba(255,255,240,0)'); sh.addColorStop(.42,'rgba(255,255,240,0)'); sh.addColorStop(.5,'rgba(255,255,240,.035)'); sh.addColorStop(.58,'rgba(255,255,240,0)');
+  v.fillStyle=sh; v.fillRect(0,0,W,H);
+}
+function drawMapBg(g){
+  var bx=mapBox();
+  g.save();
+  g.beginPath(); g.rect(0,0,W,H); roundRect(g,bx[0],bx[1],bx[2],bx[3],8);
+  g.fillStyle='rgba(190,215,230,.07)'; g.fill('evenodd');
+  g.save(); g.beginPath(); roundRect(g,bx[0],bx[1],bx[2],bx[3],8); g.clip();
+  seaPath(g);
+  var sg=g.createLinearGradient(0,bx[1],0,bx[1]+bx[3]); sg.addColorStop(0,'rgba(170,205,230,.16)'); sg.addColorStop(1,'rgba(150,195,225,.22)');
+  g.fillStyle=sg; g.fill();
+  g.strokeStyle='rgba(205,228,240,.32)'; g.lineWidth=1; g.stroke();
+  g.restore();
+  g.beginPath(); roundRect(g,bx[0],bx[1],bx[2],bx[3],8);
+  g.strokeStyle='rgba(205,228,240,.18)'; g.lineWidth=1; g.setLineDash([3,4]); g.stroke(); g.setLineDash([]);
+  g.restore();
+}
+
+/* ---------- ランプ(光) ---------- */
+var lamps={}, lampTrail=[], lampLive=0;
+function stampLamps(dt){
+  var any=false;
+  for(var id in lamps){
+    var lp=lamps[id]; any=true;
+    if(lp.held){ lp.s=Math.min(1,lp.s+dt*3); lp.r=Math.min(lp.rMax,lp.r+lp.rMax*dt*1.6); }
+    else { lp.s-=dt*0.8; if(lp.s<=0){ delete lamps[id]; continue; } }
+    if(lp.held && lp.s>0.3){ var lt=lampTrail[lampTrail.length-1]; if(!lt||Math.hypot(lt.x-lp.x,lt.y-lp.y)>lp.r*0.25) lampTrail.push({x:lp.x,y:lp.y,r:lp.r,a:1}); }
+    var r=lp.r, s=lp.s, r2=r*r;
+    var r0=Math.max(0,Math.floor((lp.y-r)/(h*0.866))), r1=Math.min(rows-1,Math.ceil((lp.y+r)/(h*0.866))+1);
+    var c0=Math.max(0,Math.floor((lp.x-r)/h)), c1=Math.min(cols-1,Math.ceil((lp.x+r)/h)+1);
+    for(var rr=r0;rr<=r1;rr++) for(var cc=c0;cc<=c1;cc++){
+      var i=rr*cols+cc, dx=PX[i]-lp.x, dy=PY[i]-lp.y, d2=dx*dx+dy*dy; if(d2>r2) continue;
+      var v=s*smooth(r,r*0.55,Math.sqrt(d2)); if(v>LDN[i]) LDN[i]=v; }
+  }
+  if(any) lampLive=8;
+  for(var t=lampTrail.length-1;t>=0;t--){ lampTrail[t].a-=dt/3.2; if(lampTrail[t].a<=0) lampTrail.splice(t,1); }
+  if(lampLive>0){
+    lampLive-=dt;
+    var dec=Math.pow(0.42,dt);           // なぞった光は数秒で消える
+    for(var q=0;q<nN;q++) LDN[q]*=dec;
+    if(lampLive<=0) LDN.fill(0);
+  }
+}
+
+/* ---------- 網を育てる(Physarum Solver) ---------- */
+function spreadFront(dt){
+  var p=P.SPREAD*dt, nf=[];
+  for(var q=0;q<front.length;q++){
+    var i=front[q], open=false;
+    for(var k=NS[i];k<NS[i+1];k++){
+      var j=NL[k]; if(ALV[j]) continue;
+      if(LS[j]+LDN[j]>0.3){ if(LDN[j]>0) open=true; continue; }
+      open=true;
+      if(Math.random()<p*(0.35+1.3*SM[j]*SM[j])) { ALV[j]=1; nf.push(j);
+        for(var k2=NS[j];k2<NS[j+1];k2++){ if(ALV[NL[k2]]){ var e=NEI[k2]; ED[e]=Math.max(ED[e],P.DINIT*rnd(0.4,1.1)); } } }
+    }
+    if(open) nf.push(i);
+  }
+  front=nf;
+}
+function solve(){
+  var act=[];
+  for(var j=0;j<foods.length;j++){ var f=foods[j]; if(f.amt>0 && ALV[f.node] && LDN[f.node]<0.5) act.push(j); }
+  if(act.length<2){ return false; }
+  if(clock>srcUntil || act.indexOf(src)<0){ src=act[(Math.random()*act.length)|0]; srcUntil=clock+rnd(P.HOLD*0.6,P.HOLD*1.4); }
+  Bv.fill(0);
+  var I0=P.I0*Math.max(1,(act.length-1)*P.ISC), out=I0/(act.length-1);   // 出口が多いほど全体の流れも多い
+  for(j=0;j<act.length;j++){ var nd=foods[act[j]].node; Bv[nd]+= act[j]===src? I0 : -out; }
+  DG.fill(1e-6);
+  for(var e=0;e<nE;e++){
+    var a=EA[e], b=EB[e], g;
+    if(ALV[a]&&ALV[b]){ var lv=Math.max(LS[a]+LDN[a],LS[b]+LDN[b]); g=(ED[e]+P.GF)/EL[e]*(1-0.985*Math.min(1,lv)); }
+    else g=1e-7;
+    EG[e]=g; DG[a]+=g; DG[b]+=g;
+  }
+  // 前処理つき共役勾配法(前回の圧力から温め直す)
+  matvec(Pp,Av);
+  var rz=0, i;
+  for(i=0;i<nN;i++){ Rv[i]=Bv[i]-Av[i]; Zv[i]=Rv[i]/DG[i]; Dv[i]=Zv[i]; rz+=Rv[i]*Zv[i]; }
+  var bn=0; for(i=0;i<nN;i++) bn+=Bv[i]*Bv[i];
+  for(var it=0;it<P.IT;it++){
+    matvec(Dv,Av);
+    var dAd=0; for(i=0;i<nN;i++) dAd+=Dv[i]*Av[i];
+    if(dAd<=0) break;
+    var al=rz/dAd, rr=0;
+    for(i=0;i<nN;i++){ Pp[i]+=al*Dv[i]; Rv[i]-=al*Av[i]; rr+=Rv[i]*Rv[i]; }
+    if(rr<bn*1e-6) break;
+    var rz2=0; for(i=0;i<nN;i++){ Zv[i]=Rv[i]/DG[i]; rz2+=Rv[i]*Zv[i]; }
+    var be=rz2/rz; rz=rz2;
+    for(i=0;i<nN;i++) Dv[i]=Zv[i]+be*Dv[i];
+  }
+  for(e=0;e<nE;e++){ EQ[e]=EG[e]*(Pp[EA[e]]-Pp[EB[e]]); EQS[e]+=(EQ[e]-EQS[e])*0.02; }   // EQS=ならした流れ(すじの向き)
+  return true;
+}
+function matvec(x,y){
+  for(var i=0;i<nN;i++) y[i]=1e-6*x[i];
+  for(var e=0;e<nE;e++){ var a=EA[e], b=EB[e], d=EG[e]*(x[a]-x[b]); y[a]+=d; y[b]-=d; }
+}
+function adapt(dt,flowing){
+  var gam=P.GAM, rate=P.RATE*dt;
+  for(var e=0;e<nE;e++){
+    var a=EA[e], b=EB[e];
+    if(!(ALV[a]&&ALV[b])) continue;
+    var D=ED[e], lv=Math.max(LS[a]+LDN[a],LS[b]+LDN[b]);
+    var dD;
+    if(flowing){ var q=Math.abs(EQ[e]), qg=Math.pow(q,gam); dD=qg/(1+qg)-D; }
+    else dD=0.18*(P.DINIT-D);                      // 餌がないうちは網目のまま広がる
+    D+=rate*(dD<0?dD*0.45:dD);                    // やせるのは太るよりゆっくり
+    if(lv>0.05) D-=D*Math.min(1,lv)*2.5*dt;        // 光の下ではやせる
+    if(D<0) D=0;
+    if(D<0.02 && ETR[e]===1){ ETR[e]=2; traceEdge(e); }  // 太かった管が消えた跡
+    if(D>0.3) ETR[e]=1;
+    ED[e]=D;
+  }
+}
+function traceEdge(e){
+  var a=EA[e], b=EB[e];
+  trCtx.strokeStyle='rgba(225,220,175,.07)'; trCtx.lineWidth=2.2; trCtx.lineCap='round';
+  trCtx.beginPath(); trCtx.moveTo(PX[a],PY[a]); trCtx.lineTo(PX[b],PY[b]); trCtx.stroke();
+}
+function relax(){                     // 太い管はピンと張って、なめらかな曲線になる
+  var lim=h*0.42;
+  for(var i=0;i<nN;i++){
+    if(!ALV[i]) continue;
+    var sx=0, sy=0, sw=0;
+    for(var k=NS[i];k<NS[i+1];k++){ var D=ED[NEI[k]]; if(D<0.15) continue; var w=D*D; sx+=PX[NL[k]]*w; sy+=PY[NL[k]]*w; sw+=w; }
+    if(sw<0.05) { PX[i]+=(BX[i]-PX[i])*0.02; PY[i]+=(BY[i]-PY[i])*0.02; continue; }
+    if(FN[i]>=0) continue;
+    var tx=sx/sw, ty=sy/sw;
+    var nx=PX[i]+(tx-PX[i])*0.06, ny=PY[i]+(ty-PY[i])*0.06;
+    var dx=nx-BX[i], dy=ny-BY[i], d=Math.hypot(dx,dy); if(d>lim){ nx=BX[i]+dx/d*lim; ny=BY[i]+dy/d*lim; }
+    PX[i]=nx; PY[i]=ny;
+  }
+}
+function feed(dt){
+  for(var j=0;j<foods.length;j++){
+    var f=foods[j]; f.age+=dt;
+    var cov=0;
+    if(ALV[f.node]){ for(var k=NS[f.node];k<NS[f.node+1];k++) cov+=ED[NEI[k]]; }
+    f.cover+=(Math.min(1,cov*0.8)-f.cover)*Math.min(1,dt*2);
+    if(f.amt>0){
+      if(!f.fixed && ALV[f.node]){ f.amt-=P.EAT*dt*(0.3+cov); if(f.amt<=0){ f.amt=0; markFoods(); computeSmell(); } }
+    } else f.dead+=dt;
+  }
+  for(j=foods.length-1;j>=0;j--) if(foods[j].dead>8){ foods.splice(j,1); markFoods(); }
+  if(mode==='dish'){
+    feedTimer+=dt;
+    var live=0; for(j=0;j<foods.length;j++) if(foods[j].amt>0) live++;
+    if((live<4 && feedTimer>6) || feedTimer>40){
+      feedTimer=0;
+      var sp=randomFoodSpot(Math.min(W,H)*0.2);
+      if(sp){ addFood(sp[0],sp[1],Math.min(W,H)*rnd(.022,.03),{drop:true}); computeSmell(); }
+    }
+  }
+}
+
+/* ---------- 描画 ---------- */
+var NB=9, binPaths=[], binHi=[];
+function binW(b){ return (1.3+6.6*Math.pow((b+0.5)/NB,1.2))*(h/8); }
+function render(dt){
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.drawImage(bgCv,0,0);
+  ctx.drawImage(trCv,0,0);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  // 餌
+  for(var j=0;j<foods.length;j++){
+    var f=foods[j], sp=f.sprite, sc=1, al=1;
+    if(f.drop){ f.drop=Math.max(0,f.drop-dt*1.6); sc=1+f.drop*0.6; al=1-f.drop; }
+    if(f.amt<=0){ sc*=0.42; al*=Math.max(0,1-f.dead/8)*0.6; }
+    else if(!f.fixed){ sc*=0.45+0.55*Math.sqrt(f.amt); }
+    var w=sp.width/DPR*sc;
+    ctx.globalAlpha=al; ctx.drawImage(sp,f.x-w/2,f.y-w/2,w,w);
+  }
+  ctx.globalAlpha=1;
+  // 管を太さごとにまとめる
+  var hs=h/8, mesh=new Path2D(), mesh2=new Path2D(), meshN=0;
+  for(var b=0;b<NB;b++){ binPaths[b]=new Path2D(); binHi[b]=0; }
+  for(var e=0;e<nE;e++){
+    var D=ED[e]; if(D<0.035) continue;
+    var a=EA[e], c=EB[e];
+    if(EQS[e]<0){ var t=a; a=c; c=t; }          // 流れの向きに描く(ツヤのすじが流れる向き)
+    if(D<0.3){ var mp=D<0.13?mesh:mesh2; mp.moveTo(PX[a],PY[a]); mp.lineTo(PX[c],PY[c]); meshN++; continue; }
+    var bi=Math.min(NB-1,((Math.sqrt(D)-0.55)/0.45*NB)|0); if(bi<0) bi=0;
+    binPaths[bi].moveTo(PX[a],PY[a]); binPaths[bi].lineTo(PX[c],PY[c]); binHi[bi]++;
+  }
+  ctx.lineCap='round'; ctx.lineJoin='round';
+  if(meshN){                                                    // 広がっている途中の薄い膜: 粗く描いて引き伸ばし、ぼかした膜にする
+    msCtx.setTransform(1,0,0,1,0,0); msCtx.clearRect(0,0,msCv.width,msCv.height); msCtx.setTransform(MSS,0,0,MSS,0,0);
+    msCtx.lineCap='round'; msCtx.lineJoin='round';
+    msCtx.strokeStyle='rgba(236,206,90,.2)'; msCtx.lineWidth=5*hs; msCtx.stroke(mesh);
+    msCtx.strokeStyle='rgba(242,208,84,.34)'; msCtx.lineWidth=6*hs; msCtx.stroke(mesh2);
+    ctx.imageSmoothingEnabled=true; ctx.drawImage(msCv,0,0,W,H);
+    ctx.strokeStyle='rgba(246,220,110,.22)'; ctx.lineWidth=0.9*hs; ctx.stroke(mesh2);
+  }
+  ctx.save(); ctx.translate(0.7*hs,1.1*hs);                      // 影
+  for(b=0;b<NB;b++){ if(!binHi[b]) continue; ctx.strokeStyle='rgba(30,20,0,.38)'; ctx.lineWidth=binW(b)+1.6*hs; ctx.stroke(binPaths[b]); }
+  ctx.restore();
+  for(b=0;b<NB;b++){ if(!binHi[b]) continue; ctx.strokeStyle='rgba(240,200,60,.09)'; ctx.lineWidth=binW(b)*2.6+3*hs; ctx.stroke(binPaths[b]); }   // 膜のにじみ
+  for(b=0;b<NB;b++){ if(!binHi[b]) continue; var tt=(b+0.5)/NB;  // 本体
+    ctx.strokeStyle='rgb('+Math.round(238-6*tt)+','+Math.round(216-62*tt)+','+Math.round(112-92*tt)+')';
+    ctx.lineWidth=binW(b); ctx.stroke(binPaths[b]); }
+  for(b=3;b<NB;b++){ if(!binHi[b]) continue; var t2=(b-2)/(NB-2);  // 芯
+    ctx.strokeStyle='rgba(214,120,6,'+(0.35*t2)+')'; ctx.lineWidth=binW(b)*0.5; ctx.stroke(binPaths[b]); }
+  for(b=0;b<NB;b++){ if(!binHi[b]) continue; var bw=binW(b);      // ツヤ(流れるすじ)
+    ctx.save(); ctx.translate(-bw*0.16,-bw*0.2);
+    ctx.setLineDash([bw*1.6+2,bw*2.4+3]); ctx.lineDashOffset=-clock*(10+bw*3);
+    ctx.strokeStyle='rgba(255,250,215,'+(0.32+0.04*b)+')'; ctx.lineWidth=Math.max(0.6,bw*0.28); ctx.stroke(binPaths[b]);
+    ctx.restore(); }
+  ctx.setLineDash([]);
+  // 餌を包む粘菌
+  for(j=0;j<foods.length;j++){ var f2=foods[j]; if(f2.cover<0.05) continue;
+    var R=f2.r*(1.05+0.25*f2.cover)*(f2.amt>0?0.6+0.4*Math.sqrt(f2.amt):0.5), gq=ctx.createRadialGradient(f2.x-R*.25,f2.y-R*.3,R*.1,f2.x,f2.y,R*1.25);
+    gq.addColorStop(0,'rgba(255,236,150,'+(0.75*f2.cover)+')'); gq.addColorStop(.55,'rgba(244,190,40,'+(0.6*f2.cover)+')'); gq.addColorStop(1,'rgba(230,170,30,0)');
+    ctx.fillStyle=gq; ctx.beginPath(); ctx.arc(f2.x,f2.y,R*1.25,0,PI2); ctx.fill(); }
+  // 光
+  if(lampTrail.length || Object.keys(lamps).length){
+    ctx.globalCompositeOperation='screen';
+    for(var q=0;q<lampTrail.length;q++){ var lt=lampTrail[q], RR=lt.r*1.15, a2=lt.a*0.10;
+      var g3=ctx.createRadialGradient(lt.x,lt.y,0,lt.x,lt.y,RR); g3.addColorStop(0,'rgba(255,240,205,'+a2+')'); g3.addColorStop(1,'rgba(255,230,180,0)');
+      ctx.fillStyle=g3; ctx.fillRect(lt.x-RR,lt.y-RR,RR*2,RR*2); }
+    for(var id in lamps){ var lp=lamps[id], R2=lp.r*1.6; if(R2<2) continue;
+      var gr=ctx.createRadialGradient(lp.x,lp.y,0,lp.x,lp.y,R2);
+      gr.addColorStop(0,'rgba(255,244,215,'+(0.42*lp.s)+')'); gr.addColorStop(.45,'rgba(255,230,180,'+(0.16*lp.s)+')'); gr.addColorStop(1,'rgba(255,220,160,0)');
+      ctx.fillStyle=gr; ctx.fillRect(lp.x-R2,lp.y-R2,R2*2,R2*2); }
+    ctx.globalCompositeOperation='source-over';
+  }
+  // 街の名前
+  if(mode==='tokyo'){
+    var fs=clamp(mapT.s*0.028,9,13);
+    ctx.font='500 '+fs+'px system-ui,sans-serif'; ctx.textBaseline='middle';
+    for(j=0;j<foods.length;j++){ var f3=foods[j]; if(!f3.label) continue;
+      var tx=f3.x+f3.r+4, ty=f3.y-1; ctx.textAlign='left';
+      if(f3.lpos==='l'){ ctx.textAlign='right'; tx=f3.x-f3.r-4; } else if(f3.lpos==='b'){ tx=f3.x+f3.r+1; ty=f3.y+fs*0.95; }
+      ctx.fillStyle='rgba(0,0,0,.5)'; ctx.fillText(f3.label,tx+0.6,ty+0.8);
+      ctx.fillStyle='rgba(245,240,220,.75)'; ctx.fillText(f3.label,tx,ty); }
+  }
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.drawImage(vigCv,0,0);
+}
+
+/* ---------- 操作 ---------- */
+var hint=document.getElementById('hint'), hinted=false;
+function hideHint(){ if(!hinted){ hinted=true; hint.classList.add('off'); } }
+setTimeout(hideHint,9000);
+var toastEl=document.getElementById('toast'), toastT=0;
+function toast(s,ms){ toastEl.textContent=s; toastEl.classList.add('on'); clearTimeout(toastT); toastT=setTimeout(function(){ toastEl.classList.remove('on'); },ms||4500); }
+
+var ptrs={}, lampSeq=0;
+cv.addEventListener('pointerdown',function(ev){
+  if(window.APKit && APKit.isUI(ev.clientX,ev.clientY)) return true;
+  ev.preventDefault(); hideHint();
+  var p={x0:ev.clientX,y0:ev.clientY,lamp:null,id:ev.pointerId};
+  p.timer=setTimeout(function(){ startLamp(p,p.x0,p.y0); },260);
+  ptrs[ev.pointerId]=p;
+  try{ cv.setPointerCapture(ev.pointerId); }catch(e){}
+});
+function startLamp(p,x,y){
+  if(p.lamp) return;
+  var m=Math.min(W,H);
+  p.lamp={x:x,y:y,r:m*0.02,rMax:m*0.085,s:0.2,held:true};
+  lamps['L'+(lampSeq++)]=p.lamp;
+}
+cv.addEventListener('pointermove',function(ev){
+  var p=ptrs[ev.pointerId]; if(!p) return;
+  if(!p.lamp && Math.hypot(ev.clientX-p.x0,ev.clientY-p.y0)>10){ clearTimeout(p.timer); startLamp(p,ev.clientX,ev.clientY); }
+  if(p.lamp){ p.lamp.x=ev.clientX; p.lamp.y=ev.clientY; }
+});
+function endPtr(ev){
+  var p=ptrs[ev.pointerId]; if(!p) return;
+  clearTimeout(p.timer);
+  if(p.lamp){ p.lamp.held=false; }
+  else if(ev.type==='pointerup'){
+    var m=Math.min(W,H);
+    var f=addFood(ev.clientX,ev.clientY, mode==='tokyo'? Math.max(3.2,mapT.s*0.011) : m*rnd(.022,.03), {drop:true, fixed:mode==='tokyo'});
+    if(f) computeSmell();
+  }
+  delete ptrs[ev.pointerId];
+}
+cv.addEventListener('pointerup',endPtr);
+cv.addEventListener('pointercancel',endPtr);
+
+function mutate(){ P=baseParams(); mutateParams(); startDish(); toast('新しい寒天と、気質のちがう粘菌',2600); }
+function reset(){ if(mode==='tokyo') startTokyo(); else startDish(); }
+function tokyo(){
+  if(mode==='tokyo'){ P=baseParams(); startDish(); toast('寒天の皿にもどす',2200); return; }
+  P=baseParams(); startTokyo();
+  toast('関東の街の位置にオートミール、海には光。東京から伸びた粘菌が、街と街をつなぎはじめる(2010年の実験の再現)',7000);
+}
+
+/* ---------- ループ ---------- */
+function setup(){
+  DPR=Math.min(2,window.devicePixelRatio||1);
+  W=window.innerWidth; H=window.innerHeight;
+  cv.width=Math.round(W*DPR); cv.height=Math.round(H*DPR);
+  trCv=mk(W*DPR,H*DPR); trCtx=trCv.getContext('2d'); trCtx.setTransform(DPR,0,0,DPR,0,0);
+  msCv=mk(W*MSS,H*MSS); msCtx=msCv.getContext('2d');
+  buildNet();
+}
+var resizeT=0;
+window.addEventListener('resize',function(){ clearTimeout(resizeT); resizeT=setTimeout(function(){ var m=mode; setup(); if(m==='tokyo') startTokyo(); else startDish(); },250); });
+
+P=baseParams(); setup(); startDish();
+var last=performance.now(), perf={ms:0,n:0};
+function frame(now){
+  var dt=Math.min(0.05,(now-last)/1000); last=now; clock+=dt;
+  var a=performance.now();
+  stampLamps(dt);
+  spreadFront(dt);
+  var flowing=solve();
+  adapt(dt,flowing);
+  relax();
+  feed(dt);
+  render(dt);
+  perf.ms+=performance.now()-a; perf.n++;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+window.__hm={perf:perf,get foods(){return foods;},tokyo:tokyo,mutate:mutate,get alive(){var s=0;for(var i=0;i<nN;i++)s+=ALV[i];return s;},get nodes(){return nN;},
+  lamp:function(x,y,ms){var p={id:-1};startLamp(p,x,y);setTimeout(function(){p.lamp.held=false;},ms||1500);return p;},
+  food:function(x,y){var f=addFood(x,y,Math.min(W,H)*.026,{drop:true}); computeSmell(); return !!f;}};
+
+if(window.APKit){
+  APKit.init({
+    canvas: cv,
+    gifName: 'hunger-map-loop',
+    clockFormat: 'spec',
+    dock: true,
+    autoHide: true,
+    fullscreenButton: false,
+    buttons: [
+      {label:'✦', name:'mutate', onClick:function(){ mutate(); }},
+      {label:'◎', name:'tokyo',  onClick:function(){ tokyo(); }},
+      {label:'↻', name:'reset',  onClick:function(){ reset(); }}
+    ]
+  });
+}
+})();
+</script>
+</body>
+</html>
