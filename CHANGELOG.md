@@ -1,3 +1,4 @@
+- 2026-10-21 クロちゃん: SEA SPARKLEを採用・art-v111として昇格し、CURRENTに設定、録画の対象にも追加(おっちゃん「採用でカレントへ、録画もね」)。それまでのCURRENTだったNORTH DRAW(v110)はLOG先頭(NEXT SPRING v109の上)へ移動、Published worksは先頭をSEA SPARKLEにしてNORTH DRAWをその直後へ。ap-kit.jsの相対パスをルート用に修正、`<title>`の一言を今のルールに合わせて「光る波を切ると、渦が生まれる」に、確認用フック(window.__ss)は外した。`META`に操作ヒント「光る波をサッと切ると、渦になる」を1行追加。`REC_WORKS`に`art-v111-sea-sparkle.html`を追加: スマホ(Android Chrome)のUA・390×844のヘッドレスChromiumで、ギャラリーから開き、本物の録画ボタン→タップ・なぞる→停止を通し、動画(720×1558)に夜の海・砂浜・カニと2行の透かしが映り、始めと終わりで沖の波やエイの様子が変わることを確認(Canvas 2D。確認中だけ他作品の読み込みを止めた)。`tools/poster-config.json`に`hide:#hint,#toast`と「長押し1.8秒で光の輪を何重か作り、横になぞって切る→6秒待つ」を追加し、ポスター(ヒーロー含む)とOGPカードを生成、`gen_posters.py --check`・`gen_og.py --check`とも終了コード0(文字が写らず虹色の渦が写っていることを目視で確認)。試作版`prototypes/sea-sparkle.html`は残す。「現在の状態」も更新。**スマホ実機での録画中の重さは未確認**(Canvas 2D、格子130×280ほどの反応拡散を毎フレーム最大8ステップ＋粒の描画。重ければ`REC_WORKS`から外す)(art-v111-sea-sparkle.html, index.html, posters/, og/, tools/poster-config.json, CHANGELOG.md)
 - 2026-10-21 クロちゃん: SEA SPARKLE(試作)の砂浜の生き物をカニに戻した(おっちゃん「やっぱりカニだな」)。v7で描き直した後のカニ3匹(横長は4匹)。ヤドカリ・子ガメは数0で仕組みだけ残す。ヘッドレスでカニ3・ヤドカリ0・子ガメ0、エラーなしを確認(prototypes/sea-sparkle.html, CHANGELOG.md)
 - 2026-10-21 クロちゃん: SEA SPARKLE(試作)の砂浜の生き物を子ガメからヤドカリに交代(おっちゃん「カメよりカニの方が良かったかなー」「ヤドカリは？」)。子ガメは止めた(仕組みは残し、TURTLES=false)。ヤドカリ3匹(横長は4匹): 色ちがいの巻き貝を背負ってトコトコ前へ歩き、足あとと貝殻を引きずった跡が光る。指が近づくとぴゃっと貝殻に引っこみ、2〜4秒すると目からそーっと出てくる。波が駆け上がってくると引っこんで、少し砂の奥へころがされる。ヘッドレス(390×844)で歩く姿・引っこんだ姿を拡大で目視確認、エラーなし(prototypes/sea-sparkle.html, CHANGELOG.md)
 - 2026-10-21 クロちゃん: SEA SPARKLE(試作)の生き物を再調整(おっちゃん「クラゲは要らない」「イルカはなんか変」「亀は小さすぎて虫に見えるかも」)。クラゲは0匹に(仕組みは残し、数だけ0)。イルカを「光をまとった体」に描き直し: 暗い影＋細い線をやめ、丸い頭・短い口先・胸びれ・三日月の尾びれ・泳ぐ時の体のしなりを付け、体じゅうに夜光虫の粒がまたたく。大きさ1.4倍。子ガメを約1.8倍にし、同じ巣の子ガメが重ならないよう散らした。ヒント2行目を「魚やイルカも光る波を切る · 渦は砂浜で消える」に。ヘッドレス(390×844)でイルカ・子ガメの拡大を目視確認、エラーなし(prototypes/sea-sparkle.html, CHANGELOG.md)
@@ -490,17 +491,17 @@
 
 ## 現在の状態(変わったら書き換える)
 
-- CURRENT: NORTH DRAW(`art-v110-north-draw.html`)。それまでのCURRENTだったNEXT SPRING(v109)はLOG先頭へ
+- CURRENT: SEA SPARKLE(`art-v111-sea-sparkle.html`)。それまでのCURRENTだったNORTH DRAW(v110)はLOG先頭へ
 - 試作: GRAFT LAW(`prototypes/graft-law.html`)を追加。ギャラリー未登録・採用待ち
 - 試作: CUBE COSMOS(`prototypes/cube-cosmos.html`)を追加。ギャラリー未登録・採用待ち
 - 試作: HINGE LAW(`prototypes/hinge-law.html`)を再構成。分割数・装飾を削り、画面内で大きく見せる調整済み。ギャラリー未登録・採用待ち
 - 試作: PARADOX ENGINE(`prototypes/paradox-engine.html`)を新規追加。錯視の立体プリズムが交差部の前後法則を変える作品。ギャラリー未登録・採用待ち
-- LOG先頭: NEXT SPRING(`art-v109-next-spring.html`)、その下にIRON BLOOM(`art-v108-iron-bloom.html`)、EYE LOOM(`art-v107-eye-loom.html`)、SPLIT DEW(`art-v106-split-dew.html`)、STRATA SAND(`art-v105-strata-sand.html`)、PRISM SHELL(`art-v104-prism-shell.html`)、SNOW LEDGER(`art-v103-snow-ledger.html`)、ROSARY(`art-v102-rosary.html`)、WATERLINE(`art-v101-waterline.html`)、HAIRLINE(`art-v100-hairline.html`)、MORPHING FERN(`art-v99-morphing-fern.html`)、v98〜v94、LIVING REEF(`art-v93-living-reef.html`)
+- LOG先頭: NORTH DRAW(`art-v110-north-draw.html`)、その下にNEXT SPRING(`art-v109-next-spring.html`)、IRON BLOOM(`art-v108-iron-bloom.html`)、EYE LOOM(`art-v107-eye-loom.html`)、SPLIT DEW(`art-v106-split-dew.html`)、STRATA SAND(`art-v105-strata-sand.html`)、PRISM SHELL(`art-v104-prism-shell.html`)、SNOW LEDGER(`art-v103-snow-ledger.html`)、ROSARY(`art-v102-rosary.html`)、WATERLINE(`art-v101-waterline.html`)、HAIRLINE(`art-v100-hairline.html`)、MORPHING FERN(`art-v99-morphing-fern.html`)、v98〜v94、LIVING REEF(`art-v93-living-reef.html`)
 - 作業ルール: `AGENTS.md`(ギャラリー追加の手順と命名ルールは13章)
 - 表示モード: iPhoneホーム画面から起動するとCURRENT作品を自動表示するstandalone Web App対応済み
 - 一言説明: ヒーロー/タイルの一言は各作品の`<title>`(`NAME — 日本語の一言`)から自動取得。上書き・ヒントは`index.html`の`META`(ルールはAGENTS.md 13章)
 - 運用メモ: `NOTES.md`(GitHub操作は可能性を確認してから実行)
-- 採用作品作業: NORTH DRAW(v110)をCURRENTに登録済み(ポスター・OGP生成と目視確認、ヘッドレスでの録画確認は完了)。STRATA SAND(v105)〜NORTH DRAW(v110)とも、録画のスマホ実機での重さ・iPhone負荷の検証は未完了。
+- 採用作品作業: SEA SPARKLE(v111)をCURRENTに登録済み(ポスター・OGP生成と目視確認、ヘッドレスでの録画確認は完了)。STRATA SAND(v105)〜SEA SPARKLE(v111)とも、録画のスマホ実機での重さ・iPhone負荷の検証は未完了。
 - ポスター: ギャラリーのタイルの静止画。`posters/`と`tools/gen_posters.py`、ルールはAGENTS.md 14章。作品追加・作品修正・CURRENT変更のたびに`python3 tools/gen_posters.py`(`--check`で点検)
 
 ---
