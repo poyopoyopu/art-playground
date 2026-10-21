@@ -10,7 +10,9 @@
        何もしなくても: 星空と天の川の下で、オーロラのカーテンがゆっくり形を変え、光の筋が流れる。ときどき自然にブレイクアップが起きる
        なぞる  = 指の線の高さにオーロラの裾が引き寄せられ、その形が波になって左右へ伝わる(空が少しのあいだ形を覚える)
        タップ  = ブレイクアップ(オーロラの爆発): その場所から明るくなって横へ広がり、上が赤く、裾が紫に色づき、筋が速く踊る
-       ✦      = 別の夜(山と森の形・カーテンの配置・オーロラの種類: ふつうの緑/嵐の夜/静かな夜/日本で見える赤いオーロラ)
+       ✦      = 別の夜(山と森の形・カーテンの配置・オーロラの種類: ふつうの緑/嵐の夜/静かな夜/日本で見える赤いオーロラ/虹のオーロラ)
+       2026/10/21 おっちゃん「オーロラもレインボーにできる？」→ ✦に「虹のオーロラ」を足し、最初はこの夜から始める。
+         裾の緑を、幕に沿って横へ流れる虹に置きかえる(高さでも少しずつ色がずれ、爆発中は色が速くめぐる)。上の赤・裾の紫はそのまま
        ↻      = 寄せた形を戻す
      本物っぽさ: 空を高さごとの薄い層に分けて、視線が各層を通る位置でカーテンの濃さを足し合わせる(だから縦の筋と奥行きの重なりが自然に出る)。
        色は高さで決まる(下の縁=緑の酸素557nm、上=赤の酸素630nm、激しい時の裾=紫の窒素)。手前に山と針葉樹のシルエット、それを映す湖。
@@ -34,7 +36,7 @@ precision highp float;
 uniform vec2 uRes;
 uniform float uTime, uSeed, uHor, uFl;
 uniform float uBurst, uBurstX, uBurstAge;
-uniform float uGreen, uRed, uPurple, uRays;
+uniform float uGreen, uRed, uPurple, uRays, uRain;
 uniform vec3 uZ;
 uniform sampler2D uDisp;
 uniform float uQ;
@@ -44,6 +46,9 @@ float n1(float x,float s){ float i=floor(x), f=fract(x); f=f*f*(3.-2.*f); return
 float n2(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.-2.*f);
   return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y); }
 float fb2(vec2 p){ return n2(p)*.55+n2(p*2.1+3.1)*.28+n2(p*4.3+7.7)*.17; }
+
+/* 虹のオーロラ用: 色相hの色(0〜1) */
+vec3 rainbow(float h){ return clamp(abs(mod(h*6.+vec3(0.,4.,2.),6.)-3.)-1.,0.,1.); }
 
 float disp(float x){ return texture2D(uDisp,vec2(clamp((x+8.)/16.,0.,1.),.5)).r*12.-6.; }
 
@@ -71,7 +76,10 @@ vec3 hitGlow(vec3 rd,float s,float x,float k,float z0){
   float pg=(smoothstep(-.05,.06,hh)*(exp(-hp*2.)+.7*exp(-hp*12.)) + .12*smoothstep(-.3,0.,hh)*step(hh,0.))*flame;
   float pr=smoothstep(.5,1.6,hh)*exp(-(hh-1.6)*.8)*uRed*(.45+uBurst*1.2);
   float pp=smoothstep(-.03,0.,hh)*(1.-smoothstep(0.,.12,hh))*uPurple*(.25+uBurst*1.6);
-  vec3 c=vec3(.18,1.,.48)*pg*uGreen+vec3(1.,.13,.28)*pr+vec3(.7,.25,1.)*pp;
+  // 虹のオーロラ: 裾の色が、幕に沿って横へ流れる虹になる(高さでも少しずつ色がずれる。爆発中は色が速くめぐる)
+  vec3 gc=vec3(.18,1.,.48);
+  if(uRain>0.){ float hu=fract(x*.2+k*.29+hh*.06-uTime*(.035+uBurst*.15)); gc=mix(gc,rainbow(hu)*.88+.14,uRain); }
+  vec3 c=gc*pg*uGreen+vec3(1.,.13,.28)*pr+vec3(.7,.25,1.)*pp;
   float sp=.6+uBurst*2.;
   float r1=n1(x*7.+uTime*(.9*sp)+k*31.,uSeed+k);                // 光の筋は幕に沿って横へ走る
   float r2=n1(x*24.-uTime*(1.6*sp)+k*7.,uSeed+k+.5);
@@ -219,7 +227,7 @@ gl.linkProgram(prog); if(!gl.getProgramParameter(prog,gl.LINK_STATUS)) console.e
 gl.useProgram(prog);
 var buf=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,buf); gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
 var al=gl.getAttribLocation(prog,'a'); gl.enableVertexAttribArray(al); gl.vertexAttribPointer(al,2,gl.FLOAT,false,0,0);
-var U={}; ['uRes','uTime','uSeed','uHor','uFl','uBurst','uBurstX','uBurstAge','uGreen','uRed','uPurple','uRays','uZ','uDisp','uQ'].forEach(function(n){ U[n]=gl.getUniformLocation(prog,n); });
+var U={}; ['uRes','uTime','uSeed','uHor','uFl','uBurst','uBurstX','uBurstAge','uGreen','uRed','uPurple','uRays','uRain','uZ','uDisp','uQ'].forEach(function(n){ U[n]=gl.getUniformLocation(prog,n); });
 
 /* 寄せた形(64区間)をテクスチャで渡す */
 var NB=64, dU=new Float32Array(NB), dV=new Float32Array(NB), dBytes=new Uint8Array(NB*4);
@@ -235,7 +243,9 @@ var KINDS=[
   {name:'ふつうの緑のオーロラ', green:1.0, red:.3, purple:.35, rays:.9, z:[3.6,6.5,11]},
   {name:'嵐の夜(赤と紫が強い)', green:1.15, red:1.2, purple:.9, rays:1.0, z:[3.2,5.2,8.5]},
   {name:'静かな夜(淡い緑)', green:.75, red:.2, purple:.1, rays:.6, z:[4.2,8,13]},
-  {name:'日本で見える赤いオーロラ', green:.18, red:2.2, purple:.05, rays:.45, z:[9,13,18]}
+  {name:'日本で見える赤いオーロラ', green:.18, red:2.2, purple:.05, rays:.45, z:[9,13,18]},
+  // 2026/10/21 おっちゃん「オーロラもレインボーにできる？」→ 虹のオーロラ(本物には無い色。SEA SPARKLEの虹の夜に合わせた)
+  {name:'虹のオーロラ', green:1.05, red:.12, purple:.2, rays:.9, z:[3.6,6.5,11], rain:1}
 ];
 var kind=KINDS[0], seed=rnd(0,50), Z=[3.6,6.5,11];
 function newNight(i){ kind=KINDS[i]; seed=rnd(0,50); Z=kind.z.map(function(z){ return z*rnd(.9,1.1); }); }
@@ -321,7 +331,7 @@ function frame(now){
   gl.uniform2f(U.uRes,cv.width,cv.height);
   gl.uniform1f(U.uTime,clock); gl.uniform1f(U.uSeed,seed); gl.uniform1f(U.uHor,hor); gl.uniform1f(U.uFl,fl);
   gl.uniform1f(U.uBurst,burst); gl.uniform1f(U.uBurstX,burstX); gl.uniform1f(U.uBurstAge,burstAge);
-  gl.uniform1f(U.uGreen,kind.green); gl.uniform1f(U.uRed,kind.red); gl.uniform1f(U.uPurple,kind.purple); gl.uniform1f(U.uRays,kind.rays);
+  gl.uniform1f(U.uGreen,kind.green); gl.uniform1f(U.uRed,kind.red); gl.uniform1f(U.uPurple,kind.purple); gl.uniform1f(U.uRays,kind.rays); gl.uniform1f(U.uRain,kind.rain||0);
   gl.uniform3f(U.uZ,Z[0],Z[1],Z[2]); gl.uniform1f(U.uQ,Q);
   gl.drawArrays(gl.TRIANGLES,0,3);
   perf.ms+=performance.now()-a; perf.n++;
@@ -333,7 +343,7 @@ function reset(){ dU.fill(0); dV.fill(0); toast('寄せた形を戻した',1500)
 
 var resizeT=0;
 window.addEventListener('resize',function(){ clearTimeout(resizeT); resizeT=setTimeout(setup,200); });
-newNight(0); setup();
+newNight(4); setup();   // 虹のオーロラから始める(2026/10/21)
 requestAnimationFrame(frame);
 
 if(window.APKit){
