@@ -35,7 +35,8 @@
        足したルール: 強くかき回された夜光虫は一瞬で光り切って、しばらく光れなくなる(=指でなぞるのと同じく、光の波を切る)
        ・岩: 海の中ほどに2〜3個。光の波が岩の裏まで回りこむと、岩の裏の渦潮が光を散らして波を切る → 岩の下から渦が生まれる
        ・魚: エイ1匹と小魚の群れが泳ぐ。通った所の夜光虫が光り切って暗い筋が残り、そこを光の波が通ると切れて渦になる
-       ・なぞった所も一瞬またたいてから暗くなる(切ったことが目で分かるように) -->
+       ・なぞった所も一瞬またたいてから暗くなる(切ったことが目で分かるように)
+     2026/10/21 v5.1: おっちゃんの実機スクショで「岩は要らないかな」「砂浜も広すぎてつまらない」→ 岩を0個に、砂浜を画面の下12%に -->
 <script src="../ap-kit.js"></script>
 <style>
 html,body{margin:0;height:100%;background:#01040a;overflow:hidden;touch-action:none}
@@ -48,7 +49,7 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hint">海をタップで光の輪 · 光る波をサッと切ると渦になる<br>岩や魚も波を切る · 渦は潮に流され砂浜で消える</div>
+<div id="hint">海をタップで光の輪 · 光る波をサッと切ると渦になる<br>魚も波を切る · 渦は潮に流され砂浜で消える</div>
 <div id="toast"></div>
 <script>
 (function(){
@@ -86,8 +87,8 @@ function setup(){
       u[(y+1)*GP+x+1]=ou[(sy+1)*op+sx+1]; v[(y+1)*GP+x+1]=ov[(sy+1)*op+sx+1];
     }
   }
-  // 波打ち際(行)。縦長は下から22%、横長は26%が砂浜
-  var frac=H>W?0.78:0.74, ph1=Math.random()*6.28, ph2=Math.random()*6.28;
+  // 波打ち際(行)。縦長は下から12%、横長は14%が砂浜(v5.1: おっちゃん「砂浜も広すぎてつまらない」で22%/26%から細く)
+  var frac=H>W?0.88:0.86, ph1=Math.random()*6.28, ph2=Math.random()*6.28;
   shore=new Float32Array(GW); wetW=new Float32Array(GW);
   for(x=0;x<GW;x++){ shore[x]=GH*frac+4*Math.sin(x*0.045+ph1)+2.2*Math.sin(x*0.11+ph2); wetW[x]=0.7+0.3*Math.sin(x*0.08+ph2*1.7); }
   sand=new Uint8Array(N); en=new Float32Array(N); sandN=new Float32Array(N);
@@ -249,7 +250,8 @@ function inRock(rk,px,py,pad){ // 画面座標。padだけ外側まで含める
 }
 function makeRocks(){
   rocks=[]; SCALE=Math.sqrt(W*H)/574;   // 574 ≒ 390×844 のスマホ
-  var want=W*H>700000?3:2, tries=0, sy=H*(H>W?0.78:0.74);
+  // v5.1: おっちゃん「岩は要らないかな」で0個に(仕組みは残してある。戻すなら数を2〜3に)
+  var want=0, tries=0, sy=H*(H>W?0.88:0.86);
   while(rocks.length<want && tries++<300){
     var r=(12+Math.random()*9)*SCALE;
     var x=W*(0.16+Math.random()*0.68), y=H*0.24+Math.random()*Math.max(10,sy-110*SCALE-H*0.24);
@@ -340,7 +342,11 @@ function updateFish(dtF){
     var bot=seaBottom(f.x)-12*SCALE; if(f.y>bot) f.y=bot; if(f.y<4) f.y=4; if(f.x<4) f.x=4; if(f.x>W-4) f.x=W-4;
     if(f.kind!=='small'){ // 浮いたり潜ったり
       f.dive-=dtF;
-      if(f.dive<=0){ f.up=!f.up; f.dive=f.up? 12+Math.random()*10 : 16+Math.random()*16; }
+      if(f.dive<=0){
+        if(!f.up && act>0.06) f.dive=3;   // 海がまだ渦だらけなら、浮かぶのを待つ
+        else { f.up=!f.up; f.dive=f.up? 12+Math.random()*10 : 14+Math.random()*14; }
+      }
+      if(f.up && act>0.11){ f.up=false; f.dive=8+Math.random()*8; }   // 光の嵐になったら、驚いて潜る
       f.vis+=((f.up?1:0)-f.vis)*Math.min(1,dtF/1.2);
     }
     if(f.kind==='lead') continue;   // 群れの先頭は目に見えない案内役
