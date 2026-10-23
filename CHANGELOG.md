@@ -1,3 +1,4 @@
+- 2026-10-23 クロちゃん: 試作SILVER TURN(イワシの群れ=ベイトボール、指は捕食者。群れが指をよけて穴を開け、怯えが銀の閃きの波になって渡る。触るほど締まって速くなる)を追加(prototypes/silver-turn.html)。Museの3作(JULIA DRIFT/BAIT BALL/MOON DRIFT)が「しょぼい」で不採用→おっちゃん「イワシで頼む」。WebGL1+インスタンシングで2,600匹を立体メッシュで描画、横腹を鏡として水面の光を映す
 - 2026-10-23 クロちゃん: Meta Muse作の試作MOON DRIFT(ミズクラゲ、タップで色が一生変わり鼓動の波が伝わる・なぞると海流が残る)を追加(prototypes/moon-drift.html)。BAIT BALLはおっちゃん「しょぼいね」で不採用→Museの3作目。修正は<title>の一言・作者コメントの位置・gifNameの小文字化だけ
 - 2026-10-23 クロちゃん: Meta Muse作の試作BAIT BALL(イワシの群れの渦、なぞると渦の心が引っ越す・タップで弾ける・長押しで縮む)を追加(prototypes/bait-ball.html)。JULIA DRIFTはおっちゃん「よく分からん」で不採用→Museに作り直させたもの。修正は<title>の一言・作者コメントの位置・gifNameの小文字化だけ、デザインはMuseのまま
 - 2026-10-23 クロちゃん: Meta Muse作の試作JULIA DRIFT(ジュリア集合、なぞった場所が複素定数cになる)を追加(prototypes/julia-drift.html)。Muse版はシェーダー文字列の閉じクォート抜けでJSが止まる状態だったので、その1行だけ修正、<title>を「NAME — 一言」形式に、gifNameを小文字に。デザインはMuseのまま
