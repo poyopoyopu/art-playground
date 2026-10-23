@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>JULIA DRIFT — なぞった場所が世界の法則になる</title>
+<!-- JULIA DRIFT — Meta Muse作。ap-kit.js統合: Meta Muse。2026/10/23 試作。構文修正: クロちゃん -->
+<script src="../ap-kit.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body {
+    width:100%; height:100%; overflow:hidden; background:#1a1030;
+    -webkit-touch-callout:none; -webkit-user-select:none; user-select:none;
+    -webkit-tap-highlight-color:transparent;
+  }
+  #stage { position:fixed; inset:0; display:block; touch-action:none; }
+  #hint {
+    position:fixed; left:50%; bottom:9%; transform:translateX(-50%);
+    color:rgba(255,255,255,.85); font-family:-apple-system, "Hiragino Sans", sans-serif;
+    font-size:13px; letter-spacing:.18em; white-space:nowrap; pointer-events:none;
+    text-shadow:0 1px 8px rgba(0,0,0,.45);
+    transition:opacity 1.6s ease; z-index:5;
+  }
+  #hint.gone { opacity:0; }
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+<div id="hint">なぞると 世界の法則が書き換わる</div>
+
+<script>
+(function(){
+  'use strict';
+
+  var canvas = document.getElementById('stage');
+  var hint = document.getElementById('hint');
+
+  /* ---------- WebGL ---------- */
+  var gl = canvas.getContext('webgl', { antialias:false, depth:false, stencil:false })
+        || canvas.getContext('experimental-webgl');
+  if (!gl) { hint.textContent = 'WebGLが使えない環境です'; return; }
+
+  var VS = [
+    'attribute vec2 aPos;',
+    'varying vec2 vUv;',
+    'void main(){ vUv = aPos*0.5+0.5; gl_Position = vec4(aPos,0.0,1.0); }'
+  ].join('\n');
+
+  var FS = [
+    'precision highp float;',
+    'varying vec2 vUv;',
+    'uniform vec2  uRes;',
+    'uniform vec2  uC;',
+    'uniform float uZoom;',
+    'uniform float uPhase;',
+    'uniform float uScheme;',
+    'uniform float uTime;',
+    'uniform int   uIter;',
+    '',
+    'vec3 pal(float t){',
+    '  vec3 a = vec3(0.55,0.55,0.62);',
+    '  vec3 b = vec3(0.45,0.45,0.38);',
+    '  vec3 d = vec3(0.00,0.10,0.20) + uScheme*0.17;',
+    '  return a + b*cos(6.28318*(t + d + uPhase));',
+    '}',
+    '',
+    'void main(){',
+    '  vec2 uv = vUv*2.0 - 1.0;',
+    '  uv.x *= uRes.x/uRes.y;',              // 縦横比補正（円が楕円にならない）
+    '  float ca = cos(0.03*sin(uTime*0.05));',
+    '  float sa = sin(0.03*sin(uTime*0.05));',
+    '  uv = mat2(ca,-sa,sa,ca) * uv;',
+    '  vec2 z = uv * 1.55 / uZoom;',
+    '  vec2 c = uC;',
+    '  float sn = 0.0;',
+    '  bool esc = false;',
+    '  float lz = 0.0;',
+    '  for(int i=0;i<192;i++){',
+    '    if(i>=uIter) break;',
+    '    z = vec2(z.x*z.x - z.y*z.y, 2.0*z.x*z.y) + c;',
+    '    lz = dot(z,z);',
+    '    if(lz > 256.0){',
+    '      sn = float(i) - log2(log(sqrt(lz))) + 4.0;',
+    '      esc = true;',
+    '      break;',
+    '    }',
+    '  }',
+    '  vec3 col;',
+    '  if(esc){',
+    '    float t = sn*0.026;',
+    '    col = pal(fract(t));',
+    '    col *= 0.88 + 0.30*sin(sn*0.33 - uTime*0.20);',   // 締めの帯がゆっくり流れる
+    '    col += vec3(0.14,0.12,0.16) * exp(-sn*0.07);',    // 境界のほのかな発光
+    '  } else {',
+        // 集合の内側：深い紫の中で角度と距離がうねる（細部がそれぞれ動く）
+    '    float ang = atan(z.y, z.x);',
+    '    float shimmer = 0.5 + 0.5*sin(ang*3.0 + uTime*0.35 + length(z)*5.0);',
+    '    float shimmer2 = 0.5 + 0.5*sin(ang*-5.0 - uTime*0.22 + length(z)*9.0);',
+    '    col = mix(vec3(0.13,0.07,0.27), vec3(0.38,0.17,0.58), shimmer*0.7 + shimmer2*0.3);',
+    '  }',
+    '  col = pow(max(col, 0.0), vec3(0.82));',             // 全体を持ち上げて暗くしない
+    '  gl_FragColor = vec4(col, 1.0);',
+    '}'
+  ].join('\n');
+
+  function makeShader(type, src){
+    var s = gl.createShader(type);
+    gl.shaderSource(s, src); gl.compileShader(s);
+    return s;
+  }
+  var prog = gl.createProgram();
+  gl.attachShader(prog, makeShader(gl.VERTEX_SHADER, VS));
+  gl.attachShader(prog, makeShader(gl.FRAGMENT_SHADER, FS));
+  gl.linkProgram(prog);
+  gl.useProgram(prog);
+
+  var buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  var aPos = gl.getAttribLocation(prog, 'aPos');
+  gl.enableVertexAttribArray(aPos);
+  gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+  var U = {};
+  ['uRes','uC','uZoom','uPhase','uScheme','uTime','uIter'].forEach(function(n){
+    U[n] = gl.getUniformLocation(prog, n);
+  });
+
+  /* ---------- 状態 ---------- */
+  var ANCHORS = [           // 美しくなることが分かっている法則（定数）の島々
+    {x:-0.700, y: 0.27015}, {x:-0.400, y: 0.600}, {x: 0.285, y: 0.010},
+    {x:-0.800, y: 0.156},   {x:-0.745, y: 0.113}, {x: 0.300, y:-0.500},
+    {x:-0.745, y:-0.113},   {x:-0.390, y:-0.587}, {x: 0.355, y: 0.355}
+  ];
+  var HOME = { x:-0.700, y:0.27015 };
+
+  var center   = { x:HOME.x, y:HOME.y };  // 現在の「法則の中心」
+  var curC     = { x:HOME.x, y:HOME.y };  // 実際に描いている定数
+  var logZoom  = 0;                        // 潜航深度（対数）
+  var phase    = 0, phaseTarget = 0;       // 色の法則の位相
+  var scheme   = 0, schemeTarget = 0;      // 色の法則の系統
+  var lastTouch = -10000;                  // 最後に触った時刻(ms)
+  var hintGone = false;
+
+  function hideHint(){
+    if (hintGone) return; hintGone = true;
+    hint.classList.add('gone');
+  }
+  setTimeout(hideHint, 6000);
+
+  /* ---------- サイズ対応 ---------- */
+  var W = 0, H = 0;
+  function resize(){
+    var dpr = Math.min(window.devicePixelRatio || 1, 1.5); // iPhone負荷対策
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width  = Math.max(1, Math.floor(W * dpr));
+    canvas.height = Math.max(1, Math.floor(H * dpr));
+    canvas.style.width  = W + 'px';
+    canvas.style.height = H + 'px';
+    gl.viewport(0, 0, canvas.width, canvas.height);
+  }
+  window.addEventListener('resize', resize);
+  window.addEventListener('orientationchange', function(){ setTimeout(resize, 60); });
+  resize();
+
+  /* ---------- 操作 ---------- */
+  var pointerDown = false, dragging = false, dived = false;
+  var downX = 0, downY = 0, downT = 0;
+
+  function pointToC(x, y){
+    var nx = (x / W) * 2 - 1;
+    var ny = 1 - (y / H) * 2;
+    var cx = nx * 0.78, cy = ny * 0.78;
+    var m = Math.sqrt(cx*cx + cy*cy);
+    if (m > 0.85) { cx *= 0.85/m; cy *= 0.85/m; }
+    return { x:cx, y:cy };
+  }
+
+  canvas.addEventListener('pointerdown', function(e){
+    var x = e.clientX, y = e.clientY;
+    if (window.APKit && APKit.isUI(x, y)) return true;
+    e.preventDefault();
+    hideHint();
+    pointerDown = true; dragging = false; dived = false;
+    downX = x; downY = y; downT = performance.now();
+    lastTouch = downT;
+    if (canvas.setPointerCapture) { try { canvas.setPointerCapture(e.pointerId); } catch(_){} }
+  }, { passive:false });
+
+  canvas.addEventListener('pointermove', function(e){
+    var x = e.clientX, y = e.clientY;
+    if (window.APKit && APKit.isUI(x, y)) return true;
+    if (!pointerDown) return;
+    e.preventDefault();
+    lastTouch = performance.now();
+    if (Math.abs(x-downX) + Math.abs(y-downY) > 12) dragging = true;
+    if (dragging) {
+      var p = pointToC(x, y);
+      center.x = p.x; center.y = p.y;   // 法則そのものを書き換える
+    }
+  }, { passive:false });
+
+  function endPointer(e){
+    var x = e.clientX, y = e.clientY;
+    if (window.APKit && APKit.isUI(x, y)) return true;
+    if (!pointerDown) return;
+    e.preventDefault();
+    pointerDown = false;
+    lastTouch = performance.now();
+    var dt = performance.now() - downT;
+    if (!dragging && !dived && dt < 260) {
+      // タップ：色の法則が跳ぶ
+      phaseTarget  += 0.37;
+      schemeTarget += 1;
+    }
+    dragging = false; dived = false;
+  }
+  canvas.addEventListener('pointerup', endPointer, { passive:false });
+  canvas.addEventListener('pointercancel', endPointer, { passive:false });
+  canvas.addEventListener('contextmenu', function(e){ e.preventDefault(); });
+
+  /* ---------- 描画ループ ---------- */
+  var prevT = performance.now();
+  function tick(now){
+    var dt = Math.min(0.05, (now - prevT) / 1000); prevT = now;
+    var t = now / 1000;
+
+    // 長押し判定：動かさず押し続けたら潜航
+    if (pointerDown && !dragging && (now - downT) > 380) dived = true;
+    if (dived && pointerDown) {
+      logZoom = Math.min(Math.log(80), logZoom + dt * 0.45);
+    } else {
+      var idleLog = Math.log(1 + 0.045 * Math.sin(t * 0.20)); // 眺めている時の呼吸
+      logZoom += (idleLog - logZoom) * Math.min(1, dt * 0.7);
+    }
+
+    // 定数：触っていない間は法則の周りをゆっくり漂う（自己相似の形が変形し続ける）
+    var idle = (now - lastTouch) > 2500;
+    var tx, ty;
+    if (idle) {
+      tx = center.x + 0.10 * Math.cos(t*0.100) + 0.04 * Math.cos(t*0.043 + 1.7);
+      ty = center.y + 0.10 * Math.sin(t*0.083) + 0.04 * Math.sin(t*0.061 + 0.6);
+    } else {
+      tx = center.x; ty = center.y;
+    }
+    var k = Math.min(1, dt * (dragging ? 7 : 2.2));
+    curC.x += (tx - curC.x) * k;
+    curC.y += (ty - curC.y) * k;
+
+    // 色の法則：ゆっくり巡回＋タップで跳ぶ
+    phaseTarget += dt * 0.006;
+    phase  += (phaseTarget  - phase)  * Math.min(1, dt * 3);
+    scheme += (schemeTarget - scheme) * Math.min(1, dt * 3);
+
+    var zoom = Math.exp(logZoom);
+    var iter = Math.floor(110 + 90 * Math.min(1, logZoom / Math.log(80)));
+
+    gl.uniform2f(U.uRes, canvas.width, canvas.height);
+    gl.uniform2f(U.uC, curC.x, curC.y);
+    gl.uniform1f(U.uZoom, zoom);
+    gl.uniform1f(U.uPhase, phase);
+    gl.uniform1f(U.uScheme, scheme);
+    gl.uniform1f(U.uTime, t);
+    gl.uniform1i(U.uIter, iter);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  /* ---------- APKit ---------- */
+  if (window.APKit) {
+    APKit.init({
+      canvas: canvas,
+      gifName: 'julia-drift-loop',
+      clockFormat: 'spec',
+      dock: true,
+      autoHide: true,
+      fullscreenButton: false,
+      buttons: [
+        { label:'✦', name:'mutate', onClick:function(){
+            var a = ANCHORS[Math.floor(Math.random() * ANCHORS.length)];
+            center.x = a.x; center.y = a.y;      // 別の法則の島へ引っ越す
+            schemeTarget += 1;
+            phaseTarget  += 0.23;
+            lastTouch = performance.now();
+        }},
+        { label:'↻', name:'reset', onClick:function(){
+            center.x = HOME.x; center.y = HOME.y;
+            curC.x = HOME.x;   curC.y = HOME.y;
+            logZoom = 0; phaseTarget = 0; schemeTarget = 0;
+            lastTouch = performance.now();
+        }}
+      ]
+    });
+  }
+})();
+</script>
+</body>
+</html>
