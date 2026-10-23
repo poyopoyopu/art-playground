@@ -6,16 +6,19 @@
 <title>SILVER TURN — 怯えは銀の閃きになって群れを渡る</title>
 <!-- SILVER TURN — クロちゃん(Claude)作。ap-kit.js統合: クロちゃん。2026/10/23 試作
      Meta Museに作らせたJULIA DRIFT / BAIT BALL / MOON DRIFTが3作とも「しょぼい」で不採用 → おっちゃん「クロちゃんなら100点に仕上げられる？」→「イワシで頼む」。
-     世界のルール: 指は捕食者。イワシの群れは指をよけて穴を開け、怯えは銀の閃きの波になって群れ全体を渡る。
+     2026/10/23 iPhone実機で「もっとリアルに出来ないの？ 他の魚とかは？」→ 捕食者(マグロ/サメ/イルカ/カジキ)を入れ、群れの魚の種類も✦で切り替え(両方)。
+       リアルさ: 匹数を増やして密集、上の魚が光を遮って群れの下と中心が暗くなる、背と腹のコントラスト、水面の線を控えめに。
+     世界のルール: 指は捕食者。群れは指をよけて穴を開け、怯えは銀の閃きの波になって群れ全体を渡る。
        触るほど群れは怯えて、球がぎゅっと締まり、速く回り、よくギラつくようになる(しばらく触らなければ落ち着く)
-       何もしなくても: 2,600匹が球(ベイトボール)になって回遊し、ときどき自然に閃きの波が走る。カメラはゆっくり群れの周りを回る
-       タップ   = 捕食者が突っ込む。群れが弾けて穴が開き、泡が出て、そこから閃きの波が広がる
-       なぞる   = 捕食者が群れの中を通る。指の通り道にトンネルが開き、閃きが指を追う
-       長押し   = 捕食者が居座る。群れは怯えて締まり、離すと大きな閃きの波
-       ✦       = 別の海(外洋の青 / 沿岸の緑 / 夕暮れ / 真昼の浅瀬)、回る向きも変わることがある
+       何もしなくても: 群れ(ベイトボール)が回遊し、捕食者が周りを回ってはときどき突っ込む。カメラはゆっくり群れの周りを回る
+       タップ   = その場所へ捕食者が飛び込む(一番近い1匹)。群れが弾けて穴が開き、泡と閃きの波
+       なぞる   = 指の通り道にトンネルが開き、閃きが指を追う
+       長押し   = 群れが怯えて締まり、離すと大きな閃きの波
+       ✦       = 別の海: 外洋の青(マイワシ×キハダマグロ) / 沿岸の緑(マアジ×サメ) / 夕暮れの海(マイワシ×イルカ) / 真昼の浅瀬(キビナゴ×バショウカジキ)
        ↻       = 群れを落ち着かせて最初の形に戻す
-     本物っぽさ: イワシは横腹が鏡。体をひねると水面の明るさを映して光る(実際の群れの「シマー」と同じ仕組み)。
-       背は青黒、腹は白、側面に黒点の列。水は深いほど暗く、上には水面の揺らぎと光の筋、漂うマリンスノー。
+     本物っぽさ: 小魚の横腹は鏡。体をひねると水面の明るさを映して光る(実際の群れの「シマー」と同じ仕組み)。
+       背は暗く腹は白い(カウンターシェーディング)。マイワシの黒点、マアジの稜鱗、キビナゴの青い帯、カジキの帆と縦じま。
+       イルカは尾びれが横向きで上下に振り、下から突き上げて泡を出す。カジキは襲う時に帆を立てる。
      描画: WebGL1 + ANGLE_instanced_arrays(魚は1匹ずつ立体のメッシュ)。重い端末では解像度→匹数の順に自動で下げる。 -->
 <script src="../ap-kit.js"></script>
 <style>
@@ -29,7 +32,7 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hint">群れに指を入れると、イワシがよけて銀色に閃く<br>長押しすると、群れが怯えてぎゅっと締まる</div>
+<div id="hint">群れをタップすると、捕食者がそこへ飛び込む<br>なぞるとトンネル、長押しで群れが締まる</div>
 <div id="toast"></div>
 <script>
 (function(){
@@ -70,43 +73,47 @@ WATER,
 '  vec2 q=gl_FragCoord.xy/uRes*2.0-1.0;',
 '  vec3 d=normalize(uCamF+q.x*uCamR*uTanV*uAsp+q.y*uCamU*uTanV);',
 '  vec3 c=water(d);',
-   // 水面(上を見上げた所): 波の揺らぎが明るい網目になって見える
+   // 水面: 見上げた先だけ、細かく淡いきらめき
 '  if(d.y>0.0){',
 '    float t=(3.4-uCamP.y)/max(d.y,0.02);',
-'    vec2 s=(uCamP.xz+d.xz*t)*2.6;',
+'    vec2 s=(uCamP.xz+d.xz*t)*4.2;',
 '    float w=sin(s.x*1.3+uTime*0.9)+sin(s.y*1.7-uTime*0.75)+sin((s.x+s.y)*0.9+uTime*1.2)+0.7*sin((s.x-s.y)*2.3-uTime*1.0);',
-'    float l=pow(1.0-abs(sin(w*1.2)),5.0);',
-'    float fade=smoothstep(0.18,0.7,d.y)*exp(-t*0.06);',
-'    c+=uSurf*(l*0.24*fade+smoothstep(0.25,1.0,d.y)*0.14);',
+'    float l=pow(1.0-abs(sin(w*1.2)),6.0);',
+'    float fade=smoothstep(0.2,0.75,d.y)*exp(-t*0.07);',
+'    c+=uSurf*(l*0.10*fade+smoothstep(0.25,1.0,d.y)*0.14);',
 '  }',
-   // 光の筋: 画面上の外にある光源から扇のように差し込む
+   // 光の筋
 '  vec2 p=vec2(q.x*uAsp,q.y);',
 '  vec2 v=p-vec2(0.35*uAsp+0.1,1.9);',
 '  float a=atan(v.x,-v.y);',
 '  float r=n1(a*16.0+uTime*0.13)*0.6+n1(a*43.0-uTime*0.21)*0.4;',
 '  r=smoothstep(0.42,0.95,r);',
 '  float fall=smoothstep(4.2,0.3,length(v));',
-'  c+=uSurf*r*fall*0.17*smoothstep(-0.9,0.3,d.y);',
-'  c*=1.0-0.22*dot(q*vec2(0.7,0.5),q*vec2(0.7,0.5));',
+'  c+=uSurf*r*fall*0.15*smoothstep(-0.9,0.3,d.y);',
+'  c*=1.0-0.26*dot(q*vec2(0.7,0.55),q*vec2(0.7,0.55));',
 '  gl_FragColor=vec4(c,1.0);',
 '}'
 ].join('\n');
 
 var FISH_VS=[
 'attribute vec3 aP,aN;',
+'attribute float aM;',     // 0=体 1=ひれ 2=黄色いひれ 3=帆
 'attribute vec3 iPos,iFwd;',
-'attribute vec4 iM;',      // x=ひねり(roll) y=尾の位相 z=大きさ w=個体差
-'attribute float iF;',     // 閃きの強さ
+'attribute vec4 iM;',      // x=ひねり(roll) y=尾の位相 z=大きさ w=明るさ(群れの影)
+'attribute float iF;',     // 小魚: 閃きの強さ / カジキ: 帆の立ち具合
 'uniform mat4 uVP;',
+'uniform float uWig,uWigK,uTailX,uVert;',
 'varying vec3 vN,vW;',
-'varying float vLy,vX,vSh,vFl;',
+'varying float vLy,vX,vSh,vFl,vMat,vNy;',
 'void main(){',
 '  vec3 p=aP,n=aN;',
-'  float tl=clamp((0.22-p.x)/0.74,0.0,1.0);tl*=tl;',
-'  float ph=iM.y-p.x*7.0;',
-'  p.z+=sin(ph)*0.085*tl;',
-'  float dz=cos(ph)*(-7.0)*0.085*tl;',
-'  n=normalize(vec3(n.x-dz*n.z,n.y,n.z));',
+'  if(aM>2.5) p.y=0.06+(p.y-0.06)*(0.22+0.78*iF);',
+'  float tl=clamp((uTailX-p.x)/(uTailX+0.52),0.0,1.0);tl*=tl;',
+'  float ph=iM.y-p.x*uWigK;',
+'  float off=sin(ph)*uWig*tl;',
+'  float dd=cos(ph)*(-uWigK)*uWig*tl;',
+'  if(uVert>0.5){p.y+=off;n=normalize(vec3(n.x-dd*n.y,n.y,n.z));}',
+'  else{p.z+=off;n=normalize(vec3(n.x-dd*n.z,n.y,n.z));}',
 '  vec3 f=normalize(iFwd);',
 '  vec3 s=cross(f,vec3(0.0,1.0,0.0));',
 '  float sl=length(s);',
@@ -115,8 +122,8 @@ var FISH_VS=[
 '  float cr=cos(iM.x),sr=sin(iM.x);',
 '  vec3 s2=s*cr+u*sr,u2=u*cr-s*sr;',
 '  vec3 w=iPos+(f*p.x+u2*p.y+s2*p.z)*iM.z;',
-'  vW=w;vN=f*n.x+u2*n.y+s2*n.z;',
-'  vLy=aP.y;vX=aP.x;vSh=iM.w;vFl=iF;',
+'  vW=w;vN=f*n.x+u2*n.y+s2*n.z;vNy=n.y;',
+'  vLy=aP.y;vX=aP.x;vSh=iM.w;vFl=iF;vMat=aM;',
 '  gl_Position=uVP*vec4(w,1.0);',
 '}'
 ].join('\n');
@@ -124,10 +131,12 @@ var FISH_VS=[
 var FISH_FS=[
 'precision highp float;',
 WATER,
-'uniform vec3 uCam,uBack;',
+'uniform vec3 uCam,uBack,uFlank,uBelly,uFin,uFin2,uSail,uEye;',
+'uniform float uMirror,uSpots,uStripe,uLat,uBars,uHs,uFlashK;',
 'uniform float uFogNear,uFogK;',
 'varying vec3 vN,vW;',
-'varying float vLy,vX,vSh,vFl;',
+'varying float vLy,vX,vSh,vFl,vMat,vNy;',
+'float hs2(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}',
 'float caus(vec2 p){float c=sin(p.x*2.3+uTime*1.1)*sin(p.y*1.9-uTime*0.8)+0.6*sin((p.x+p.y)*1.4+uTime*0.6);return max(c,0.0);}',
 'void main(){',
 '  vec3 N=normalize(vN);',
@@ -135,36 +144,57 @@ WATER,
 '  float nv=dot(N,V);',
 '  if(nv<0.0){N=-N;nv=-nv;}',
 '  vec3 R=reflect(-V,N);',
-   // 横腹は鏡: 映った方向の水の色。上を向けば水面の明るさを映してギラッと光る
-'  vec3 env=water(R)*1.1+uSurf*smoothstep(-0.15,0.9,R.y)*0.85;',
-'  float fr=0.7+0.3*pow(1.0-nv,2.0);',
-'  vec3 silver=env*fr*1.25+uSunCol*pow(max(dot(R,uSun),0.0),26.0)*1.5;',
-   // 背は青黒(上からの光の揺らぎが乗る)、腹は白
-'  float backT=smoothstep(0.0,0.045,vLy);',
-'  float lit=0.35+0.65*max(N.y,0.0);',
-'  vec3 back=uBack*lit*(1.0+0.7*caus(vW.xz*2.6));',
-'  back+=uSunCol*pow(max(dot(R,uSun),0.0),50.0)*0.35;',
-'  vec3 col=mix(silver,back,backT*0.9);',
-'  col=mix(col,vec3(0.80,0.86,0.90)*(0.55+0.45*lit),smoothstep(-0.03,-0.075,vLy)*0.6);',
-   // マイワシの黒点の列と目
-'  float sp=smoothstep(0.38,0.12,length(vec2(fract(vX*24.0)-0.5,(vLy-0.018)*38.0)))*step(-0.14,vX)*step(vX,0.32);',
-'  col*=1.0-sp*0.5;',
-'  float eye=smoothstep(0.024,0.012,length(vec2(vX-0.40,vLy-0.010)));',
-'  col=mix(col,vec3(0.02,0.03,0.04),eye*0.9);',
-   // 深いほど暗い
-'  col*=mix(0.5,1.15,smoothstep(-1.3,1.3,vW.y));',
-'  col*=0.9+0.2*vSh;',
-'  col+=vec3(0.85,0.95,1.0)*vFl*0.6;',
+'  float lit=0.32+0.68*max(N.y,0.0);',
+'  float cs=caus(vW.xz*2.4);',
+'  float spec=pow(max(dot(R,uSun),0.0),30.0);',
+'  vec3 col;',
+'  if(vMat<0.5){',
+     // 体: 背は暗く(上からの光の揺らぎが乗る)、腹は白い。横腹は鏡
+'    float top=smoothstep(0.2,0.85,vNy), bot=smoothstep(-0.25,-0.85,vNy);',
+'    vec3 base=mix(mix(uFlank,uBack,top),uBelly,bot);',
+'    vec3 matte=base*lit*(1.0+0.55*cs*top)+uSunCol*spec*0.35;',
+'    vec3 env=water(R)*1.1+uSurf*smoothstep(-0.15,0.9,R.y)*0.85;',
+'    float fr=0.7+0.3*pow(1.0-nv,2.0);',
+'    vec3 silver=env*fr*1.22*mix(vec3(1.0),uFlank*1.5,0.25)+uSunCol*pow(max(dot(R,uSun),0.0),26.0)*1.5;',
+'    col=mix(matte,silver,uMirror*(1.0-top*0.85)*(1.0-bot*0.45));',
+'    float ly=vLy/uHs;',
+     // マイワシの黒点の列
+'    if(uSpots>0.5){float sp=smoothstep(0.38,0.12,length(vec2(fract(vX*24.0)-0.5,(ly-0.018)*38.0)))*step(-0.14,vX)*step(vX,0.32);col*=1.0-sp*0.5;}',
+     // キビナゴの青い帯
+'    if(uStripe>0.5){float b=smoothstep(0.016,0.004,abs(ly-0.004))*step(-0.3,vX)*step(vX,0.36);col=mix(col,vec3(0.35,0.7,1.0)*(0.7+0.6*lit),b*0.75);}',
+     // マアジの稜鱗(側線)
+'    if(uLat>0.5){float yl=0.006+0.024*smoothstep(-0.12,0.24,vX);float b=smoothstep(0.007,0.002,abs(ly-yl))*step(-0.32,vX)*step(vX,0.33);col*=1.0-b*0.4;col*=vec3(1.04,1.0,0.86);}',
+     // カジキの縦じま
+'    if(uBars>0.5){float b=smoothstep(0.6,0.95,sin(vX*64.0+sin(vLy*45.0)*0.9))*(1.0-top)*(1.0-bot)*step(-0.3,vX)*step(vX,0.2)*(0.5+0.5*hs2(vec2(floor(vX*64.0/6.28),1.0)));col=mix(col,vec3(0.45,0.7,1.0)*(0.6+0.6*lit),b*0.35);}',
+'    float eye=smoothstep(uEye.z,uEye.z*0.55,length(vec2(vX-uEye.x,ly-uEye.y)));',
+'    col=mix(col,vec3(0.02,0.03,0.04),eye*0.92);',
+'  } else {',
+     // ひれ: 付け根が明るく先へ行くほど暗く、少し透けて水の色が混ざる
+'    float root=smoothstep(0.24,0.03,max(abs(vLy)-0.06,0.0)+max(-0.36-vX,0.0)*1.2);',
+'    if(vMat<1.5){ col=uFin*lit*(1.0+0.3*cs); }',
+'    else if(vMat<2.5){ col=uFin2*(0.35+0.6*lit); }',
+'    else {',
+'      vec2 g=vec2(vX*26.0,vLy*20.0), id=floor(g);',
+'      vec2 fc=fract(g)-0.5+(vec2(hs2(id),hs2(id+7.0))-0.5)*0.45;',
+'      float dots=smoothstep(0.28,0.08,length(fc))*step(0.35,hs2(id+3.0));',
+'      col=mix(uSail,vec3(0.22,0.45,0.9),dots*0.35)*(0.45+0.65*lit);',
+'    }',
+'    col=col*(0.7+0.4*root)+uSunCol*spec*0.25;',
+'    col=mix(col,water(-V),0.28-0.12*root);',
+'  }',
+'  col*=mix(0.5,1.15,smoothstep(-1.4,1.4,vW.y));',
+'  col*=vSh;',
+'  col+=vec3(0.85,0.95,1.0)*vFl*0.6*uFlashK;',
 '  float dist=length(uCam-vW);',
 '  float fog=1.0-exp(-max(dist-uFogNear,0.0)*uFogK);',
-'  col=mix(col,water(-V),clamp(fog,0.0,0.88));',
+'  col=mix(col,water(-V),clamp(fog,0.0,0.9));',
 '  gl_FragColor=vec4(col,1.0);',
 '}'
 ].join('\n');
 
 var PT_VS=[
 'attribute vec3 aPos;',
-'attribute vec2 aS;',      // x=大きさ y=濃さ
+'attribute vec2 aS;',
 'uniform mat4 uVP;',
 'uniform float uPx;',
 'varying float vA;',
@@ -215,63 +245,152 @@ var BG,FISH,PT;
 try{ BG=prog(BG_VS,BG_FS); FISH=prog(FISH_VS,FISH_FS); PT=prog(PT_VS,PT_FS); }
 catch(e){ hint.textContent='描画の準備に失敗しました'; if(window.console) console.error(e); return; }
 
-/* ================= 魚の形(1匹ぶんのメッシュ) ================= */
-// 体長1、x=前、y=上、z=横。断面はひし形(背・横腹・腹)、尾は平たい二股
-var mesh=[];
-(function(){
-  var X=[0.40,0.27,0.08,-0.12,-0.27,-0.33], Hh=[0.045,0.080,0.092,0.075,0.040,0.026];
-  var rings=[], k, j;
+/* ================= 魚の形 ================= */
+// 体長1、x=前(+0.5が口先)、y=上、z=横。体は楕円の断面を輪切りでつなぎ、ひれは薄い板
+function buildMesh(sp){
+  var out=[], M=sp.M, hs=sp.hs||1, k, j;
+  var X=sp.X, Hh=sp.H.map(function(h){ return h*hs; });
+  function push(p,n,m){ var l=Math.hypot(n[0],n[1],n[2])||1; out.push(p[0],p[1],p[2],n[0]/l,n[1]/l,n[2]/l,m); }
+  var rings=[];
   for(k=0;k<X.length;k++){
-    var h=Hh[k], w=h*0.42;
-    rings.push([
-      {p:[X[k], h*0.95,0], n:[0,1,0]},
-      {p:[X[k],-h*0.05, w], n:[0,0.15,1]},
-      {p:[X[k],-h*1.05,0], n:[0,-1,0]},
-      {p:[X[k],-h*0.05,-w], n:[0,0.15,-1]}
-    ]);
+    var h=Hh[k], w=h*sp.wr, cy=-h*0.05;
+    var a=Math.max(0,k-1), b=Math.min(X.length-1,k+1);
+    var slope=(Hh[a]-Hh[b])/((X[a]-X[b])||1);
+    var ring=[];
+    for(j=0;j<M;j++){
+      var th=j/M*6.28318, ey=Math.cos(th)/h, ez=Math.sin(th)/w, el=Math.hypot(ey,ez);
+      ring.push({p:[X[k],cy+h*Math.cos(th),w*Math.sin(th)], n:[-slope,ey/el,ez/el]});
+    }
+    rings.push(ring);
   }
-  function push(v){ var n=v.n, l=Math.hypot(n[0],n[1],n[2]); mesh.push(v.p[0],v.p[1],v.p[2],n[0]/l,n[1]/l,n[2]/l); }
-  var nose={p:[0.5,-0.002,0],n:[1,0,0]};
-  for(j=0;j<4;j++){ push(nose); push(rings[0][j]); push(rings[0][(j+1)%4]); }
+  var nose=[sp.nose,-Hh[0]*0.05,0];
+  for(j=0;j<M;j++){ push(nose,[1,0,0],0); push(rings[0][j].p,rings[0][j].n,0); push(rings[0][(j+1)%M].p,rings[0][(j+1)%M].n,0); }
   for(k=0;k<rings.length-1;k++){
-    for(j=0;j<4;j++){
-      var a=rings[k][j], b=rings[k][(j+1)%4], c=rings[k+1][(j+1)%4], d=rings[k+1][j];
-      push(a); push(b); push(c); push(a); push(c); push(d);
+    for(j=0;j<M;j++){
+      var A=rings[k][j], B=rings[k][(j+1)%M], Cc=rings[k+1][(j+1)%M], D=rings[k+1][j];
+      push(A.p,A.n,0); push(B.p,B.n,0); push(Cc.p,Cc.n,0); push(A.p,A.n,0); push(Cc.p,Cc.n,0); push(D.p,D.n,0);
     }
   }
-  var xp=-0.33, tn=[0,0,1];
-  var bt={p:[xp,0.026,0],n:tn}, bb={p:[xp,-0.026,0],n:tn};
-  var tu={p:[-0.53,0.12,0],n:tn}, nt={p:[-0.45,0.0,0],n:tn}, tlw={p:[-0.53,-0.12,0],n:tn};
-  push(bt); push(tu); push(nt); push(bt); push(nt); push(bb); push(bb); push(nt); push(tlw);
-})();
-var MESH_N=mesh.length/6;
-var meshBuf=gl.createBuffer();
-gl.bindBuffer(gl.ARRAY_BUFFER,meshBuf);
-gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(mesh),gl.STATIC_DRAW);
+  var L=rings[rings.length-1], end=[X[X.length-1]-0.005,-Hh[Hh.length-1]*0.05,0];
+  for(j=0;j<M;j++){ push(end,[-1,0,0],0); push(L[(j+1)%M].p,[-1,0,0],0); push(L[j].p,[-1,0,0],0); }
+  (sp.fins||[]).forEach(function(f){
+    var m=f[0], t=f.slice(1);
+    for(var i=0;i<t.length;i+=3){
+      var p0=t[i],p1=t[i+1],p2=t[i+2];
+      var e1=[p1[0]-p0[0],p1[1]-p0[1],p1[2]-p0[2]], e2=[p2[0]-p0[0],p2[1]-p0[1],p2[2]-p0[2]];
+      var n=[e1[1]*e2[2]-e1[2]*e2[1],e1[2]*e2[0]-e1[0]*e2[2],e1[0]*e2[1]-e1[1]*e2[0]];
+      push(p0,n,m); push(p1,n,m); push(p2,n,m);
+    }
+  });
+  // 左右対称のひれ(z>0で書いたものを鏡写しに)
+  (sp.pairs||[]).forEach(function(f){
+    var m=f[0], t=f.slice(1);
+    [1,-1].forEach(function(sg){
+      for(var i=0;i<t.length;i+=3){
+        var p0=[t[i][0],t[i][1],t[i][2]*sg],p1=[t[i+1][0],t[i+1][1],t[i+1][2]*sg],p2=[t[i+2][0],t[i+2][1],t[i+2][2]*sg];
+        var e1=[p1[0]-p0[0],p1[1]-p0[1],p1[2]-p0[2]], e2=[p2[0]-p0[0],p2[1]-p0[1],p2[2]-p0[2]];
+        var n=[e1[1]*e2[2]-e1[2]*e2[1],e1[2]*e2[0]-e1[0]*e2[2],e1[0]*e2[1]-e1[1]*e2[0]];
+        push(p0,n,m); push(p1,n,m); push(p2,n,m);
+      }
+    });
+  });
+  var buf=gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(out),gl.STATIC_DRAW);
+  return {buf:buf,n:out.length/7};
+}
+function forkTail(x,h,tx,ty,nx){ // 二股の尾(縦の板)
+  var bt=[x,h,0], bb=[x,-h,0], tu=[tx,ty,0], nt=[nx,0,0], tl=[tx,-ty,0];
+  return [1,bt,tu,nt, bt,nt,bb, bb,nt,tl];
+}
+
+/* 小魚(群れ) */
+var PREY_X=[0.40,0.27,0.08,-0.12,-0.27,-0.33], PREY_H=[0.045,0.080,0.092,0.075,0.040,0.026];
+var PREY={
+  iwashi:{name:'マイワシ', hs:1.0, tail:1.0, size:0.094,
+    back:[0.06,0.14,0.22], flank:[0.62,0.67,0.72], belly:[0.86,0.89,0.92], fin:[0.32,0.40,0.47],
+    mirror:0.92, spots:1, stripe:0, lat:0, eye:[0.40,0.010,0.022]},
+  aji:{name:'マアジ', hs:1.2, tail:1.15, size:0.1,
+    back:[0.16,0.21,0.15], flank:[0.66,0.66,0.57], belly:[0.86,0.87,0.82], fin:[0.72,0.62,0.30],
+    mirror:0.8, spots:0, stripe:0, lat:1, eye:[0.39,0.014,0.03]},
+  kibinago:{name:'キビナゴ', hs:0.72, tail:0.8, size:0.085,
+    back:[0.20,0.30,0.32], flank:[0.70,0.75,0.80], belly:[0.88,0.90,0.92], fin:[0.55,0.65,0.70],
+    mirror:0.85, spots:0, stripe:1, lat:0, eye:[0.41,0.008,0.02]}
+};
+for(var pk in PREY){
+  var pp=PREY[pk];
+  pp.mesh=buildMesh({X:PREY_X,H:PREY_H,hs:pp.hs,wr:0.44,M:6,nose:0.5,
+    fins:[forkTail(-0.33,0.026*pp.hs,-0.53,0.12*pp.tail,-0.45)]});
+}
+
+/* 捕食者 */
+var PRED={
+  tuna:{name:'キハダマグロ', count:3, size:0.62, cruise:1.0, attack:3.4, turn:1.8, every:[3,6], wig:0.05, wigK:5, tailX:0.0, vert:0,
+    back:[0.03,0.06,0.15], flank:[0.52,0.58,0.66], belly:[0.86,0.88,0.9], fin:[0.07,0.09,0.14], fin2:[0.80,0.63,0.12],
+    mirror:0.6, bars:0, eye:[0.40,0.02,0.02],
+    shape:{X:[0.42,0.32,0.15,-0.05,-0.22,-0.34,-0.40],H:[0.055,0.105,0.13,0.12,0.08,0.032,0.02],wr:0.82,M:12,nose:0.5,
+      fins:[
+        [1,[0.12,0.115,0],[0.0,0.20,0],[-0.04,0.112,0]],
+        [2,[-0.10,0.10,0],[-0.20,0.26,0],[-0.18,0.08,0]],
+        [2,[-0.10,-0.11,0],[-0.20,-0.27,0],[-0.18,-0.09,0]],
+        [2,[-0.24,0.058,0],[-0.27,0.085,0],[-0.27,0.05,0], [-0.28,0.045,0],[-0.31,0.068,0],[-0.31,0.038,0],
+           [-0.24,-0.062,0],[-0.27,-0.09,0],[-0.27,-0.055,0], [-0.28,-0.05,0],[-0.31,-0.073,0],[-0.31,-0.042,0]],
+        [1,[-0.40,0.02,0],[-0.47,0.22,0],[-0.44,0,0], [-0.40,0.02,0],[-0.44,0,0],[-0.40,-0.02,0], [-0.40,-0.02,0],[-0.44,0,0],[-0.47,-0.22,0]]
+      ],
+      pairs:[[1,[0.20,0.0,0.09],[0.16,-0.01,0.095],[-0.08,-0.04,0.17]]]}},
+  shark:{name:'サメ', count:2, size:1.15, cruise:0.55, attack:2.6, turn:1.0, every:[6,11], wig:0.07, wigK:4, tailX:0.3, vert:0,
+    back:[0.30,0.33,0.37], flank:[0.42,0.45,0.48], belly:[0.86,0.86,0.84], fin:[0.24,0.27,0.30], fin2:[0.2,0.22,0.25],
+    mirror:0.05, bars:0, eye:[0.40,0.012,0.009],
+    shape:{X:[0.44,0.36,0.20,0.02,-0.16,-0.28,-0.36],H:[0.035,0.065,0.085,0.08,0.06,0.032,0.022],wr:0.78,M:12,nose:0.5,
+      fins:[
+        [1,[0.09,0.075,0],[-0.03,0.235,0],[-0.05,0.15,0], [0.09,0.075,0],[-0.05,0.15,0],[-0.08,0.07,0]],
+        [1,[-0.22,0.05,0],[-0.26,0.095,0],[-0.28,0.045,0]],
+        [1,[-0.20,-0.05,0],[-0.24,-0.085,0],[-0.26,-0.045,0]],
+        [1,[-0.36,0.022,0],[-0.53,0.19,0],[-0.45,0.02,0], [-0.36,0.022,0],[-0.45,0.02,0],[-0.36,-0.022,0], [-0.36,-0.022,0],[-0.45,0.02,0],[-0.47,-0.10,0]]
+      ],
+      pairs:[[1,[0.18,-0.04,0.06],[0.08,-0.05,0.065],[-0.02,-0.11,0.25]], [1,[-0.10,-0.06,0.04],[-0.14,-0.06,0.04],[-0.15,-0.09,0.08]]]}},
+  dolphin:{name:'イルカ', count:3, size:0.92, cruise:0.85, attack:3.0, turn:1.6, every:[4,8], wig:0.06, wigK:4, tailX:0.1, vert:1,
+    back:[0.29,0.33,0.38], flank:[0.46,0.50,0.55], belly:[0.82,0.82,0.84], fin:[0.27,0.30,0.35], fin2:[0.27,0.30,0.35],
+    mirror:0.06, bars:0, eye:[0.36,0.0,0.009],
+    shape:{X:[0.47,0.42,0.36,0.26,0.08,-0.12,-0.28,-0.38],H:[0.012,0.022,0.07,0.10,0.11,0.085,0.04,0.018],wr:0.88,M:12,nose:0.5,
+      fins:[
+        [1,[0.06,0.10,0],[-0.03,0.17,0],[-0.09,0.215,0], [0.06,0.10,0],[-0.09,0.215,0],[-0.10,0.095,0]],
+        [1,[-0.38,0,0.02],[-0.48,-0.004,0.18],[-0.46,0,0], [-0.38,0,0.02],[-0.46,0,0],[-0.38,0,-0.02], [-0.38,0,-0.02],[-0.46,0,0],[-0.48,-0.004,-0.18]]
+      ],
+      pairs:[[1,[0.22,-0.06,0.08],[0.16,-0.07,0.085],[0.08,-0.13,0.20]]]}},
+  sailfish:{name:'バショウカジキ', count:2, size:1.3, cruise:0.8, attack:2.8, turn:1.5, every:[4,8], wig:0.05, wigK:5, tailX:0.0, vert:0,
+    back:[0.05,0.10,0.28], flank:[0.45,0.55,0.70], belly:[0.85,0.88,0.92], fin:[0.06,0.11,0.28], fin2:[0.06,0.11,0.28],
+    mirror:0.55, bars:1, eye:[0.25,0.015,0.013],
+    shape:{X:[0.34,0.30,0.24,0.12,-0.05,-0.20,-0.30,-0.36],H:[0.006,0.022,0.055,0.075,0.07,0.05,0.026,0.018],wr:0.55,M:12,nose:0.56,
+      fins:[
+        [3,[0.22,0.05,0],[0.18,0.30,0],[0.06,0.34,0], [0.22,0.05,0],[0.06,0.34,0],[0.10,0.07,0],
+           [0.10,0.07,0],[0.06,0.34,0],[-0.08,0.28,0], [0.10,0.07,0],[-0.08,0.28,0],[-0.05,0.066,0],
+           [-0.05,0.066,0],[-0.08,0.28,0],[-0.19,0.10,0], [-0.05,0.066,0],[-0.19,0.10,0],[-0.19,0.048,0]],
+        [1,[-0.36,0.018,0],[-0.47,0.19,0],[-0.44,0,0], [-0.36,0.018,0],[-0.44,0,0],[-0.36,-0.018,0], [-0.36,-0.018,0],[-0.44,0,0],[-0.47,-0.19,0]],
+        [1,[0.10,-0.07,0],[0.02,-0.20,0],[0.06,-0.07,0]]
+      ],
+      pairs:[[1,[0.18,-0.03,0.05],[0.14,-0.035,0.05],[0.04,-0.07,0.12]]],
+      sail:true}},
+};
+for(var dk in PRED){ PRED[dk].mesh=buildMesh(PRED[dk].shape); }
 
 var quadBuf=gl.createBuffer();
 gl.bindBuffer(gl.ARRAY_BUFFER,quadBuf);
 gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
 
-/* ================= 海の種類 ================= */
+/* ================= 海(✦で切り替え) ================= */
 function hx(s){ return [parseInt(s.substr(1,2),16)/255,parseInt(s.substr(3,2),16)/255,parseInt(s.substr(5,2),16)/255]; }
 var SEAS=[
-  {name:'外洋の青',   deep:'#020f22',mid:'#0a3a68',top:'#2b85bb',surf:'#c4ecff',sun:'#fff6e0',back:'#16324a'},
-  {name:'沿岸の緑',   deep:'#02140f',mid:'#0b443b',top:'#2f8a78',surf:'#d6ffe9',sun:'#fffbe2',back:'#1d3a33'},
-  {name:'夕暮れの海', deep:'#080a1e',mid:'#1e2c5a',top:'#76689a',surf:'#ffd8b4',sun:'#ffc58e',back:'#1f2440'},
-  {name:'真昼の浅瀬', deep:'#032a42',mid:'#0e6b92',top:'#4cc2df',surf:'#f0fdff',sun:'#ffffff',back:'#1a4258'}
+  {name:'外洋の青',   prey:'iwashi',   pred:'tuna',     deep:'#020f22',mid:'#0a3a68',top:'#2b85bb',surf:'#c4ecff',sun:'#fff6e0'},
+  {name:'沿岸の緑',   prey:'aji',      pred:'shark',    deep:'#02140f',mid:'#0b443b',top:'#2f8a78',surf:'#d6ffe9',sun:'#fffbe2'},
+  {name:'夕暮れの海', prey:'iwashi',   pred:'dolphin',  deep:'#080a1e',mid:'#1e2c5a',top:'#76689a',surf:'#ffd8b4',sun:'#ffc58e'},
+  {name:'真昼の浅瀬', prey:'kibinago', pred:'sailfish', deep:'#032a42',mid:'#0e6b92',top:'#4cc2df',surf:'#f0fdff',sun:'#ffffff'}
 ];
-var seaI=0, sea=null;
-function setSea(i){
-  seaI=i; var s=SEAS[i];
-  sea={deep:hx(s.deep),mid:hx(s.mid),top:hx(s.top),surf:hx(s.surf),sun:hx(s.sun),back:hx(s.back)};
-  document.body.style.background=s.deep;
-}
-setSea(0);
+var seaI=0, sea=null, prey=null, predK=null;
 var SUN=(function(){ var v=[0.25,0.95,0.18], l=Math.hypot(v[0],v[1],v[2]); return [v[0]/l,v[1]/l,v[2]/l]; })();
 
 /* ================= 群れ ================= */
-var NMAX=2600, N=NMAX;
+var NMAX=4200, N=NMAX;
 var P=new Float32Array(NMAX*3), Vl=new Float32Array(NMAX*3), Fw=new Float32Array(NMAX*3);
 var Q=new Float32Array(NMAX), HN=new Float32Array(NMAX), PH=new Float32Array(NMAX), SPD=new Float32Array(NMAX);
 var SC=new Float32Array(NMAX), SHD=new Float32Array(NMAX), WF=new Float32Array(NMAX), WP=new Float32Array(NMAX);
@@ -280,16 +399,20 @@ var STRIDE=11, instData=new Float32Array(NMAX*STRIDE);
 var instBuf=gl.createBuffer();
 gl.bindBuffer(gl.ARRAY_BUFFER,instBuf);
 gl.bufferData(gl.ARRAY_BUFFER,instData.byteLength,gl.DYNAMIC_DRAW);
+var predData=new Float32Array(4*STRIDE);
+var predBuf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,predBuf);
+gl.bufferData(gl.ARRAY_BUFFER,predData.byteLength,gl.DYNAMIC_DRAW);
 
 var spin=1, fear=0, squeeze=1;
 var C=[0,0,0];
 function seedSchool(){
   for(var i=0;i<NMAX;i++){
-    Q[i]=0.42+0.58*Math.sqrt(Math.random());
+    Q[i]=0.22+0.78*Math.pow(Math.random(),0.45);
     HN[i]=Math.random()*1.86-0.93;
     PH[i]=Math.random()*6.2832;
     SPD[i]=0.85+Math.random()*0.3;
-    SC[i]=0.094*(0.82+Math.random()*0.36);
+    SC[i]=(0.82+Math.random()*0.36);
     SHD[i]=Math.random();
     WF[i]=0.6+Math.random()*1.2;
     WP[i]=Math.random()*6.2832;
@@ -302,9 +425,8 @@ function seedSchool(){
     FL[i]=0; ROLL[i]=0;
   }
 }
-seedSchool();
 
-/* 閃きの波(怯えが群れを渡る) */
+/* 閃きの波 */
 var waves=[];
 function addWave(x,y,z,str){ waves.push({x:x,y:y,z:z,t:0,s:str}); if(waves.length>8) waves.shift(); }
 var WAVE_V=1.5, WAVE_W=0.2, WAVE_END=3.0;
@@ -312,15 +434,16 @@ var WAVE_V=1.5, WAVE_W=0.2, WAVE_END=3.0;
 /* 泡とマリンスノー */
 var SNOW_N=520, snow=new Float32Array(SNOW_N*4);
 for(var si=0;si<SNOW_N;si++){ snow[si*4]=Math.random()*8-4; snow[si*4+1]=Math.random()*8-4; snow[si*4+2]=Math.random()*8-4; snow[si*4+3]=0.5+Math.random()*1.4; }
-var bubbles=[];
-var ptData=new Float32Array((SNOW_N+200)*5);
+var bubbles=[], BUB_MAX=260;
+var ptData=new Float32Array((SNOW_N+BUB_MAX)*5);
 var ptBuf=gl.createBuffer();
 gl.bindBuffer(gl.ARRAY_BUFFER,ptBuf);
 gl.bufferData(gl.ARRAY_BUFFER,ptData.byteLength,gl.DYNAMIC_DRAW);
-function addBubbles(x,y,z,n){
+function addBubbles(x,y,z,n,spread){
+  spread=spread||0.25;
   for(var i=0;i<n;i++){
-    if(bubbles.length>=200) bubbles.shift();
-    bubbles.push({x:x+(Math.random()-0.5)*0.25,y:y+(Math.random()-0.5)*0.2,z:z+(Math.random()-0.5)*0.25,
+    if(bubbles.length>=BUB_MAX) bubbles.shift();
+    bubbles.push({x:x+(Math.random()-0.5)*spread,y:y+(Math.random()-0.5)*spread*0.8,z:z+(Math.random()-0.5)*spread,
       vy:0.35+Math.random()*0.5,r:0.008+Math.random()*0.02,ph:Math.random()*6.28,age:0});
   }
 }
@@ -333,10 +456,9 @@ function setup(){
   W=window.innerWidth; H=window.innerHeight; asp=W/H;
   dpr=Math.min(dpr||dprMax,dprMax);
   cv.width=Math.max(1,Math.round(W*dpr)); cv.height=Math.max(1,Math.round(H*dpr));
-  camD=(asp<1?1.04:1.2)/Math.min(TANV,TANV*asp);
+  camD=(asp<1?1.22:1.3)/Math.min(TANV,TANV*asp);
 }
 dpr=dprMax;
-
 function norm(v){ var l=Math.hypot(v[0],v[1],v[2])||1; return [v[0]/l,v[1]/l,v[2]/l]; }
 function cross(a,b){ return [a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]]; }
 function dot(a,b){ return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]; }
@@ -359,18 +481,118 @@ function screenRay(x,y){
   var d=norm([F[0]+R[0]*nx*TANV*asp+U[0]*ny*TANV, F[1]+R[1]*nx*TANV*asp+U[1]*ny*TANV, F[2]+R[2]*nx*TANV*asp+U[2]*ny*TANV]);
   return {o:cam.e.slice(),d:d};
 }
-// 指の線が群れに入る点(球に当たればその手前の面、外れれば群れに一番近い点)
 function strikePoint(ray,rad){
   var o=ray.o,d=ray.d, oc=[o[0]-C[0],o[1]-C[1],o[2]-C[2]];
   var b=dot(oc,d), c=dot(oc,oc)-rad*rad, disc=b*b-c, t;
   if(disc>0){ t=-b-Math.sqrt(disc); } else { t=-b; }
   return [o[0]+d[0]*t,o[1]+d[1]*t,o[2]+d[2]*t];
 }
+function radius(){ return (1-0.22*fear)*squeeze; }
 
-/* ================= 捕食者(指) ================= */
+/* ================= 捕食者 ================= */
+var preds=[];
+function newOrbit(pd){
+  var sp=PRED[predK];
+  var maxR=Math.max(1.5,Math.min(2.3,camD-0.9));
+  pd.orR=1.45+Math.random()*(maxR-1.45);
+  pd.orY=predK==='dolphin'?(-1.35+Math.random()*0.5):(Math.random()*1.2-0.6);
+  pd.next=time+sp.every[0]+Math.random()*(sp.every[1]-sp.every[0]);
+}
+function spawnPreds(){
+  preds=[];
+  var sp=PRED[predK];
+  for(var k=0;k<sp.count;k++){
+    var a=k/sp.count*6.2832+Math.random()*0.8;
+    var pd={p:[0,0,0],v:[0,0,0],f:[1,0,0],ang:a,dir:(Math.random()<0.5?1:-1),roll:0,tail:Math.random()*6.28,
+      state:0,target:null,aim:null,cmd:false,sail:0,inBall:false,lastW:0,bubT:0,orR:2,orY:0,next:0};
+    newOrbit(pd);
+    pd.next=time+1.5+k*1.7+Math.random()*2;
+    pd.p=[C[0]+Math.cos(a)*pd.orR, pd.orY, C[2]+Math.sin(a)*pd.orR];
+    pd.v=[-Math.sin(a)*pd.dir*sp.cruise,0,Math.cos(a)*pd.dir*sp.cruise]; pd.f=norm(pd.v);
+    preds.push(pd);
+  }
+}
+function attack(pd,target,cmd){
+  var d=norm([target[0]-pd.p[0],target[1]-pd.p[1],target[2]-pd.p[2]]);
+  pd.state=1; pd.cmd=!!cmd; pd.target=target; pd.dir0=d;
+  pd.aim=[target[0]+d[0]*1.6,target[1]+d[1]*1.6,target[2]+d[2]*1.6];
+}
+function randomTarget(){
+  var r=radius()*0.55, u=Math.random()*6.2832, v=Math.random()*2-1, s=Math.sqrt(1-v*v);
+  return [C[0]+Math.cos(u)*s*r, C[1]+v*r*0.9, C[2]+Math.sin(u)*s*r];
+}
+function stepPreds(dt,t){
+  var sp=PRED[predK], Rb=radius();
+  for(var k=0;k<preds.length;k++){
+    var pd=preds[k], spd, goal, turn;
+    if(pd.frozen){ var o0=k*STRIDE; pd.tail+=dt*4; predData[o0]=pd.p[0];predData[o0+1]=pd.p[1];predData[o0+2]=pd.p[2];predData[o0+3]=pd.f[0];predData[o0+4]=pd.f[1];predData[o0+5]=pd.f[2];predData[o0+6]=0;predData[o0+7]=pd.tail%6.2832;predData[o0+8]=sp.size;predData[o0+9]=1;predData[o0+10]=1; continue; }
+    if(pd.state===0){
+      pd.ang+=pd.dir*sp.cruise/pd.orR*dt;
+      var la=pd.ang+pd.dir*0.45;
+      goal=[C[0]+Math.cos(la)*pd.orR, C[1]+pd.orY+0.18*Math.sin(t*0.3+k*2), C[2]+Math.sin(la)*pd.orR];
+      spd=sp.cruise; turn=sp.turn;
+      if(t>pd.next){
+        var tg=randomTarget();
+        if(predK==='dolphin') tg[1]=C[1]+Math.abs(tg[1]-C[1])*0.6+0.1;   // イルカは下から突き上げる
+        attack(pd,tg,false);
+      }
+    } else {
+      goal=pd.aim; spd=sp.attack*(pd.cmd?1.2:1); turn=sp.turn*1.5;
+      var dx=pd.p[0]-pd.target[0], dy=pd.p[1]-pd.target[1], dz=pd.p[2]-pd.target[2];
+      if(dx*pd.dir0[0]+dy*pd.dir0[1]+dz*pd.dir0[2]>1.25){
+        pd.state=0; pd.cmd=false;
+        var rx=pd.p[0]-C[0], rz=pd.p[2]-C[2];
+        pd.ang=Math.atan2(rz,rx);
+        var tang=[-Math.sin(pd.ang),0,Math.cos(pd.ang)];
+        pd.dir=(tang[0]*pd.v[0]+tang[2]*pd.v[2])>=0?1:-1;
+        newOrbit(pd);
+      }
+    }
+    var gx=goal[0]-pd.p[0], gy=goal[1]-pd.p[1], gz=goal[2]-pd.p[2], gl2=Math.sqrt(gx*gx+gy*gy+gz*gz)||1;
+    var kk=Math.min(1,dt*turn);
+    pd.v[0]+=(gx/gl2*spd-pd.v[0])*kk; pd.v[1]+=(gy/gl2*spd-pd.v[1])*kk; pd.v[2]+=(gz/gl2*spd-pd.v[2])*kk;
+    pd.p[0]+=pd.v[0]*dt; pd.p[1]+=pd.v[1]*dt; pd.p[2]+=pd.v[2]*dt;
+    // カメラに近づきすぎない
+    var cx=pd.p[0]-cam.e[0], cy=pd.p[1]-cam.e[1], cz=pd.p[2]-cam.e[2], cd=Math.sqrt(cx*cx+cy*cy+cz*cz);
+    if(cd<0.9){ var push=(0.9-cd)/cd; pd.p[0]+=cx*push; pd.p[1]+=cy*push; pd.p[2]+=cz*push; }
+    var vl=Math.sqrt(pd.v[0]*pd.v[0]+pd.v[1]*pd.v[1]+pd.v[2]*pd.v[2])||1;
+    var nf=[pd.f[0]+(pd.v[0]/vl-pd.f[0])*Math.min(1,dt*5),pd.f[1]+(pd.v[1]/vl-pd.f[1])*Math.min(1,dt*5),pd.f[2]+(pd.v[2]/vl-pd.f[2])*Math.min(1,dt*5)];
+    nf=norm(nf);
+    var bank=(pd.f[2]*nf[0]-pd.f[0]*nf[2])/Math.max(dt,0.001)*0.35;
+    bank=Math.max(-0.7,Math.min(0.7,bank));
+    pd.f=nf;
+    pd.roll+=(bank-pd.roll)*Math.min(1,dt*3);
+    pd.tail+=dt*(predK==='dolphin'?(2.5+vl*1.6):(3.5+vl*3.2));
+    pd.sail+=(((pd.state===1)?1:0.1)-pd.sail)*Math.min(1,dt*2.2);
+    // 群れに入った瞬間と、中を進む間に閃きの波
+    var bx=pd.p[0]-C[0], by=pd.p[1]-C[1], bz=pd.p[2]-C[2], inside=(bx*bx+by*by+bz*bz)<Rb*Rb*1.05;
+    if(inside && !pd.inBall){ addWave(pd.p[0],pd.p[1],pd.p[2],0.95); fear=Math.min(1,fear+0.04); pd.lastW=t; }
+    else if(inside && t-pd.lastW>0.28){ addWave(pd.p[0],pd.p[1],pd.p[2],0.5); pd.lastW=t; }
+    pd.inBall=inside;
+    // イルカは泡を吐く(突進中は泡の筋)
+    if(predK==='dolphin'){
+      pd.bubT-=dt;
+      if(pd.bubT<=0){ if(pd.state===1){ addBubbles(pd.p[0],pd.p[1],pd.p[2],3,0.12); pd.bubT=0.05; } else { if(Math.random()<0.15) addBubbles(pd.p[0]+pd.f[0]*0.3*sp.size,pd.p[1]+0.05,pd.p[2]+pd.f[2]*0.3*sp.size,6,0.08); pd.bubT=1.2; } }
+    }
+    var o=k*STRIDE;
+    predData[o]=pd.p[0]; predData[o+1]=pd.p[1]; predData[o+2]=pd.p[2];
+    predData[o+3]=pd.f[0]; predData[o+4]=pd.f[1]; predData[o+5]=pd.f[2];
+    predData[o+6]=pd.roll; predData[o+7]=pd.tail%6.2832; predData[o+8]=sp.size; predData[o+9]=1; predData[o+10]=sp.shape.sail?pd.sail:0;
+  }
+}
+function commandStrike(sp){
+  var best=null, bd=1e9;
+  for(var k=0;k<preds.length;k++){
+    var pd=preds[k], d=Math.hypot(pd.p[0]-sp[0],pd.p[1]-sp[1],pd.p[2]-sp[2])+(pd.state===1?2:0);
+    if(d<bd){ bd=d; best=pd; }
+  }
+  if(best) attack(best,sp,true);
+}
+
+/* ================= 指(捕食者) ================= */
 var pred={on:false,ray:null,r:0,burst:0,hold:false};
-var ptr=null, lastTrail=0;
-function toast(s,ms){ var el=document.getElementById('toast'); el.textContent=s; el.classList.add('on'); clearTimeout(toast.t); toast.t=setTimeout(function(){ el.classList.remove('on'); },ms||2200); }
+var ptr=null, lastTrail=0, time=0;
+function toast(s,ms){ var el=document.getElementById('toast'); el.textContent=s; el.classList.add('on'); clearTimeout(toast.t); toast.t=setTimeout(function(){ el.classList.remove('on'); },ms||2400); }
 var hinted=false;
 function hideHint(){ if(!hinted){ hinted=true; hint.classList.add('off'); } }
 setTimeout(hideHint,9000);
@@ -395,12 +617,13 @@ function endPtr(ev){
   var now=performance.now(), ray=screenRay(ptr.x,ptr.y), sp;
   if(pred.hold){
     sp=strikePoint(ray,radius()*0.95);
-    addWave(sp[0],sp[1],sp[2],1.5); addBubbles(sp[0],sp[1],sp[2],34);
-    pred.burst=0.62; fear=Math.min(1,fear+0.12);
+    addWave(sp[0],sp[1],sp[2],1.5); addBubbles(sp[0],sp[1],sp[2],30);
+    pred.burst=0.6; fear=Math.min(1,fear+0.12);
   } else if(!ptr.moved && now-ptr.t0<350){
     sp=strikePoint(ray,radius()*0.95);
-    addWave(sp[0],sp[1],sp[2],1.15); addBubbles(sp[0],sp[1],sp[2],20);
-    pred.burst=0.5; fear=Math.min(1,fear+0.2);
+    addWave(sp[0],sp[1],sp[2],1.1); addBubbles(sp[0],sp[1],sp[2],16);
+    pred.burst=0.45; fear=Math.min(1,fear+0.15);
+    commandStrike(sp);
   }
   pred.ray=ray; pred.on=false; pred.hold=false; ptr=null;
 }
@@ -408,13 +631,10 @@ cv.addEventListener('pointerup',endPtr);
 cv.addEventListener('pointercancel',endPtr);
 cv.addEventListener('contextmenu',function(e){ e.preventDefault(); });
 
-function radius(){ return (1-0.24*fear)*squeeze; }
-
 /* ================= 1コマ ================= */
-var t0=performance.now(), last=t0, nextWave=t0+2500;
+var t0=performance.now(), last=t0, nextWave=2.5;
 var perfAcc=0, perfN=0;
 function step(dt,t,now){
-  // 捕食者
   if(ptr){
     pred.ray=screenRay(ptr.x,ptr.y);
     if(!ptr.moved && now-ptr.t0>380) pred.hold=true;
@@ -433,22 +653,25 @@ function step(dt,t,now){
   squeeze+=((pred.hold?0.78:1)-squeeze)*Math.min(1,dt*1.5);
   C[0]=Math.sin(t*0.07)*0.08; C[1]=Math.sin(t*0.053)*0.06; C[2]=Math.cos(t*0.061)*0.06;
 
-  // ひとりでに走る閃き
-  if(now>nextWave){
+  if(t>nextWave){
     var a=Math.random()*6.2832, y=Math.random()*1.6-0.8, rr=Math.sqrt(1-y*y)*radius();
     addWave(C[0]+Math.cos(a)*rr,C[1]+y*radius()*0.95,C[2]+Math.sin(a)*rr,0.55+0.35*fear);
-    nextWave=now+(3000+Math.random()*3500)*(1-0.55*fear);
+    nextWave=t+(3+Math.random()*3.5)*(1-0.55*fear);
   }
   for(var wi=waves.length-1;wi>=0;wi--){ waves[wi].t+=dt; if(waves[wi].t*WAVE_V>WAVE_END) waves.splice(wi,1); }
 
-  var Rb=radius(), vt0=0.5*(1+0.9*fear), wob=0.28+0.32*fear;
+  stepPreds(dt,t);
+  var PS=PRED[predK], pR=PS.size*0.42, pRa=PS.size*0.6;
+
+  var Rb=radius(), Rb2=Rb*Rb, vt0=0.5*(1+0.9*fear), wob=0.28+0.32*fear;
   var ro=pred.ray?pred.ray.o:null, rd=pred.ray?pred.ray.d:null;
-  var kk=Math.min(1,dt*2.6), turnK=Math.min(1,dt*6);
+  var kk=Math.min(1,dt*2.6), turnK=Math.min(1,dt*6), size=prey.size;
+  var np=preds.length;
   for(var i=0;i<N;i++){
     var i3=i*3, px=P[i3],py=P[i3+1],pz=P[i3+2];
     var hn=HN[i]+0.16*Math.sin(t*0.11*WF[i]+PH[i]); if(hn>0.96)hn=0.96; else if(hn<-0.96)hn=-0.96;
     var rx=px-C[0], ry=py-C[1], rz=pz-C[2];
-    var rc=Math.sqrt(rx*rx+rz*rz)+1e-4, ux=rx/rc, uz=rz/rc;
+    var rxz2=rx*rx+rz*rz, rc=Math.sqrt(rxz2)+1e-4, ux=rx/rc, uz=rz/rc;
     var ct=Math.sqrt(1-hn*hn), q=Q[i];
     var rcT=q*Rb*ct, yT=q*Rb*hn*0.95;
     var vt=vt0*SPD[i]*(0.45+0.55*ct);
@@ -457,27 +680,31 @@ function step(dt,t,now){
     var vdy=(yT-ry)*1.5+0.16*Math.sin(t*0.9*WF[i]+PH[i]);
     var vx=Vl[i3],vy=Vl[i3+1],vz=Vl[i3+2];
     vx+=(vdx-vx)*kk; vy+=(vdy-vy)*kk; vz+=(vdz-vz)*kk;
-    // 指(捕食者)から逃げる: 指の視線にそってトンネルが開く
-    var flee=0;
+    var flee=0, d, s, acc;
+    // 指から逃げる(指の視線にそってトンネル)
     if(pr>0.01 && ro){
       var wx=px-ro[0], wy=py-ro[1], wz=pz-ro[2], tp=wx*rd[0]+wy*rd[1]+wz*rd[2];
-      var dx=wx-rd[0]*tp, dy=wy-rd[1]*tp, dz=wz-rd[2]*tp, d=Math.sqrt(dx*dx+dy*dy+dz*dz)+1e-4;
-      if(d<pr){ var s=1-d/pr; flee=s; s*=s; var acc=s*26*dt/d; vx+=dx*acc; vy+=dy*acc; vz+=dz*acc; }
+      var dx=wx-rd[0]*tp, dy=wy-rd[1]*tp, dz=wz-rd[2]*tp; d=Math.sqrt(dx*dx+dy*dy+dz*dz)+1e-4;
+      if(d<pr){ s=1-d/pr; flee=s; s*=s; acc=s*26*dt/d; vx+=dx*acc; vy+=dy*acc; vz+=dz*acc; }
+    }
+    // 捕食者から逃げる
+    for(var k=0;k<np;k++){
+      var pd=preds[k], ex=px-pd.p[0], ey=py-pd.p[1], ez=pz-pd.p[2], e2=ex*ex+ey*ey+ez*ez;
+      var rr2=pd.state===1?pRa:pR;
+      if(e2<rr2*rr2){ d=Math.sqrt(e2)+1e-4; s=1-d/rr2; if(s>flee) flee=s; s*=s; acc=s*32*dt/d; vx+=ex*acc; vy+=ey*acc; vz+=ez*acc; }
     }
     var sp2=vx*vx+vy*vy+vz*vz;
     if(sp2>9){ var sl=3/Math.sqrt(sp2); vx*=sl; vy*=sl; vz*=sl; sp2=9; }
     px+=vx*dt; py+=vy*dt; pz+=vz*dt;
     P[i3]=px; P[i3+1]=py; P[i3+2]=pz; Vl[i3]=vx; Vl[i3+1]=vy; Vl[i3+2]=vz;
-    // 向き(なめらかに)と、曲がる時の傾き
     var spd=Math.sqrt(sp2)+1e-4, fx=Fw[i3],fy=Fw[i3+1],fz=Fw[i3+2];
     var nx=fx+(vx/spd-fx)*turnK, ny=fy+(vy/spd-fy)*turnK, nz=fz+(vz/spd-fz)*turnK;
     var nl=Math.sqrt(nx*nx+ny*ny+nz*nz)||1; nx/=nl; ny/=nl; nz/=nl;
     var bank=(fz*nx-fx*nz)/Math.max(dt,0.001)*0.12;
     Fw[i3]=nx; Fw[i3+1]=ny; Fw[i3+2]=nz;
-    // 閃きの波: 波の前線が来たら体をひねる → 横腹が水面を映して光る
     var g=0;
-    for(var k=0;k<waves.length;k++){
-      var wv=waves[k], ex=px-wv.x, ey=py-wv.y, ez=pz-wv.z, de=Math.sqrt(ex*ex+ey*ey+ez*ez);
+    for(var kw=0;kw<waves.length;kw++){
+      var wv=waves[kw], qx=px-wv.x, qy=py-wv.y, qz=pz-wv.z, de=Math.sqrt(qx*qx+qy*qy+qz*qz);
       var fr=wv.t*WAVE_V, u=(de-fr)/WAVE_W;
       if(u>-3&&u<3) g+=wv.s*Math.exp(-u*u)*(1-fr/WAVE_END);
     }
@@ -486,13 +713,17 @@ function step(dt,t,now){
     ROLL[i]+=(roll-ROLL[i])*Math.min(1,dt*9);
     FL[i]+=(Math.min(1,g*0.8+flee*0.6)-FL[i])*Math.min(1,dt*10);
     TAIL[i]+=dt*(8+spd*9);
+    // 群れの影: 上にいる仲間が光を遮るほど暗い(下と中心が暗くなる)
+    var occ=1;
+    rx=px-C[0]; ry=py-C[1]; rz=pz-C[2]; rxz2=rx*rx+rz*rz;
+    if(rxz2<Rb2){ var up=Math.sqrt(Rb2-rxz2)-ry; if(up>0) occ=Math.exp(-0.85*up/Rb); }
     var o=i*STRIDE;
     instData[o]=px; instData[o+1]=py; instData[o+2]=pz;
     instData[o+3]=nx; instData[o+4]=ny; instData[o+5]=nz;
-    instData[o+6]=ROLL[i]; instData[o+7]=TAIL[i]%6.2832; instData[o+8]=SC[i]; instData[o+9]=SHD[i]; instData[o+10]=FL[i];
+    instData[o+6]=ROLL[i]; instData[o+7]=TAIL[i]%6.2832; instData[o+8]=SC[i]*size;
+    instData[o+9]=(0.3+0.7*occ)*(0.86+0.28*SHD[i]); instData[o+10]=FL[i];
   }
 
-  // 泡
   for(var b=bubbles.length-1;b>=0;b--){
     var bb=bubbles[b]; bb.age+=dt; bb.vy=Math.min(1.4,bb.vy+dt*0.6);
     bb.y+=bb.vy*dt; bb.x+=Math.sin(bb.age*7+bb.ph)*0.12*dt; bb.z+=Math.cos(bb.age*6+bb.ph)*0.12*dt;
@@ -514,13 +745,31 @@ function setWater(o,t){
   gl.uniform3fv(u.uSurf,sea.surf); gl.uniform3fv(u.uSunCol,sea.sun); gl.uniform3fv(u.uSun,SUN);
   gl.uniform1f(u.uTime,t);
 }
+function drawFish(mesh,buf,count,sp,isPred){
+  var u=FISH.u;
+  gl.uniform3fv(u.uBack,sp.back); gl.uniform3fv(u.uFlank,sp.flank); gl.uniform3fv(u.uBelly,sp.belly);
+  gl.uniform3fv(u.uFin,sp.fin); gl.uniform3fv(u.uFin2,sp.fin2||sp.fin); gl.uniform3fv(u.uSail,[0.06,0.12,0.35]);
+  gl.uniform3fv(u.uEye,sp.eye);
+  gl.uniform1f(u.uMirror,sp.mirror); gl.uniform1f(u.uSpots,sp.spots||0); gl.uniform1f(u.uStripe,sp.stripe||0);
+  gl.uniform1f(u.uLat,sp.lat||0); gl.uniform1f(u.uBars,sp.bars||0); gl.uniform1f(u.uHs,sp.hs||1);
+  gl.uniform1f(u.uFlashK,isPred?0:1);
+  gl.uniform1f(u.uWig,isPred?sp.wig:0.085); gl.uniform1f(u.uWigK,isPred?sp.wigK:7);
+  gl.uniform1f(u.uTailX,isPred?sp.tailX:0.22); gl.uniform1f(u.uVert,isPred?sp.vert:0);
+  setAttr(FISH.a.aP,mesh.buf,3,28,0,0);
+  setAttr(FISH.a.aN,mesh.buf,3,28,12,0);
+  setAttr(FISH.a.aM,mesh.buf,1,28,24,0);
+  setAttr(FISH.a.iPos,buf,3,STRIDE*4,0,1);
+  setAttr(FISH.a.iFwd,buf,3,STRIDE*4,12,1);
+  setAttr(FISH.a.iM,buf,4,STRIDE*4,24,1);
+  setAttr(FISH.a.iF,buf,1,STRIDE*4,40,1);
+  IA.drawArraysInstancedANGLE(gl.TRIANGLES,0,mesh.n,count);
+}
 
 function draw(t){
   gl.viewport(0,0,cv.width,cv.height);
   gl.clearColor(0,0,0,1);
   gl.clear(gl.DEPTH_BUFFER_BIT|gl.COLOR_BUFFER_BIT);
 
-  // 背景(水・水面・光の筋)
   gl.disable(gl.DEPTH_TEST); gl.disable(gl.BLEND); gl.depthMask(false);
   gl.useProgram(BG.p); setWater(BG,t);
   gl.uniform2f(BG.u.uRes,cv.width,cv.height);
@@ -530,24 +779,19 @@ function draw(t){
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
   clearAttrs(BG);
 
-  // 魚
   gl.enable(gl.DEPTH_TEST); gl.depthMask(true); gl.depthFunc(gl.LEQUAL);
   gl.useProgram(FISH.p); setWater(FISH,t);
   gl.uniformMatrix4fv(FISH.u.uVP,false,VP);
-  gl.uniform3fv(FISH.u.uCam,cam.e); gl.uniform3fv(FISH.u.uBack,sea.back);
+  gl.uniform3fv(FISH.u.uCam,cam.e);
   gl.uniform1f(FISH.u.uFogNear,Math.max(0,camD-1.3)); gl.uniform1f(FISH.u.uFogK,0.38);
   gl.bindBuffer(gl.ARRAY_BUFFER,instBuf);
   gl.bufferSubData(gl.ARRAY_BUFFER,0,instData.subarray(0,N*STRIDE));
-  setAttr(FISH.a.aP,meshBuf,3,24,0,0);
-  setAttr(FISH.a.aN,meshBuf,3,24,12,0);
-  setAttr(FISH.a.iPos,instBuf,3,STRIDE*4,0,1);
-  setAttr(FISH.a.iFwd,instBuf,3,STRIDE*4,12,1);
-  setAttr(FISH.a.iM,instBuf,4,STRIDE*4,24,1);
-  setAttr(FISH.a.iF,instBuf,1,STRIDE*4,40,1);
-  IA.drawArraysInstancedANGLE(gl.TRIANGLES,0,MESH_N,N);
+  drawFish(prey.mesh,instBuf,N,prey,false);
+  gl.bindBuffer(gl.ARRAY_BUFFER,predBuf);
+  gl.bufferSubData(gl.ARRAY_BUFFER,0,predData.subarray(0,preds.length*STRIDE));
+  drawFish(PRED[predK].mesh,predBuf,preds.length,PRED[predK],true);
   clearAttrs(FISH);
 
-  // マリンスノーと泡(重ねて足す)
   var n=0, i;
   for(i=0;i<SNOW_N;i++){
     var sx=snow[i*4], sy=((snow[i*4+1]-t*0.02*snow[i*4+3]+4)%8+8)%8-4, sz=snow[i*4+2];
@@ -578,40 +822,51 @@ function draw(t){
 
 function frame(now){
   var dt=Math.min(0.05,(now-last)/1000); last=now;
-  var t=(now-t0)/1000;
+  var t=(now-t0)/1000; time=t;
   updateCamera(t);
   step(dt,t,now);
   draw(t);
-  // 重い端末: まず解像度、それでも重ければ匹数を下げる
   perfAcc+=now-(frame.prev||now); frame.prev=now; perfN++;
   if(perfN>=90){
     var avg=perfAcc/perfN; perfAcc=0; perfN=0;
     if(avg>24){
       if(dpr>1.01){ dpr=Math.max(1,dpr-0.5); setup(); }
-      else if(N>1400){ N-=400; }
+      else if(N>1800){ N-=600; }
     }
   }
   requestAnimationFrame(frame);
 }
 
+function setSea(i,quiet){
+  seaI=i; var s=SEAS[i];
+  sea={deep:hx(s.deep),mid:hx(s.mid),top:hx(s.top),surf:hx(s.surf),sun:hx(s.sun)};
+  document.body.style.background=s.deep;
+  prey=PREY[s.prey];
+  if(predK!==s.pred){ predK=s.pred; spawnPreds(); }
+  if(!quiet) toast(s.name+' — '+prey.name+'と'+PRED[predK].name);
+}
 function mutate(){
   setSea((seaI+1)%SEAS.length);
   if(Math.random()<0.5){ spin=-spin; addWave(C[0],C[1],C[2],1.2); }
-  toast(SEAS[seaI].name);
 }
 function reset(){
   fear=0; squeeze=1; waves=[]; bubbles=[]; pred.r=0; pred.burst=0;
-  seedSchool(); toast('群れが落ち着いた',1500);
+  seedSchool(); spawnPreds(); toast('群れが落ち着いた',1500);
 }
 
 var resizeT=0;
 window.addEventListener('resize',function(){ clearTimeout(resizeT); resizeT=setTimeout(setup,150); });
 setup();
 updateCamera(0);
+seedSchool();
+setSea(0,true);
 requestAnimationFrame(frame);
 
-// 確認用(ヘッドレスのテストから状態を見る)
-window.__st={get fear(){return fear;}, get N(){return N;}, get dpr(){return dpr;}};
+// 確認用(ヘッドレスのテストから状態を見る・海を切り替える)
+window.__st={get fear(){return fear;}, get N(){return N;}, get dpr(){return dpr;}, sea:function(i){ setSea(i,true); },
+  strike:function(){ if(preds[0]) attack(preds[0],[C[0],C[1],C[2]],true); }, preds:function(){ return preds.map(function(p){return p.p.slice();}); },
+  pose:function(dist){ var pd=preds[0]; if(!pd) return; var e=cam.e,F=cam.F,R=cam.R; dist=dist||1.8;
+    pd.p=[e[0]+F[0]*dist,e[1]+F[1]*dist,e[2]+F[2]*dist]; pd.v=[R[0]*0.01,0,R[2]*0.01]; pd.f=norm([R[0],0.0001,R[2]]); pd.state=0; pd.frozen=true; }};
 
 if(window.APKit){
   APKit.init({
