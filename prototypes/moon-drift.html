@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>MOON DRIFT — 触れたクラゲは一生その色で漂う</title>
+<!-- MOON DRIFT — Meta Muse作。ap-kit.js統合: Meta Muse。2026/10/23 試作 -->
+<script src="../ap-kit.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body {
+    width:100%; height:100%; overflow:hidden; background:#123f63;
+    -webkit-touch-callout:none; -webkit-user-select:none; user-select:none;
+    -webkit-tap-highlight-color:transparent;
+  }
+  #stage { position:fixed; inset:0; display:block; touch-action:none; }
+  #hint {
+    position:fixed; left:50%; bottom:9%; transform:translateX(-50%);
+    color:rgba(255,255,255,.88); font-family:-apple-system, "Hiragino Sans", sans-serif;
+    font-size:13px; letter-spacing:.18em; white-space:nowrap; pointer-events:none;
+    text-shadow:0 1px 8px rgba(0,0,0,.5);
+    transition:opacity 1.6s ease; z-index:5;
+  }
+  #hint.gone { opacity:0; }
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+<div id="hint">触ると クラゲの色と鼓動が伝わる</div>
+
+<script>
+(function(){
+  'use strict';
+
+  var canvas = document.getElementById('stage');
+  var ctx = canvas.getContext('2d');
+  var hint = document.getElementById('hint');
+
+  /* ---------- 海と体の色 ---------- */
+  var SEAS = [
+    { top:'#3f8fc4', mid:'#1c5f8c', bot:'#0c3355', ray:'rgba(190,230,255,' },
+    { top:'#4fbfa9', mid:'#1d7f6e', bot:'#0a463d', ray:'rgba(205,255,238,' },
+    { top:'#8d81c7', mid:'#4c4c92', bot:'#25255a', ray:'rgba(255,218,196,' }
+  ];
+  var seaIdx = 0;
+
+  // クラゲの体色（タップで次の色に変わり、一生そのまま）
+  var BODY = [
+    { core:'rgba(214,236,255,', rim:'rgba(140,195,245,', gonad:'rgba(150,170,255,' },
+    { core:'rgba(255,205,226,', rim:'rgba(250,150,195,', gonad:'rgba(255,130,180,' },
+    { core:'rgba(255,228,170,', rim:'rgba(250,190,105,', gonad:'rgba(255,165,90,'  },
+    { core:'rgba(216,196,255,', rim:'rgba(170,140,250,', gonad:'rgba(150,110,240,' },
+    { core:'rgba(196,246,222,', rim:'rgba(120,225,185,', gonad:'rgba(90,205,160,'  }
+  ];
+
+  /* ---------- クラゲ ---------- */
+  var W = 0, H = 0;
+  var jellies = [];
+  var waves = [];   // 鼓動の波 {x,y,t0,hit:{}}
+  var flow = { ang: -0.4, str: 0 };       // ドラッグで生まれる海流（残る）
+  var lastTouch = -10000;
+  var hintGone = false;
+
+  function makeJelly(x, y, r, z, ci){
+    var j = {
+      x: x, y: y, r: r, z: z, ci: ci,
+      vx: 0, vy: 0,
+      phase: Math.random() * 6.2832,
+      pulseHz: 0.30 + Math.random() * 0.14,
+      seed: Math.random() * 100,
+      tilt: 0,
+      touched: false,
+      tent: []
+    };
+    var nT = 11;
+    for (var i = 0; i < nT; i++) {
+      var off = (i / (nT - 1) - 0.5) * 1.7;         // 傘の縁に沿った付け根
+      var pts = [];
+      for (var s = 0; s < 5; s++) pts.push({ x: x + Math.sin(off) * r * 0.8, y: y + s * r * 0.3, px: 0, py: 0 });
+      pts.forEach(function(p){ p.px = p.x; p.py = p.y; });
+      j.tent.push({ off: off, pts: pts, seed: Math.random() * 6.28 });
+    }
+    return j;
+  }
+
+  function seedJellies(){
+    jellies = [];
+    var defs = [
+      [0.30, 0.30, 64, 1.15, 0], [0.68, 0.24, 46, 0.95, 1], [0.52, 0.52, 78, 1.3, 3],
+      [0.18, 0.58, 40, 0.8, 2],  [0.82, 0.55, 56, 1.05, 4], [0.38, 0.74, 48, 0.9, 1],
+      [0.66, 0.78, 36, 0.7, 0],  [0.88, 0.16, 30, 0.6, 3],  [0.10, 0.16, 28, 0.55, 4]
+    ];
+    for (var i = 0; i < defs.length; i++) {
+      var d = defs[i];
+      jellies.push(makeJelly(W * d[0], H * d[1], d[2] * Math.min(W, H) / 390, d[3], d[4]));
+    }
+    jellies.sort(function(a, b){ return a.z - b.z; });
+  }
+
+  /* ---------- サイズ対応 ---------- */
+  var bgGrad = null, rayGrad = null;
+  function resize(){
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var oldW = W, oldH = H;
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width  = Math.max(1, Math.floor(W * dpr));
+    canvas.height = Math.max(1, Math.floor(H * dpr));
+    canvas.style.width  = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    var sea = SEAS[seaIdx];
+    bgGrad = ctx.createLinearGradient(0, 0, 0, H);
+    bgGrad.addColorStop(0, sea.top); bgGrad.addColorStop(0.55, sea.mid); bgGrad.addColorStop(1, sea.bot);
+    rayGrad = ctx.createLinearGradient(0, 0, 0, H);
+    rayGrad.addColorStop(0, sea.ray + '0.17)'); rayGrad.addColorStop(1, sea.ray + '0)');
+    if (jellies.length === 0) { seedJellies(); }
+    else if (oldW) {
+      jellies.forEach(function(j){ j.x *= W / oldW; j.y *= H / oldH; });
+    }
+  }
+  window.addEventListener('resize', resize);
+  window.addEventListener('orientationchange', function(){ setTimeout(resize, 60); });
+
+  /* ---------- プランクトン ---------- */
+  var motes = [];
+  for (var i = 0; i < 90; i++) motes.push({ x: Math.random(), y: Math.random(), s: Math.random() * 1.7 + 0.4, d: Math.random() * 6.28 });
+
+  function hideHint(){ if (!hintGone) { hintGone = true; hint.classList.add('gone'); } }
+  setTimeout(hideHint, 6000);
+
+  /* ---------- 鼓動の波 ---------- */
+  function spawnWave(x, y, now){
+    waves.push({ x: x, y: y, t0: now, hit: {} });
+    if (waves.length > 5) waves.shift();
+  }
+  function firePulse(j, now){
+    j.phase = 0.001;                       // 収縮の頭に合わせる
+    j.burstAt = now;
+  }
+
+  /* ---------- 操作 ---------- */
+  var pDown = false, dragging = false, holding = false;
+  var downX = 0, downY = 0, downT = 0, lastX = 0, lastY = 0;
+
+  canvas.addEventListener('pointerdown', function(e){
+    var x = e.clientX, y = e.clientY;
+    if (window.APKit && APKit.isUI(x, y)) return true;
+    e.preventDefault();
+    hideHint();
+    pDown = true; dragging = false; holding = false;
+    downX = lastX = x; downY = lastY = y; downT = performance.now();
+    lastTouch = downT;
+    if (canvas.setPointerCapture) { try { canvas.setPointerCapture(e.pointerId); } catch(_){} }
+  }, { passive:false });
+
+  canvas.addEventListener('pointermove', function(e){
+    var x = e.clientX, y = e.clientY;
+    if (window.APKit && APKit.isUI(x, y)) return true;
+    if (!pDown) return;
+    e.preventDefault();
+    lastTouch = performance.now();
+    if (Math.abs(x - downX) + Math.abs(y - downY) > 12) dragging = true;
+    if (dragging) {
+      holding = false;
+      var dx = x - lastX, dy = y - lastY;
+      var sp = Math.sqrt(dx * dx + dy * dy);
+      if (sp > 1) {
+        var ang = Math.atan2(dy, dx);
+        var da = ang - flow.ang;
+        while (da >  3.1416) da -= 6.2832;
+        while (da < -3.1416) da += 6.2832;
+        flow.ang += da * 0.25;
+        flow.str = Math.min(1, flow.str + sp * 0.004);
+      }
+    }
+    lastX = x; lastY = y;
+  }, { passive:false });
+
+  function endPointer(e){
+    var x = e.clientX, y = e.clientY;
+    if (window.APKit && APKit.isUI(x, y)) return true;
+    if (!pDown) return;
+    e.preventDefault();
+    pDown = false;
+    lastTouch = performance.now();
+    var now = performance.now();
+    var dt = now - downT;
+    if (!dragging && !holding && dt < 260) {
+      // タップ：一番近いクラゲの色が変わり、鼓動の波が出る
+      var best = null, bestD = 1e9;
+      for (var i = 0; i < jellies.length; i++) {
+        var j = jellies[i];
+        var d = Math.sqrt((j.x - x) * (j.x - x) + (j.y - y) * (j.y - y));
+        if (d < j.r * 1.6 && d < bestD) { best = j; bestD = d; }
+      }
+      if (best) {
+        best.ci = (best.ci + 1) % BODY.length;   // 色は一生残る
+        best.touched = true;
+        firePulse(best, now);
+        best.vy -= 26;                            // 驚いて少し跳ねる
+      }
+      spawnWave(x, y, now);
+    }
+    if (holding) spawnWave(x, y, now);            // 離すと大きな波
+    dragging = false; holding = false;
+  }
+  canvas.addEventListener('pointerup', endPointer, { passive:false });
+  canvas.addEventListener('pointercancel', endPointer, { passive:false });
+  canvas.addEventListener('contextmenu', function(e){ e.preventDefault(); });
+
+  /* ---------- 触手（バネで遅れてついてくる） ---------- */
+  function updateTentacles(j, t, contract){
+    var ct = Math.cos(j.tilt), st = Math.sin(j.tilt);
+    var seg = j.r * 0.34 * (1 + contract * 0.3);
+    var fx = Math.cos(flow.ang) * flow.str * 22, fy = Math.sin(flow.ang) * flow.str * 22;
+    for (var i = 0; i < j.tent.length; i++) {
+      var tk = j.tent[i];
+      var lx = Math.sin(tk.off) * j.r * 0.82, ly = Math.cos(tk.off) * j.r * 0.10;
+      tk.pts[0].x = j.x + lx * ct - ly * st;
+      tk.pts[0].y = j.y + lx * st + ly * ct;
+      for (var s = 1; s < tk.pts.length; s++) {
+        var p = tk.pts[s];
+        var vx = (p.x - p.px) * 0.94, vy = (p.y - p.py) * 0.94;
+        p.px = p.x; p.py = p.y;
+        p.x += vx + Math.sin(t * 1.25 + tk.seed + s * 0.9) * 0.35 + fx * 0.016;
+        p.y += vy + 1.15 + fy * 0.016 - j.vy * 0.012;
+        // 前の点から一定距離に保つ
+        for (var k = 0; k < 2; k++) {
+          var q = tk.pts[s - 1];
+          var dx = p.x - q.x, dy = p.y - q.y;
+          var d = Math.sqrt(dx * dx + dy * dy) || 0.001;
+          p.x = q.x + dx / d * seg;
+          p.y = q.y + dy / d * seg;
+        }
+      }
+    }
+  }
+
+  function drawTentacles(j){
+    var col = BODY[j.ci];
+    for (var i = 0; i < j.tent.length; i++) {
+      var pts = j.tent[i].pts;
+      for (var s = 1; s < pts.length - 1; s++) {
+        ctx.strokeStyle = col.rim + (0.30 - s * 0.05) + ')';
+        ctx.lineWidth = Math.max(0.6, j.r * 0.045 * (1 - s * 0.16));
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(pts[s - 1].x, pts[s - 1].y);
+        ctx.quadraticCurveTo(pts[s].x, pts[s].y, (pts[s].x + pts[s + 1].x) / 2, (pts[s].y + pts[s + 1].y) / 2);
+        ctx.stroke();
+      }
+    }
+  }
+
+  /* ---------- 傘 ---------- */
+  function drawBell(j, t, contract){
+    var col = BODY[j.ci];
+    var r = j.r;
+    ctx.save();
+    ctx.translate(j.x, j.y);
+    ctx.rotate(j.tilt);
+    ctx.scale(1 + contract * 0.10, 1 - contract * 0.17);
+
+    // 口腕（中央のフリル）
+    ctx.strokeStyle = col.core + '0.5)';
+    ctx.lineCap = 'round';
+    for (var a = 0; a < 4; a++) {
+      var ox = (a - 1.5) * r * 0.16;
+      ctx.lineWidth = r * 0.13;
+      ctx.beginPath();
+      ctx.moveTo(ox, r * 0.05);
+      ctx.quadraticCurveTo(ox + Math.sin(t * 1.4 + a * 1.7 + j.seed) * r * 0.14, r * 0.45,
+                           ox + Math.sin(t * 1.1 + a * 2.3 + j.seed) * r * 0.2, r * 0.82);
+      ctx.stroke();
+    }
+
+    // 傘の外膜
+    var g = ctx.createRadialGradient(0, -r * 0.35, r * 0.1, 0, 0, r * 1.25);
+    g.addColorStop(0, col.core + '0.85)');
+    g.addColorStop(0.55, col.rim + '0.38)');
+    g.addColorStop(0.92, col.rim + '0.10)');
+    g.addColorStop(1, col.rim + '0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(-r, 0);
+    ctx.quadraticCurveTo(-r, -r * 1.02, 0, -r * 1.02);
+    ctx.quadraticCurveTo(r, -r * 1.02, r, 0);
+    // 縁の波打ち
+    for (var s = 0; s <= 6; s++) {
+      var px = r - (s / 6) * 2 * r;
+      var py = Math.sin(s * 2.4 + t * 2.2 + j.seed) * r * 0.045 + (s % 2 ? r * 0.03 : 0);
+      ctx.quadraticCurveTo(px + r / 6, py + r * 0.06, px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+
+    // 放射管（内側の筋）
+    ctx.strokeStyle = col.core + '0.35)';
+    ctx.lineWidth = Math.max(0.7, r * 0.02);
+    for (var c = 0; c < 8; c++) {
+      var ang = -3.1416 + (c / 7) * 3.1416;
+      ctx.beginPath();
+      ctx.moveTo(0, -r * 0.12);
+      ctx.quadraticCurveTo(Math.cos(ang) * r * 0.5, Math.sin(ang) * r * 0.55, Math.cos(ang) * r * 0.88, Math.sin(ang) * r * 0.30 + r * 0.02);
+      ctx.stroke();
+    }
+
+    // 生殖腺（ミズクラゲの四つ葉模様）
+    ctx.fillStyle = col.gonad + '0.5)';
+    for (var q = 0; q < 4; q++) {
+      var ga = q * 1.5708 + 0.785;
+      ctx.beginPath();
+      ctx.ellipse(Math.cos(ga) * r * 0.40, -r * 0.34 + Math.sin(ga) * r * 0.26, r * 0.20, r * 0.145, ga, 0, 6.2832);
+      ctx.fill();
+    }
+
+    // 縁のハイライト
+    ctx.strokeStyle = col.core + '0.55)';
+    ctx.lineWidth = Math.max(0.8, r * 0.03);
+    ctx.beginPath();
+    ctx.arc(0, -r * 0.06, r * 0.97, 3.35, 5.85);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  /* ---------- 描画ループ ---------- */
+  var prevT = performance.now();
+  function tick(now){
+    var dt = Math.min(0.05, (now - prevT) / 1000); prevT = now;
+    var t = now / 1000;
+
+    if (pDown && !dragging && (now - downT) > 380) holding = true;
+    flow.str *= Math.exp(-dt / 16);                        // 海流はゆっくり弱まる
+    var fxv = Math.cos(flow.ang) * flow.str * 16;
+    var fyv = Math.sin(flow.ang) * flow.str * 16;
+
+    // 背景
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(0, 0, W, H);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (var ri = 0; ri < 3; ri++) {
+      var rx = W * (0.22 + ri * 0.26) + Math.sin(t * 0.06 + ri * 2.1) * W * 0.03;
+      ctx.save();
+      ctx.translate(rx, 0); ctx.rotate(0.15 + Math.sin(t * 0.05 + ri) * 0.02);
+      ctx.fillStyle = rayGrad;
+      ctx.fillRect(-W * 0.05, 0, W * 0.1, H * 1.2);
+      ctx.restore();
+    }
+    ctx.restore();
+
+    // プランクトン（海流が見える）
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    for (var mi = 0; mi < motes.length; mi++) {
+      var m = motes[mi];
+      m.x += (0.0016 + fxv * 0.00012) * dt * 8 * (0.5 + m.s * 0.3);
+      m.y += (0.0011 + fyv * 0.00012 + Math.sin(t * 0.4 + m.d) * 0.0004) * dt * 8;
+      if (m.x > 1) m.x -= 1; if (m.x < 0) m.x += 1;
+      if (m.y > 1) m.y -= 1; if (m.y < 0) m.y += 1;
+      if (flow.str > 0.25) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+        ctx.lineWidth = m.s * 0.7;
+        ctx.beginPath();
+        ctx.moveTo(m.x * W, m.y * H);
+        ctx.lineTo(m.x * W - fxv * 0.35, m.y * H - fyv * 0.35);
+        ctx.stroke();
+      } else {
+        ctx.fillRect(m.x * W, m.y * H, m.s, m.s);
+      }
+    }
+
+    // 波の到達で鼓動が伝わる
+    for (var wi = waves.length - 1; wi >= 0; wi--) {
+      var wv = waves[wi];
+      var radius = (now - wv.t0) / 1000 * 300;
+      for (var ji = 0; ji < jellies.length; ji++) {
+        var jj = jellies[ji];
+        if (!wv.hit[ji]) {
+          var dd = Math.sqrt((jj.x - wv.x) * (jj.x - wv.x) + (jj.y - wv.y) * (jj.y - wv.y));
+          if (radius >= dd) { firePulse(jj, now); wv.hit[ji] = true; }
+        }
+      }
+      if (radius > Math.sqrt(W * W + H * H)) waves.splice(wi, 1);
+    }
+
+    // クラゲたち
+    for (var i = 0; i < jellies.length; i++) {
+      var j = jellies[i];
+      j.phase += dt * j.pulseHz * 6.2832;
+      var cyc = (j.phase % 6.2832) / 6.2832;
+      var contract = Math.pow(Math.max(0, Math.sin(cyc * 3.1416)), 2) * (cyc < 0.5 ? 1 : 0.15);
+
+      // 漂い：収縮で少し進み、あとはさすらい＋海流＋長押しの引力
+      j.vy += (-7 * contract - j.vy * 0.4) * dt;
+      j.vx += (Math.sin(t * 0.23 + j.seed) * 3.2 + fxv * j.z - j.vx * 0.5) * dt;
+      j.vy += (Math.cos(t * 0.19 + j.seed * 1.3) * 2.2 + fyv * j.z) * dt * 0.6;
+      if (holding) {
+        var hdx = downX - j.x, hdy = downY - j.y;
+        var hd = Math.sqrt(hdx * hdx + hdy * hdy) || 1;
+        if (hd < 300) { j.vx += hdx / hd * 14 * dt; j.vy += hdy / hd * 14 * dt; }
+      }
+      j.x += j.vx * dt * 3;
+      j.y += j.vy * dt * 3;
+      // 画面の端では柔らかく押し戻す
+      if (j.x < j.r * 0.7) j.vx += (j.r * 0.7 - j.x) * dt * 0.8;
+      if (j.x > W - j.r * 0.7) j.vx -= (j.x - (W - j.r * 0.7)) * dt * 0.8;
+      if (j.y < j.r * 1.1) j.vy += (j.r * 1.1 - j.y) * dt * 0.8;
+      if (j.y > H - j.r * 1.3) j.vy -= (j.y - (H - j.r * 1.3)) * dt * 0.8;
+      j.tilt = Math.max(-0.3, Math.min(0.3, j.vx * 0.012)) + Math.sin(t * 0.4 + j.seed) * 0.04;
+
+      ctx.globalAlpha = 0.45 + j.z * 0.45;
+      updateTentacles(j, t, contract);
+      drawTentacles(j);
+      drawBell(j, t, contract);
+      ctx.globalAlpha = 1;
+    }
+
+    requestAnimationFrame(tick);
+  }
+
+  resize();
+  requestAnimationFrame(tick);
+
+  /* ---------- APKit ---------- */
+  if (window.APKit) {
+    APKit.init({
+      canvas: canvas,
+      gifName: 'moon-drift-loop',
+      clockFormat: 'spec',
+      dock: true,
+      autoHide: true,
+      fullscreenButton: false,
+      buttons: [
+        { label:'✦', name:'mutate', onClick:function(){
+            seaIdx = (seaIdx + 1) % SEAS.length;    // 海の色が変わる
+            resize();
+            for (var i = 0; i < jellies.length; i++) {
+              jellies[i].ci = Math.floor(Math.random() * BODY.length);  // 群れの色も生まれ変わる
+              jellies[i].touched = false;
+            }
+            spawnWave(W / 2, H / 2, performance.now());
+            lastTouch = performance.now();
+        }},
+        { label:'↻', name:'reset', onClick:function(){
+            seaIdx = 0; resize();
+            jellies = [];
+            seedJellies();
+            flow.str = 0;
+            waves = [];
+            lastTouch = performance.now();
+        }}
+      ]
+    });
+  }
+})();
+</script>
+</body>
+</html>
