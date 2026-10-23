@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>BAIT BALL — なぞった場所へ群れの渦が引っ越す</title>
+<!-- BAIT BALL — Meta Muse作。ap-kit.js統合: Meta Muse。2026/10/23 試作 -->
+<script src="../ap-kit.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body {
+    width:100%; height:100%; overflow:hidden; background:#0b3d5c;
+    -webkit-touch-callout:none; -webkit-user-select:none; user-select:none;
+    -webkit-tap-highlight-color:transparent;
+  }
+  #stage { position:fixed; inset:0; display:block; touch-action:none; }
+  #hint {
+    position:fixed; left:50%; bottom:9%; transform:translateX(-50%);
+    color:rgba(255,255,255,.88); font-family:-apple-system, "Hiragino Sans", sans-serif;
+    font-size:13px; letter-spacing:.18em; white-space:nowrap; pointer-events:none;
+    text-shadow:0 1px 8px rgba(0,0,0,.5);
+    transition:opacity 1.6s ease; z-index:5;
+  }
+  #hint.gone { opacity:0; }
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+<div id="hint">なぞると 群れの心が引っ越す</div>
+
+<script>
+(function(){
+  'use strict';
+
+  var canvas = document.getElementById('stage');
+  var ctx = canvas.getContext('2d');
+  var hint = document.getElementById('hint');
+
+  /* ---------- 海の色（mutateで変わる） ---------- */
+  var SEAS = [
+    { top:'#2e7fa8', mid:'#14597f', bot:'#0a3552', ray:'rgba(190,230,255,', fish:[205,215,225] },
+    { top:'#3fae9c', mid:'#17705f', bot:'#0a4034', ray:'rgba(200,255,235,', fish:[195,225,215] },
+    { top:'#7d6fb8', mid:'#3d4f8f', bot:'#1d2a55', ray:'rgba(255,215,190,', fish:[225,205,205] },
+    { top:'#4a90c2', mid:'#1d6396', bot:'#0d3a5e', ray:'rgba(210,240,255,', fish:[210,220,235] }
+  ];
+  var seaIdx = 0;
+
+  /* ---------- 魚のスプライト（向き・色違いを先に描いておく） ---------- */
+  var SPRITES = [], FLASH = null;
+  function buildSprites(){
+    SPRITES = [];
+    var base = SEAS[seaIdx].fish;
+    for (var v = 0; v < 6; v++) {
+      var c = document.createElement('canvas'); c.width = 48; c.height = 20;
+      var g = c.getContext('2d');
+      var light = 0.72 + v * 0.11;                 // 閃き具合で6段階
+      var hueShift = (v - 2.5) * 7;                // 玉虫色のズレ
+      var grad = g.createLinearGradient(0, 2, 0, 18);
+      grad.addColorStop(0.0, 'rgb(' + Math.min(255, base[0]*0.55*light + hueShift) + ',' + Math.min(255, base[1]*0.7*light) + ',' + Math.min(255, base[2]*0.95*light) + ')');
+      grad.addColorStop(0.5, 'rgb(' + Math.min(255, base[0]*light + hueShift) + ',' + Math.min(255, base[1]*light) + ',' + Math.min(255, base[2]*light) + ')');
+      grad.addColorStop(1.0, 'rgb(240,246,250)');
+      g.fillStyle = grad;
+      g.beginPath();                                // 体（右向き）
+      g.moveTo(6, 10);
+      g.quadraticCurveTo(20, 1.5, 36, 4.5);
+      g.quadraticCurveTo(46, 7, 46, 10);
+      g.quadraticCurveTo(46, 13, 36, 15.5);
+      g.quadraticCurveTo(20, 18.5, 6, 10);
+      g.fill();
+      g.beginPath();                                // 尾びれ
+      g.moveTo(8, 10); g.lineTo(0.5, 3.5); g.lineTo(2.5, 10); g.lineTo(0.5, 16.5);
+      g.closePath(); g.fill();
+      g.fillStyle = 'rgba(20,35,50,0.85)';          // 目
+      g.beginPath(); g.arc(39.5, 8.6, 1.5, 0, 6.2832); g.fill();
+      SPRITES.push(c);
+    }
+    var fc = document.createElement('canvas'); fc.width = 48; fc.height = 20;
+    var fg = fc.getContext('2d');
+    fg.fillStyle = 'rgb(252,253,255)';
+    fg.beginPath();
+    fg.moveTo(6, 10);
+    fg.quadraticCurveTo(20, 1.5, 36, 4.5);
+    fg.quadraticCurveTo(46, 7, 46, 10);
+    fg.quadraticCurveTo(46, 13, 36, 15.5);
+    fg.quadraticCurveTo(20, 18.5, 6, 10);
+    fg.fill();
+    fg.beginPath();
+    fg.moveTo(8, 10); fg.lineTo(0.5, 3.5); fg.lineTo(2.5, 10); fg.lineTo(0.5, 16.5);
+    fg.closePath(); fg.fill();
+    FLASH = fc;
+  }
+  buildSprites();
+
+  /* ---------- 群れの状態 ---------- */
+  var W = 0, H = 0;
+  var anchor = { x: 0, y: 0 };        // 渦の心（触るまで勝手には引っ越さない）
+  var wander = { x: 0, y: 0 };        // 心の散歩先（anchorの周りだけ）
+  var fishes = [];
+  var spinDir = 1;                    // 渦の向き
+  var spinSpeed = 0.55, spinTarget = 0.55;
+  var form = 1, formTarget = 1;       // 1=通常 / 0.48=防御ボール
+  var lastTouch = -10000;
+  var hintGone = false;
+
+  function makeFish(seedR){
+    return {
+      a: Math.random() * 6.2832,                    // 渦の中の角度
+      r: 14 + Math.pow(Math.random(), 0.6) * seedR, // 心からの距離
+      x: 0, y: 0, vx: 0, vy: 0, ix: 0, iy: 0,
+      s: 0.55 + Math.random() * 0.85,               // 大きさ（奥行きも兼ねる）
+      sp: 0.85 + Math.random() * 0.3,
+      ph: Math.random() * 6.2832,
+      flash: 0
+    };
+  }
+  function seedSchool(){
+    fishes = [];
+    var baseR = Math.min(W, H) * 0.34;
+    var n = Math.max(480, Math.min(820, Math.floor(W * H / 2100)));
+    for (var i = 0; i < n; i++) {
+      var f = makeFish(baseR);
+      f.x = anchor.x + Math.cos(f.a) * f.r;
+      f.y = anchor.y + Math.sin(f.a) * f.r * 0.74;
+      fishes.push(f);
+    }
+  }
+
+  /* ---------- サイズ対応 ---------- */
+  var bgGrad = null, rayGrad = null;
+  function resize(){
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width  = Math.max(1, Math.floor(W * dpr));
+    canvas.height = Math.max(1, Math.floor(H * dpr));
+    canvas.style.width  = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    var sea = SEAS[seaIdx];
+    bgGrad = ctx.createLinearGradient(0, 0, 0, H);
+    bgGrad.addColorStop(0, sea.top); bgGrad.addColorStop(0.55, sea.mid); bgGrad.addColorStop(1, sea.bot);
+    rayGrad = ctx.createLinearGradient(0, 0, 0, H);
+    rayGrad.addColorStop(0, SEAS[seaIdx].ray + '0.20)');
+    rayGrad.addColorStop(1, SEAS[seaIdx].ray + '0)');
+    if (anchor.x === 0) { anchor.x = W * 0.5; anchor.y = H * 0.44; wander.x = anchor.x; wander.y = anchor.y; }
+    anchor.x = Math.min(Math.max(anchor.x, W * 0.1), W * 0.9);
+    anchor.y = Math.min(Math.max(anchor.y, H * 0.12), H * 0.85);
+    if (fishes.length === 0) seedSchool();
+  }
+  window.addEventListener('resize', resize);
+  window.addEventListener('orientationchange', function(){ setTimeout(resize, 60); });
+
+  /* ---------- プランクトンと泡 ---------- */
+  var motes = [], bubbles = [];
+  for (var i = 0; i < 70; i++) motes.push({ x: Math.random(), y: Math.random(), s: Math.random() * 1.8 + 0.4, d: Math.random() * 6.28 });
+  for (var j = 0; j < 22; j++) bubbles.push({ x: Math.random(), y: Math.random(), r: Math.random() * 3 + 1.2, v: Math.random() * 14 + 8, w: Math.random() * 6.28 });
+
+  function hideHint(){ if (!hintGone) { hintGone = true; hint.classList.add('gone'); } }
+  setTimeout(hideHint, 6000);
+
+  /* ---------- 操作 ---------- */
+  var pDown = false, dragging = false, holding = false;
+  var downX = 0, downY = 0, downT = 0, prevPX = 0, prevPY = 0, crossSum = 0;
+
+  canvas.addEventListener('pointerdown', function(e){
+    var x = e.clientX, y = e.clientY;
+    if (window.APKit && APKit.isUI(x, y)) return true;
+    e.preventDefault();
+    hideHint();
+    pDown = true; dragging = false; holding = false;
+    downX = prevPX = x; downY = prevPY = y; downT = performance.now();
+    crossSum = 0;
+    lastTouch = downT;
+    if (canvas.setPointerCapture) { try { canvas.setPointerCapture(e.pointerId); } catch(_){} }
+  }, { passive:false });
+
+  canvas.addEventListener('pointermove', function(e){
+    var x = e.clientX, y = e.clientY;
+    if (window.APKit && APKit.isUI(x, y)) return true;
+    if (!pDown) return;
+    e.preventDefault();
+    lastTouch = performance.now();
+    if (Math.abs(x - downX) + Math.abs(y - downY) > 12) dragging = true;
+    if (dragging) {
+      holding = false;
+      // 渦の心が指へ引っ越す
+      anchor.x += (x - anchor.x) * 0.35;
+      anchor.y += (y - anchor.y) * 0.35;
+      wander.x = anchor.x; wander.y = anchor.y;
+      // 円を描く動きを拾うと、渦の向きと速さが変わる
+      var cx1 = prevPX - anchor.x, cy1 = prevPY - anchor.y;
+      var cx2 = x - anchor.x,       cy2 = y - anchor.y;
+      crossSum += cx1 * cy2 - cy1 * cx2;
+      if (Math.abs(crossSum) > 3000) { spinDir = crossSum > 0 ? 1 : -1; crossSum = 0; }
+      var pv = Math.abs(x - prevPX) + Math.abs(y - prevPY);
+      spinTarget = Math.min(1.5, Math.max(0.45, 0.55 + pv * 0.012));
+    }
+    prevPX = x; prevPY = y;
+  }, { passive:false });
+
+  function endPointer(e){
+    var x = e.clientX, y = e.clientY;
+    if (window.APKit && APKit.isUI(x, y)) return true;
+    if (!pDown) return;
+    e.preventDefault();
+    pDown = false;
+    lastTouch = performance.now();
+    var dt = performance.now() - downT;
+    if (!dragging && !holding && dt < 260) {
+      // タップ：襲われたように弾けて閃く
+      for (var i = 0; i < fishes.length; i++) {
+        var f = fishes[i];
+        var dx = f.x - x, dy = f.y - y;
+        var d2 = dx * dx + dy * dy;
+        if (d2 < 22500) {
+          var d = Math.sqrt(d2) || 1;
+          var pow = (1 - d / 150) * 340;
+          f.ix += (dx / d) * pow; f.iy += (dy / d) * pow;
+          f.flash = 1;
+        }
+      }
+    }
+    if (holding) { anchor.x = downX; anchor.y = downY; wander.x = downX; wander.y = downY; }
+    dragging = false; holding = false;
+    formTarget = 1;
+  }
+  canvas.addEventListener('pointerup', endPointer, { passive:false });
+  canvas.addEventListener('pointercancel', endPointer, { passive:false });
+  canvas.addEventListener('contextmenu', function(e){ e.preventDefault(); });
+
+  /* ---------- 描画 ---------- */
+  var prevT = performance.now();
+  function tick(now){
+    var dt = Math.min(0.05, (now - prevT) / 1000); prevT = now;
+    var t = now / 1000;
+
+    // 長押し判定：群れが防御ボールに縮む
+    if (pDown && !dragging && (now - downT) > 380) { holding = true; formTarget = 0.48; }
+    form += (formTarget - form) * Math.min(1, dt * 2.4);
+    spinSpeed += (spinTarget - spinSpeed) * Math.min(1, dt * 1.5);
+    if (!pDown) spinTarget += (0.55 - spinTarget) * Math.min(1, dt * 0.25);
+
+    // 眺めている間、心は今いる場所の周りを小さく散歩するだけ（引っ越さない）
+    if ((now - lastTouch) > 2500 && !pDown) {
+      wander.x = anchor.x + Math.cos(t * 0.11) * W * 0.05;
+      wander.y = anchor.y + Math.sin(t * 0.083) * H * 0.045;
+    }
+    var cx = wander.x, cy = wander.y;
+    var formY = form * 0.74;
+
+    // 背景：海と光の筋
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(0, 0, W, H);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (var ri = 0; ri < 3; ri++) {
+      var rx = W * (0.22 + ri * 0.26) + Math.sin(t * 0.07 + ri * 2.1) * W * 0.03;
+      ctx.save();
+      ctx.translate(rx, 0); ctx.rotate(0.16 + Math.sin(t * 0.05 + ri) * 0.02);
+      ctx.fillStyle = rayGrad;
+      ctx.fillRect(-W * 0.045, 0, W * 0.09, H * 1.2);
+      ctx.restore();
+    }
+    ctx.restore();
+
+    // プランクトン
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    for (var mi = 0; mi < motes.length; mi++) {
+      var m = motes[mi];
+      var mx = ((m.x + Math.sin(t * 0.05 + m.d) * 0.006) % 1) * W;
+      var my = ((m.y + t * 0.004 * (0.5 + m.s * 0.2)) % 1) * H;
+      ctx.fillRect(mx, my, m.s, m.s);
+    }
+
+    // 魚たち
+    for (var i = 0; i < fishes.length; i++) {
+      var f = fishes[i];
+      f.a += dt * spinSpeed * (30 / (f.r + 26)) * spinDir * f.sp;
+      var tx = cx + Math.cos(f.a) * f.r * form;
+      var ty = cy + Math.sin(f.a) * f.r * formY + Math.sin(t * 0.9 + f.ph) * 4;
+      var gx = -Math.sin(f.a) * spinDir, gy = Math.cos(f.a) * spinDir * 0.75;
+      var sp = 42 + f.r * 0.55;
+      var dvx = gx * sp + (tx - f.x) * 1.7 + f.ix;
+      var dvy = gy * sp + (ty - f.y) * 1.7 + f.iy;
+      var kk = Math.min(1, dt * 3.4);
+      f.vx += (dvx - f.vx) * kk;
+      f.vy += (dvy - f.vy) * kk;
+      f.x += f.vx * dt; f.y += f.vy * dt;
+      var decay = Math.exp(-dt * 2.1);
+      f.ix *= decay; f.iy *= decay;
+      if (f.flash > 0) f.flash = Math.max(0, f.flash - dt * 1.4);
+
+      // 銀の閃きが群れを波のように渡る
+      var glint = Math.sin(f.ph + t * 1.7 + f.a * 2.0 + Math.sin(f.r * 0.02 - t * 1.2) * 1.5);
+      var vi = Math.max(0, Math.min(5, Math.floor((glint * 0.5 + 0.5) * 6)));
+      var img = f.flash > 0.25 ? FLASH : SPRITES[vi];
+      var sc = f.s * (0.8 + form * 0.2);
+      ctx.save();
+      ctx.translate(f.x, f.y + Math.sin(t * 6 + f.ph) * 0.8);  // 尾を振る上下動
+      ctx.rotate(Math.atan2(f.vy, f.vx));
+      ctx.globalAlpha = 0.55 + f.s * 0.4;
+      ctx.drawImage(img, -24 * sc, -10 * sc, 48 * sc, 20 * sc);
+      ctx.restore();
+    }
+
+    // 泡
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+    ctx.lineWidth = 1;
+    for (var bi = 0; bi < bubbles.length; bi++) {
+      var b = bubbles[bi];
+      var by = H - ((b.y * H + t * b.v) % (H + 20)) + 10;
+      var bx = b.x * W + Math.sin(t * 1.3 + b.w) * 6;
+      ctx.beginPath(); ctx.arc(bx, by, b.r, 0, 6.2832); ctx.stroke();
+    }
+
+    requestAnimationFrame(tick);
+  }
+
+  resize();
+  requestAnimationFrame(tick);
+
+  /* ---------- APKit ---------- */
+  if (window.APKit) {
+    APKit.init({
+      canvas: canvas,
+      gifName: 'bait-ball-loop',
+      clockFormat: 'spec',
+      dock: true,
+      autoHide: true,
+      fullscreenButton: false,
+      buttons: [
+        { label:'✦', name:'mutate', onClick:function(){
+            seaIdx = (seaIdx + 1) % SEAS.length;   // 海の色と光が変わる
+            buildSprites();
+            resize();
+            spinDir = Math.random() < 0.5 ? -1 : 1; // 渦の向きも変わる
+            for (var i = 0; i < fishes.length; i++) {
+              fishes[i].r = 14 + Math.pow(Math.random(), 0.6) * Math.min(W, H) * 0.34;
+            }
+            lastTouch = performance.now();
+        }},
+        { label:'↻', name:'reset', onClick:function(){
+            seaIdx = 0; buildSprites(); resize();
+            anchor.x = W * 0.5; anchor.y = H * 0.44;
+            wander.x = anchor.x; wander.y = anchor.y;
+            spinDir = 1; spinTarget = 0.55; formTarget = 1;
+            seedSchool();
+            lastTouch = performance.now();
+        }}
+      ]
+    });
+  }
+})();
+</script>
+</body>
+</html>
