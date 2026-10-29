@@ -1,3 +1,4 @@
+- 2026-10-29 ムーちゃん: Workers Builds の Git 連携をオーナーが解除→再接続（ビルド失敗 code: 10013 の切り分け）。このコミットは再接続後の初回ビルドの発火と結果確認を兼ねる。あわせて実験1で run_worker_first のパターン説は否定済み（戻しても失敗）
 - 2026-10-29 ムーちゃん: デプロイ経路の是正。Workers Builds のデプロイコマンドに付いていた `--assets=. --compatibility-date` 指定が assets-upload-session で API エラー（code: 10013）を起こし全ビルドが失敗していたため、オーナーがダッシュボードで `npx wrangler deploy`（wrangler.toml を使用する形）に変更・保存。このコミットは新コマンドでの自動ビルド再発火と本番反映の確認を兼ねる。コード変更なし（CHANGELOG のみ）
 - 2026-10-29 チャッピー: P2対応。公開作品URLは拡張子なしの正規URLへ統一するため、Workerの作品判定を拡張子あり/なしに対応させ、作品HTMLのcanonicalを動的に追加。sitemap.xmlもギャラリーのリンク先を拡張子なしURLで列挙。Cloudflare側のrobots.txt応答が静的ファイルと異なるため、Workerでrobots.txtを明示応答し、wrangler.tomlでrobots/sitemap/拡張子なし作品URLをWorker先行ルートに追加。ブランチ上のコード確認のみ。デプロイ後の応答・Googleの処理は未検証。
 - 2026-10-29 チャッピー: P1 SEO基盤の改良。サイトルートに sitemap.xml（トップ＋ギャラリーからリンクされた作品URL 62件）と robots.txt を追加し、index.html に自己参照 canonical を追加。既存の title/description/OGP/Twitterカードは維持。コード上の構造確認のみで、ライブ応答・Google側のクロール/登録は未検証（seo/p1-crawl-index-foundation）。
