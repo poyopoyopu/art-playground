@@ -218,7 +218,7 @@ export default {
 
     // Cloudflare managed robots.txt can override a static asset, so serve this file explicitly.
     if (url.pathname === '/robots.txt') {
-      return new Response('User-agent: *\\nAllow: /\\n\\nSitemap: ' + url.origin + '/sitemap.xml\\n', {
+      return new Response('User-agent: *\nAllow: /\n\nSitemap: ' + url.origin + '/sitemap.xml\n', {
         headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'public, max-age=300' }
       });
     }
