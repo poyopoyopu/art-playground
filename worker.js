@@ -86,9 +86,10 @@ const SOCIAL_HTML = `
 // 2) 人が直接開いたとき(Sec-Fetch-Dest: document)だけ、左上に「‹ ART PLAYGROUND」(ギャラリーへ戻る)のピルを足す。
 //    ギャラリーのプレビュー/全画面(iframe)では出さない。
 // 3) ギャラリー/作品を人が直接開いた回数を、流入元(?s=ig など + リファラのホスト名)つきで landings に記録する。
-const WORK_PAGE_RE = /^\/(art-v\d+(-[^/]+)?|void-field-ii)\.html$/i;
+const WORK_PAGE_RE = /^\/(art-v\d+(-[^/]+)?|void-field-ii)(?:\.html)?$/i;
 const WORK_PAGE_EXTRA = new Set(['/prototypes/chroma-grid.html', '/prototypes/spiral-spectrum-200-v9.html', '/prototypes/membrane-rgb.html']);
-function isWorkPage(pathname) { return WORK_PAGE_RE.test(pathname) || WORK_PAGE_EXTRA.has(pathname); }
+function isWorkPage(pathname) { return WORK_PAGE_RE.test(pathname) || WORK_PAGE_EXTRA.has(pathname) || WORK_PAGE_EXTRA.has(pathname + '.html'); }
+function canonicalWorkPath(pathname) { return pathname.replace(/\.html$/i, ''); }
 function ogImageFor(pathname) { return '/og/' + pathname.replace(/^\/+/, '').replace(/\.html$/i, '').replace(/\//g, '__') + '.jpg'; } // tools/gen_og.py の og_name() と同じ規則
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 function parseWorkTitle(html) {
@@ -108,10 +109,14 @@ async function pickOgImage(env, origin, pathname) {
   } catch (e) { /* 既定画像へ */ }
   return origin + '/brand/og-image.jpg';
 }
-function workHeadTags({ name, ja, image }) {
+function workCanonicalTag(origin, pathname) {
+  return '<link rel="canonical" href="' + esc(origin + canonicalWorkPath(pathname)) + '">';
+}
+function workHeadTags({ name, ja, image, origin, pathname }) {
   const title = name + ' — ART PLAYGROUND';
   const desc = (ja ? ja + ' — ' : '') + 'ART PLAYGROUNDのインタラクティブ作品。触ると、世界のルールが変わる。';
   return [
+    workCanonicalTag(origin, pathname),
     '<meta name="description" content="' + esc(desc) + '">',
     '<meta property="og:type" content="website">',
     '<meta property="og:site_name" content="ART PLAYGROUND">',
@@ -211,7 +216,20 @@ export default {
       return onRequestGetSources({ env });
     }
 
-    const asset = await env.ASSETS.fetch(request);
+    // Cloudflare managed robots.txt can override a static asset, so serve this file explicitly.
+    if (url.pathname === '/robots.txt') {
+      return new Response('User-agent: *\nAllow: /\n\nSitemap: ' + url.origin + '/sitemap.xml\n', {
+        headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'public, max-age=300' }
+      });
+    }
+    // Keep sitemap.xml on the asset binding; run_worker_first routes it through this Worker.
+    if (url.pathname === '/sitemap.xml') return env.ASSETS.fetch(request);
+
+    // Extensionless public work URLs map to the corresponding source HTML asset.
+    const assetUrl = new URL(request.url);
+    if (isWorkPage(url.pathname) && !/\.html$/i.test(url.pathname)) assetUrl.pathname = url.pathname + '.html';
+    const assetRequest = assetUrl.href === request.url ? request : new Request(assetUrl.toString(), request);
+    const asset = await env.ASSETS.fetch(assetRequest);
 
     // Count explicit full-screen opens from the gallery, plus direct top-level opens of published art pages.
     // Gallery preview iframes are excluded: they carry neither ap_view=1 nor Sec-Fetch-Dest=document.
@@ -242,7 +260,11 @@ export default {
         let html = await asset.text();
         const { name, ja } = parseWorkTitle(html);
         const image = await pickOgImage(env, url.origin, url.pathname);
-        if (!/property="og:title"/i.test(html)) html = html.replace(/<\/head>/i, () => workHeadTags({ name, ja, image }) + '\n</head>');
+        if (!/property="og:title"/i.test(html)) {
+          html = html.replace(/<\/head>/i, () => workHeadTags({ name, ja, image, origin: url.origin, pathname: url.pathname }) + '\n</head>');
+        } else if (!/rel="canonical"/i.test(html)) {
+          html = html.replace(/<\/head>/i, () => workCanonicalTag(url.origin, url.pathname) + '\n</head>');
+        }
         if (dest === 'document') {
           const i = html.toLowerCase().lastIndexOf('</body>');
           html = i >= 0 ? html.slice(0, i) + HOME_PILL + html.slice(i) : html + HOME_PILL;
