@@ -225,9 +225,29 @@ export default {
     // Keep sitemap.xml on the asset binding; run_worker_first routes it through this Worker.
     if (url.pathname === '/sitemap.xml') return env.ASSETS.fetch(request);
 
-    // Extensionless public work URLs map to the corresponding source HTML asset.
+    // Keep a single canonical URL for the gallery. With html_handling="none",
+    // the Worker must explicitly map "/" to the physical index.html asset.
+    if (url.pathname === '/index.html' && (request.method === 'GET' || request.method === 'HEAD')) {
+      const canonicalUrl = new URL(url);
+      canonicalUrl.pathname = '/';
+      return Response.redirect(canonicalUrl.toString(), 301);
+    }
+
+    // Work pages use extensionless public URLs. Redirect explicit .html URLs once,
+    // then map the canonical extensionless path to its physical .html asset below.
+    if (isWorkPage(url.pathname) && /\.html$/i.test(url.pathname) &&
+        (request.method === 'GET' || request.method === 'HEAD')) {
+      const canonicalUrl = new URL(url);
+      canonicalUrl.pathname = canonicalWorkPath(url.pathname);
+      return Response.redirect(canonicalUrl.toString(), 301);
+    }
+
     const assetUrl = new URL(request.url);
-    if (isWorkPage(url.pathname) && !/\.html$/i.test(url.pathname)) assetUrl.pathname = url.pathname + '.html';
+    if (url.pathname === '/') {
+      assetUrl.pathname = '/index.html';
+    } else if (isWorkPage(url.pathname) && !/\.html$/i.test(url.pathname)) {
+      assetUrl.pathname = url.pathname + '.html';
+    }
     const assetRequest = assetUrl.href === request.url ? request : new Request(assetUrl.toString(), request);
     const asset = await env.ASSETS.fetch(assetRequest);
 
