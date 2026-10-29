@@ -194,6 +194,47 @@ async function onRequestGetSources({ env }) {
     return json({ error: 'SOURCES_QUERY_FAILED', detail: String((e && e.message) || e) }, 500);
   }
 }
+async function ensureAffiliateClickSchema(db) {
+  await db.prepare('CREATE TABLE IF NOT EXISTS affiliate_clicks (id INTEGER PRIMARY KEY AUTOINCREMENT, affiliate_id TEXT NOT NULL, page TEXT NOT NULL, created_at TEXT NOT NULL)').run();
+  await db.prepare('CREATE INDEX IF NOT EXISTS idx_affiliate_clicks_created_at ON affiliate_clicks(created_at)').run();
+  await db.prepare('CREATE INDEX IF NOT EXISTS idx_affiliate_clicks_affiliate_id ON affiliate_clicks(affiliate_id)').run();
+}
+const AFFILIATE_IDS = new Set(['artgraph', 'print-earth', 'design-pocket', 'generate-design', 'favorite', 'colleize', 'coconala', 'eeo-store']);
+async function onRequestPostAffiliateClick({ request, env }) {
+  const db = env.DB || env.BD;
+  if (!db) return json({ error: 'DB_NOT_CONFIGURED' }, 503);
+  let body;
+  try { body = await request.json(); } catch (e) { return json({ error: 'INVALID_JSON' }, 400); }
+  const affiliateId = String(body && body.affiliate_id || '');
+  if (!AFFILIATE_IDS.has(affiliateId)) return json({ error: 'INVALID_AFFILIATE_ID' }, 400);
+  let page = String(body && body.page || '/');
+  if (!page.startsWith('/') || page.startsWith('//')) page = '/';
+  page = page.split(/[?#]/, 1)[0].slice(0, 120) || '/';
+  try {
+    await ensureAffiliateClickSchema(db);
+    await db.prepare('INSERT INTO affiliate_clicks (affiliate_id, page, created_at) VALUES (?, ?, ?)').bind(affiliateId, page, new Date().toISOString()).run();
+    return new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } });
+  } catch (e) {
+    console.error('AFFILIATE_CLICK_RECORD_FAILED', e);
+    return json({ error: 'AFFILIATE_CLICK_RECORD_FAILED' }, 500);
+  }
+}
+async function onRequestGetAffiliateClicks({ env }) {
+  const db = env.DB || env.BD;
+  if (!db) return json({ error: 'DB_NOT_CONFIGURED' }, 503);
+  try {
+    await ensureAffiliateClickSchema(db);
+    const since = "created_at >= strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days')";
+    const total = await db.prepare('SELECT COUNT(*) AS n FROM affiliate_clicks').first();
+    const recent = await db.prepare('SELECT COUNT(*) AS n FROM affiliate_clicks WHERE ' + since).first();
+    const byAffiliate = await db.prepare('SELECT affiliate_id, COUNT(*) AS clicks FROM affiliate_clicks WHERE ' + since + ' GROUP BY affiliate_id ORDER BY clicks DESC').all();
+    const byPage = await db.prepare('SELECT page, COUNT(*) AS clicks FROM affiliate_clicks WHERE ' + since + ' GROUP BY page ORDER BY clicks DESC LIMIT 20').all();
+    return json({ total_clicks: Number(total?.n || 0), last_30_days: Number(recent?.n || 0), by_affiliate: byAffiliate.results || [], by_page: byPage.results || [] });
+  } catch (e) {
+    console.error('AFFILIATE_CLICK_QUERY_FAILED', e);
+    return json({ error: 'AFFILIATE_CLICK_QUERY_FAILED' }, 500);
+  }
+}
 // ================= /SNS導線まわり =================
 
 export default {
@@ -214,6 +255,11 @@ export default {
     if (url.pathname === '/api/sources') {
       if (request.method !== 'GET') return new Response('Method Not Allowed', { status: 405 });
       return onRequestGetSources({ env });
+    }
+    if (url.pathname === '/api/affiliate-click') {
+      if (request.method === 'POST') return onRequestPostAffiliateClick({ request, env });
+      if (request.method === 'GET') return onRequestGetAffiliateClicks({ env });
+      return new Response('Method Not Allowed', { status: 405 });
     }
 
     // Cloudflare managed robots.txt can override a static asset, so serve this file explicitly.
