@@ -15,12 +15,16 @@
        光の色 = 地上のいまの時刻。明け方は桃色、昼は白、夕方は橙、夜は青白い月光(午前と午後の区別に)
        タップ = 隕石が輪に落ちる。破片の雲は内側ほど速く回る輪に引き伸ばされ、渦巻きの筋になってからゆっくり輪に戻る
        なぞる = 指が小さな衛星になって輪をかき分け、航跡が残る
-       ✦ = 別の惑星(色と輪の細かい筋が変わる)  ↻ = 輪の乱れを静める  ？ = 読み方  🕐 = 数字の時刻(上に小さく。初期はOFF)
+       ✦ = 別の惑星(色と輪の細かい筋が変わる。金/氷/薔薇銅/翡翠/虹。虹の惑星は輪が内側の赤から外側の紫まで分光し、分の塵の弧も12時から虹色に移る)  ↻ = 輪の乱れを静める  ？ = 読み方  🕐 = 数字の時刻(上に小さく。初期はOFF)
      本物っぽさ: 輪の粒子は1粒ずつケプラー回転(内側ほど速い)し、月の重力で空隙の縁が乱れて航跡ができる。
        輪の構造はC環・B環・カッシーニの間隙・A環・エンケの空隙・F環。北極の六角形の渦、夜側のオーロラ。
      技術: WebGPU(compute shaderで輪の粒子を毎フレーム積分、インスタンス描画、rgba16floatに加算してトーンマップ)。
        WebGPUが無い端末はWebGL2(transform feedbackで同じ積分)に自動で切り替え。Screen Wake Lock APIで画面を消さない。
        置きっぱなし前提で30fps上限・DPR上限・重い端末は粒子数を自動で減らす。
+     2026/10/30 おっちゃん「タッチの位置がズレてるね」→ 指の座標(CSSピクセル)にDPRを掛けて合わせた
+     2026/10/30 おっちゃん「レインボー的なパターンも追加して作品に追加」→ ✦に虹の惑星を追加(輪は半径で分光、惑星の縞も虹色、分の塵の弧は12時から色が移る。
+       虹は日光の色に染まりすぎないよう、日光の色味を7割弱めて掛ける)。採用・art-v113としてギャラリーLOGへ
+     自動撮影(navigator.webdriver)のときはWebGL2で描く(ヘッドレスはWebGPUの画面を出せず、ポスターが真っ黒になるため)
      テスト用: URLに ?t=15:20:05 を付けると、その時刻から進む(作品の時刻だけ。数字の時計は本当の時刻)
 -->
 <script src="../ap-kit.js"></script>
@@ -79,6 +83,7 @@ const PALS=[
   {a:[0.62,0.86,0.92],b:[0.30,0.52,0.70],r:[0.80,0.92,1.00]},  // ice giant
   {a:[0.95,0.70,0.62],b:[0.55,0.30,0.34],r:[1.00,0.80,0.74]},  // rose copper
   {a:[0.74,0.90,0.70],b:[0.36,0.40,0.62],r:[0.86,0.96,0.86]},  // jade / indigo
+  {a:[0.95,0.92,0.98],b:[0.70,0.66,0.86],r:[1.00,1.00,1.00],rb:1},  // rainbow: rings split into the spectrum
 ];
 let palIx=0, ringSeed=Math.random()*1000;
 
@@ -167,7 +172,7 @@ function fillUniforms(dt,dust){
   UF.set([sun[0]*night,sun[1]*night,sun[2]*night,DPR],12);
   UF.set([P.a[0],P.a[1],P.a[2],ringSeed%97],16);
   UF.set([P.b[0],P.b[1],P.b[2],0],20);
-  UF.set([P.r[0],P.r[1],P.r[2],0],24);
+  UF.set([P.r[0],P.r[1],P.r[2],P.rb?1:0],24);
   UF.set([MOON_R*Math.sin(cs.min),MOON_R*Math.cos(cs.min),cs.h24/24,resetT>0?1:0],28);
   const szPx=1.7*DPR;
   UF.set([N,backend==='webgpu'?1:intensityScale,0.62*sc*sc/(Math.max(drawN,1)*szPx*szPx),dust],32);
@@ -183,6 +188,7 @@ struct U { v: array<vec4f,20> };
 const TAU:f32=6.2831853;
 const RP:f32=0.22;
 fn omega(a:f32)->f32{ return 0.0419*pow(a/0.86,-1.5); }
+fn rb(h:f32)->vec3f{ return 0.5+0.5*cos(TAU*(h-vec3f(0.0,0.333,0.667))); }
 fn ss(a:f32,b:f32,x:f32)->f32{ let t=clamp((x-a)/(b-a),0.0,1.0); return t*t*(3.0-2.0*t); }
 fn wrapPi(x:f32)->f32{ return x-TAU*floor((x+3.14159265)/TAU); }
 fn hu(i:u32,k:u32)->f32{ var h=i*747796405u+k*2891336453u+12345u; h=((h>>((h>>28u)+4u))^h)*277803737u; h=(h>>22u)^h; return f32(h)/4294967295.0; }
@@ -237,9 +243,11 @@ struct VO{ @builtin(position) pos:vec4f, @location(0) col:vec3f, @location(1) uv
     let seed=B.z;
     var base=mix(u.v[6].rgb*0.78,u.v[6].rgb,ss(0.42,0.62,a));
     base=mix(base*vec3f(0.62,0.66,0.78),base,ss(0.38,0.43,a));       // C ring greyer
+    base=mix(base,mix(rb((a-0.30)*1.45+0.04*seed),vec3f(1.0),0.18)*1.15,u.v[6].w);   // rainbow planet
     base*=0.9+0.2*seed;
     let lit=shadowF(p);
-    col=base*sun*(lit*1.0+0.035)*B.w*k;
+    let sunT=mix(sun,vec3f(dot(sun,vec3f(0.3333))),u.v[6].w*0.7);
+    col=base*sunT*(lit*1.0+0.035)*B.w*k;
     // spokes: co-rotate with the planet (seconds)
     let dA=wrapPi(th-u.v[2].x);
     let band=ss(0.43,0.47,a)*(1.0-ss(0.58,0.62,a));
@@ -258,7 +266,7 @@ struct VO{ @builtin(position) pos:vec4f, @location(0) col:vec3f, @location(1) uv
     p=rr*vec2f(sin(ang),cos(ang));
     let fresh=exp(-age*1.6);
     let lit=shadowF(p);
-    col=mix(vec3f(0.75,0.85,1.0),sun,0.5)*(0.22+1.4*fresh)*vis*(0.25+0.75*lit)*u.v[8].y*0.10;
+    col=mix(mix(vec3f(0.75,0.85,1.0),sun,0.5),mix(rb(ph/TAU),vec3f(1.0),0.25)*1.3,u.v[6].w)*(0.22+1.4*fresh)*vis*(0.25+0.75*lit)*u.v[8].y*0.10;
     sz=u.v[3].w*(0.9+0.9*fresh);
   }
   let sc=u.v[1].x; let dpr=u.v[3].w;
@@ -316,6 +324,7 @@ FN vec3 shade(vec2 fc, vec3 ring){
     float lon=atan2(qr.x,qr.y);
     float t=rr*8.5+0.10*sin(lon*5.+rr*24.)+0.55*fbm(V2(lon*2.2,rr*16.))+0.25*fbm(V2(lon*7.,rr*40.));
     vec3 bc=mix(U5.rgb,U4.rgb,0.5+0.5*sin(t*2.6));
+    bc=mix(bc,mix(rb(t*0.09+lon*0.02),V3(1.0),0.22),U6.w);
     bc*=0.82+0.18*sin(t*9.1+1.);
     // north polar hexagon
     float hx=rr*cos(3.14159/6.)/cos(fmod(lon+3.14159/6.,3.14159/3.)-3.14159/6.);
@@ -374,6 +383,7 @@ uniform vec4 U[20];
 #define U8 U[8]
 const float TAU=6.2831853; const float RP=0.22;
 float omega(float a){ return 0.0419*pow(a/0.86,-1.5); }
+vec3 rb(float h){ return 0.5+0.5*cos(TAU*(h-vec3(0.0,0.333,0.667))); }
 float ss(float a,float b,float x){ float t=clamp((x-a)/(b-a),0.0,1.0); return t*t*(3.0-2.0*t); }
 float wrapPi(float x){ return x-TAU*floor((x+3.14159265)/TAU); }
 float hu(uint i,uint k){ uint h=i*747796405u+k*2891336453u+12345u; h=((h>>((h>>28u)+4u))^h)*277803737u; h=(h>>22u)^h; return float(h)/4294967295.0; }
@@ -426,9 +436,11 @@ void main(){
     float seed=aB.z;
     vec3 base=mix(U6.rgb*0.78,U6.rgb,ss(0.42,0.62,a));
     base=mix(base*vec3(0.62,0.66,0.78),base,ss(0.38,0.43,a));
+    base=mix(base,mix(rb((a-0.30)*1.45+0.04*seed),vec3(1.0),0.18)*1.15,U6.w);
     base*=0.9+0.2*seed;
     float lit=shadowF(p);
-    col=base*sun*(lit*1.0+0.035)*aB.w*k;
+    vec3 sunT=mix(sun,vec3(dot(sun,vec3(0.3333))),U6.w*0.7);
+    col=base*sunT*(lit*1.0+0.035)*aB.w*k;
     float dA=wrapPi(th-U2.x);
     float band=ss(0.43,0.47,a)*(1.0-ss(0.58,0.62,a));
     float sp=exp(-dA*dA/0.0016)*band*(0.35+0.65*fract(sin(floor(a*140.0)*91.7)*437.5));
@@ -445,7 +457,7 @@ void main(){
     p=rr*vec2(sin(ang),cos(ang));
     float fresh=exp(-age*1.6);
     float lit=shadowF(p);
-    col=mix(vec3(0.75,0.85,1.0),sun,0.5)*(0.22+1.4*fresh)*vis*(0.25+0.75*lit)*U8.y*0.10;
+    col=mix(mix(vec3(0.75,0.85,1.0),sun,0.5),mix(rb(ph/TAU),vec3(1.0),0.25)*1.3,U6.w)*(0.22+1.4*fresh)*vis*(0.25+0.75*lit)*U8.y*0.10;
     sz=U3.w*(0.9+0.9*fresh);
   }
   float sc=U1.x;
@@ -581,7 +593,7 @@ function initWebGL2(){
   const pDraw=prog(GL_DRAW_VS,GL_DRAW_FS);
   const pComp=prog(GL_COMP_VS,GL_COMP_FS.replace('#SHADE#',shadeFor('glsl')));
   if(!pSim||!pDraw||!pComp)return null;
-  N=NMAX||150000; drawN=N;
+  N=NMAX||(navigator.webdriver?60000:150000); drawN=N;   // 自動撮影はCPU描画で遅いので粒を減らす(明るさは粒数で補正される)
   const data=seedParticles(new Float32Array(N*8));
   const bufs=[gl.createBuffer(),gl.createBuffer()];
   for(const b of bufs){gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,data,gl.DYNAMIC_COPY)}
@@ -669,7 +681,8 @@ function loop(now){
 async function start(){
   resize();
   let r=null;
-  if(!/[?&]gl=1/.test(location.search)){try{backend='webgpu';r=await initWebGPU()}catch(e){console.warn(e);r=null}}
+  if(!/[?&]gl=1/.test(location.search)&&(!navigator.webdriver||OFFSCREEN)){   // 自動撮影(ポスター)はWebGL2で描く
+    try{backend='webgpu';r=await initWebGPU()}catch(e){console.warn(e);r=null}}
   if(!r){
     if(ctxTaken){ // this canvas already holds a webgpu context -> reload in WebGL2 mode
       history.replaceState(null,'',location.pathname+(location.search?location.search+'&':'?')+'gl=1');location.reload();return;
