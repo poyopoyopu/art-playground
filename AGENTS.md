@@ -286,6 +286,8 @@ SNS(Instagram/TikTok)から来た人をサイトで迎え、気に入った人�
 
 ### サイト → SNS(FOLLOW)
 - `index.html` の `.follow` セクション(**LOGの畳みボタンの直下・Aboutの前**)。Instagram/TikTokの2ボタン(高さ50px)。SUPPORTより先に出る。リンク先やボタンを変えるときはここ。
+- **上部の列(2026/10/30、しゅん依頼)**: ヘッダー直下の `.top-sns`。Instagram/Threads/TikTokの丸いアイコンボタン(46px、文字は `aria-label` のみ)と、右端の白い「シェアする」ボタン(`#siteShareBtn`)。拡散が目的なので作品(CURRENT)より上に置いている。勝手に外したり下へ動かしたりしない。
+- 「シェアする」はトップの直リンク+`?s=share`を共有シート(`navigator.share`)に渡す。共有シートが無い環境ではリンクをコピー。流入元は作品の共有ボタンと同じ「共有ボタン」で数える。JSは「共有と録画」の共有ボタンの直後。
 - 以前は `worker.js` が実行時に差し込んでいたが、`index.html` に `class="follow"` があるあいだは差し込まない(二重にならない)。`worker.js` 側の `SOCIAL_HTML/SOCIAL_CSS` は古い版へのフォールバックで、使われない。
 
 ### SNS → サイト(共有カード・アイコン)
