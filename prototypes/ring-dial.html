@@ -1,0 +1,709 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>RING DIAL — 輪にかかる影が、いまの時刻</title>
+<!-- RING DIAL — クロちゃん(Claude)作。ap-kit.js統合: クロちゃん。2026/10/30 試作
+     お題: 「おっちゃんが時計代わりに眺める作品」。数字を飾りで包むのではなく、作品の状態そのものが時刻。
+     世界のルール: この惑星の空では、太陽が12時間で惑星を一周し、月は1時間で、惑星そのものは1分で回る。
+       時 = 輪にかかる惑星の影。影が伸びている向きが時針(影が真上=12時、真右=3時)
+       分 = 輪のすき間(エンケの空隙)を回る小さな月。月は塵をまきながら進むので、正時から月までの光の弧が「この1時間に過ぎた分」。
+            正時に弧が一周して閉じ、ゆっくり消えて、また新しい弧が始まる
+       秒 = 惑星の自転。北極を真上から見ているので、白い嵐が1分で1周する。輪の上を走る青白い電気の筋(スポーク)も一緒に回る。
+            夜の側に回った嵐は、雷で光る
+       光の色 = 地上のいまの時刻。明け方は桃色、昼は白、夕方は橙、夜は青白い月光(午前と午後の区別に)
+       タップ = 隕石が輪に落ちる。破片の雲は内側ほど速く回る輪に引き伸ばされ、渦巻きの筋になってからゆっくり輪に戻る
+       なぞる = 指が小さな衛星になって輪をかき分け、航跡が残る
+       ✦ = 別の惑星(色と輪の細かい筋が変わる)  ↻ = 輪の乱れを静める  ？ = 読み方  🕐 = 数字の時刻(上に小さく。初期はOFF)
+     本物っぽさ: 輪の粒子は1粒ずつケプラー回転(内側ほど速い)し、月の重力で空隙の縁が乱れて航跡ができる。
+       輪の構造はC環・B環・カッシーニの間隙・A環・エンケの空隙・F環。北極の六角形の渦、夜側のオーロラ。
+     技術: WebGPU(compute shaderで輪の粒子を毎フレーム積分、インスタンス描画、rgba16floatに加算してトーンマップ)。
+       WebGPUが無い端末はWebGL2(transform feedbackで同じ積分)に自動で切り替え。Screen Wake Lock APIで画面を消さない。
+       置きっぱなし前提で30fps上限・DPR上限・重い端末は粒子数を自動で減らす。
+     テスト用: URLに ?t=15:20:05 を付けると、その時刻から進む(作品の時刻だけ。数字の時計は本当の時刻)
+-->
+<script src="../ap-kit.js"></script>
+<style>
+html,body{margin:0;height:100%;background:#000;overflow:hidden}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#hint{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 84px);text-align:center;color:#dfe6f2;
+  font:500 13px/1.7 -apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;letter-spacing:.12em;opacity:0;
+  transition:opacity 1.6s;pointer-events:none;text-shadow:0 0 8px #000}
+#hint.on{opacity:.78}
+#guide{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(84vw,360px);box-sizing:border-box;padding:22px 22px 18px;
+  background:rgba(8,10,18,.86);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.12);
+  border-radius:16px;color:#e6eaf2;font:13px/1.75 -apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;z-index:70;display:none}
+#guide.on{display:block}
+#guide h2{margin:0 0 10px;font-size:13px;letter-spacing:.28em;font-weight:600;opacity:.9}
+#guide dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:6px 12px}
+#guide dt{font-weight:700;color:#ffd9a0}
+#guide dd{margin:0;opacity:.88}
+#guide p{margin:12px 0 0;opacity:.7;font-size:12px}
+#nogpu{position:fixed;inset:0;display:none;align-items:center;justify-content:center;color:#ccc;font:14px sans-serif;text-align:center;padding:24px}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div id="hint">影が時・月が分・嵐が秒 ／ ？で読み方</div>
+<div id="guide">
+  <h2>RING DIAL の読み方</h2>
+  <dl>
+    <dt>時</dt><dd>輪にかかる太い影。影の向きが時針(真上=12時、真右=3時)</dd>
+    <dt>分</dt><dd>輪のすき間を回る小さな月。月がまいた光の弧が、正時から過ぎた分</dd>
+    <dt>秒</dt><dd>惑星の白い嵐と、輪を走る青白い筋。1分で1周</dd>
+    <dt>色</dt><dd>明け方は桃色、昼は白、夕方は橙、夜は青白い月光</dd>
+  </dl>
+  <p>タップで隕石が落ちて輪が乱れ、なぞると航跡が残る。しばらくすると輪は元に戻る。</p>
+</div>
+<div id="nogpu">この端末では表示できませんでした(WebGPU / WebGL2 が必要です)</div>
+<script>
+'use strict';
+(function(){
+const cv=document.getElementById('cv');
+const TAU=Math.PI*2;
+// ---------- world constants (units: 1 = ring outer area radius) ----------
+const RP=0.22, MOON_R=0.795, VIEW_R=0.965, NIMP=8;
+const UF=new Float32Array(80);           // 20 x vec4, shared by WebGPU and WebGL2
+let W=1,H=1,DPR=1, backend='', N=0, ND=26000, drawN=0;
+// test offset (?t=HH:MM[:SS])
+let tOffset=0;
+const OFFSCREEN=/[?&]gpuoff=1/.test(location.search);   // test: headless browsers can't present WebGPU canvases
+const NMAX=+(/[?&]n=(\d+)/.exec(location.search)||[])[1]||0;   // test: particle count
+(function(){const m=/[?&]t=(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(location.search);if(!m)return;
+  const d=new Date(),g=new Date();g.setHours(+m[1],+m[2],+(m[3]||0),0);tOffset=g-d;})();
+
+// ---------- palettes (planet bands A/B, ring tint) ----------
+const PALS=[
+  {a:[0.92,0.78,0.55],b:[0.62,0.46,0.30],r:[1.00,0.88,0.70]},  // saturn gold
+  {a:[0.62,0.86,0.92],b:[0.30,0.52,0.70],r:[0.80,0.92,1.00]},  // ice giant
+  {a:[0.95,0.70,0.62],b:[0.55,0.30,0.34],r:[1.00,0.80,0.74]},  // rose copper
+  {a:[0.74,0.90,0.70],b:[0.36,0.40,0.62],r:[0.86,0.96,0.86]},  // jade / indigo
+];
+let palIx=0, ringSeed=Math.random()*1000;
+
+// ---------- ring structure ----------
+function hash1(x){const s=Math.sin(x*127.1+ringSeed*13.7)*43758.5453;return s-Math.floor(s)}
+function vnoise(x){const i=Math.floor(x),f=x-i,u=f*f*(3-2*f);return hash1(i)*(1-u)+hash1(i+1)*u}
+function ringDensity(a){
+  let d;
+  if(a<0.30||a>0.872)return 0;
+  if(a<0.41)d=0.20;                 // C ring (faint)
+  else if(a<0.425)d=0.35;
+  else if(a<0.615)d=1.0;            // B ring
+  else if(a<0.655)d=0.045;          // Cassini division
+  else if(a<0.765)d=0.62;           // A ring
+  else if(a<0.825)d=0.0;            // Encke gap: the minute moon lives here
+  else d=0.52;                      // outer A
+  const fine=0.45+0.55*vnoise(a*260)*vnoise(a*61+3.1);
+  return d*(0.35+0.65*fine);
+}
+function seedParticles(arr){
+  for(let i=0;i<N;i++){
+    let a,b=1;
+    if(i%40===0){a=0.905+(Math.random()-0.5)*0.006;b=1.6}        // F ring (thin, bright)
+    else{for(let k=0;k<60;k++){a=0.30+Math.random()*0.575;if(Math.random()<ringDensity(a))break}
+      const l1=vnoise(a*180+7.0), l2=vnoise(a*720+1.3), l3=vnoise(a*2400+5.1);
+      b=0.35+0.8*l1*l1+0.55*l2*l2+0.35*l3}
+    const o=i*8;
+    arr[o]=a;arr[o+1]=Math.random()*TAU;arr[o+2]=0;arr[o+3]=0;
+    arr[o+4]=0;arr[o+5]=0;arr[o+6]=Math.random();arr[o+7]=b;
+  }
+  return arr;
+}
+
+// ---------- time -> world state ----------
+const SUNKEYS=[[0,.52,.62,1.0],[4.5,.56,.60,.98],[5.8,1.0,.62,.62],[7,1.0,.82,.66],[9,1.0,.94,.84],[12,1.0,1.0,.97],
+  [15,1.0,.93,.78],[17,1.0,.72,.42],[18.3,1.0,.50,.30],[19.3,.74,.52,.86],[20.5,.54,.62,1.0],[24,.52,.62,1.0]];
+function sunColor(h){
+  for(let i=0;i<SUNKEYS.length-1;i++){const A=SUNKEYS[i],B=SUNKEYS[i+1];
+    if(h>=A[0]&&h<=B[0]){const f=(h-A[0])/(B[0]-A[0]);return [A[1]+(B[1]-A[1])*f,A[2]+(B[2]-A[2])*f,A[3]+(B[3]-A[3])*f]}}
+  return [1,1,1];
+}
+function clockState(){
+  const d=new Date(Date.now()+tOffset);
+  const s=d.getSeconds()+d.getMilliseconds()/1000, m=d.getMinutes()+s/60, h=d.getHours()+m/60;
+  return {sec:TAU*s/60, min:TAU*m/60, hour:TAU*(h%12)/12, h24:h};
+}
+
+// ---------- interaction ----------
+const imps=[]; let resetT=0, lastPt=null, hintShown=false;
+function toUnit(cx,cy){const sc=Math.min(W,H)/2/VIEW_R;return [(cx-W/2)/sc,-(cy-H/2)/sc]}
+function addImp(cx,cy,str,rad){if(imps.length>=NIMP)imps.shift();const p=toUnit(cx,cy);imps.push([p[0],p[1],str,rad])}
+cv.addEventListener('pointerdown',e=>{
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  requestWake();
+  addImp(e.clientX,e.clientY,0.085,0.06);lastPt=[e.clientX,e.clientY];
+  try{cv.setPointerCapture(e.pointerId)}catch(_){}
+});
+cv.addEventListener('pointermove',e=>{
+  if(!lastPt)return;
+  const dx=e.clientX-lastPt[0],dy=e.clientY-lastPt[1];
+  if(dx*dx+dy*dy<64)return;
+  addImp(e.clientX,e.clientY,0.022,0.035);lastPt=[e.clientX,e.clientY];
+});
+const up=()=>{lastPt=null};
+cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
+
+// ---------- wake lock ----------
+let wake=null;
+function requestWake(){
+  if(!('wakeLock' in navigator)||wake||document.visibilityState!=='visible')return;
+  navigator.wakeLock.request('screen').then(l=>{wake=l;l.addEventListener('release',()=>{wake=null})}).catch(()=>{});
+}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')requestWake()});
+requestWake();
+
+// ---------- uniforms ----------
+let simT=0;
+function fillUniforms(dt,dust){
+  const cs=clockState(), sc=Math.min(W,H)/2/VIEW_R;
+  const sun=sunColor(cs.h24), P=PALS[palIx];
+  const night=(cs.h24<5||cs.h24>20)?0.82:1.0;
+  UF.fill(0);
+  UF.set([W,H,W/2,H/2],0);
+  UF.set([sc,simT,dt,imps.length],4);
+  UF.set([cs.sec,cs.min,cs.hour,2.2e-5],8);
+  UF.set([sun[0]*night,sun[1]*night,sun[2]*night,DPR],12);
+  UF.set([P.a[0],P.a[1],P.a[2],ringSeed%97],16);
+  UF.set([P.b[0],P.b[1],P.b[2],0],20);
+  UF.set([P.r[0],P.r[1],P.r[2],0],24);
+  UF.set([MOON_R*Math.sin(cs.min),MOON_R*Math.cos(cs.min),cs.h24/24,resetT>0?1:0],28);
+  const szPx=1.7*DPR;
+  UF.set([N,backend==='webgpu'?1:intensityScale,0.62*sc*sc/(Math.max(drawN,1)*szPx*szPx),dust],32);
+  for(let i=0;i<imps.length;i++)UF.set(imps[i],36+i*4);
+}
+let intensityScale=1;
+
+// ================= shader sources =================
+// --- WGSL ---
+const WGSL_COMMON=`
+struct U { v: array<vec4f,20> };
+@group(0) @binding(0) var<uniform> u: U;
+const TAU:f32=6.2831853;
+const RP:f32=0.22;
+fn omega(a:f32)->f32{ return 0.0419*pow(a/0.86,-1.5); }
+fn ss(a:f32,b:f32,x:f32)->f32{ let t=clamp((x-a)/(b-a),0.0,1.0); return t*t*(3.0-2.0*t); }
+fn wrapPi(x:f32)->f32{ return x-TAU*floor((x+3.14159265)/TAU); }
+fn hu(i:u32,k:u32)->f32{ var h=i*747796405u+k*2891336453u+12345u; h=((h>>((h>>28u)+4u))^h)*277803737u; h=(h>>22u)^h; return f32(h)/4294967295.0; }
+fn h11(n:f32)->f32{ return fract(sin(n*127.1)*43758.5453); }
+fn h21(p:vec2f)->f32{ return fract(sin(dot(p,vec2f(127.1,311.7)))*43758.5453); }
+fn vn2(p:vec2f)->f32{ let i=floor(p); let f=fract(p); let w=f*f*(3.0-2.0*f);
+  return mix(mix(h21(i),h21(i+vec2f(1.,0.)),w.x),mix(h21(i+vec2f(0.,1.)),h21(i+vec2f(1.,1.)),w.x),w.y); }
+fn fbm(p0:vec2f)->f32{ var p=p0; var s=0.0; var a=0.5; for(var i=0;i<4;i++){ s+=a*vn2(p); p=p*2.03+vec2f(1.7,9.2); a*=0.5; } return s; }
+fn sunDir()->vec2f{ let h=u.v[2].z; return -vec2f(sin(h),cos(h)); }
+fn shadowF(p:vec2f)->f32{
+  let s=sunDir(); let al=dot(p,s); let pe=abs(p.x*s.y-p.y*s.x);
+  let sh=1.0-ss(RP-0.012,RP+0.006,pe);
+  return 1.0-0.955*sh*ss(0.0,-0.02,al);
+}
+`;
+const WGSL_SIM=WGSL_COMMON+`
+@group(0) @binding(1) var<storage,read_write> P: array<vec4f>;
+@compute @workgroup_size(256) fn cs(@builtin(global_invocation_id) id:vec3u){
+  let i=id.x; let N=u32(u.v[8].x); if(i>=N){return;}
+  var A=P[2u*i]; var B=P[2u*i+1u];
+  let dt=u.v[1].z; let a=A.x; var th=A.y; var x=A.z; var vx=A.w; var w=B.x; var heat=B.y;
+  let Om=omega(a); let r=a+x;
+  let er=vec2f(sin(th),cos(th)); let et=vec2f(cos(th),-sin(th)); let p=r*er;
+  let d=u.v[7].xy-p; let dd=dot(d,d)+0.0005; let F=u.v[2].w*d/(dd*sqrt(dd));
+  var Fr=dot(F,er); var Ft=dot(F,et);
+  let ni=i32(u.v[1].w);
+  for(var k=0;k<8;k++){ if(k>=ni){break;}
+    let I=u.v[9+k]; let q=p-I.xy; let g=exp(-dot(q,q)/(I.w*I.w));
+    if(g>0.002){ let kick=I.z*g*q/(length(q)+0.004); vx+=dot(kick,er); w+=dot(kick,et); heat+=g*I.z*14.0; }
+  }
+  vx+=(-(Om*Om+0.012)*x+Fr-0.10*vx)*dt;
+  w +=(Ft-0.10*w)*dt;
+  x=clamp(x+vx*dt,-0.18,0.18);
+  th+= (Om*(1.0-1.5*x/a)+w/r)*dt;
+  th=th-TAU*floor(th/TAU);
+  heat*=exp(-1.3*dt);
+  if(u.v[7].w>0.5){ x*=0.94; vx*=0.94; w*=0.94; }
+  P[2u*i]=vec4f(a,th,x,vx); P[2u*i+1u]=vec4f(w,heat,B.z,B.w);
+}
+`;
+const WGSL_DRAW=WGSL_COMMON+`
+@group(0) @binding(1) var<storage,read> P: array<vec4f>;
+struct VO{ @builtin(position) pos:vec4f, @location(0) col:vec3f, @location(1) uv:vec2f };
+@vertex fn vs(@builtin(vertex_index) vi:u32, @builtin(instance_index) ii:u32)->VO{
+  var C=array<vec2f,6>(vec2f(-1.,-1.),vec2f(1.,-1.),vec2f(-1.,1.),vec2f(-1.,1.),vec2f(1.,-1.),vec2f(1.,1.));
+  let N=u32(u.v[8].x); let k=u.v[8].z*u.v[8].y;
+  var p:vec2f; var col:vec3f; var sz:f32;
+  let sun=u.v[3].rgb;
+  if(ii<N){
+    let A=P[2u*ii]; let B=P[2u*ii+1u];
+    let a=A.x; let r=a+A.z; let th=A.y; p=r*vec2f(sin(th),cos(th));
+    let seed=B.z;
+    var base=mix(u.v[6].rgb*0.78,u.v[6].rgb,ss(0.42,0.62,a));
+    base=mix(base*vec3f(0.62,0.66,0.78),base,ss(0.38,0.43,a));       // C ring greyer
+    base*=0.9+0.2*seed;
+    let lit=shadowF(p);
+    col=base*sun*(lit*1.0+0.035)*B.w*k;
+    // spokes: co-rotate with the planet (seconds)
+    let dA=wrapPi(th-u.v[2].x);
+    let band=ss(0.43,0.47,a)*(1.0-ss(0.58,0.62,a));
+    let sp=exp(-dA*dA/0.0016)*band*(0.35+0.65*fract(sin(floor(a*140.0)*91.7)*437.5));
+    col+=vec3f(0.45,0.75,1.25)*sp*k*2.4;
+    col+=vec3f(1.5,0.75,0.32)*min(B.y,3.0)*k*1.6;
+    sz=1.7*u.v[3].w*(0.8+0.4*seed);
+  } else {
+    // dust shed by the minute moon since the top of the hour
+    let j=ii-N; let ph=hu(j,1u)*TAU; let mA=u.v[2].y;
+    var age=mA-ph; var vis=1.0;
+    if(age<0.0){ age+=TAU; vis=1.0-ss(0.0,0.30,mA); }
+    let ft=age/TAU;
+    let rr=0.795+(hu(j,2u)-0.5)*(0.004+0.045*ft)+(hu(j,3u)-0.5)*0.003;
+    let ang=ph+(hu(j,4u)-0.5)*0.01+age*0.012*(rr-0.795)*40.0;
+    p=rr*vec2f(sin(ang),cos(ang));
+    let fresh=exp(-age*1.6);
+    let lit=shadowF(p);
+    col=mix(vec3f(0.75,0.85,1.0),sun,0.5)*(0.22+1.4*fresh)*vis*(0.25+0.75*lit)*u.v[8].y*0.10;
+    sz=u.v[3].w*(0.9+0.9*fresh);
+  }
+  let sc=u.v[1].x; let dpr=u.v[3].w;
+  let px=u.v[0].zw+vec2f(p.x,-p.y)*sc;
+  let c=C[vi]*sz;
+  var o:VO;
+  let ndc=vec2f((px.x+c.x)/u.v[0].x*2.0-1.0, 1.0-(px.y+c.y)/u.v[0].y*2.0);
+  o.pos=vec4f(ndc,0.,1.); o.col=col; o.uv=C[vi];
+  return o;
+}
+@fragment fn fs(i:VO)->@location(0) vec4f{
+  let g=exp(-dot(i.uv,i.uv)*2.6);
+  return vec4f(i.col*g,1.0);
+}
+`;
+const WGSL_COMP=WGSL_COMMON+`
+@group(0) @binding(1) var tex: texture_2d<f32>;
+struct VO{ @builtin(position) pos:vec4f };
+@vertex fn vs(@builtin(vertex_index) vi:u32)->VO{
+  var C=array<vec2f,3>(vec2f(-1.,-1.),vec2f(3.,-1.),vec2f(-1.,3.));
+  var o:VO; o.pos=vec4f(C[vi],0.,1.); return o;
+}
+#SHADE#
+@fragment fn fs(i:VO)->@location(0) vec4f{
+  let ring=textureLoad(tex,vec2i(i.pos.xy),0).rgb;
+  return vec4f(shade(i.pos.xy,ring),1.0);
+}
+`;
+// composite shading shared in a tiny dialect: written once, translated to WGSL / GLSL
+const SHADE_SRC=`
+FN vec3 starL(vec2 p, float cell, float th){
+  vec2 g=p*cell; vec2 ip=floor(g); vec2 f=fract(g)-0.5;
+  float h=h21(ip); vec3 o=V3(0.);
+  if(h>th){ float b=(h-th)/(1.0-th); vec2 off=V2(h21(ip+V2(3.1,1.7)),h21(ip+V2(5.3,9.1)))-0.5;
+    float d=length(f-off*0.7); float tw=0.75+0.25*sin(U1.y*(1.5+h*3.)+h*40.);
+    o=mix(V3(0.7,0.8,1.0),V3(1.0,0.85,0.7),h21(ip+V2(7.,7.)))*exp(-d*d*cell*cell/(b*6.+1.)*0.5)*b*tw; }
+  return o;
+}
+FN vec3 shade(vec2 fc, vec3 ring){
+  float sc=U1.x; vec2 p=(fc-U0.zw)/sc; p.y=-p.y;
+  vec3 sun=U3.rgb; vec2 s=sunDir(); float r=length(p);
+  // space
+  vec3 col=starL(p,95.,0.975)*0.9+starL(p,210.,0.988)*0.6;
+  float neb=fbm(p*1.3+V2(U4.w,2.));
+  col+=V3(0.05,0.07,0.13)*neb*neb*1.4+V3(0.10,0.04,0.09)*pow(fbm(p*2.4-V2(4.,U4.w)),3.)*1.2;
+  col+=sun*0.05*max(0.,dot(normalize(p+V2(1e-4)),s))*ss(0.2,1.6,r);
+    col+=ring;
+  // planet
+  vec2 q=p/RP; float rr=length(q);
+  if(rr<1.0){
+    float z=sqrt(1.0-rr*rr); vec3 n=V3(q.x,q.y,z);
+    vec3 L=normalize(V3(s.x,s.y,0.22));
+    float sa=U2.x; float cs_=cos(sa); float sn=sin(sa);
+    vec2 qr=V2(q.x*cs_-q.y*sn, q.x*sn+q.y*cs_);             // planet frame (rotates once per minute)
+    float lon=atan2(qr.x,qr.y);
+    float t=rr*8.5+0.10*sin(lon*5.+rr*24.)+0.55*fbm(V2(lon*2.2,rr*16.))+0.25*fbm(V2(lon*7.,rr*40.));
+    vec3 bc=mix(U5.rgb,U4.rgb,0.5+0.5*sin(t*2.6));
+    bc*=0.82+0.18*sin(t*9.1+1.);
+    // north polar hexagon
+    float hx=rr*cos(3.14159/6.)/cos(fmod(lon+3.14159/6.,3.14159/3.)-3.14159/6.);
+    bc=mix(bc,bc*V3(0.62,0.72,0.95),ss(0.30,0.27,hx));
+    bc=mix(bc,V3(0.9,0.85,0.75),ss(0.012,0.0,abs(hx-0.29))*0.35);
+    bc*=mix(0.55,1.0,ss(0.0,0.10,rr));
+    // the storm (seconds hand)
+    vec2 sd=(qr-V2(0.0,0.60))/V2(0.19,0.115); float sl=length(sd);
+    float sw=sin(atan2(sd.y,sd.x)*2.0+sl*9.0-U1.y*1.5)*0.5+0.5;
+    float storm=ss(1.0,0.35,sl);
+    bc=mix(bc,V3(1.0,0.98,0.94)*(0.86+0.14*sw),storm);
+    float dif=max(dot(n,L),0.); float day=ss(-0.04,0.22,dot(n,L));
+    vec3 pc=bc*sun*(dif*1.35+0.015);
+    // night side: aurora + storm lightning
+    float aur=exp(-pow((rr-0.33)/0.045,2.))*(0.55+0.45*sin(lon*7.+U1.y*0.9+fbm(V2(lon*3.,U1.y*0.2))*6.));
+    pc+=V3(0.18,0.85,0.55)*aur*(1.0-day)*0.6;
+    float flash=step(0.86,h11(floor(U1.y*7.)))*(0.6+0.4*h11(floor(U1.y*23.)));
+    pc+=V3(0.75,0.85,1.0)*storm*(1.0-day)*(0.18+1.2*flash)*(1.0-sl);
+    pc+=V3(0.55,0.7,1.0)*storm*(1.0-day)*0.22*(0.7+0.3*sw);
+    pc*=0.80+0.20*z;
+    pc+=sun*pow(1.0-z,3.)*day*0.35;
+    col=mix(col,pc,ss(1.0,0.985,rr));
+  }
+  float rim=exp(-max(rr-1.0,0.)*22.)*step(1.0,rr);
+  col+=sun*V3(0.55,0.70,1.0)*rim*0.22*(0.25+0.75*max(0.,dot(normalize(p+V2(1e-4)),s)));
+  // minute moon
+  vec2 mp=U7.xy; float mr=0.036; vec2 mq=(p-mp)/mr; float ml=length(mq);
+  float mlit=0.06+0.94*ss(-0.02,0.,dot(mp,s))+0.94*ss(RP-0.01,RP+0.01,abs(mp.x*s.y-mp.y*s.x));
+  mlit=min(mlit,1.0);
+  if(ml<1.0){
+    float mz=sqrt(1.0-ml*ml); vec3 mn=V3(mq.x,mq.y,mz);
+    float md=max(dot(mn,normalize(V3(s.x,s.y,0.3))),0.);
+    float cr=0.85+0.15*fbm(mq*3.+V2(9.,3.));
+    col=mix(col,V3(0.92,0.9,0.86)*sun*(md*1.6*mlit*cr+0.03)+V3(0.05,0.06,0.09),ss(1.0,0.9,ml));
+  } else {
+    col+=mix(V3(0.6,0.75,1.0),sun,0.6)*exp(-(ml-1.0)*1.6)*0.18*(0.4+0.6*mlit);
+  }
+  // tone map
+  col=V3(1.0)-exp(-col*1.25);
+  col=pow(col,V3(0.92));
+  return col;
+}
+`;
+// --- GLSL ---
+const GL_COMMON=`#version 300 es
+precision highp float; precision highp int;
+uniform vec4 U[20];
+#define U0 U[0]
+#define U1 U[1]
+#define U2 U[2]
+#define U3 U[3]
+#define U4 U[4]
+#define U5 U[5]
+#define U6 U[6]
+#define U7 U[7]
+#define U8 U[8]
+const float TAU=6.2831853; const float RP=0.22;
+float omega(float a){ return 0.0419*pow(a/0.86,-1.5); }
+float ss(float a,float b,float x){ float t=clamp((x-a)/(b-a),0.0,1.0); return t*t*(3.0-2.0*t); }
+float wrapPi(float x){ return x-TAU*floor((x+3.14159265)/TAU); }
+float hu(uint i,uint k){ uint h=i*747796405u+k*2891336453u+12345u; h=((h>>((h>>28u)+4u))^h)*277803737u; h=(h>>22u)^h; return float(h)/4294967295.0; }
+float h11(float n){ return fract(sin(n*127.1)*43758.5453); }
+float h21(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }
+float vn2(vec2 p){ vec2 i=floor(p); vec2 f=fract(p); vec2 w=f*f*(3.0-2.0*f);
+  return mix(mix(h21(i),h21(i+vec2(1.,0.)),w.x),mix(h21(i+vec2(0.,1.)),h21(i+vec2(1.,1.)),w.x),w.y); }
+float fbm(vec2 p){ float s=0.0; float a=0.5; for(int i=0;i<4;i++){ s+=a*vn2(p); p=p*2.03+vec2(1.7,9.2); a*=0.5; } return s; }
+vec2 sunDir(){ float h=U2.z; return -vec2(sin(h),cos(h)); }
+float shadowF(vec2 p){
+  vec2 s=sunDir(); float al=dot(p,s); float pe=abs(p.x*s.y-p.y*s.x);
+  float sh=1.0-ss(RP-0.012,RP+0.006,pe);
+  return 1.0-0.955*sh*ss(0.0,-0.02,al);
+}
+`;
+const GL_SIM_VS=GL_COMMON+`
+layout(location=0) in vec4 aA; layout(location=1) in vec4 aB;
+out vec4 oA; out vec4 oB;
+void main(){
+  float dt=U1.z; float a=aA.x; float th=aA.y; float x=aA.z; float vx=aA.w; float w=aB.x; float heat=aB.y;
+  float Om=omega(a); float r=a+x;
+  vec2 er=vec2(sin(th),cos(th)); vec2 et=vec2(cos(th),-sin(th)); vec2 p=r*er;
+  vec2 d=U7.xy-p; float dd=dot(d,d)+0.0005; vec2 F=U2.w*d/(dd*sqrt(dd));
+  float Fr=dot(F,er); float Ft=dot(F,et);
+  int ni=int(U1.w);
+  for(int k=0;k<8;k++){ if(k>=ni) break;
+    vec4 I=U[9+k]; vec2 q=p-I.xy; float g=exp(-dot(q,q)/(I.w*I.w));
+    if(g>0.002){ vec2 kick=I.z*g*q/(length(q)+0.004); vx+=dot(kick,er); w+=dot(kick,et); heat+=g*I.z*14.0; }
+  }
+  vx+=(-(Om*Om+0.012)*x+Fr-0.10*vx)*dt;
+  w +=(Ft-0.10*w)*dt;
+  x=clamp(x+vx*dt,-0.18,0.18);
+  th+=(Om*(1.0-1.5*x/a)+w/r)*dt;
+  th=th-TAU*floor(th/TAU);
+  heat*=exp(-1.3*dt);
+  if(U7.w>0.5){ x*=0.94; vx*=0.94; w*=0.94; }
+  oA=vec4(a,th,x,vx); oB=vec4(w,heat,aB.z,aB.w);
+}`;
+const GL_SIM_FS=`#version 300 es
+precision mediump float; out vec4 o; void main(){ o=vec4(0.); }`;
+const GL_DRAW_VS=GL_COMMON+`
+layout(location=0) in vec4 aA; layout(location=1) in vec4 aB;
+out vec3 vCol; out vec2 vUv;
+void main(){
+  vec2 C[6]=vec2[6](vec2(-1.,-1.),vec2(1.,-1.),vec2(-1.,1.),vec2(-1.,1.),vec2(1.,-1.),vec2(1.,1.));
+  int N=int(U8.x); float k=U8.z*U8.y; int ii=gl_InstanceID+int(U8.w);
+  vec2 p; vec3 col; float sz; vec3 sun=U3.rgb;
+  if(ii<N){
+    float a=aA.x; float r=a+aA.z; float th=aA.y; p=r*vec2(sin(th),cos(th));
+    float seed=aB.z;
+    vec3 base=mix(U6.rgb*0.78,U6.rgb,ss(0.42,0.62,a));
+    base=mix(base*vec3(0.62,0.66,0.78),base,ss(0.38,0.43,a));
+    base*=0.9+0.2*seed;
+    float lit=shadowF(p);
+    col=base*sun*(lit*1.0+0.035)*aB.w*k;
+    float dA=wrapPi(th-U2.x);
+    float band=ss(0.43,0.47,a)*(1.0-ss(0.58,0.62,a));
+    float sp=exp(-dA*dA/0.0016)*band*(0.35+0.65*fract(sin(floor(a*140.0)*91.7)*437.5));
+    col+=vec3(0.45,0.75,1.25)*sp*k*2.4;
+    col+=vec3(1.5,0.75,0.32)*min(aB.y,3.0)*k*1.6;
+    sz=1.7*U3.w*(0.8+0.4*seed);
+  } else {
+    uint j=uint(ii-N); float ph=hu(j,1u)*TAU; float mA=U2.y;
+    float age=mA-ph; float vis=1.0;
+    if(age<0.0){ age+=TAU; vis=1.0-ss(0.0,0.30,mA); }
+    float ft=age/TAU;
+    float rr=0.795+(hu(j,2u)-0.5)*(0.004+0.045*ft)+(hu(j,3u)-0.5)*0.003;
+    float ang=ph+(hu(j,4u)-0.5)*0.01+age*0.012*(rr-0.795)*40.0;
+    p=rr*vec2(sin(ang),cos(ang));
+    float fresh=exp(-age*1.6);
+    float lit=shadowF(p);
+    col=mix(vec3(0.75,0.85,1.0),sun,0.5)*(0.22+1.4*fresh)*vis*(0.25+0.75*lit)*U8.y*0.10;
+    sz=U3.w*(0.9+0.9*fresh);
+  }
+  float sc=U1.x;
+  vec2 px=U0.zw+vec2(p.x,-p.y)*sc;
+  int vi=gl_VertexID; vec2 c=C[vi]*sz;
+  gl_Position=vec4((px.x+c.x)/U0.x*2.0-1.0, 1.0-(px.y+c.y)/U0.y*2.0,0.,1.);
+  vCol=col; vUv=C[vi];
+}`;
+const GL_DRAW_FS=`#version 300 es
+precision highp float; in vec3 vCol; in vec2 vUv; out vec4 o;
+void main(){ float g=exp(-dot(vUv,vUv)*2.6); o=vec4(vCol*g,1.0); }`;
+const GL_COMP_VS=`#version 300 es
+void main(){ vec2 C[3]=vec2[3](vec2(-1.,-1.),vec2(3.,-1.),vec2(-1.,3.)); gl_Position=vec4(C[gl_VertexID],0.,1.); }`;
+const GL_COMP_FS=GL_COMMON+`
+uniform sampler2D tex;
+out vec4 o;
+#SHADE#
+void main(){
+  vec2 fc=vec2(gl_FragCoord.x, U0.y-gl_FragCoord.y);
+  vec3 ring=texelFetch(tex,ivec2(gl_FragCoord.xy),0).rgb;
+  o=vec4(shade(fc,ring),1.0);
+}`;
+function shadeFor(lang){
+  let s=SHADE_SRC;
+  if(lang==='wgsl'){
+    // tiny translator: declarations "float x=" -> "var x:f32=", vec types, FN signatures
+    s=s.replace(/FN (vec3|vec2|float) (\w+)\(([^)]*)\)/g,(m,rt,name,args)=>{
+      const a=args.split(',').map(x=>x.trim()).filter(Boolean).map(x=>{const [t,n]=x.split(/\s+/);return n+':'+ty(t)}).join(', ');
+      return 'fn '+name+'('+a+')->'+ty(rt);});
+    s=s.replace(/\b(vec3|vec2|float) (\w+)=/g,(m,t,n)=>'var '+n+':'+ty(t)+'=');
+    s=s.replace(/\bV3\(/g,'vec3f(').replace(/\bV2\(/g,'vec2f(').replace(/\bU(\d)\b/g,'u.v[$1]');
+    s=s.replace(/\bfmod\(([^,]+),([^)]+)\)/g,'wmod($1,$2)');
+    s='fn wmod(x:f32,y:f32)->f32{ return x-y*floor(x/y); }\n'+s;
+  } else {
+    s=s.replace(/FN /g,'').replace(/\bV3\(/g,'vec3(').replace(/\bV2\(/g,'vec2(').replace(/\batan2\(/g,'atan(');
+    s=s.replace(/\bfmod\(([^,]+),([^)]+)\)/g,'mod($1,$2)');
+  }
+  return s;
+}
+function ty(t){return t==='float'?'f32':t==='vec2'?'vec2f':'vec3f'}
+
+// ================= WebGPU backend =================
+async function initWebGPU(){
+  if(!navigator.gpu)return null;
+  const adapter=await navigator.gpu.requestAdapter({powerPreference:'low-power'});
+  if(!adapter)return null;
+  const dev=await adapter.requestDevice();
+  const fmt=OFFSCREEN?'rgba8unorm':navigator.gpu.getPreferredCanvasFormat();
+  let ctx=null;
+  if(!OFFSCREEN){ctx=cv.getContext('webgpu'); ctxTaken=true; if(!ctx)return null;
+    ctx.configure({device:dev,format:fmt,alphaMode:'opaque'});}
+  let offTex=null;
+  const target=()=>{ if(!OFFSCREEN)return ctx.getCurrentTexture();
+    if(!offTex||offTex.width!==cv.width||offTex.height!==cv.height){if(offTex)offTex.destroy();
+      offTex=dev.createTexture({size:[cv.width,cv.height],format:fmt,usage:GPUTextureUsage.RENDER_ATTACHMENT|GPUTextureUsage.COPY_SRC});}
+    return offTex; };
+  N=Math.min(NMAX||240000, Math.floor((dev.limits.maxStorageBufferBindingSize||134217728)/32)); drawN=N;
+  const pbuf=dev.createBuffer({size:N*32,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST});
+  dev.queue.writeBuffer(pbuf,0,seedParticles(new Float32Array(N*8)));
+  const ubufS=dev.createBuffer({size:320,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
+  const ubufR=dev.createBuffer({size:320,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
+  const ubufD=dev.createBuffer({size:320,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
+  const mSim=dev.createShaderModule({code:WGSL_SIM});
+  const mDraw=dev.createShaderModule({code:WGSL_DRAW});
+  const mComp=dev.createShaderModule({code:WGSL_COMP.replace('#SHADE#',shadeFor('wgsl'))});
+  for(const m of [mSim,mDraw,mComp]){const info=await m.getCompilationInfo();
+    const errs=info.messages.filter(x=>x.type==='error');if(errs.length){console.error(errs.map(e=>e.lineNum+':'+e.message).join('\n'));return null}}
+  const pSim=dev.createComputePipeline({layout:'auto',compute:{module:mSim,entryPoint:'cs'}});
+  const HF='rgba16float';
+  const add={color:{srcFactor:'one',dstFactor:'one',operation:'add'},alpha:{srcFactor:'one',dstFactor:'one',operation:'add'}};
+  const pDraw=dev.createRenderPipeline({layout:'auto',vertex:{module:mDraw,entryPoint:'vs'},
+    fragment:{module:mDraw,entryPoint:'fs',targets:[{format:HF,blend:add}]},primitive:{topology:'triangle-list'}});
+  const pComp=dev.createRenderPipeline({layout:'auto',vertex:{module:mComp,entryPoint:'vs'},
+    fragment:{module:mComp,entryPoint:'fs',targets:[{format:fmt}]},primitive:{topology:'triangle-list'}});
+  const bgSim=dev.createBindGroup({layout:pSim.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:ubufS}},{binding:1,resource:{buffer:pbuf}}]});
+  const bgDraw=dev.createBindGroup({layout:pDraw.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:ubufR}},{binding:1,resource:{buffer:pbuf}}]});
+  let tex=null,bgComp=null,tw=0,th=0;
+  function ensureTex(){
+    if(tex&&tw===cv.width&&th===cv.height)return;
+    if(tex)tex.destroy();
+    tw=cv.width;th=cv.height;
+    tex=dev.createTexture({size:[tw,th],format:HF,usage:GPUTextureUsage.RENDER_ATTACHMENT|GPUTextureUsage.TEXTURE_BINDING});
+    bgComp=dev.createBindGroup({layout:pComp.getBindGroupLayout(0),entries:[{binding:0,resource:{buffer:ubufD}},{binding:1,resource:tex.createView()}]});
+  }
+  let lost=false, busy=false; dev.lost.then(i=>{lost=true;console.warn('webgpu lost',i.reason,i.message)});
+  dev.addEventListener('uncapturederror',e=>console.warn('webgpu',e.error.message));
+  return {
+    name:'webgpu',
+    async readback(){ // test hook: grab the composited frame as RGBA bytes
+      const t=target(); const bpr=Math.ceil(t.width*4/256)*256;
+      const b=dev.createBuffer({size:bpr*t.height,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});
+      const e=dev.createCommandEncoder(); e.copyTextureToBuffer({texture:t},{buffer:b,bytesPerRow:bpr},[t.width,t.height]);
+      dev.queue.submit([e.finish()]); await b.mapAsync(GPUMapMode.READ);
+      return {w:t.width,h:t.height,bpr,fmt:fmt,data:(()=>{const u=new Uint8Array(b.getMappedRange());let x='';for(let i=0;i<u.length;i+=32768)x+=String.fromCharCode.apply(null,u.subarray(i,i+32768));return btoa(x)})()};
+    },
+    reseed(){dev.queue.writeBuffer(pbuf,0,seedParticles(new Float32Array(N*8)))},
+    frame(dt){
+      if(lost||busy)return false;        // never queue more than one frame on the GPU
+      ensureTex();
+      fillUniforms(dt,0); dev.queue.writeBuffer(ubufS,0,UF); dev.queue.writeBuffer(ubufR,0,UF); dev.queue.writeBuffer(ubufD,0,UF);
+      const enc=dev.createCommandEncoder();
+      const cp=enc.beginComputePass(); cp.setPipeline(pSim); cp.setBindGroup(0,bgSim);
+      cp.dispatchWorkgroups(Math.ceil(N/256)); cp.end();
+      const rp=enc.beginRenderPass({colorAttachments:[{view:tex.createView(),clearValue:{r:0,g:0,b:0,a:0},loadOp:'clear',storeOp:'store'}]});
+      rp.setPipeline(pDraw); rp.setBindGroup(0,bgDraw);
+      rp.draw(6,drawN,0,0); rp.draw(6,ND,0,N); rp.end();
+      const cp2=enc.beginRenderPass({colorAttachments:[{view:target().createView(),clearValue:{r:0,g:0,b:0,a:1},loadOp:'clear',storeOp:'store'}]});
+      cp2.setPipeline(pComp); cp2.setBindGroup(0,bgComp); cp2.draw(3); cp2.end();
+      dev.queue.submit([enc.finish()]);
+      busy=true; dev.queue.onSubmittedWorkDone().then(()=>{busy=false});
+    }
+  };
+}
+
+// ================= WebGL2 backend =================
+function initWebGL2(){
+  const gl=cv.getContext('webgl2',{antialias:false,alpha:false,preserveDrawingBuffer:true,powerPreference:'low-power'});
+  if(!gl)return null;
+  const half=gl.getExtension('EXT_color_buffer_float')||gl.getExtension('EXT_color_buffer_half_float');
+  function prog(vs,fs,tf){
+    const p=gl.createProgram();
+    for(const [t,src] of [[gl.VERTEX_SHADER,vs],[gl.FRAGMENT_SHADER,fs]]){
+      const s=gl.createShader(t);gl.shaderSource(s,src);gl.compileShader(s);
+      if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){console.error(gl.getShaderInfoLog(s));return null}
+      gl.attachShader(p,s);
+    }
+    if(tf)gl.transformFeedbackVaryings(p,tf,gl.INTERLEAVED_ATTRIBS);
+    gl.linkProgram(p);
+    if(!gl.getProgramParameter(p,gl.LINK_STATUS)){console.error(gl.getProgramInfoLog(p));return null}
+    return p;
+  }
+  const pSim=prog(GL_SIM_VS,GL_SIM_FS,['oA','oB']);
+  const pDraw=prog(GL_DRAW_VS,GL_DRAW_FS);
+  const pComp=prog(GL_COMP_VS,GL_COMP_FS.replace('#SHADE#',shadeFor('glsl')));
+  if(!pSim||!pDraw||!pComp)return null;
+  N=NMAX||150000; drawN=N;
+  const data=seedParticles(new Float32Array(N*8));
+  const bufs=[gl.createBuffer(),gl.createBuffer()];
+  for(const b of bufs){gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,data,gl.DYNAMIC_COPY)}
+  function vao(b,div){const v=gl.createVertexArray();gl.bindVertexArray(v);gl.bindBuffer(gl.ARRAY_BUFFER,b);
+    gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,4,gl.FLOAT,false,32,0);
+    gl.enableVertexAttribArray(1);gl.vertexAttribPointer(1,4,gl.FLOAT,false,32,16);
+    gl.vertexAttribDivisor(0,div);gl.vertexAttribDivisor(1,div);gl.bindVertexArray(null);return v}
+  const simV=[vao(bufs[0],0),vao(bufs[1],0)], drawV=[vao(bufs[0],1),vao(bufs[1],1)];
+  const emptyV=gl.createVertexArray();gl.bindBuffer(gl.ARRAY_BUFFER,null);
+  const tfo=gl.createTransformFeedback();
+  const uS=gl.getUniformLocation(pSim,'U'),uD=gl.getUniformLocation(pDraw,'U'),uC=gl.getUniformLocation(pComp,'U'),uT=gl.getUniformLocation(pComp,'tex');
+  let cur=0, fb=null, tex=null, tw=0, th=0;
+  intensityScale=half?1:0.45;
+  function ensureTex(){
+    if(tex&&tw===cv.width&&th===cv.height)return;
+    tw=cv.width;th=cv.height;
+    if(tex)gl.deleteTexture(tex); if(fb)gl.deleteFramebuffer(fb);
+    tex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,tex);
+    if(half)gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA16F,tw,th,0,gl.RGBA,gl.HALF_FLOAT,null);
+    else gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,tw,th,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
+    fb=gl.createFramebuffer();gl.bindFramebuffer(gl.FRAMEBUFFER,fb);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,tex,0);
+    if(gl.checkFramebufferStatus(gl.FRAMEBUFFER)!==gl.FRAMEBUFFER_COMPLETE&&half){
+      gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,tw,th,0,gl.RGBA,gl.UNSIGNED_BYTE,null);intensityScale=0.45;}
+    gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+  }
+  return {
+    name:'webgl2',
+    reseed(){const d=seedParticles(new Float32Array(N*8));for(const b of bufs){gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferSubData(gl.ARRAY_BUFFER,0,d)}gl.bindBuffer(gl.ARRAY_BUFFER,null)},
+    frame(dt){
+      ensureTex();
+      fillUniforms(dt,0);
+      // simulate (transform feedback)
+      gl.useProgram(pSim);gl.uniform4fv(uS,UF);
+      gl.bindVertexArray(simV[cur]);
+      gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK,tfo);
+      gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER,0,bufs[1-cur]);
+      gl.enable(gl.RASTERIZER_DISCARD);
+      gl.beginTransformFeedback(gl.POINTS);gl.drawArrays(gl.POINTS,0,N);gl.endTransformFeedback();
+      gl.disable(gl.RASTERIZER_DISCARD);
+      gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER,0,null);
+      gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK,null);
+      cur=1-cur;
+      // particles -> HDR
+      gl.bindFramebuffer(gl.FRAMEBUFFER,fb);gl.viewport(0,0,tw,th);
+      gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.enable(gl.BLEND);gl.blendFunc(gl.ONE,gl.ONE);
+      gl.useProgram(pDraw);gl.uniform4fv(uD,UF);
+      gl.bindVertexArray(drawV[cur]);gl.drawArraysInstanced(gl.TRIANGLES,0,6,drawN);
+      UF[35]=N;gl.uniform4fv(uD,UF);
+      gl.bindVertexArray(emptyV);gl.drawArraysInstanced(gl.TRIANGLES,0,6,ND);
+      gl.disable(gl.BLEND);
+      // composite
+      gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.viewport(0,0,cv.width,cv.height);
+      gl.useProgram(pComp);UF[35]=0;gl.uniform4fv(uC,UF);
+      gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,tex);gl.uniform1i(uT,0);
+      gl.bindVertexArray(emptyV);gl.drawArrays(gl.TRIANGLES,0,3);
+    }
+  };
+}
+
+// ================= loop =================
+let ctxTaken=false, R=null, last=0, lastFrame=0, slow=0, fast=0;
+function resize(){
+  DPR=Math.min(window.devicePixelRatio||1, backend==='webgpu'?2:1.75);
+  const w=Math.round(innerWidth*DPR),h=Math.round(innerHeight*DPR);
+  if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h}
+  W=w;H=h;
+}
+addEventListener('resize',resize);
+function loop(now){
+  requestAnimationFrame(loop);
+  if(now-lastFrame<31)return;                       // ~30fps cap: it's a clock, keep it cool
+  const iv=now-lastFrame; lastFrame=now;
+  const dt=Math.min(0.1,(now-(last||now))/1000);
+  // adapt particle count if the device can't hold 30fps
+  if(iv>48&&iv<400){slow++;fast=0;if(slow>45&&drawN>N*0.35){drawN=Math.floor(drawN*0.8);slow=0}}
+  else if(iv<36){fast++;slow=Math.max(0,slow-1);if(fast>600&&drawN<N){drawN=Math.min(N,Math.floor(drawN*1.15));fast=0}}
+  if(R.frame(dt)===false)return;   // GPU still busy: try again next tick (dt keeps growing)
+  last=now; simT+=dt;
+  if(resetT>0)resetT-=dt;
+  imps.length=0;
+}
+async function start(){
+  resize();
+  let r=null;
+  if(!/[?&]gl=1/.test(location.search)){try{backend='webgpu';r=await initWebGPU()}catch(e){console.warn(e);r=null}}
+  if(!r){
+    if(ctxTaken){ // this canvas already holds a webgpu context -> reload in WebGL2 mode
+      history.replaceState(null,'',location.pathname+(location.search?location.search+'&':'?')+'gl=1');location.reload();return;
+    }
+    backend='webgl2';resize();r=initWebGL2();
+  }
+  if(!r){document.getElementById('nogpu').style.display='flex';return}
+  boot(r);
+}
+function boot(r){
+  R=r;backend=r.name;resize();
+  window.__rd={backend,N:()=>N,drawN:()=>drawN,setOffset:v=>{tOffset=v},readback:()=>R.readback&&R.readback()};
+  requestAnimationFrame(loop);
+  const hint=document.getElementById('hint');
+  setTimeout(()=>hint.classList.add('on'),1200);setTimeout(()=>hint.classList.remove('on'),7000);
+  const guide=document.getElementById('guide');
+  guide.addEventListener('pointerdown',e=>{e.stopPropagation();guide.classList.remove('on')});
+  if(window.APKit)APKit.init({
+    canvas: cv,
+    gifName: 'ring-dial-loop',
+    clockFormat: 'spec',
+    clockPos: 'top',
+    dock: true,
+    autoHide: true,
+    fullscreenButton: false,
+    buttons: [
+      {label:'✦', name:'mutate', onClick:function(){ palIx=(palIx+1)%PALS.length; ringSeed=Math.random()*1000; R.reseed(); }},
+      {label:'↻', name:'reset',  onClick:function(){ resetT=2.5; }},
+      {label:'？', name:'guide', onClick:function(){ guide.classList.toggle('on'); }}
+    ]
+  });
+}
+start();
+})();
+</script>
+</body>
+</html>
