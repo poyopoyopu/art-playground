@@ -24,6 +24,8 @@
      2026/10/30 おっちゃん「タッチの位置がズレてるね」→ 指の座標(CSSピクセル)にDPRを掛けて合わせた
      2026/10/30 おっちゃん「レインボー的なパターンも追加して作品に追加」→ ✦に虹の惑星を追加(輪は半径で分光、惑星の縞も虹色、分の塵の弧は12時から色が移る。
        虹は日光の色に染まりすぎないよう、日光の色味を7割弱めて掛ける)。採用・art-v113としてギャラリーLOGへ
+     2026/10/30 おっちゃん「録画もね」→ ギャラリーの録画対象に。ギャラリーの中(iframe)ではWebGL2で描く(録画と📷はcanvasを毎フレーム読むので、
+       WebGPUのcanvasがiPhoneで確実に読めるか確かめられないため)。直接開いた時・ホーム画面アプリではWebGPUのまま
      自動撮影(navigator.webdriver)のときはWebGL2で描く(ヘッドレスはWebGPUの画面を出せず、ポスターが真っ黒になるため)
      テスト用: URLに ?t=15:20:05 を付けると、その時刻から進む(作品の時刻だけ。数字の時計は本当の時刻)
 -->
@@ -681,7 +683,9 @@ function loop(now){
 async function start(){
   resize();
   let r=null;
-  if(!/[?&]gl=1/.test(location.search)&&(!navigator.webdriver||OFFSCREEN)){   // 自動撮影(ポスター)はWebGL2で描く
+  const inFrame=(()=>{try{return window.self!==window.top}catch(_){return true}})();
+  // 自動撮影(ポスター)とギャラリーの中(録画・📷はcanvasを読むので、確実に読めるpreserveDrawingBuffer付きのWebGL2)はWebGL2で描く
+  if(!/[?&]gl=1/.test(location.search)&&(!navigator.webdriver||OFFSCREEN)&&!inFrame){
     try{backend='webgpu';r=await initWebGPU()}catch(e){console.warn(e);r=null}}
   if(!r){
     if(ctxTaken){ // this canvas already holds a webgpu context -> reload in WebGL2 mode
