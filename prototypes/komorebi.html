@@ -22,7 +22,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 <body>
 <canvas id="art"></canvas>
 <div id="sun"></div>
-<div id="hint"><b>葉のすきまは、太陽の小さな像をつくる</b>なぞると日食が進む · 中央で皆既 · ✦で森⇄ネオン</div>
+<div id="hint"><b>葉のすきまは、太陽の小さな像をつくる</b>ひとりでに日食が進む · なぞると時間を動かせる · ✦で森⇄ネオン</div>
 <script>
 (()=>{
 'use strict';
@@ -30,6 +30,7 @@ const canvas=document.getElementById('art'),hint=document.getElementById('hint')
 const gl=canvas.getContext('webgl',{antialias:false,alpha:false,preserveDrawingBuffer:true});
 const DBG=(new URLSearchParams(location.search)).get('f');/* ?f=0 のように日食の時間(-1=前,0=最大,1=あと)を指定して確かめられる */
 let W=1,H=1,scale=1,t=0,last=0,alive=true,touched=false,slow=0,seed=0,held=null,lastTouch=-99;
+let rest=0;/* 自動の日食が1周したあと、光が丸い状態で休む秒数 */
 let F=DBG!==null?parseFloat(DBG):-1,tgt=F,theme=(new URLSearchParams(location.search)).get('theme')==='neon'?1:0;
 const VS='attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}';
 const FS=`precision highp float;
@@ -144,7 +145,7 @@ function setF(cx){tgt=Math.max(0,Math.min(1,(cx-W*.08)/(W*.84)))*2-1}
 /* 太陽(半径1)と月(半径mr)の重なりの割合 */
 function cover(f,mr){const d=Math.abs(f)*1.9,R=1;if(d>=R+mr)return 0;if(d<=Math.abs(R-mr))return mr>=R?1:mr*mr;
   const a=R*R*Math.acos((d*d+R*R-mr*mr)/(2*d*R))+mr*mr*Math.acos((d*d+mr*mr-R*R)/(2*d*mr))-.5*Math.sqrt((-d+mr+R)*(d+mr-R)*(d-mr+R)*(d+mr+R));return Math.min(1,a/Math.PI)}
-function reset(){tgt=-1;lastTouch=-99}
+function reset(){F=-1;tgt=-1;lastTouch=-99;rest=3}
 function mutate(){seed=Math.random()*80;theme=1-theme}/* ✦: 森⇄ネオン。森は皆既日食、ネオンは金環日食 */
 canvas.addEventListener('pointerdown',e=>{
   if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
@@ -158,8 +159,11 @@ function frame(ts){
   if(!alive)return;const dt=Math.min(.05,(ts-last)/1000||.016);last=ts;t+=dt;
   slow=slow*.95+dt*.05;if(slow>.03&&scale>.5){scale*=.85;slow=.016;resize()}
   /* なぞったあと約6秒で、ゆっくり日食が終わって丸い光に戻る */
-  if(DBG===null&&held===null&&t-lastTouch>6)tgt=-1;
-  const k=1-Math.exp(-dt*(held!==null?6:(t-lastTouch>6?.45:2.5)));F+=(tgt-F)*k;
+  /* なぞっていない間は、ひとりでに日食が進む(約60秒で前→皆既→あと。そのあと少し休んで、また最初から) */
+  if(DBG===null&&held===null&&t-lastTouch>6){
+    if(rest>0)rest-=dt;else{F+=dt*(2/60);if(F>=1){F=-1;rest=12}}
+    tgt=F;
+  }else{const k=1-Math.exp(-dt*(held!==null?6:2.5));F+=(tgt-F)*k}
   const total=theme===0,mr=total?1.03:.88,cov=cover(F,mr),hid=Math.round(cov*100);
   sunEl.textContent=(theme?'NEON  ':'FOREST  ')+'太陽の欠け '+hid+'%  '+(cov>.995?(total?'皆既日食':'金環日食'):(Math.abs(F)<.02?'':(F<0?'欠けていく':'戻っていく')));
   gl.uniform2f(U.uRes,canvas.width,canvas.height);gl.uniform1f(U.uT,t);gl.uniform1f(U.uF,F);gl.uniform1f(U.uCov,cov);gl.uniform1f(U.uMR,mr);gl.uniform1f(U.uTh,theme);gl.uniform1f(U.uSeed,seed);
