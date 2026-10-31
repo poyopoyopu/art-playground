@@ -17,12 +17,15 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 #hint.off{opacity:0}
 #ratio{position:fixed;left:18px;bottom:calc(env(safe-area-inset-bottom) + 20px);pointer-events:none;color:#cfe3ff;font:500 22px/1 ui-monospace,monospace;letter-spacing:.14em;opacity:.8;text-shadow:0 0 14px #5aa6ff88}
 #ratio small{display:block;margin-top:6px;font-size:9px;letter-spacing:.3em;opacity:.55}
+#map{position:fixed;right:16px;bottom:calc(env(safe-area-inset-bottom) + 16px);width:88px;height:104px;pointer-events:none}
+#mapn{position:fixed;right:16px;bottom:calc(env(safe-area-inset-bottom) + 6px);width:88px;text-align:center;pointer-events:none;color:#cfe3ff;font:500 9px/1 ui-monospace,monospace;letter-spacing:.22em;opacity:.6}
 </style>
 </head>
 <body>
 <canvas id="art"></canvas>
 <div id="ratio"><span id="rv">3 : 2</span><small>FREQUENCY</small></div>
-<div id="hint"><b>指の位置が、世界の振動数になる</b>なぞって比を変える · 押し続けて内側に重ねる</div>
+<canvas id="map" width="176" height="176" style="height:88px;bottom:calc(env(safe-area-inset-bottom) + 26px)"></canvas><div id="mapn">0 / 49</div>
+<div id="hint"><b>指の位置が、世界の振動数になる</b>なぞる · 結ばれた形を集める · 長押しで重ねる</div>
 <script>
 (()=>{
 'use strict';
@@ -30,6 +33,10 @@ const canvas=document.getElementById('art'),ctx=canvas.getContext('2d',{alpha:fa
 const TAU=Math.PI*2,N=1500,CHUNKS=14,MAXL=6,MAXR=7;
 let W=1,H=1,D=1,t=0,last=0,alive=true,touched=false;
 let a=3,b=2,ta=3,tb=2,phx=0,phy=0,layers=1,hue=205,press=null;
+let prevLocked=false,flash=0,rings=[],found={},foundN=0,newAt=-9;
+const mapEl=document.getElementById('map'),mapCtx=mapEl.getContext('2d'),mapn=document.getElementById('mapn');
+try{found=JSON.parse(localStorage.getItem('resonance-found')||'{}')||{}}catch(_){found={}}
+foundN=Object.keys(found).length;
 function resize(){D=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;canvas.width=Math.round(W*D);canvas.height=Math.round(H*D);canvas.style.width=W+'px';canvas.style.height=H+'px';ctx.setTransform(D,0,0,D,0,0);ctx.fillStyle='#04050a';ctx.fillRect(0,0,W,H)}
 addEventListener('resize',resize,{passive:true});
 function setTarget(x,y){
@@ -64,9 +71,21 @@ function figure(scale,rot,alpha,phase){
       const X=cx+x*cr-y*sr,Y=cy+x*sr+y*cr;
       if(i===i0)ctx.moveTo(X,Y);else ctx.lineTo(X,Y);
     }
-    ctx.strokeStyle='hsla('+h+',85%,62%,'+(alpha*.11)+')';ctx.lineWidth=7;ctx.stroke();
-    ctx.strokeStyle='hsla('+(h+10)+',90%,76%,'+(alpha*.95)+')';ctx.lineWidth=1.3;ctx.stroke();
+    ctx.strokeStyle='hsla('+h+',85%,62%,'+(alpha*(.11+flash*.22))+')';ctx.lineWidth=7+flash*8;ctx.stroke();
+    ctx.strokeStyle='hsla('+(h+10+flash*30)+',90%,'+(76+flash*14)+'%,'+Math.min(1,alpha*(.95+flash*.5))+')';ctx.lineWidth=1.3+flash*1.2;ctx.stroke();
   }
+}
+function drawMap(ra,rb,locked){
+  const g=mapCtx,S=176,c=S/MAXR;g.clearRect(0,0,S,S);
+  for(let y=1;y<=MAXR;y++)for(let x=1;x<=MAXR;x++){
+    const cx=(x-.5)*c,cy=(y-.5)*c,f=found[x+','+y];
+    g.beginPath();g.arc(cx,cy,f?7:4,0,TAU);
+    g.fillStyle=f?'rgba(255,214,120,.95)':'rgba(160,190,255,.22)';g.fill();
+    if(f&&t-newAt<1.5&&x===ra&&y===rb){g.strokeStyle='rgba(255,240,200,'+(1-(t-newAt)/1.5)+')';g.lineWidth=3;g.beginPath();g.arc(cx,cy,7+(t-newAt)*14,0,TAU);g.stroke()}
+  }
+  const ux=Math.min(MAXR,Math.max(1,Math.round(ta))),uy=Math.min(MAXR,Math.max(1,Math.round(tb)));
+  g.strokeStyle=locked?'rgba(255,233,168,1)':'rgba(220,235,255,.9)';g.lineWidth=2;g.beginPath();g.arc((ux-.5)*c,(uy-.5)*c,11,0,TAU);g.stroke();
+  mapn.textContent=foundN+' / '+(MAXR*MAXR);
 }
 function frame(ts){
   if(!alive)return;const dt=Math.min(.05,(ts-last)/1000||.016);last=ts;t+=dt;
@@ -82,7 +101,18 @@ function frame(ts){
     figure(Math.pow(.66,l),l*.42,al,l*.5);
   }
   ctx.globalCompositeOperation='source-over';
-  const ra=Math.round(a),rb=Math.round(b),locked=Math.abs(a-ra)<.06&&Math.abs(b-rb)<.06;
+  const ra=Math.round(a),rb=Math.round(b),locked=Math.abs(a-ra)<.06&&Math.abs(b-rb)<.06&&ta===ra&&tb===rb;
+  if(locked&&!prevLocked&&touched){
+    flash=1;const key=ra+','+rb;rings.push({t0:t,gold:1});
+    if(!found[key]){found[key]=1;foundN++;newAt=t;rings.push({t0:t+.12,gold:1});try{localStorage.setItem('resonance-found',JSON.stringify(found))}catch(_){}}
+  }
+  prevLocked=locked;flash=Math.max(0,flash-dt*1.6);
+  /* 結ばれた瞬間の輪 */
+  ctx.globalCompositeOperation='lighter';
+  for(let i=rings.length-1;i>=0;i--){const g=rings[i],age=t-g.t0;if(age<0)continue;if(age>1.4){rings.splice(i,1);continue}
+    const r=Math.min(W,H)*(.08+age*.55);ctx.strokeStyle='hsla(46,95%,72%,'+(.8*(1-age/1.4))+')';ctx.lineWidth=2.2;ctx.beginPath();ctx.arc(W*.5,H*.5,r,0,TAU);ctx.stroke();}
+  ctx.globalCompositeOperation='source-over';
+  drawMap(ra,rb,locked);
   rv.textContent=(locked?ra:a.toFixed(1))+' : '+(locked?rb:b.toFixed(1));
   rv.style.color=locked?'#ffe9a8':'#cfe3ff';
   if(!touched&&t>16)hint.classList.add('off');
