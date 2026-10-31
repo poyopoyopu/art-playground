@@ -84,7 +84,7 @@ if(TIMER_ON)try{const u=JSON.parse(localStorage.getItem('komorebi-until')||'null
 let running=true,loop=true,press=null;
 if(TIMER_ON)try{const bs=parseInt(localStorage.getItem('komorebi-bus'));if(bs>=0&&bs<STOPS.length){const u=busPlan(bs,Date.now());if(u){bus=bs;until=u}}}catch(_){}/* running=日食が進んでいるか。loop=1周したあと、また最初から繰り返すか(オフならタイマーとして1回で止まる) */
 if(TIMER_ON)try{if(localStorage.getItem('komorebi-loop')==='0')loop=false}catch(_){}
-let rest=0,ended=false;/* 自動の日食が1周したあと、光が丸い状態で休む秒数 */
+let fingerF=0,rest=0,ended=false;/* 自動の日食が1周したあと、光が丸い状態で休む秒数 */
 let F=DBG!==null?parseFloat(DBG):-1,tgt=F,theme=({neon:1,space:2,sea:3,glass:4,sakura:5})[(new URLSearchParams(location.search)).get('theme')]||0;
 try{const st=parseInt(localStorage.getItem('komorebi-theme'));if(!(new URLSearchParams(location.search)).get('theme')&&st>=0&&st<6)theme=st}catch(_){}
 const THEMES=['FOREST','NEON','SPACE','DEEP SEA','STAINED GLASS','SAKURA'],TOTAL=[true,false,false,true,false,true];/* 森・水の底・桜=皆既日食、ほかは金環日食 */
@@ -266,9 +266,11 @@ function toggleRun(){
 function setLoop(v){loop=v;save('komorebi-loop',v?1:0);if(loop&&ended&&rest<=0){restart(true)}refreshMenu()}
 function buzz(){try{navigator.vibrate&&navigator.vibrate([220,120,220,120,400])}catch(_){}}
 /* 画面は、なぞると日食の時間を動かせるだけ(タップでは何も起きない) */
-const cornerTaps=[];
+const cornerTaps=[];let tapT0=0;
+function inRect(el,x,y){if(!el)return false;const r=el.getBoundingClientRect();return r.width>0&&x>=r.left-14&&x<=r.right+14&&y>=r.top-14&&y<=r.bottom+14}
 canvas.addEventListener('pointerdown',e=>{
   if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  tapT0=performance.now();
   if(!TIMER_ON&&e.clientX<90&&e.clientY<130){const n=Date.now();cornerTaps.push(n);while(cornerTaps.length&&n-cornerTaps[0]>4000)cornerTaps.shift();
     if(cornerTaps.length>=5){try{localStorage.setItem('komorebi-timer','1')}catch(_){}location.reload();return}}
   touched=true;hint.classList.add('off');try{canvas.setPointerCapture(e.pointerId)}catch(_){}
@@ -276,8 +278,11 @@ canvas.addEventListener('pointerdown',e=>{
 },{passive:false});
 canvas.addEventListener('pointermove',e=>{if(held===e.pointerId&&press){
   if(!press.drag&&Math.hypot(e.clientX-press.x,e.clientY-press.y)>10)press.drag=true;
-  if(press.drag&&!until){setF(e.clientX);F=tgt;ended=false}}});
-function up(e){if(held===e.pointerId){held=null;press=null}}
+  if(press.drag){setF(e.clientX);fingerF=tgt;if(!until){F=tgt;ended=false}}}});
+function up(e){if(held===e.pointerId){
+  /* 時計(または残り時間)の上を短くタップしたら、タイマーのメニューを開く(隠しメニューが有効な端末だけ) */
+  if(TIMER_ON&&e.type==='pointerup'&&press&&!press.drag&&performance.now()-tapT0<400&&(inRect(document.querySelector('.apk-clock.apk-on'),e.clientX,e.clientY)||inRect(cdEl,e.clientX,e.clientY)))toggleMenu(true);
+  held=null;press=null}}
 canvas.addEventListener('pointerup',up);canvas.addEventListener('pointercancel',up);
 /* ---- メニュー(☰): タイマーの時間・スタート/一時停止・くり返し・模様 ---- */
 const menu=document.createElement('div');menu.id='menu';menu.hidden=true;document.body.appendChild(menu);
@@ -323,6 +328,7 @@ function frame(ts){
   if(until){
     /* 指定時刻まで: 日食は、開始から目標時刻までの進み具合に合わせる(実際の時計) */
     const now=Date.now(),tot=until.t-until.s,el=Math.min(tot,Math.max(0,now-until.s));F=-1+2*el/tot;tgt=F;
+    if(press&&press.drag)F=fingerF;/* なぞっている間は見た目だけ動かす。残り時間は実際の時計のままで、離すと時刻どおりの位置に戻る */
     if(now>=until.t){
       if(until.bus){buzz();busFlash=now+8000;const u=busPlan(bus,now);if(u){until=u;F=-1;tgt=-1}}/* 発車: 次の便のカウントダウンへ */
       else if(!ended){ended=true;running=false;buzz();save('komorebi-until','');refreshMenu()}}
