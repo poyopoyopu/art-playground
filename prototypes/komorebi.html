@@ -16,23 +16,22 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 #hint{position:fixed;top:calc(env(safe-area-inset-top) + 16px);left:16px;right:16px;text-align:center;pointer-events:none;color:#fffbe8;font:500 10px/1.9 ui-monospace,monospace;letter-spacing:.2em;text-shadow:0 2px 14px #000b;transition:opacity 1.6s}
 #hint b{display:block;font:600 12px/1.9 ui-sans-serif,system-ui,sans-serif;letter-spacing:.14em}
 #hint.off{opacity:0}
-#sun{white-space:pre;position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 100px);pointer-events:none;color:#fff;font:600 12px/1.6 ui-monospace,monospace;letter-spacing:.08em;padding:6px 12px;border-radius:12px;background:rgba(0,0,0,.34);text-shadow:0 1px 5px #000;-webkit-backdrop-filter:blur(5px);backdrop-filter:blur(5px);opacity:0;transition:opacity .7s}
-#sun.on{opacity:1}
-#cd{position:fixed;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top) + 84px);pointer-events:none;text-align:center;color:#fff;font:700 30px/1.1 ui-monospace,Menlo,monospace;letter-spacing:.06em;padding:6px 16px 7px;border-radius:16px;background:rgba(0,0,0,.3);text-shadow:0 2px 8px #000;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);white-space:nowrap;opacity:0;transition:opacity .7s}
-#cd.on{opacity:1}
-#cd small{display:block;font:600 11px/1.5 ui-sans-serif,system-ui,sans-serif;letter-spacing:.2em;opacity:.85;margin-bottom:1px}
-#cd.end{background:rgba(255,255,255,.82);color:#111;text-shadow:none}
+/* 残り時間: ap-kitの大きな時計(中央)の日付のすぐ下に、同じ太い等幅の白い文字で、常に表示する */
+#cd{position:fixed;left:0;right:0;top:60%;pointer-events:none;text-align:center;color:#fff;font-family:ui-monospace,Menlo,monospace;text-shadow:0 2px 12px #000c,0 0 3px #000a}
+#cd .t{font-weight:700;font-size:40px;line-height:1.1;letter-spacing:.06em}
+#cd .t small{font:600 15px/1 ui-sans-serif,system-ui,sans-serif;letter-spacing:.2em;margin-right:10px;opacity:.9}
+#cd .s{margin-top:8px;font-weight:600;font-size:13px;line-height:1.5;letter-spacing:.1em;opacity:.88;white-space:pre}
+#cd.end .t{color:#ffe9a8}
 </style>
 </head>
 <body>
 <canvas id="art"></canvas>
-<div id="cd"><small></small><span></span></div>
-<div id="sun"></div>
+<div id="cd"><div class="t"><small></small><span></span></div><div class="s"></div></div>
 <div id="hint"><b>葉のすきまは、太陽の小さな像をつくる</b>ひとりでに進む · タップで一時停止 · ✦で模様が変わる</div>
 <script>
 (()=>{
 'use strict';
-const canvas=document.getElementById('art'),hint=document.getElementById('hint'),sunEl=document.getElementById('sun'),cdEl=document.getElementById('cd');
+const canvas=document.getElementById('art'),hint=document.getElementById('hint'),cdEl=document.getElementById('cd');
 const gl=canvas.getContext('webgl',{antialias:false,alpha:false,preserveDrawingBuffer:true});
 const DBG=(new URLSearchParams(location.search)).get('f');/* ?f=0 のように日食の時間(-1=前,0=最大,1=あと)を指定して確かめられる */
 let W=1,H=1,scale=1,t=0,last=0,alive=true,touched=false,slow=0,seed=0,held=null,lastTouch=-99;
@@ -229,12 +228,10 @@ function frame(ts){
   /* 残り時間: 日食の始まり(F=-1)から終わり(F=+1)までが「1周」。残りは (1-F)/2 × 1周 */
   if(rest<=0)ended=false;
   const left=ended?0:Math.max(0,(1-F)/2*cycle),ls=Math.ceil(left-.001);
-  const show=held!==null||t-lastTouch<4||paused||ended||left<=10;/* 数字は、触れた直後・一時停止中・残り10秒・終わりのときだけ */
-  cdEl.className=(ended?'end ':'')+(show?'on':'');
-  sunEl.className=show?'on':'';
-  cdEl.firstChild.textContent=ended?'おわり':(paused?'⏸ 一時停止':'あと');
-  cdEl.lastChild.textContent=ended?'0:00':Math.floor(ls/60)+':'+('0'+(ls%60)).slice(-2);
-  sunEl.textContent='1周 '+fmtSec(cycle)+'\n'+THEMES[theme]+'  '+'太陽の欠け '+hid+'%  '+(cov>.995?(total?'皆既日食':'金環日食'):(Math.abs(F)<.02?'':(F<0?'欠けていく':'戻っていく')));
+  cdEl.className=ended?'end':'';
+  cdEl.querySelector('small').textContent=ended?'おわり':(paused?'⏸':'あと');
+  cdEl.querySelector('span').textContent=ended?'0:00':Math.floor(ls/60)+':'+('0'+(ls%60)).slice(-2);
+  cdEl.querySelector('.s').textContent=(paused?'一時停止中  ':'')+'1周 '+fmtSec(cycle)+'  '+THEMES[theme]+'\n太陽の欠け '+hid+'%  '+(cov>.995?(total?'皆既日食':'金環日食'):(Math.abs(F)<.02?'':(F<0?'欠けていく':'戻っていく')));
   gl.uniform2f(U.uRes,canvas.width,canvas.height);gl.uniform1f(U.uT,t);gl.uniform1f(U.uF,F);gl.uniform1f(U.uCov,cov);gl.uniform1f(U.uMR,mr);gl.uniform1f(U.uTh,theme);gl.uniform1f(U.uSeed,seed);
   gl.drawArrays(gl.TRIANGLES,0,3);
   if(!touched&&t>18)hint.classList.add('off');
