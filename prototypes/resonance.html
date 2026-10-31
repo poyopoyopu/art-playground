@@ -1,0 +1,101 @@
+<!doctype html>
+<!-- RESONANCE — クロちゃん(Claude)作。ap-kit.js統合: クロちゃん。2026/10/31 試作。
+     世界のルール: 世界は2つの振り子が描く光の線(リサジュー図形)。指の位置が2つの振動数の比(整数)を決める。
+       比を動かすと図形はほどけ、整数比に着いた瞬間にぴたりと結ばれる。押し続けると、同じ形が小さく回りながら内側に入れ子で重なる(自己相似)。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#04050a">
+<title>RESONANCE — 指の位置が振動数になり、形がぴたりと結ばれる</title>
+<script src="../ap-kit.js"></script>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#04050a;touch-action:none}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#hint{position:fixed;top:calc(env(safe-area-inset-top) + 16px);left:16px;right:16px;text-align:center;pointer-events:none;color:#e8eefa;font:500 10px/1.9 ui-monospace,monospace;letter-spacing:.2em;text-shadow:0 2px 12px #000;transition:opacity 1.4s}
+#hint b{display:block;font:600 12px/1.9 ui-sans-serif,system-ui,sans-serif;letter-spacing:.12em;color:#fff}
+#hint.off{opacity:0}
+#ratio{position:fixed;left:18px;bottom:calc(env(safe-area-inset-bottom) + 20px);pointer-events:none;color:#cfe3ff;font:500 22px/1 ui-monospace,monospace;letter-spacing:.14em;opacity:.8;text-shadow:0 0 14px #5aa6ff88}
+#ratio small{display:block;margin-top:6px;font-size:9px;letter-spacing:.3em;opacity:.55}
+</style>
+</head>
+<body>
+<canvas id="art"></canvas>
+<div id="ratio"><span id="rv">3 : 2</span><small>FREQUENCY</small></div>
+<div id="hint"><b>指の位置が、世界の振動数になる</b>なぞって比を変える · 押し続けて内側に重ねる</div>
+<script>
+(()=>{
+'use strict';
+const canvas=document.getElementById('art'),ctx=canvas.getContext('2d',{alpha:false}),hint=document.getElementById('hint'),rv=document.getElementById('rv');
+const TAU=Math.PI*2,N=1500,CHUNKS=14,MAXL=6,MAXR=7;
+let W=1,H=1,D=1,t=0,last=0,alive=true,touched=false;
+let a=3,b=2,ta=3,tb=2,phx=0,phy=0,layers=1,hue=205,press=null;
+function resize(){D=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;canvas.width=Math.round(W*D);canvas.height=Math.round(H*D);canvas.style.width=W+'px';canvas.style.height=H+'px';ctx.setTransform(D,0,0,D,0,0);ctx.fillStyle='#04050a';ctx.fillRect(0,0,W,H)}
+addEventListener('resize',resize,{passive:true});
+function setTarget(x,y){
+  /* 画面を MAXR×MAXR の格子に見立て、指のある升目が振動数の比(横=a・縦=b) */
+  ta=1+Math.min(MAXR-1,Math.max(0,Math.floor(x/W*MAXR)));
+  tb=1+Math.min(MAXR-1,Math.max(0,Math.floor((y/H)*MAXR)));
+}
+function reset(){ta=3;tb=2;layers=1;hue=205;ctx.fillStyle='#04050a';ctx.fillRect(0,0,W,H)}
+function mutate(){hue=Math.random()*360;ta=1+Math.floor(Math.random()*MAXR);tb=1+Math.floor(Math.random()*MAXR);phx=Math.random()*TAU}
+canvas.addEventListener('pointerdown',e=>{
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  touched=true;hint.classList.add('off');try{canvas.setPointerCapture(e.pointerId)}catch(_){}
+  press={id:e.pointerId,x:e.clientX,y:e.clientY,t0:t,moved:false};setTarget(e.clientX,e.clientY);e.preventDefault();
+},{passive:false});
+canvas.addEventListener('pointermove',e=>{
+  if(!press||e.pointerId!==press.id)return;
+  if(Math.hypot(e.clientX-press.x,e.clientY-press.y)>14)press.moved=true;
+  setTarget(e.clientX,e.clientY);
+});
+function up(e){if(press&&e.pointerId===press.id)press=null}
+canvas.addEventListener('pointerup',up);canvas.addEventListener('pointercancel',up);
+/* リサジュー図形を、色を変えながら1周ぶん描く */
+function figure(scale,rot,alpha,phase){
+  const cx=W*.5,cy=H*.5,Ax=W*.43*scale,Ay=H*.3*scale,cr=Math.cos(rot),sr=Math.sin(rot);
+  const per=Math.ceil(N/CHUNKS);
+  for(let c=0;c<CHUNKS;c++){
+    const h=hue+c/CHUNKS*95;
+    const i0=c*per,i1=Math.min(N,i0+per+1);
+    ctx.beginPath();
+    for(let i=i0;i<=i1;i++){
+      const tt=i/N*TAU,x=Math.sin(a*tt+phx+phase)*Ax,y=Math.sin(b*tt+phy)*Ay;
+      const X=cx+x*cr-y*sr,Y=cy+x*sr+y*cr;
+      if(i===i0)ctx.moveTo(X,Y);else ctx.lineTo(X,Y);
+    }
+    ctx.strokeStyle='hsla('+h+',85%,62%,'+(alpha*.11)+')';ctx.lineWidth=7;ctx.stroke();
+    ctx.strokeStyle='hsla('+(h+10)+',90%,76%,'+(alpha*.95)+')';ctx.lineWidth=1.3;ctx.stroke();
+  }
+}
+function frame(ts){
+  if(!alive)return;const dt=Math.min(.05,(ts-last)/1000||.016);last=ts;t+=dt;
+  const k=1-Math.exp(-dt*3.2);a+=(ta-a)*k;b+=(tb-b)*k;
+  phx+=dt*.33;phy+=dt*.11;
+  if(press&&!press.moved&&t-press.t0>.45)layers=Math.min(MAXL,layers+dt*.9);
+  /* 残像を残しながら暗く(ほどける動きが尾を引く) */
+  ctx.globalCompositeOperation='source-over';ctx.fillStyle='rgba(4,5,10,.30)';ctx.fillRect(0,0,W,H);
+  ctx.globalCompositeOperation='lighter';
+  const L=Math.floor(layers),frac=layers-L;
+  for(let l=0;l<=L&&l<MAXL;l++){
+    const al=(l===L?frac:1)*Math.pow(.78,l);if(al<.02)continue;
+    figure(Math.pow(.66,l),l*.42,al,l*.5);
+  }
+  ctx.globalCompositeOperation='source-over';
+  const ra=Math.round(a),rb=Math.round(b),locked=Math.abs(a-ra)<.06&&Math.abs(b-rb)<.06;
+  rv.textContent=(locked?ra:a.toFixed(1))+' : '+(locked?rb:b.toFixed(1));
+  rv.style.color=locked?'#ffe9a8':'#cfe3ff';
+  if(!touched&&t>16)hint.classList.add('off');
+  requestAnimationFrame(frame);
+}
+document.addEventListener('visibilitychange',()=>{if(document.hidden)alive=false;else if(!alive){alive=true;last=performance.now();requestAnimationFrame(frame)}});
+resize();
+APKit.init({canvas,gifName:'resonance-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,buttons:[
+  {label:'✦',name:'mutate',onClick:mutate},
+  {label:'↻',name:'reset',onClick:reset}
+]});
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
