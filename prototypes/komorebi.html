@@ -22,7 +22,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 <body>
 <canvas id="art"></canvas>
 <div id="sun"></div>
-<div id="hint"><b>葉のすきまは、太陽の小さな像をつくる</b>ひとりでに日食が進む · なぞると時間を動かせる · ✦で森⇄ネオン</div>
+<div id="hint"><b>葉のすきまは、太陽の小さな像をつくる</b>ひとりでに進む · タップで一時停止 · なぞると動かせる</div>
 <script>
 (()=>{
 'use strict';
@@ -37,6 +37,7 @@ let cycle=60;
 try{const q=parseFloat((new URLSearchParams(location.search)).get('sec'));const sv=parseFloat(localStorage.getItem('komorebi-cycle'));
   cycle=q>0?q:(sv>0?sv:60)}catch(_){}
 cycle=Math.max(5,Math.min(3600,cycle));
+let paused=false,press=null;/* タップで一時停止/再開 */
 let rest=0;/* 自動の日食が1周したあと、光が丸い状態で休む秒数 */
 let F=DBG!==null?parseFloat(DBG):-1,tgt=F,theme=(new URLSearchParams(location.search)).get('theme')==='neon'?1:0;
 const VS='attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}';
@@ -152,28 +153,33 @@ function setF(cx){tgt=Math.max(0,Math.min(1,(cx-W*.08)/(W*.84)))*2-1}
 /* 太陽(半径1)と月(半径mr)の重なりの割合 */
 function cover(f,mr){const d=Math.abs(f)*1.9,R=1;if(d>=R+mr)return 0;if(d<=Math.abs(R-mr))return mr>=R?1:mr*mr;
   const a=R*R*Math.acos((d*d+R*R-mr*mr)/(2*d*R))+mr*mr*Math.acos((d*d+mr*mr-R*R)/(2*d*mr))-.5*Math.sqrt((-d+mr+R)*(d+mr-R)*(d-mr+R)*(d+mr+R));return Math.min(1,a/Math.PI)}
-function reset(){F=-1;tgt=-1;lastTouch=-99;rest=3}
+function reset(){F=-1;tgt=-1;lastTouch=-99;rest=3;paused=false}
 function nextCycle(){let i=PRESETS.findIndex(v=>v>cycle+.5);cycle=PRESETS[i<0?0:i];try{localStorage.setItem('komorebi-cycle',String(cycle))}catch(_){}}
 function mutate(){seed=Math.random()*80;theme=1-theme}/* ✦: 森⇄ネオン。森は皆既日食、ネオンは金環日食 */
 canvas.addEventListener('pointerdown',e=>{
   if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
   touched=true;hint.classList.add('off');try{canvas.setPointerCapture(e.pointerId)}catch(_){}
-  held=e.pointerId;lastTouch=t;setF(e.clientX);e.preventDefault();
+  held=e.pointerId;lastTouch=t;press={x:e.clientX,y:e.clientY,t0:t,drag:false};e.preventDefault();/* 押している間は止まる。タップなら一時停止/再開、なぞるなら時間を動かす */
 },{passive:false});
-canvas.addEventListener('pointermove',e=>{if(held===e.pointerId){lastTouch=t;setF(e.clientX)}});
-function up(e){if(held===e.pointerId){held=null;lastTouch=t}}
+canvas.addEventListener('pointermove',e=>{if(held===e.pointerId&&press){
+  if(!press.drag&&Math.hypot(e.clientX-press.x,e.clientY-press.y)>10)press.drag=true;
+  if(press.drag){lastTouch=t;setF(e.clientX)}}});
+function up(e){if(held===e.pointerId){
+  if(press&&!press.drag&&t-press.t0<.35){paused=!paused;tgt=F}/* 短いタップ: 一時停止 ⇄ 再開 */
+  if(press&&press.drag&&paused)tgt=F;
+  held=null;lastTouch=t;press=null}}
 canvas.addEventListener('pointerup',up);canvas.addEventListener('pointercancel',up);
 function frame(ts){
   if(!alive)return;const dt=Math.min(.05,(ts-last)/1000||.016);last=ts;t+=dt;
   slow=slow*.95+dt*.05;if(slow>.03&&scale>.5){scale*=.85;slow=.016;resize()}
   /* なぞったあと約6秒で、ゆっくり日食が終わって丸い光に戻る */
   /* なぞっていない間は、ひとりでに日食が進む(約60秒で前→皆既→あと。そのあと少し休んで、また最初から) */
-  if(DBG===null&&held===null&&t-lastTouch>6){
+  if(DBG===null&&held===null&&!paused&&t-lastTouch>6){
     if(rest>0)rest-=dt;else{F+=dt*(2/cycle);if(F>=1){F=-1;rest=12}}
     tgt=F;
   }else{const k=1-Math.exp(-dt*(held!==null?6:2.5));F+=(tgt-F)*k}
   const total=theme===0,mr=total?1.03:.88,cov=cover(F,mr),hid=Math.round(cov*100);
-  sunEl.textContent='1周 '+fmtSec(cycle)+'\n'+(theme?'NEON  ':'FOREST  ')+'太陽の欠け '+hid+'%  '+(cov>.995?(total?'皆既日食':'金環日食'):(Math.abs(F)<.02?'':(F<0?'欠けていく':'戻っていく')));
+  sunEl.textContent=(paused?'⏸ 一時停止  ':'')+'1周 '+fmtSec(cycle)+'\n'+(theme?'NEON  ':'FOREST  ')+'太陽の欠け '+hid+'%  '+(cov>.995?(total?'皆既日食':'金環日食'):(Math.abs(F)<.02?'':(F<0?'欠けていく':'戻っていく')));
   gl.uniform2f(U.uRes,canvas.width,canvas.height);gl.uniform1f(U.uT,t);gl.uniform1f(U.uF,F);gl.uniform1f(U.uCov,cov);gl.uniform1f(U.uMR,mr);gl.uniform1f(U.uTh,theme);gl.uniform1f(U.uSeed,seed);
   gl.drawArrays(gl.TRIANGLES,0,3);
   if(!touched&&t>18)hint.classList.add('off');
