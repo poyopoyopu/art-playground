@@ -30,10 +30,10 @@ const canvas=document.getElementById('art'),hint=document.getElementById('hint')
 const gl=canvas.getContext('webgl',{antialias:false,alpha:false,preserveDrawingBuffer:true});
 const DBG=(new URLSearchParams(location.search)).get('f');/* ?f=0 のように日食の時間(-1=前,0=最大,1=あと)を指定して確かめられる */
 let W=1,H=1,scale=1,t=0,last=0,alive=true,touched=false,slow=0,seed=0,held=null,lastTouch=-99;
-let F=DBG!==null?parseFloat(DBG):-1,tgt=F,total=true;
+let F=DBG!==null?parseFloat(DBG):-1,tgt=F,theme=(new URLSearchParams(location.search)).get('theme')==='neon'?1:0;
 const VS='attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}';
 const FS=`precision highp float;
-uniform vec2 uRes;uniform float uT,uF,uCov,uMR,uSeed;
+uniform vec2 uRes;uniform float uT,uF,uCov,uMR,uSeed,uTh;
 float h2(vec2 p){p=fract(p*vec2(123.34,456.21)+uSeed*.013);p+=dot(p,p+45.32);return fract(p.x*p.y);}
 float n2(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(h2(i),h2(i+vec2(1.,0.)),f.x),mix(h2(i+vec2(0.,1.)),h2(i+vec2(1.,1.)),f.x),f.y);}
 float fbm(vec2 p){float a=.5,v=0.;for(int i=0;i<5;i++){v+=a*n2(p);p=p*2.03+vec2(17.1,9.7);a*=.5;}return v;}
@@ -61,21 +61,25 @@ vec3 dapples(vec2 p,float cs,float prob,float rb,float so){
       vec2 dd=normalize(vec2(.8,.6))*r*(.1+.14*uCov);
       vec3 k=vec3(kernel(p-c-dd,r),kernel(p-c,r),kernel(p-c+dd,r));
       /* 斑点ごとに、少し違う色を帯びる(日食が進むほど虹色に。皆既で光と一緒に消える) */
-      float amt=(.3+.55*uCov)*(1.-smoothstep(.9,1.,uCov));
-      vec3 hc=mix(vec3(1.),rainbow(h2(cell+so+19.)+uT*.015)*1.5,amt);
+      float amt=mix((.3+.55*uCov)*(1.-smoothstep(.9,1.,uCov)),.95*(1.-smoothstep(.97,1.,uCov)),uTh);
+      vec3 hc=mix(vec3(1.),rainbow(h2(cell+so+19.)+uT*.015)*mix(1.5,1.9,uTh),amt);
       sum+=k*hc;
+      /* ネオン: 光の斑点のまわりに、にじむ光 */
+      sum+=hc*exp(-length(p-c)/(r*1.5))*.22*uTh*(1.-uCov*.85);
     }
   }
   return sum;
 }
 /* 落ち葉(秋の色) */
-vec4 leaf(vec2 p){
+vec3 gNeon;
+vec4 leaf(vec2 p,float sc){
   float cs=.11;vec2 g=p/cs,id=floor(g);
   float h=h2(id+41.);if(h>.55)return vec4(0.);
   vec2 c=(id+.3+.4*vec2(h2(id+43.),h2(id+47.)))*cs;
   float th=h2(id+53.)*6.2832;vec2 d=p-c;
   vec2 q=vec2(cos(th)*d.x+sin(th)*d.y,-sin(th)*d.x+cos(th)*d.y);
-  float a=.03+.012*h2(id+59.),b=.013+.004*h2(id+61.);
+  float a=(.03+.012*h2(id+59.))*sc,b=(.013+.004*h2(id+61.))*sc;
+  gNeon=rainbow(h2(id+73.))*1.4;
   float u=q.x/a;
   float body=step(abs(u),1.)*smoothstep(1.,.8,abs(q.y)/(b*max(1.-u*u,.02)));
   float vein=smoothstep(.0012,.0,abs(q.y))*step(abs(u),.95);
@@ -91,7 +95,7 @@ void main(){
   vec3 ground=mix(vec3(.04,.075,.03),vec3(.14,.2,.07),g1);
   ground=mix(ground,vec3(.17,.12,.07),smoothstep(.55,.75,fbm(p*5.+9.))*.5);
   ground*=.8+.4*g2;
-  vec4 lf=leaf(p);
+  vec4 lf=leaf(p,1.);
   ground=mix(ground,lf.rgb*.55,lf.a);
   /* 木もれ日: 林冠が混んでいる所は暗く、すいている所に光が集まる */
   float M=smoothstep(.34,.66,fbm(p*2.3+vec2(uT*.012,uSeed*.2)));
@@ -110,9 +114,18 @@ void main(){
   float nearT=exp(-pow((abs(uF)-.2)*7.,2.))*step(.55,e);
   float bands=smoothstep(.2,.8,.5+.5*sin((p.x*.9+p.y*.55+.06*sin(p.y*20.+uT))*75.+uT*9.));
   col*=1.-.28*bands*nearT;
+  if(uTh>.5){
+    /* ネオン: 暗い藍の地面に、落ち葉は輪郭だけネオン管のように光り、光の斑点が蛍光色でにじむ */
+    vec3 nb=vec3(.012,.008,.04)+vec3(.025,.012,.06)*g1;
+    vec4 lo=leaf(p,1.);vec3 nl=gNeon;vec4 li=leaf(p,.74);
+    float outl=clamp(lo.a-li.a,0.,1.);
+    nb+=nl*outl*.85+nl*lo.a*.05;
+    float dimN=mix(1.,.55,e);
+    col=nb+D*(.35+.65*M)*1.9*dimN;
+  }
   float vg=smoothstep(1.15,.25,length(p*vec2(.85,.62)));
   col*=.62+.38*vg;
-  col=1.-exp(-col*1.35);
+  col=1.-exp(-col*mix(1.35,1.15,uTh));
   col=pow(col,vec3(.94));
   col+=(h2(gl_FragCoord.xy+uT)-.5)*.012;
   gl_FragColor=vec4(col,1.);
@@ -121,7 +134,7 @@ function sh(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.co
 const prog=gl.createProgram();gl.attachShader(prog,sh(gl.VERTEX_SHADER,VS));gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,FS));gl.linkProgram(prog);gl.useProgram(prog);
 const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
 const loc=gl.getAttribLocation(prog,'a');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
-const U={};['uRes','uT','uF','uCov','uMR','uSeed'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+const U={};['uRes','uT','uF','uCov','uMR','uSeed','uTh'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
 function resize(){
   W=innerWidth;H=innerHeight;const d=Math.min(devicePixelRatio||1,1.5)*scale;
   canvas.width=Math.max(2,Math.round(W*d));canvas.height=Math.max(2,Math.round(H*d));canvas.style.width=W+'px';canvas.style.height=H+'px';
@@ -133,7 +146,7 @@ function setF(cx){tgt=Math.max(0,Math.min(1,(cx-W*.08)/(W*.84)))*2-1}
 function cover(f,mr){const d=Math.abs(f)*1.9,R=1;if(d>=R+mr)return 0;if(d<=Math.abs(R-mr))return mr>=R?1:mr*mr;
   const a=R*R*Math.acos((d*d+R*R-mr*mr)/(2*d*R))+mr*mr*Math.acos((d*d+mr*mr-R*R)/(2*d*mr))-.5*Math.sqrt((-d+mr+R)*(d+mr-R)*(d-mr+R)*(d+mr+R));return Math.min(1,a/Math.PI)}
 function reset(){tgt=-1;lastTouch=-99}
-function mutate(){seed=Math.random()*80;total=!total}
+function mutate(){seed=Math.random()*80;theme=1-theme}/* ✦: 森⇄ネオン。森は皆既日食、ネオンは金環日食 */
 canvas.addEventListener('pointerdown',e=>{
   if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
   touched=true;hint.classList.add('off');try{canvas.setPointerCapture(e.pointerId)}catch(_){}
@@ -148,9 +161,9 @@ function frame(ts){
   /* なぞったあと約6秒で、ゆっくり日食が終わって丸い光に戻る */
   if(DBG===null&&held===null&&t-lastTouch>6)tgt=-1;
   const k=1-Math.exp(-dt*(held!==null?6:(t-lastTouch>6?.45:2.5)));F+=(tgt-F)*k;
-  const mr=total?1.03:.88,cov=cover(F,mr),hid=Math.round(cov*100);
-  sunEl.textContent='太陽の欠け '+hid+'%  '+(cov>.995?(total?'皆既日食':'金環日食'):(Math.abs(F)<.02?'':(F<0?'欠けていく':'戻っていく')));
-  gl.uniform2f(U.uRes,canvas.width,canvas.height);gl.uniform1f(U.uT,t);gl.uniform1f(U.uF,F);gl.uniform1f(U.uCov,cov);gl.uniform1f(U.uMR,mr);gl.uniform1f(U.uSeed,seed);
+  const total=theme===0,mr=total?1.03:.88,cov=cover(F,mr),hid=Math.round(cov*100);
+  sunEl.textContent=(theme?'NEON  ':'FOREST  ')+'太陽の欠け '+hid+'%  '+(cov>.995?(total?'皆既日食':'金環日食'):(Math.abs(F)<.02?'':(F<0?'欠けていく':'戻っていく')));
+  gl.uniform2f(U.uRes,canvas.width,canvas.height);gl.uniform1f(U.uT,t);gl.uniform1f(U.uF,F);gl.uniform1f(U.uCov,cov);gl.uniform1f(U.uMR,mr);gl.uniform1f(U.uTh,theme);gl.uniform1f(U.uSeed,seed);
   gl.drawArrays(gl.TRIANGLES,0,3);
   if(!touched&&t>18)hint.classList.add('off');
   requestAnimationFrame(frame);
