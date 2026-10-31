@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#05060b">
+<title>INSIDE OUT — 内と外の法則が反転する</title>
+<script src="../ap-kit.js"></script>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#05060b;touch-action:none}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#hint{position:fixed;top:calc(env(safe-area-inset-top) + 16px);left:16px;right:16px;text-align:center;pointer-events:none;color:#dce7f5a8;font:500 10px/1.6 ui-monospace,monospace;letter-spacing:.2em;text-shadow:0 2px 10px #000;transition:opacity 1s}
+#hint.off{opacity:0}
+</style>
+</head>
+<body>
+<canvas id="art"></canvas>
+<div id="hint">TAP TO INVERT THE WORLD · DRAG TO BEND ITS AXIS</div>
+<script>
+/* INSIDE OUT — ChatGPT作。入れ子の建築空間で「内と外」の接続規則そのものを反転させる試作。 */
+(()=>{
+'use strict';
+const canvas=document.getElementById('art'),ctx=canvas.getContext('2d',{alpha:false}),hint=document.getElementById('hint');
+const TAU=Math.PI*2,clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+let W=1,H=1,D=1,t=0,last=0,alive=true,mode=0,twist=0,twistTarget=0,drag=null,seed=17,palette=0,portals=[],flash=0;
+const palettes=[
+ [[75,225,214],[91,139,255],[198,117,255],[255,190,113]],
+ [[255,104,117],[255,180,105],[255,225,159],[118,218,207]],
+ [[163,220,255],[232,244,255],[151,135,255],[255,146,210]],
+ [[193,255,127],[77,220,177],[54,151,192],[239,246,255]]
+];
+function resize(){D=Math.min(devicePixelRatio||1,1.5);W=innerWidth;H=innerHeight;canvas.width=Math.round(W*D);canvas.height=Math.round(H*D);canvas.style.width=W+'px';canvas.style.height=H+'px';ctx.setTransform(D,0,0,D,0,0)}
+addEventListener('resize',resize,{passive:true});
+function rot(p,a){const c=Math.cos(a),s=Math.sin(a);return [p[0]*c-p[1]*s,p[0]*s+p[1]*c]}
+function project(x,y,z,cx,cy,scale){
+ const depth=4.6+z, k=scale/depth;
+ return [cx+x*k,cy+y*k*.98];
+}
+function cubeVertices(s,z,phase){
+ const a=phase+twist*.22,b=phase*.63-twist*.31;
+ const out=[];
+ for(let i=0;i<8;i++){
+  let x=(i&1)?s:-s,y=(i&2)?s:-s,vz=(i&4)?s:-s;
+  let p=rot([x,y],a);x=p[0];y=p[1];
+  const yy=y*Math.cos(b)-vz*Math.sin(b),zz=y*Math.sin(b)+vz*Math.cos(b);
+  out.push([x,yy,zz+z]);
+ }
+ return out;
+}
+const edges=[[0,1],[0,2],[1,3],[2,3],[4,5],[4,6],[5,7],[6,7],[0,4],[1,5],[2,6],[3,7]];
+const faces=[[0,1,3,2],[4,6,7,5],[0,4,5,1],[2,3,7,6],[0,2,6,4],[1,5,7,3]];
+function drawFace(v,ids,col,alpha,cx,cy,scale){
+ const pts=ids.map(i=>project(v[i][0],v[i][1],v[i][2],cx,cy,scale));
+ ctx.beginPath();ctx.moveTo(...pts[0]);for(let i=1;i<pts.length;i++)ctx.lineTo(...pts[i]);ctx.closePath();
+ ctx.fillStyle='rgba('+col.join(',')+','+alpha+')';ctx.fill();
+}
+function render(){
+ const cx=W*.5,cy=H*.51,scale=Math.min(W,H)*1.35,pal=palettes[palette];
+ ctx.fillStyle='#05060b';ctx.fillRect(0,0,W,H);
+ // A restrained atmospheric aperture, not a particle field.
+ const glow=ctx.createRadialGradient(cx,cy,0,cx,cy,Math.min(W,H)*.72);
+ glow.addColorStop(0,mode%2?'rgba(75,30,78,.23)':'rgba(20,70,82,.22)');glow.addColorStop(1,'rgba(5,6,11,0)');
+ ctx.fillStyle=glow;ctx.fillRect(0,0,W,H);
+ const count=mode===2?13:10,records=[];
+ for(let i=0;i<count;i++){
+  const q=i/(count-1),s=1.28*Math.pow(.79,i),z=(mode===1?i*.29:mode===2?i*.19:i*.24);
+  const ph=t*(.12+(i%3)*.018)*(i%2?1:-1)+i*.19+twist*.12;
+  const v=cubeVertices(s,z,ph),depth=v.reduce((a,p)=>a+p[2],0)/8;
+  records.push({v,i,depth});
+ }
+ records.sort((a,b)=>a.depth-b.depth);
+ // Faces are translucent slabs; the nested rooms appear to pass through one another.
+ for(const r of records){
+  const {v,i}=r,col=pal[(i+mode)%pal.length],fade=clamp(1-i*.065,.24,.82);
+  for(let f=0;f<faces.length;f++){
+   const ids=faces[f],z=ids.reduce((a,k)=>a+v[k][2],0)/4;
+   const light=clamp(.42+z*.035+Math.sin(t*.35+i*.6+f)*.06,.18,.72);
+   drawFace(v,ids,col,mode===1?light*.25:light*.12,cx,cy,scale);
+  }
+  ctx.lineWidth=Math.max(.7,1.65-i*.075);ctx.strokeStyle='rgba('+col.join(',')+','+fade+')';
+  for(const [a,b] of edges){const p=project(...v[a],cx,cy,scale),q=project(...v[b],cx,cy,scale);ctx.beginPath();ctx.moveTo(...p);ctx.lineTo(...q);ctx.stroke()}
+  // A thin inner seam marks where the room's boundary is connected to its child.
+  if(i<count-1){
+   const s2=s*.18,inner=cubeVertices(s2,z+.34,ph+(mode===1?Math.PI*.5:0));
+   ctx.lineWidth=.55;ctx.strokeStyle='rgba(255,255,255,'+(.12+Math.sin(t+i)*.05)+')';
+   for(const [a,b] of edges){const p=project(...inner[a],cx,cy,scale),q=project(...inner[b],cx,cy,scale);ctx.beginPath();ctx.moveTo(...p);ctx.lineTo(...q);ctx.stroke()}
+  }
+ }
+ // The seam between levels travels continuously; a change of law makes it jump to a different child.
+ for(let i=0;i<portals.length;i++){
+  const p=portals[i],age=t-p.t,a=clamp(1-age/3,0,1);
+  ctx.beginPath();ctx.arc(p.x,p.y,8+age*38,0,TAU);ctx.strokeStyle='rgba(255,255,255,'+a*.42+')';ctx.lineWidth=1;ctx.stroke();
+ }
+ if(flash>0){ctx.fillStyle='rgba(225,245,255,'+flash*.14+')';ctx.fillRect(0,0,W,H);flash*=.88}
+ if(drag){ctx.beginPath();ctx.moveTo(drag.x0,drag.y0);ctx.lineTo(drag.x,drag.y);ctx.strokeStyle='rgba(255,255,255,.65)';ctx.lineWidth=1;ctx.setLineDash([3,6]);ctx.stroke();ctx.setLineDash([])}
+}
+function invert(x,y){
+ mode=(mode+1)%3;twistTarget+=Math.PI*.5*(mode===2?-1:1);palette=(palette+1)%palettes.length;
+ portals.push({x,y,t});if(portals.length>8)portals.shift();flash=1;hint.classList.add('off');
+}
+canvas.addEventListener('pointerdown',e=>{
+ if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+ e.preventDefault();drag={x0:e.clientX,y0:e.clientY,x:e.clientX,y:e.clientY};canvas.setPointerCapture?.(e.pointerId);hint.classList.add('off');
+},{passive:false});
+canvas.addEventListener('pointermove',e=>{if(drag){drag.x=e.clientX;drag.y=e.clientY;twistTarget+=(e.movementX||0)*.0035}},{passive:true});
+canvas.addEventListener('pointerup',e=>{if(!drag)return;const d=drag;drag=null;if(Math.hypot(d.x-d.x0,d.y-d.y0)<18)invert(d.x,d.y);else{twistTarget+=(d.y-d.y0)*.002;portals.push({x:d.x,y:d.y,t});if(portals.length>8)portals.shift()}},{passive:true});
+canvas.addEventListener('pointercancel',()=>{drag=null},{passive:true});
+function mutate(){seed=Math.random()*10000;palette=(palette+1+Math.floor(Math.random()*3))%palettes.length;twistTarget+=(Math.random()-.5)*2.4;mode=Math.floor(Math.random()*3)}
+function reset(){mode=0;twist=0;twistTarget=0;palette=0;portals=[];flash=0;hint.classList.remove('off')}
+function frame(ts){if(!alive)return;const dt=Math.min(.04,(ts-last)/1000||0);last=ts;t+=dt;twist+=(twistTarget-twist)*Math.min(1,dt*2.2);render();requestAnimationFrame(frame)}
+document.addEventListener('visibilitychange',()=>{if(document.hidden)alive=false;else if(!alive){alive=true;last=performance.now();requestAnimationFrame(frame)}});
+resize();
+APKit.init({canvas,gifName:'inside-out-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,buttons:[
+ {label:'✦',name:'mutate',onClick:mutate},
+ {label:'↻',name:'reset',onClick:reset}
+]});
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
