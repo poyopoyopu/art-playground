@@ -28,7 +28,7 @@ const gl=canvas.getContext('webgl',{antialias:false,alpha:false,preserveDrawingB
 const YH=.07;/* 雲海の水平線の高さ(画面の高さを1として、中央が0) */
 let W=1,H=1,scale=1,t=0,last=0,alive=true,touched=false,slow=0;
 let seed=0,tone=0,mist=.35,mistBase=.35,held=null;
-let g={x:.04,y:-.2},gt={x:.04,y:-.2};
+let g={x:.04,y:-.24},gt={x:.04,y:-.24};
 const VS='attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}';
 const FS=`precision highp float;
 uniform vec2 uRes,uG;uniform float uT,uMist,uTone,uSeed;
@@ -57,6 +57,17 @@ vec3 sky(vec2 p){
   vec2 g2=p*80.;vec2 id=floor(g2);float s=h2(id);
   c+=vec3(.9,.95,1.)*step(.992,s)*smoothstep(.4,0.,length(fract(g2)-.5))*smoothstep(.45,.9,v)*.6;
   return c;
+}
+float sdCap(vec2 p,vec2 a,vec2 b,float r){vec2 pa=p-a,ba=b-a;float h=clamp(dot(pa,ba)/dot(ba,ba),0.,1.);return length(pa-ba*h)-r;}
+/* あなたの影: 頭と体と両腕。右手がゆっくり手を振る */
+float person(vec2 d){
+  float wv=.9+.35*sin(uT*2.1);
+  float head=length(d-vec2(0.,.062))-.0145;
+  float body=sdCap(d,vec2(0.,.042),vec2(0.,-.05),.0112);
+  float armL=sdCap(d,vec2(0.,.03),vec2(-.046,.01),.0065);
+  float armR=sdCap(d,vec2(0.,.03),vec2(.05*cos(wv),.03+.05*sin(wv)),.0065);
+  float legs=sdCap(d,vec2(0.,-.04),vec2(.0,-.085),.0105);
+  return min(min(head,body),min(min(armL,armR),legs));
 }
 void main(){
   vec2 p=(gl_FragCoord.xy-.5*uRes)/uRes.y;
@@ -90,18 +101,18 @@ void main(){
     cc=mix(mix(vec3(.12,.16,.42),vec3(.26,.14,.36),uTone),cc,smoothstep(.2,.58,h));
     /* 触れた所の影と、そのまわりの虹の輪(光輪) */
     vec2 d=p-uG;vec2 de=vec2(d.x,d.y*1.35);float r=length(de);
-    float sh=exp(-pow(d.x/.03,2.)-pow((d.y-.012)/.07,2.));
-    float tt=r/.034;
+    float sh=smoothstep(.014,-.006,person(d));
+    float tt=r/.04;
     float mi=uMist;
     float amp=exp(-tt*(.9-.4*mi))*smoothstep(.7,1.3,tt)*(.42+.8*mi);
     vec3 ring=mix(vec3(.85,.88,.95),pal(tt*.5-.05),.72);
     float cloudBright=.4+.9*h;
-    cc*=1.-.78*sh*(.55+.45*mi);
-    cc+=ring*amp*cloudBright*.95;
-    cc+=vec3(1.,.95,.85)*exp(-r*30.)*(.18+.4*mi)*cloudBright;
-    /* 水平線に向かって霧にかすむ */
+    /* 水平線に向かって霧にかすむ(影と輪は霧の手前に描く) */
     float fg=exp(-dz*6.5);
     cc=mix(cc,hor,fg*.82);
+    cc*=1.-.82*sh*(.6+.4*mi);
+    cc+=ring*amp*(cloudBright*.7+.35)*.95;
+    cc+=vec3(1.,.95,.85)*exp(-r*30.)*(.14+.35*mi)*(cloudBright*.7+.35);
     col=cc;
     /* 手前の岩(山頂の足もと) */
     float yb=-.47+.05*(fbm1(p.x*3.2+11.)-.35)+.012*abs(fract(p.x*9.)-.5);
@@ -127,12 +138,12 @@ function resize(){
   gl.viewport(0,0,canvas.width,canvas.height);
 }
 addEventListener('resize',resize,{passive:true});
-function setG(cx,cy){const x=(cx-W*.5)/H,y=(H*.5-cy)/H;gt.x=Math.max(-.5,Math.min(.5,x));gt.y=Math.max(-.46,Math.min(YH-.06,y))}
-function reset(){seed=0;tone=0;mistBase=.35;mist=.35;gt={x:.04,y:-.2}}
+function setG(cx,cy){const x=(cx-W*.5)/H,y=(H*.5-cy)/H;gt.x=Math.max(-.5,Math.min(.5,x));gt.y=Math.max(-.44,Math.min(-.1,y))}
+function reset(){seed=0;tone=0;mistBase=.35;mist=.35;gt={x:.04,y:-.24}}
 function mutate(){seed=Math.random()*60;tone=Math.random()<.5?0:1;}
 canvas.addEventListener('pointerdown',e=>{
   if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
-  touched=true;hint.classList.add('off');try{canvas.setPointerCapture(e.pointerId)}catch(_){}
+  if(!touched){touched=true;setTimeout(()=>hint.classList.add('off'),5000)}try{canvas.setPointerCapture(e.pointerId)}catch(_){}
   held=e.pointerId;setG(e.clientX,e.clientY);e.preventDefault();
 },{passive:false});
 canvas.addEventListener('pointermove',e=>{if(held===e.pointerId)setG(e.clientX,e.clientY)});
