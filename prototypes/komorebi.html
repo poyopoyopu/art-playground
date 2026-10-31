@@ -46,8 +46,10 @@ float kernel(vec2 d,float r){
   return sun*(1.-moon);
 }
 /* 葉のすきま: 1マスに最大1つ。ゆらゆら揺れる。木漏れ日の層ごとに大きさが違う */
-float dapples(vec2 p,float cs,float prob,float rb,float so){
-  vec2 g=p/cs,id=floor(g);float sum=0.;
+/* 虹の色(0〜1で一周) */
+vec3 rainbow(float h){return .5+.5*cos(6.2832*(h+vec3(0.,.33,.67)));}
+vec3 dapples(vec2 p,float cs,float prob,float rb,float so){
+  vec2 g=p/cs,id=floor(g);vec3 sum=vec3(0.);
   for(int dy=-1;dy<=1;dy++)for(int dx=-1;dx<=1;dx++){
     vec2 cell=id+vec2(float(dx),float(dy));
     float h=h2(cell+so);
@@ -55,7 +57,13 @@ float dapples(vec2 p,float cs,float prob,float rb,float so){
       vec2 c=(cell+.2+.6*vec2(h2(cell+so+3.),h2(cell+so+7.)))*cs;
       c+=vec2(sin(uT*.45+h*40.),cos(uT*.38+h*31.))*rb*.4;
       float r=rb*(.65+.7*h2(cell+so+11.));
-      sum+=kernel(p-c,r);
+      /* 色収差: 赤と青で像が少しずれる。日食が進むほど、縁の虹がはっきり出る */
+      vec2 dd=normalize(vec2(.8,.6))*r*(.1+.14*uCov);
+      vec3 k=vec3(kernel(p-c-dd,r),kernel(p-c,r),kernel(p-c+dd,r));
+      /* 斑点ごとに、少し違う色を帯びる(日食が進むほど虹色に。皆既で光と一緒に消える) */
+      float amt=(.3+.55*uCov)*(1.-smoothstep(.9,1.,uCov));
+      vec3 hc=mix(vec3(1.),rainbow(h2(cell+so+19.)+uT*.015)*1.5,amt);
+      sum+=k*hc;
     }
   }
   return sum;
@@ -87,8 +95,8 @@ void main(){
   ground=mix(ground,lf.rgb*.55,lf.a);
   /* 木もれ日: 林冠が混んでいる所は暗く、すいている所に光が集まる */
   float M=smoothstep(.34,.66,fbm(p*2.3+vec2(uT*.012,uSeed*.2)));
-  float D=dapples(p,.15,.6,.036,0.)+dapples(p,.078,.55,.019,31.)*.9+dapples(p,.042,.5,.0095,67.)*.8;
-  float shine=clamp(D,0.,1.2)*(.18+.82*M);
+  vec3 D=dapples(p,.15,.6,.036,0.)+dapples(p,.078,.55,.019,31.)*.9+dapples(p,.042,.5,.0095,67.)*.8;
+  vec3 shine=clamp(D,vec3(0.),vec3(1.2))*(.18+.82*M);
   float diffuse=smoothstep(.4,.75,fbm(p*3.4-vec2(uT*.01,0.)))*.5;
   /* 日食が進むと、光は暗く涼しい色に */
   float e=uCov;
