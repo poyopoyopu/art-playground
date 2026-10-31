@@ -44,7 +44,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 <body>
 <canvas id="art"></canvas>
 <div id="cd"><div class="t"></div><div class="d"></div></div>
-<div id="hint"><b>葉のすきまは、太陽の小さな像をつくる</b>☰で時刻を決めてカウントダウン</div>
+<div id="hint"><b>葉のすきまは、太陽の小さな像をつくる</b>☰で停留所を選ぶと、発車までを数えます</div>
 <script>
 (()=>{
 'use strict';
@@ -60,9 +60,25 @@ try{const q=parseFloat((new URLSearchParams(location.search)).get('sec'));const 
   cycle=q>0?q:(sv>0?sv:60)}catch(_){}
 cycle=Math.max(5,Math.min(3600,cycle));
 /* 指定した時刻までのカウントダウン。until={s:開始のms, t:目標のms, label:'14:30'}。日食は、開始(欠け始め)から目標時刻(欠けの終わり)に合わせて進む */
-let until=null,untilTime='';
+/* バス(パレット・ライド 通常ダイヤ)。停留所の順は、巡回の順(①→②→③→④→⑤)。[時,分,注記]。出典: schedule_20261030_1.pdf。運行は12時台〜17時台のみ。予告なく変更・遅延することがある */
+const STOPS=['セントラル広場南','テレコムセンター','ヒルトン東京お台場','台場公園','アクアシティお台場'];
+const N17='17時台の終着はセントラル広場南';
+const TT=[
+ [[12,30],[13,21,'テレコムセンター終着'],[14,44],[15,28],[16,46],[17,44,N17]],
+ [[12,40],[14,13],[15,0],[16,12],[17,10,N17]],
+ [[12,47],[14,20],[15,7],[16,22],[17,17,N17]],
+ [[13,7],[14,30],[15,14],[16,32],[17,30,N17]],
+ [[13,14],[14,37],[15,21],[16,39],[17,37,N17]]];
+function nextDep(stop,fromMs){
+  for(let day=0;day<3;day++)for(const [h,m,note] of TT[stop]){
+    const d=new Date(fromMs);d.setDate(d.getDate()+day);d.setHours(h,m,0,0);
+    if(d.getTime()>fromMs+500)return {t:d.getTime(),h,m,note:note||'',day}}
+  return null}
+const hm=(h,m)=>('0'+h).slice(-2)+':'+('0'+m).slice(-2);
+let bus=-1,busFlash=0,until=null,untilTime='';
 try{const u=JSON.parse(localStorage.getItem('komorebi-until')||'null');if(u&&u.t>Date.now())until=u;untilTime=localStorage.getItem('komorebi-until-time')||''}catch(_){}
-let running=true,loop=true,press=null;/* running=日食が進んでいるか。loop=1周したあと、また最初から繰り返すか(オフならタイマーとして1回で止まる) */
+let running=true,loop=true,press=null;
+try{const bs=parseInt(localStorage.getItem('komorebi-bus'));if(bs>=0&&bs<STOPS.length){const u=busPlan(bs,Date.now());if(u){bus=bs;until=u}}}catch(_){}/* running=日食が進んでいるか。loop=1周したあと、また最初から繰り返すか(オフならタイマーとして1回で止まる) */
 try{if(localStorage.getItem('komorebi-loop')==='0')loop=false}catch(_){}
 let rest=0,ended=false;/* 自動の日食が1周したあと、光が丸い状態で休む秒数 */
 let F=DBG!==null?parseFloat(DBG):-1,tgt=F,theme=({neon:1,space:2,sea:3,glass:4,sakura:5})[(new URLSearchParams(location.search)).get('theme')]||0;
@@ -221,11 +237,17 @@ function cover(f,mr){const d=Math.abs(f)*1.9,R=1;if(d>=R+mr)return 0;if(d<=Math.
   const a=R*R*Math.acos((d*d+R*R-mr*mr)/(2*d*R))+mr*mr*Math.acos((d*d+mr*mr-R*R)/(2*d*mr))-.5*Math.sqrt((-d+mr+R)*(d+mr-R)*(d-mr+R)*(d+mr+R));return Math.min(1,a/Math.PI)}
 function save(k,v){try{localStorage.setItem(k,String(v))}catch(_){}}
 function restart(run){F=-1;tgt=-1;rest=0;ended=false;running=run}
-function cancelUntil(){until=null;save('komorebi-until','')}
+function cancelUntil(){until=null;bus=-1;save('komorebi-until','');save('komorebi-bus','')}
 function reset(){cancelUntil();restart(loop);rest=loop?3:0}/* 最初から。くり返すなら自動で進み、くり返さないなら「スタート」を待つ */
 function mutate(){seed=Math.random()*80;theme=(theme+1)%THEMES.length;save('komorebi-theme',theme)}/* ✦: 配置を作り直し、模様を次へ */
 function setCycle(v){if(until)cancelUntil();cycle=Math.max(5,Math.min(3600,v));save('komorebi-cycle',cycle);refreshMenu()}
 function defaultUntil(){const d=new Date(Date.now()+30*60000);return ('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2)}
+function busPlan(stop,fromMs){
+  const nd=nextDep(stop,fromMs);if(!nd)return null;const af=nextDep(stop,nd.t);
+  return {s:fromMs,t:nd.t,bus:true,label:STOPS[stop]+'  '+hm(nd.h,nd.m)+' 発'+(nd.day?'(明日)':''),note:nd.note,after:af?hm(af.h,af.m)+(af.day?'(明日)':''):''}}
+function startBus(stop){
+  const u=busPlan(stop,Date.now());if(!u)return;bus=stop;until=u;save('komorebi-bus',stop);save('komorebi-until','');
+  restart(true);ended=false;toggleMenu(false)}
 function startUntil(){
   const m=/^(\d{1,2}):(\d{2})/.exec(untilTime||defaultUntil());if(!m)return;
   const now=Date.now(),d=new Date(now);d.setHours(+m[1],+m[2],0,0);
@@ -257,10 +279,13 @@ function refreshMenu(){
   if(menu.hidden)return;
   const startLabel=running?'⏸ 一時停止':((ended||(!loop&&F>=.999)||F<=-.999)?'▶ スタート':'▶ 再開');
   if(!untilTime)untilTime=defaultUntil();
-  menu.innerHTML='<div class="mh"><b>UNTIL</b><button class="x" data-a="close" aria-label="閉じる">✕</button></div>'
+  menu.innerHTML='<div class="mh"><b>BUS · パレット・ライド</b><button class="x" data-a="close" aria-label="閉じる">✕</button></div>'
+   +'<div class="row">'+STOPS.map((n,i)=>'<button class="'+(bus===i?'on':'')+'" data-a="bus" data-v="'+i+'">'+(i+1)+' '+n+'</button>').join('')+'</div>'
+   +(bus>=0&&until?'<div class="row"><span class="note">次の発車 '+until.label.split('  ')[1]+(until.after?'(その次 '+until.after+')':'')+'</span><button data-a="cancel">解除</button></div>':'<div class="row"><span class="note">乗る停留所を選ぶと、次の発車までを数えます</span></div>')
+   +'<div class="mh sub"><b>UNTIL</b></div>'
    +'<div class="row"><input type="time" id="tu" value="'+untilTime+'" aria-label="この時刻までカウントダウン"></div>'
    +'<div class="row"><button class="big" data-a="until">▶ '+(untilTime||'')+' までカウントダウン</button></div>'
-   +(until?'<div class="row"><span class="note">'+until.label+' まで数えています</span><button data-a="cancel">解除</button></div>':'')
+   +(until&&!until.bus?'<div class="row"><span class="note">'+until.label+' まで数えています</span><button data-a="cancel">解除</button></div>':'')
    +'<div class="mh sub"><b>TIMER</b></div>'
    +'<div class="mt">'+mmss(cycle)+'</div>'
    +'<div class="row"><button data-a="m10">−10秒</button><button data-a="p10">+10秒</button></div>'
@@ -273,6 +298,7 @@ menu.addEventListener('click',e=>{
   const b=e.target.closest('button');if(!b)return;const a=b.dataset.a,v=parseFloat(b.dataset.v);
   if(a==='close'){toggleMenu(false);return}
   if(a==='until'){startUntil();return}
+  if(a==='bus'){startBus(v);return}
   if(a==='cancel'){cancelUntil();restart(loop);rest=loop?3:0;refreshMenu();return}
   if(a==='m10')setCycle(cycle-10);else if(a==='p10')setCycle(cycle+10);else if(a==='c')setCycle(v);
   else if(a==='run')toggleRun();else if(a==='rs'){cancelUntil();restart(false);refreshMenu()}
@@ -289,7 +315,9 @@ function frame(ts){
   if(until){
     /* 指定時刻まで: 日食は、開始から目標時刻までの進み具合に合わせる(実際の時計) */
     const now=Date.now(),tot=until.t-until.s,el=Math.min(tot,Math.max(0,now-until.s));F=-1+2*el/tot;tgt=F;
-    if(now>=until.t&&!ended){ended=true;running=false;buzz();save('komorebi-until','');refreshMenu()}
+    if(now>=until.t){
+      if(until.bus){buzz();busFlash=now+8000;const u=busPlan(bus,now);if(u){until=u;F=-1;tgt=-1}}/* 発車: 次の便のカウントダウンへ */
+      else if(!ended){ended=true;running=false;buzz();save('komorebi-until','');refreshMenu()}}
   }else if(DBG===null&&running&&!dragging){
     if(rest>0)rest-=rdt;else{F+=rdt*(2/cycle);if(F>=1){
       if(loop){F=-1;rest=12;ended=true}else{F=1;running=false;ended=true;buzz();refreshMenu()}}}
@@ -302,7 +330,9 @@ function frame(ts){
   cdEl.className=ended?'end':'';
   const hh=Math.floor(ls/3600),mm=Math.floor(ls%3600/60),ss=ls%60;
   cdEl.querySelector('.t').innerHTML=ended?'00<i>:</i>00':(hh>0?hh+'<i>:</i>':'')+('0'+mm).slice(-2)+'<i>:</i>'+('0'+ss).slice(-2);
-  cdEl.querySelector('.d').textContent=(ended?'おわり':(until?until.label+' まで':(!running?(F<=-.999?'スタート待ち':'一時停止'):'あと')))+'  ·  太陽の欠け '+hid+'%  '+(cov>.995?(total?'皆既日食':'金環日食'):(Math.abs(F)<.02?'':(F<0?'欠けていく':'戻っていく')));
+  if(until&&until.bus&&!ended){
+    cdEl.querySelector('.d').textContent=(Date.now()<busFlash?'発車しました  ·  次の便':'次の発車')+'\n'+until.label+(until.note?'('+until.note+')':'')+(until.after?'\n次 '+until.after:'');
+  }else cdEl.querySelector('.d').textContent=(ended?'おわり':(until?until.label+' まで':(!running?(F<=-.999?'スタート待ち':'一時停止'):'あと')))+'  ·  太陽の欠け '+hid+'%  '+(cov>.995?(total?'皆既日食':'金環日食'):(Math.abs(F)<.02?'':(F<0?'欠けていく':'戻っていく')));
   gl.uniform2f(U.uRes,canvas.width,canvas.height);gl.uniform1f(U.uT,t);gl.uniform1f(U.uF,F);gl.uniform1f(U.uCov,cov);gl.uniform1f(U.uMR,mr);gl.uniform1f(U.uTh,theme);gl.uniform1f(U.uSeed,seed);
   gl.drawArrays(gl.TRIANGLES,0,3);
   if(!touched&&t>18)hint.classList.add('off');
