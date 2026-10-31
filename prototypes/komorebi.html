@@ -22,18 +22,18 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 <body>
 <canvas id="art"></canvas>
 <div id="sun"></div>
-<div id="hint"><b>葉のすきまは、太陽の小さな像をつくる</b>横になぞると、日食が進む</div>
+<div id="hint"><b>葉のすきまは、太陽の小さな像をつくる</b>横になぞると、日食が進む。中央で皆既、過ぎると光が戻る</div>
 <script>
 (()=>{
 'use strict';
 const canvas=document.getElementById('art'),hint=document.getElementById('hint'),sunEl=document.getElementById('sun');
 const gl=canvas.getContext('webgl',{antialias:false,alpha:false,preserveDrawingBuffer:true});
-const DBG=(new URLSearchParams(location.search)).get('ecl');/* ?ecl=.5 で日食の進み具合を指定して確かめられる */
+const DBG=(new URLSearchParams(location.search)).get('f');/* ?f=0 のように日食の時間(-1=前,0=最大,1=あと)を指定して確かめられる */
 let W=1,H=1,scale=1,t=0,last=0,alive=true,touched=false,slow=0,seed=0,held=null,lastTouch=-99;
-let ecl=DBG!==null?parseFloat(DBG):0,tgt=ecl;
+let F=DBG!==null?parseFloat(DBG):-1,tgt=F,total=true;
 const VS='attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}';
 const FS=`precision highp float;
-uniform vec2 uRes;uniform float uT,uEcl,uSeed;
+uniform vec2 uRes;uniform float uT,uF,uCov,uMR,uSeed;
 float h2(vec2 p){p=fract(p*vec2(123.34,456.21)+uSeed*.013);p+=dot(p,p+45.32);return fract(p.x*p.y);}
 float n2(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(h2(i),h2(i+vec2(1.,0.)),f.x),mix(h2(i+vec2(0.,1.)),h2(i+vec2(1.,1.)),f.x),f.y);}
 float fbm(vec2 p){float a=.5,v=0.;for(int i=0;i<5;i++){v+=a*n2(p);p=p*2.03+vec2(17.1,9.7);a*=.5;}return v;}
@@ -41,8 +41,8 @@ float fbm(vec2 p){float a=.5,v=0.;for(int i=0;i<5;i++){v+=a*n2(p);p=p*2.03+vec2(
 float kernel(vec2 d,float r){
   float aa=1.2/uRes.y+r*.07;
   float sun=smoothstep(r+aa,r-aa,length(d));
-  vec2 off=normalize(vec2(.8,.6))*(1.-uEcl)*1.9*r;
-  float moon=smoothstep(r*.88+aa,r*.88-aa,length(d-off));
+  vec2 off=normalize(vec2(.8,.6))*uF*1.9*r;/* 月は太陽の手前を通り過ぎる。中央(uF=0)で重なり、過ぎると三日月は反対向きになる */
+  float moon=smoothstep(r*uMR+aa,r*uMR-aa,length(d-off));
   return sun*(1.-moon);
 }
 /* 葉のすきま: 1マスに最大1つ。ゆらゆら揺れる。木漏れ日の層ごとに大きさが違う */
@@ -91,12 +91,17 @@ void main(){
   float shine=clamp(D,0.,1.2)*(.18+.82*M);
   float diffuse=smoothstep(.4,.75,fbm(p*3.4-vec2(uT*.01,0.)))*.5;
   /* 日食が進むと、光は暗く涼しい色に */
-  float e=uEcl;
-  float dim=mix(1.,.8,pow(e,1.2));
+  float e=uCov;
+  float dim=max(1.-e*.97,.02);
   vec3 lightC=mix(vec3(1.,.82,.46),vec3(1.,.72,.34),e*.8);
-  vec3 amb=mix(vec3(.9,1.05,.85),vec3(.7,.86,1.),e*.6)*mix(1.,.6,e);
+  vec3 amb=mix(vec3(.9,1.05,.85),vec3(.7,.86,1.),e*.6)*mix(1.,.5,e);
   vec3 col=ground*(amb*.5+lightC*(3.6*shine+.5*diffuse)*dim);
+  float tot=smoothstep(.93,1.,e);/* 皆既: 地平線の夕焼けのような橙があたりをうっすら照らす */
+  col+=vec3(.5,.2,.08)*tot*(.35+.65*g1)*(.25+ground.g*2.);
   col+=lightC*vec3(1.,.97,.9)*shine*(.85+.7*e)*dim+lightC*diffuse*.06*dim;
+  float nearT=exp(-pow((abs(uF)-.2)*7.,2.))*step(.55,e);
+  float bands=smoothstep(.2,.8,.5+.5*sin((p.x*.9+p.y*.55+.06*sin(p.y*20.+uT))*75.+uT*9.));
+  col*=1.-.28*bands*nearT;
   float vg=smoothstep(1.15,.25,length(p*vec2(.85,.62)));
   col*=.62+.38*vg;
   col=1.-exp(-col*1.35);
@@ -108,33 +113,36 @@ function sh(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.co
 const prog=gl.createProgram();gl.attachShader(prog,sh(gl.VERTEX_SHADER,VS));gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,FS));gl.linkProgram(prog);gl.useProgram(prog);
 const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
 const loc=gl.getAttribLocation(prog,'a');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
-const U={};['uRes','uT','uEcl','uSeed'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+const U={};['uRes','uT','uF','uCov','uMR','uSeed'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
 function resize(){
   W=innerWidth;H=innerHeight;const d=Math.min(devicePixelRatio||1,1.5)*scale;
   canvas.width=Math.max(2,Math.round(W*d));canvas.height=Math.max(2,Math.round(H*d));canvas.style.width=W+'px';canvas.style.height=H+'px';
   gl.viewport(0,0,canvas.width,canvas.height);
 }
 addEventListener('resize',resize,{passive:true});
-function setEcl(cx){tgt=Math.max(0,Math.min(1,(cx-W*.08)/(W*.84)))}
-function reset(){tgt=0;lastTouch=-99}
-function mutate(){seed=Math.random()*80;}
+function setF(cx){tgt=Math.max(0,Math.min(1,(cx-W*.08)/(W*.84)))*2-1}
+/* 太陽(半径1)と月(半径mr)の重なりの割合 */
+function cover(f,mr){const d=Math.abs(f)*1.9,R=1;if(d>=R+mr)return 0;if(d<=Math.abs(R-mr))return mr>=R?1:mr*mr;
+  const a=R*R*Math.acos((d*d+R*R-mr*mr)/(2*d*R))+mr*mr*Math.acos((d*d+mr*mr-R*R)/(2*d*mr))-.5*Math.sqrt((-d+mr+R)*(d+mr-R)*(d-mr+R)*(d+mr+R));return Math.min(1,a/Math.PI)}
+function reset(){tgt=-1;lastTouch=-99}
+function mutate(){seed=Math.random()*80;total=!total}
 canvas.addEventListener('pointerdown',e=>{
   if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
   touched=true;hint.classList.add('off');try{canvas.setPointerCapture(e.pointerId)}catch(_){}
-  held=e.pointerId;lastTouch=t;setEcl(e.clientX);e.preventDefault();
+  held=e.pointerId;lastTouch=t;setF(e.clientX);e.preventDefault();
 },{passive:false});
-canvas.addEventListener('pointermove',e=>{if(held===e.pointerId){lastTouch=t;setEcl(e.clientX)}});
+canvas.addEventListener('pointermove',e=>{if(held===e.pointerId){lastTouch=t;setF(e.clientX)}});
 function up(e){if(held===e.pointerId){held=null;lastTouch=t}}
 canvas.addEventListener('pointerup',up);canvas.addEventListener('pointercancel',up);
 function frame(ts){
   if(!alive)return;const dt=Math.min(.05,(ts-last)/1000||.016);last=ts;t+=dt;
   slow=slow*.95+dt*.05;if(slow>.03&&scale>.5){scale*=.85;slow=.016;resize()}
   /* なぞったあと約6秒で、ゆっくり日食が終わって丸い光に戻る */
-  if(DBG===null&&held===null&&t-lastTouch>6)tgt=0;
-  const k=1-Math.exp(-dt*(held!==null?6:(t-lastTouch>6?.45:2.5)));ecl+=(tgt-ecl)*k;
-  const hid=Math.round(ecl*100);
-  sunEl.textContent='太陽の欠け '+hid+'%'+(ecl>.97?'  金環':'');
-  gl.uniform2f(U.uRes,canvas.width,canvas.height);gl.uniform1f(U.uT,t);gl.uniform1f(U.uEcl,ecl);gl.uniform1f(U.uSeed,seed);
+  if(DBG===null&&held===null&&t-lastTouch>6)tgt=-1;
+  const k=1-Math.exp(-dt*(held!==null?6:(t-lastTouch>6?.45:2.5)));F+=(tgt-F)*k;
+  const mr=total?1.03:.88,cov=cover(F,mr),hid=Math.round(cov*100);
+  sunEl.textContent='太陽の欠け '+hid+'%  '+(cov>.995?(total?'皆既日食':'金環日食'):(Math.abs(F)<.02?'':(F<0?'欠けていく':'戻っていく')));
+  gl.uniform2f(U.uRes,canvas.width,canvas.height);gl.uniform1f(U.uT,t);gl.uniform1f(U.uF,F);gl.uniform1f(U.uCov,cov);gl.uniform1f(U.uMR,mr);gl.uniform1f(U.uSeed,seed);
   gl.drawArrays(gl.TRIANGLES,0,3);
   if(!touched&&t>18)hint.classList.add('off');
   requestAnimationFrame(frame);
