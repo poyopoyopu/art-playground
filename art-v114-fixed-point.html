@@ -1,0 +1,147 @@
+<!doctype html>
+<!-- FIXED POINT — クロちゃん(Claude)作。ap-kit.js統合: クロちゃん。2026/10/31 試作(prototypes/fixed-point.html)→ 同日採用・art-v114 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#05060b">
+<title>FIXED POINT — 触れた場所が、世界の中心になる</title>
+<script src="ap-kit.js"></script>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#05060b;touch-action:none}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#hint{position:fixed;top:calc(env(safe-area-inset-top) + 16px);left:16px;right:16px;text-align:center;pointer-events:none;color:#dce7f5b0;font:500 10px/1.8 ui-monospace,monospace;letter-spacing:.2em;text-shadow:0 2px 10px #000;transition:opacity 1.2s}
+#hint.off{opacity:0}
+</style>
+</head>
+<body>
+<canvas id="art"></canvas>
+<div id="hint">TAP · PLANT A FIXED POINT<br>HOLD · CURL &nbsp; DRAG · MOVE &nbsp; TAP A POINT · REMOVE</div>
+<script>
+/* FIXED POINT — クロちゃん作。世界のルール: 世界は「いくつかの不動点のどれかへ縮みながら跳ぶ」反復関数系(IFS)そのもの。
+   触れた場所が新しい不動点になり、フラクタル全体の構造が組み変わる。押し続けるとその点のまわりに渦を巻き(離しても残る)、なぞると点が動いて形が連続的に変形する。 */
+(()=>{
+'use strict';
+const canvas=document.getElementById('art'),ctx=canvas.getContext('2d',{alpha:false}),hint=document.getElementById('hint');
+const TAU=Math.PI*2,MAXP=8,WALKERS=40,STEPS=700;
+let W=1,H=1,D=1,t=0,last=0,alive=true,hueBase=200,touched=false;
+let pts=[],nextHue=0,pulses=[];
+/* 密度バッファ(低解像度)。色はRGBの加算、毎フレーム減衰する。 */
+let bw=1,bh=1,R,G,B,img,off,octx,lut;
+const walkers=[];for(let i=0;i<WALKERS;i++)walkers.push({x:Math.random()*2-1,y:Math.random()*2-1,r:1,g:1,b:1});
+const ptrs=new Map();
+function hsl(h,s,l){h=((h%360)+360)%360;s/=100;l/=100;const k=n=>(n+h/30)%12,a=s*Math.min(l,1-l),f=n=>l-a*Math.max(-1,Math.min(k(n)-3,Math.min(9-k(n),1)));return [f(0),f(8),f(4)]}
+function mk(x,y,hue,sign){return {x,y,hue,col:hsl(hue,78,62),curl:0,sign:sign||(Math.random()<.5?-1:1),ph:Math.random()*TAU,born:t}}
+function reset(){
+ hueBase=200;nextHue=0;pts=[];
+ for(let i=0;i<3;i++){const a=-Math.PI/2+i*TAU/3;pts.push(mk(Math.cos(a)*.68,Math.sin(a)*.68,hueBase+i*70,i%2?1:-1))}
+ pulses=[];
+}
+function mutate(){
+ const n=3+Math.floor(Math.random()*4),a0=Math.random()*TAU,rad=.35+Math.random()*.3;hueBase=Math.random()*360;pts=[];
+ for(let i=0;i<n;i++){const a=a0+i*TAU/n+(Math.random()-.5)*.5,r=rad*(.7+Math.random()*.6);const p=mk(Math.cos(a)*r,Math.sin(a)*r*1.15,hueBase+i*(360/n)*(.6+Math.random()*.4));p.curl=(Math.random()-.5)*2.4;pts.push(p)}
+ pulses.push({x:0,y:0,t:t,big:1});
+}
+function resize(){
+ D=Math.min(devicePixelRatio||1,1.5);W=innerWidth;H=innerHeight;canvas.width=Math.round(W*D);canvas.height=Math.round(H*D);canvas.style.width=W+'px';canvas.style.height=H+'px';ctx.setTransform(D,0,0,D,0,0);
+ const s=Math.min(1,560/Math.max(W,H))*.9;bw=Math.max(80,Math.round(W*s));bh=Math.max(80,Math.round(H*s));
+ R=new Float32Array(bw*bh);G=new Float32Array(bw*bh);B=new Float32Array(bw*bh);
+ off=document.createElement('canvas');off.width=bw;off.height=bh;octx=off.getContext('2d');img=octx.createImageData(bw,bh);
+ for(let i=3;i<img.data.length;i+=4)img.data[i]=255;
+}
+addEventListener('resize',resize,{passive:true});
+/* 世界座標: 画面の短辺の半分を1とする。中心が画面中央。 */
+function scl(){return Math.min(W,H)*.5*1.55}
+function toWorld(px,py){const s=scl();return [(px-W*.5)/s,(py-H*.5)/s]}
+function toScreen(x,y){const s=scl();return [W*.5+x*s,H*.5+y*s]}
+/* LUT: 蓄積量 -> 明るさ(0-255) */
+lut=new Uint8Array(4096);for(let i=0;i<4096;i++)lut[i]=Math.round(255*(1-Math.exp(-i/4096*5.2)));
+function step(dt){
+ const n=pts.length,ratio=.92/Math.sqrt(n),breath=1+.045*Math.sin(t*.37);
+ const cs=new Float32Array(n),sn=new Float32Array(n),cxs=new Float32Array(n),cys=new Float32Array(n);
+ for(let i=0;i<n;i++){const p=pts[i],th=p.sign*p.curl+.2*Math.sin(t*.13+p.ph);cs[i]=Math.cos(th)*ratio*breath;sn[i]=Math.sin(th)*ratio*breath;cxs[i]=p.x;cys[i]=p.y}
+ /* 画面座標の(0,0)=bw/2,bh/2。世界1 = scl()*(bw/W) ピクセル */
+ const k=scl()*(bw/W),ox=bw*.5,oy=bh*.5;
+ /* 減衰(動かしたあと数百msで新しい形に入れ替わる) */
+ const d=Math.pow(.86,dt*60),N=bw*bh;
+ for(let i=0;i<N;i++){R[i]*=d;G[i]*=d;B[i]*=d}
+ const gain=34*(1-d)/.14;/* フレームレートが低くても定常の明るさが変わらないように */
+ for(let w=0;w<WALKERS;w++){const q=walkers[w];let x=q.x,y=q.y,cr=q.r,cg=q.g,cb=q.b;
+  for(let s=0;s<STEPS;s++){
+   const i=(Math.random()*n)|0,dx=x-cxs[i],dy=y-cys[i];
+   x=cxs[i]+cs[i]*dx-sn[i]*dy;y=cys[i]+sn[i]*dx+cs[i]*dy;
+   const c=pts[i].col;cr=cr*.5+c[0]*.5;cg=cg*.5+c[1]*.5;cb=cb*.5+c[2]*.5;
+   if(s<4)continue;
+   const px=(ox+x*k)|0,py=(oy+y*k)|0;
+   if(px<0||py<0||px>=bw||py>=bh)continue;
+   const j=py*bw+px;R[j]+=cr*gain;G[j]+=cg*gain;B[j]+=cb*gain;
+  }
+  if(!(x*x+y*y<64)){x=Math.random()*2-1;y=Math.random()*2-1}
+  q.x=x;q.y=y;q.r=cr;q.g=cg;q.b=cb}
+ const data=img.data;
+ for(let i=0,o=0;i<N;i++,o+=4){
+  let r=R[i]*1,g=G[i]*1,b=B[i]*1;
+  r=r>4095?4095:r;g=g>4095?4095:g;b=b>4095?4095:b;
+  data[o]=lut[r|0];data[o+1]=lut[g|0];data[o+2]=lut[b|0];
+ }
+ octx.putImageData(img,0,0);
+}
+function draw(){
+ ctx.fillStyle='#05060b';ctx.fillRect(0,0,W,H);
+ ctx.imageSmoothingEnabled=true;ctx.drawImage(off,0,0,W,H);
+ /* 不動点の印 */
+ for(let i=0;i<pts.length;i++){
+  const p=pts[i],[sx,sy]=toScreen(p.x,p.y),held=[...ptrs.values()].some(q=>q.idx===i&&!q.drag);
+  const rr=held?13:8+1.6*Math.sin(t*2+p.ph),col='rgb('+p.col.map(v=>Math.round(v*255)).join(',')+')';
+  ctx.strokeStyle='rgba(255,255,255,.85)';ctx.lineWidth=1.4;ctx.beginPath();ctx.arc(sx,sy,rr,0,TAU);ctx.stroke();
+  ctx.fillStyle=col;ctx.beginPath();ctx.arc(sx,sy,3.2,0,TAU);ctx.fill();
+  if(Math.abs(p.curl)>.05||held){ctx.strokeStyle='rgba(255,255,255,.45)';ctx.beginPath();const a0=t*1.4*p.sign,sweep=Math.min(TAU*.85,.6+Math.abs(p.curl)*.7);ctx.arc(sx,sy,rr+6,a0,a0+sweep*p.sign*1,p.sign<0);ctx.stroke()}
+ }
+ for(let i=pulses.length-1;i>=0;i--){const q=pulses[i],a=(t-q.t)/1.1;if(a>=1){pulses.splice(i,1);continue}
+  const [sx,sy]=q.big?[W*.5,H*.5]:toScreen(q.x,q.y);ctx.strokeStyle='rgba(255,255,255,'+(.7*(1-a))+')';ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(sx,sy,10+a*(q.big?Math.min(W,H)*.5:60),0,TAU);ctx.stroke()}
+}
+function nearest(px,py){let bi=-1,bd=1e9;for(let i=0;i<pts.length;i++){const [sx,sy]=toScreen(pts[i].x,pts[i].y),d=Math.hypot(sx-px,sy-py);if(d<bd){bd=d;bi=i}}return bd<46?bi:-1}
+canvas.addEventListener('pointerdown',e=>{
+ if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+ touched=true;hint.classList.add('off');
+ try{canvas.setPointerCapture(e.pointerId)}catch(_){}
+ let idx=nearest(e.clientX,e.clientY),planted=false;
+ if(idx<0){
+  const [x,y]=toWorld(e.clientX,e.clientY);
+  if(pts.length>=MAXP){pts.shift()}
+  pts.push(mk(x,y,hueBase+(3+nextHue++)*137.5));idx=pts.length-1;planted=true;
+  pulses.push({x,y,t:t});
+ }
+ ptrs.set(e.pointerId,{idx,t0:t,x0:e.clientX,y0:e.clientY,drag:false,planted});
+ e.preventDefault();
+},{passive:false});
+canvas.addEventListener('pointermove',e=>{
+ const q=ptrs.get(e.pointerId);if(!q)return;
+ if(!q.drag&&Math.hypot(e.clientX-q.x0,e.clientY-q.y0)>9)q.drag=true;
+ if(q.drag&&pts[q.idx]){const [x,y]=toWorld(e.clientX,e.clientY);pts[q.idx].x=Math.max(-1.6,Math.min(1.6,x));pts[q.idx].y=Math.max(-2.2,Math.min(2.2,y))}
+});
+function up(e){
+ const q=ptrs.get(e.pointerId);if(!q)return;ptrs.delete(e.pointerId);
+ /* 既存の点を短くタップしたら消す(最低2点は残す) */
+ if(!q.drag&&!q.planted&&t-q.t0<.28&&pts.length>2&&pts[q.idx]){const p=pts[q.idx];pulses.push({x:p.x,y:p.y,t:t});pts.splice(q.idx,1);
+  for(const o of ptrs.values()){if(o.idx>q.idx)o.idx--;else if(o.idx===q.idx)o.idx=-1}}
+}
+canvas.addEventListener('pointerup',up);canvas.addEventListener('pointercancel',up);
+function frame(ts){
+ if(!alive)return;const dt=Math.min(.05,(ts-last)/1000||.016);last=ts;t+=dt;
+ for(const q of ptrs.values()){if(!q.drag&&q.idx>=0&&pts[q.idx]&&t-q.t0>.28)pts[q.idx].curl+=dt*1.1}
+ step(dt);draw();
+ if(!touched&&t>14)hint.classList.add('off');
+ requestAnimationFrame(frame);
+}
+document.addEventListener('visibilitychange',()=>{if(document.hidden)alive=false;else if(!alive){alive=true;last=performance.now();requestAnimationFrame(frame)}});
+resize();reset();
+APKit.init({canvas,gifName:'fixed-point-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,buttons:[
+ {label:'✦',name:'mutate',onClick:mutate},
+ {label:'↻',name:'reset',onClick:reset}
+]});
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
