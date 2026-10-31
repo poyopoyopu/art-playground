@@ -22,7 +22,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 <body>
 <canvas id="art"></canvas>
 <div id="sun"></div>
-<div id="hint"><b>葉のすきまは、太陽の小さな像をつくる</b>ひとりでに進む · タップで一時停止 · なぞると動かせる</div>
+<div id="hint"><b>葉のすきまは、太陽の小さな像をつくる</b>ひとりでに進む · タップで一時停止 · ✦で模様が変わる</div>
 <script>
 (()=>{
 'use strict';
@@ -39,7 +39,8 @@ try{const q=parseFloat((new URLSearchParams(location.search)).get('sec'));const 
 cycle=Math.max(5,Math.min(3600,cycle));
 let paused=false,press=null;/* タップで一時停止/再開 */
 let rest=0;/* 自動の日食が1周したあと、光が丸い状態で休む秒数 */
-let F=DBG!==null?parseFloat(DBG):-1,tgt=F,theme=(new URLSearchParams(location.search)).get('theme')==='neon'?1:0;
+let F=DBG!==null?parseFloat(DBG):-1,tgt=F,theme=({neon:1,space:2,sea:3,glass:4,sakura:5})[(new URLSearchParams(location.search)).get('theme')]||0;
+const THEMES=['FOREST','NEON','SPACE','DEEP SEA','STAINED GLASS','SAKURA'],TOTAL=[true,false,false,true,false,true];/* 森・水の底・桜=皆既日食、ほかは金環日食 */
 const VS='attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}';
 const FS=`precision highp float;
 uniform vec2 uRes;uniform float uT,uF,uCov,uMR,uSeed,uTh;
@@ -70,17 +71,24 @@ vec3 dapples(vec2 p,float cs,float prob,float rb,float so){
       vec2 dd=normalize(vec2(.8,.6))*r*(.035+.05*uCov);
       vec3 k=vec3(kernel(p-c-dd,r),kernel(p-c,r),kernel(p-c+dd,r));
       /* 斑点ごとに、少し違う色を帯びる(日食が進むほど虹色に。皆既で光と一緒に消える) */
-      float amt=mix((.3+.55*uCov)*(1.-smoothstep(.9,1.,uCov)),.95*(1.-smoothstep(.97,1.,uCov)),uTh);
-      vec3 hc=mix(vec3(1.),rainbow(h2(cell+so+19.)+uT*.015)*mix(1.5,1.9,uTh),amt);
+      float hh=h2(cell+so+19.);
+      vec3 tc;float amt,haloK;
+      if(uTh<.5){amt=(.3+.55*uCov)*(1.-smoothstep(.9,1.,uCov));tc=rainbow(hh+uT*.015)*1.5;haloK=0.;}/* 森 */
+      else if(uTh<1.5){amt=.95*(1.-smoothstep(.97,1.,uCov));tc=rainbow(hh+uT*.015)*1.9;haloK=.22;}/* ネオン */
+      else if(uTh<2.5){amt=.9*(1.-smoothstep(.97,1.,uCov));tc=rainbow(.14+hh*.34)*1.8;haloK=.26;}/* 宇宙: 桃〜紫〜青〜水色の惑星 */
+      else if(uTh<3.5){amt=.92*(1.-smoothstep(.93,1.,uCov));tc=rainbow(.4+hh*.24)*1.7;haloK=.3;}/* 水の底: 青〜青緑〜緑 */
+      else if(uTh<4.5){amt=1.*(1.-smoothstep(.97,1.,uCov));tc=rainbow(floor(hh*5.)/5.+.02)*1.7;haloK=.05;}/* ステンドグラス: 宝石の5色 */
+      else{amt=1.*(1.-smoothstep(.93,1.,uCov));tc=mix(vec3(1.,.72,.84),vec3(1.,.95,.92),hh)*1.5;haloK=.3;}/* 桜: 桃と白 */
+      vec3 hc=mix(vec3(1.),tc,amt);
       sum+=k*hc;
-      /* ネオン: 光の斑点のまわりに、にじむ光 */
-      sum+=hc*exp(-length(p-c)/(r*1.5))*smoothstep(cs*.9,cs*.4,length(p-c))*.22*uTh*(1.-uCov*.85);/* マス目の端で切れないよう、内側で消す */
+      /* 光の斑点のまわりに、にじむ光(マス目の端で切れないよう、内側で消す) */
+      sum+=hc*exp(-length(p-c)/(r*1.5))*smoothstep(cs*.9,cs*.4,length(p-c))*haloK*(1.-uCov*.85);
     }
   }
   return sum;
 }
 /* 落ち葉(秋の色) */
-vec3 gNeon;
+vec3 gNeon;float gK;
 vec4 leaf(vec2 p,float sc){
   float cs=.11;vec2 g=p/cs,id=floor(g);
   float h=h2(id+41.);if(h>.55)return vec4(0.);
@@ -92,7 +100,7 @@ vec4 leaf(vec2 p,float sc){
   float u=q.x/a;
   float body=step(abs(u),1.)*smoothstep(1.,.8,abs(q.y)/(b*max(1.-u*u,.02)));
   float vein=smoothstep(.0012,.0,abs(q.y))*step(abs(u),.95);
-  float k=h2(id+67.);
+  float k=h2(id+67.);gK=k;
   vec3 col=k<.25?vec3(.72,.26,.07):(k<.5?vec3(.86,.56,.12):(k<.75?vec3(.5,.16,.05):vec3(.42,.48,.1)));
   col=col*(.85+.3*h2(id+71.))*(1.-.35*vein);
   return vec4(col,body);
@@ -123,17 +131,48 @@ void main(){
   float nearT=exp(-pow((abs(uF)-.2)*7.,2.))*step(.55,e);
   float bands=smoothstep(.2,.8,.5+.5*sin((p.x*.9+p.y*.55+.06*sin(p.y*20.+uT))*75.+uT*9.));
   if(uTh>.5){
-    /* ネオン: 暗い藍の地面に、落ち葉は輪郭だけネオン管のように光り、光の斑点が蛍光色でにじむ */
-    vec3 nb=vec3(.012,.008,.04)+vec3(.025,.012,.06)*g1;
-    vec4 lo=leaf(p,1.);vec3 nl=gNeon;vec4 li=leaf(p,.74);
+    vec4 lo=leaf(p,1.);vec3 nl=gNeon;float lk=gK;vec4 li=leaf(p,.74);
     float outl=clamp(lo.a-li.a,0.,1.);
-    nb+=nl*outl*.85+nl*lo.a*.05;
     float dimN=mix(1.,.55,e);
-    col=nb+D*(.35+.65*M)*1.9*dimN;
+    vec3 Dm=D*(.35+.65*M);
+    if(uTh<1.5){
+      /* ネオン: 暗い藍の地面に、落ち葉は輪郭だけネオン管のように光り、光の斑点が蛍光色でにじむ */
+      vec3 nb=vec3(.012,.008,.04)+vec3(.025,.012,.06)*g1;
+      nb+=nl*outl*.85+nl*lo.a*.05;
+      col=nb+Dm*1.9*dimN;
+    }else if(uTh<2.5){
+      /* 宇宙: 深い藍に星。光の斑点は小さな惑星(金環で惑星の輪) */
+      vec3 bg=mix(vec3(.012,.014,.06),vec3(.035,.022,.1),smoothstep(-.5,.5,p.y));
+      vec2 sg=p*95.,sid=floor(sg);float ss=h2(sid+5.);
+      bg+=vec3(.8,.88,1.)*step(.982,ss)*smoothstep(.4,0.,length(fract(sg)-.5))*(.45+.55*sin(uT*.7+ss*50.));
+      vec2 sg2=p*34.,sid2=floor(sg2);float ss2=h2(sid2+9.);
+      bg+=vec3(1.,.92,.8)*step(.975,ss2)*smoothstep(.3,0.,length(fract(sg2)-.5))*(.55+.45*sin(uT*.5+ss2*40.));
+      col=bg+Dm*1.7*dimN;
+    }else if(uTh<3.5){
+      /* 水の底: 上ほど明るい青緑。光の泡がゆっくり昇る。光の斑点は光る泡(クラゲのよう) */
+      vec3 bg=mix(vec3(.0,.025,.07),vec3(.0,.13,.17),smoothstep(-.5,.6,p.y));
+      vec2 bq=p*vec2(11.,7.);bq.y-=uT*.35;vec2 bid=floor(bq);float bh=h2(bid+3.);
+      vec2 bo=vec2(h2(bid+5.),h2(bid+7.))*.5+.25;
+      float bub=step(bh,.42)*smoothstep(.03,0.,abs(length(fract(bq)-bo)-.13*(.6+.8*h2(bid+11.))));
+      bg+=vec3(.55,.9,1.)*bub*.45;
+      col=bg+Dm*1.6*dimN;
+    }else if(uTh<4.5){
+      /* ステンドグラス: 暗い地に、落ち葉はガラス片(黒い鉛の縁)。光の斑点は宝石色 */
+      vec3 bg=vec3(.016,.012,.024);
+      bg+=nl*lo.a*.42;
+      bg*=1.-.92*outl;
+      col=bg+Dm*1.55*dimN;
+    }else{
+      /* 桜: 夕方のやわらかい薄紫。落ち葉は舞う花びら。光の斑点は桃と白 */
+      vec3 bg=mix(vec3(.22,.11,.16),vec3(.09,.05,.12),smoothstep(.6,-.5,p.y));
+      vec3 pk=mix(vec3(1.,.6,.76),vec3(1.,.9,.93),lk);
+      bg=mix(bg,pk*.8,lo.a*.62);
+      col=bg+Dm*1.6*dimN;
+    }
   }
   float vg=smoothstep(1.15,.25,length(p*vec2(.85,.62)));
   col*=.62+.38*vg;
-  col=1.-exp(-col*mix(1.35,1.15,uTh));
+  col=1.-exp(-col*mix(1.35,1.15,step(.5,uTh)));
   col=pow(col,vec3(.94));
   col+=(h2(gl_FragCoord.xy+uT)-.5)*.012;
   gl_FragColor=vec4(col,1.);
@@ -155,7 +194,7 @@ function cover(f,mr){const d=Math.abs(f)*1.9,R=1;if(d>=R+mr)return 0;if(d<=Math.
   const a=R*R*Math.acos((d*d+R*R-mr*mr)/(2*d*R))+mr*mr*Math.acos((d*d+mr*mr-R*R)/(2*d*mr))-.5*Math.sqrt((-d+mr+R)*(d+mr-R)*(d-mr+R)*(d+mr+R));return Math.min(1,a/Math.PI)}
 function reset(){F=-1;tgt=-1;lastTouch=-99;rest=3;paused=false}
 function nextCycle(){let i=PRESETS.findIndex(v=>v>cycle+.5);cycle=PRESETS[i<0?0:i];try{localStorage.setItem('komorebi-cycle',String(cycle))}catch(_){}}
-function mutate(){seed=Math.random()*80;theme=1-theme}/* ✦: 森⇄ネオン。森は皆既日食、ネオンは金環日食 */
+function mutate(){seed=Math.random()*80;theme=(theme+1)%THEMES.length}/* ✦: 森→ネオン→宇宙→水の底→ステンドグラス→桜 */
 canvas.addEventListener('pointerdown',e=>{
   if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
   touched=true;hint.classList.add('off');try{canvas.setPointerCapture(e.pointerId)}catch(_){}
@@ -178,8 +217,8 @@ function frame(ts){
     if(rest>0)rest-=dt;else{F+=dt*(2/cycle);if(F>=1){F=-1;rest=12}}
     tgt=F;
   }else{const k=1-Math.exp(-dt*(held!==null?6:2.5));F+=(tgt-F)*k}
-  const total=theme===0,mr=total?1.03:.88,cov=cover(F,mr),hid=Math.round(cov*100);
-  sunEl.textContent=(paused?'⏸ 一時停止  ':'')+'1周 '+fmtSec(cycle)+'\n'+(theme?'NEON  ':'FOREST  ')+'太陽の欠け '+hid+'%  '+(cov>.995?(total?'皆既日食':'金環日食'):(Math.abs(F)<.02?'':(F<0?'欠けていく':'戻っていく')));
+  const total=TOTAL[theme],mr=total?1.03:.88,cov=cover(F,mr),hid=Math.round(cov*100);
+  sunEl.textContent=(paused?'⏸ 一時停止  ':'')+'1周 '+fmtSec(cycle)+'\n'+THEMES[theme]+'  '+'太陽の欠け '+hid+'%  '+(cov>.995?(total?'皆既日食':'金環日食'):(Math.abs(F)<.02?'':(F<0?'欠けていく':'戻っていく')));
   gl.uniform2f(U.uRes,canvas.width,canvas.height);gl.uniform1f(U.uT,t);gl.uniform1f(U.uF,F);gl.uniform1f(U.uCov,cov);gl.uniform1f(U.uMR,mr);gl.uniform1f(U.uTh,theme);gl.uniform1f(U.uSeed,seed);
   gl.drawArrays(gl.TRIANGLES,0,3);
   if(!touched&&t>18)hint.classList.add('off');
