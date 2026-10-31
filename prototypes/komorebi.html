@@ -16,17 +16,20 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 #hint{position:fixed;top:calc(env(safe-area-inset-top) + 16px);left:16px;right:16px;text-align:center;pointer-events:none;color:#fffbe8;font:500 10px/1.9 ui-monospace,monospace;letter-spacing:.2em;text-shadow:0 2px 14px #000b;transition:opacity 1.6s}
 #hint b{display:block;font:600 12px/1.9 ui-sans-serif,system-ui,sans-serif;letter-spacing:.14em}
 #hint.off{opacity:0}
-/* 残り時間: ap-kitの大きな時計(中央)の日付のすぐ下に、同じ太い等幅の白い文字で、常に表示する */
-#cd{position:fixed;left:0;right:0;top:60%;pointer-events:none;text-align:center;color:#fff;font-family:ui-monospace,Menlo,monospace;text-shadow:0 2px 12px #000c,0 0 3px #000a}
-#cd .t{font-weight:700;font-size:40px;line-height:1.1;letter-spacing:.06em}
-#cd .t small{font:600 15px/1 ui-sans-serif,system-ui,sans-serif;letter-spacing:.2em;margin-right:10px;opacity:.9}
-#cd .s{margin-top:8px;font-weight:600;font-size:13px;line-height:1.5;letter-spacing:.1em;opacity:.88;white-space:pre}
+/* 残り時間: ap-kitの時計(.apk-clock)と同じ決まりで、時計のすぐ下に常に表示する。
+   書体=等幅・tabular、時間は太さ600・コロンは62%の薄さ、説明の行は日付と同じ字間.3em・62%・同じ影。時計より少し小さくして、時計を主役のままにする */
+#cd{position:fixed;z-index:54;left:50%;top:calc(50% + 10vw + 16px);transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:6px;pointer-events:none;
+ font-family:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;user-select:none;-webkit-user-select:none;color:#fff;white-space:nowrap}
+#cd .t{font-size:clamp(36px,13vw,104px);line-height:1;font-weight:600;letter-spacing:.01em;text-shadow:0 0 3px rgba(0,0,0,.95),0 0 14px rgba(0,0,0,.9),0 4px 34px rgba(0,0,0,.85)}
+#cd .t i{font-style:normal;opacity:.62}
+#cd .d{font-size:clamp(11px,3.3vw,17px);letter-spacing:.3em;opacity:.62;text-shadow:0 0 3px rgba(0,0,0,.95),0 2px 16px rgba(0,0,0,.9);text-align:center;line-height:1.7;white-space:pre}
 #cd.end .t{color:#ffe9a8}
+#cd.end .d{opacity:.9}
 </style>
 </head>
 <body>
 <canvas id="art"></canvas>
-<div id="cd"><div class="t"><small></small><span></span></div><div class="s"></div></div>
+<div id="cd"><div class="t"></div><div class="d"></div></div>
 <div id="hint"><b>葉のすきまは、太陽の小さな像をつくる</b>ひとりでに進む · タップで一時停止 · ✦で模様が変わる</div>
 <script>
 (()=>{
@@ -229,9 +232,9 @@ function frame(ts){
   if(rest<=0)ended=false;
   const left=ended?0:Math.max(0,(1-F)/2*cycle),ls=Math.ceil(left-.001);
   cdEl.className=ended?'end':'';
-  cdEl.querySelector('small').textContent=ended?'おわり':(paused?'⏸':'あと');
-  cdEl.querySelector('span').textContent=ended?'0:00':Math.floor(ls/60)+':'+('0'+(ls%60)).slice(-2);
-  cdEl.querySelector('.s').textContent=(paused?'一時停止中  ':'')+'1周 '+fmtSec(cycle)+'  '+THEMES[theme]+'\n太陽の欠け '+hid+'%  '+(cov>.995?(total?'皆既日食':'金環日食'):(Math.abs(F)<.02?'':(F<0?'欠けていく':'戻っていく')));
+  const mm=Math.floor(ls/60),ss=ls%60;
+  cdEl.querySelector('.t').innerHTML=ended?'00<i>:</i>00':('0'+mm).slice(-2)+'<i>:</i>'+('0'+ss).slice(-2);
+  cdEl.querySelector('.d').textContent=(ended?'おわり':(paused?'一時停止':'あと'))+'  ·  1周 '+fmtSec(cycle)+'  ·  '+THEMES[theme]+'\n太陽の欠け '+hid+'%  '+(cov>.995?(total?'皆既日食':'金環日食'):(Math.abs(F)<.02?'':(F<0?'欠けていく':'戻っていく')));
   gl.uniform2f(U.uRes,canvas.width,canvas.height);gl.uniform1f(U.uT,t);gl.uniform1f(U.uF,F);gl.uniform1f(U.uCov,cov);gl.uniform1f(U.uMR,mr);gl.uniform1f(U.uTh,theme);gl.uniform1f(U.uSeed,seed);
   gl.drawArrays(gl.TRIANGLES,0,3);
   if(!touched&&t>18)hint.classList.add('off');
