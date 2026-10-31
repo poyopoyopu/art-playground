@@ -85,20 +85,37 @@ vec3 sky(vec2 p){
   vec2 q=p+.07*vec2(fbm(p*3.+1.+uSeed*.1)-.5,fbm(p*3.+5.)-.5);
   float bn=(q.x*.6+q.y*.8)-.1+.07*sin(q.x*3.+q.y*2.);
   float sl=q.x*.8-q.y*.6;
-  float band=exp(-bn*bn*(9.+8.*smoothstep(.2,-.5,sl)));
-  float core=exp(-pow((sl-.12)*2.6,2.));
+  float band=exp(-bn*bn*(30.+22.*smoothstep(.25,-.5,sl)));
+  float core=exp(-pow((sl-.1)*3.4,2.));
   float dust=smoothstep(.46,.72,fbm(vec2(sl*8.,bn*20.)+uSeed*.1));
   float cloud=fbm(vec2(sl*5.,bn*12.)+3.);
   float mw=band*(.28+.95*cloud)*(1.-.78*dust)+core*band*band*(1.-.5*dust)*1.3;
-  vec3 mwc=mix(vec3(.42,.52,.95),vec3(1.,.8,.58),clamp(core*band*1.5,0.,1.));
-  c+=mwc*mw*.62*vis*alt;
+  vec3 mwc=mix(vec3(.36,.5,1.),vec3(.95,.78,.64),clamp(core*band*1.3,0.,1.)*.8);
+  c+=mwc*mw*.5*vis*alt;
   c+=vec3(1.,.38,.5)*smoothstep(.6,.82,fbm(q*5.+9.))*band*.16*vis*alt;
   /* 星(4層)。天の川の中では星が多い */
-  float bd=band*.045;
+  float bd=band*.05;
   vec3 st=stars(p,15.,.88,113.,vis)*1.4+stars(p,52.,.915-bd,0.,vis)+stars(p,95.,.935-bd,29.,vis)+stars(p,160.,.955-bd,57.,vis)+stars(p,260.,.968-bd*1.2,91.,vis);
   c+=st*(.12+1.35*vis)*alt*step(YH,p.y);
+  /* オーロラ: 新月に近いほど現れる。ゆっくりうねるカーテン。緑→青緑→紫 */
+  {
+    float ax=p.x*2.2,ay=p.y-YH;
+    vec3 acc=vec3(0.);
+    for(int k=0;k<3;k++){
+      float fk=float(k);
+      float sh=sin(ax*1.7+uT*(.07+.03*fk)+fk*2.1+uSeed)*.5+sin(ax*3.9-uT*.05+fk)*.25;
+      float low=.2+.07*fk+.06*sh;
+      float hgt=.26+.06*n1(ax*2.+fk*4.+uT*.04);
+      float t1=(ay-low)/hgt;
+      float env=smoothstep(0.,.07,t1)*exp(-max(t1,0.)*2.3);
+      float rays=.4+.6*pow(n1(ax*34.+fk*11.+uT*.22+sh*6.),2.);
+      vec3 ac=mix(vec3(.12,1.,.5),vec3(.08,.72,.85),smoothstep(0.,.5,t1));ac=mix(ac,vec3(.68,.28,.9),smoothstep(.55,1.3,t1));
+      acc+=ac*env*rays*(.55-.12*fk);
+    }
+    c+=acc*pow(vis,2.2)*.5*smoothstep(0.,.1,ay)*step(YH,p.y);
+  }
   /* ときどき静かに流れ星(新月に近いほど見える) */
-  float mt=uT/24.,mi=floor(mt),mf=fract(mt)*24.;
+  float mt=uT/14.,mi=floor(mt),mf=fract(mt)*14.;
   if(mf<1.2){
     vec2 a0=vec2((h1(mi*3.1)-.5)*.5,.12+h1(mi*7.7)*.34);
     vec2 dir=normalize(vec2(-.6-h1(mi*1.3)*.4,-.45));
@@ -123,9 +140,9 @@ vec3 moon(vec2 p,vec3 c){
   float tex=fbm(d*3.2+vec2(3.,1.));float maria=smoothstep(.42,.62,tex);
   float crat=fbm(d*11.+7.);
   vec3 surf=mix(vec3(.93,.92,.86),vec3(.58,.6,.66),maria*.7)*(.9+.2*crat);
-  vec3 earth=vec3(.07,.1,.17)*(.7+.4*maria);/* 暗い側にうっすら地球照 */
+  vec3 earth=vec3(.016,.024,.05)*(.7+.4*maria);/* 暗い側にうっすら地球照 */
   vec3 mc=mix(earth,surf*1.25*(.78+.22*n.z),lit);
-  return mix(c,mc,a);
+  return mix(c,mc,a*mix(.22,1.,lit));/* 暗い側は空と星がほとんど透ける */
 }
 float ridge(float fk,float x){
   float base=.1-.018*fk,amp=.2-.03*fk,fr=2.1+1.5*fk;
