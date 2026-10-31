@@ -88,62 +88,6 @@ vec4 leaf(vec2 p,float sc){
   col=col*(.85+.3*h2(id+71.))*(1.-.35*vein);
   return vec4(col,body);
 }
-/* ネオンの動物: 黒猫と犬を、ネオン管の輪郭で描く。座って、体をゆらし、尻尾を振る */
-float sdCap2(vec2 p,vec2 a,vec2 b,float r){vec2 pa=p-a,ba=b-a;float h=clamp(dot(pa,ba)/dot(ba,ba),0.,1.);return length(pa-ba*h)-r;}
-float sdEll(vec2 p,vec2 r){return (length(p/r)-1.)*min(r.x,r.y);}
-float sdTri(vec2 p,vec2 p0,vec2 p1,vec2 p2){
-  vec2 e0=p1-p0,e1=p2-p1,e2=p0-p2,v0=p-p0,v1=p-p1,v2=p-p2;
-  vec2 pq0=v0-e0*clamp(dot(v0,e0)/dot(e0,e0),0.,1.),pq1=v1-e1*clamp(dot(v1,e1)/dot(e1,e1),0.,1.),pq2=v2-e2*clamp(dot(v2,e2)/dot(e2,e2),0.,1.);
-  float s=sign(e0.x*e2.y-e0.y*e2.x);
-  vec2 d=min(min(vec2(dot(pq0,pq0),s*(v0.x*e0.y-v0.y*e0.x)),vec2(dot(pq1,pq1),s*(v1.x*e1.y-v1.y*e1.x))),vec2(dot(pq2,pq2),s*(v2.x*e2.y-v2.y*e2.x)));
-  return -sqrt(d.x)*sign(d.y);
-}
-/* 黒猫: 右向きに座った横向き。丸い頭、とがった耳、洋なしの体、S字の長い尻尾 */
-float catSD(vec2 u,float wag){
-  float body=min(sdEll(u-vec2(-.05,-.5),vec2(.46,.58)),length(u-vec2(-.25,-.72))-.42);
-  float legF=sdCap2(u,vec2(.28,-.35),vec2(.3,-.98),.16);
-  float head=length(u-vec2(.3,.36))-.36;
-  float earA=sdTri(u,vec2(.03,.6),vec2(.1,1.04),vec2(.34,.7));
-  float earB=sdTri(u,vec2(.3,.7),vec2(.52,1.04),vec2(.6,.52));
-  vec2 t0=vec2(-.6,-.95),t1=vec2(-1.0,-.8),t2=vec2(-1.1,-.3+.1*wag),t3=vec2(-.9,.12+.22*wag);
-  float tail=min(sdCap2(u,t0,t1,.07),min(sdCap2(u,t1,t2,.07),sdCap2(u,t2,t3,.07)));
-  return min(min(min(body,legF),min(head,min(earA,earB))),tail);
-}
-/* 犬: 右向きに立った横向き。楕円の体、4本の足、前に出た鼻づら、垂れた耳、上がった尻尾 */
-float dogSD(vec2 u,float wag){
-  float body=sdEll(u-vec2(-.1,-.1),vec2(.72,.36));
-  float lf1=sdCap2(u,vec2(.42,-.3),vec2(.46,-.98),.1),lf2=sdCap2(u,vec2(.2,-.3),vec2(.2,-.98),.1);
-  float lb1=sdCap2(u,vec2(-.58,-.3),vec2(-.64,-.98),.1),lb2=sdCap2(u,vec2(-.36,-.3),vec2(-.36,-.98),.1);
-  float neck=sdCap2(u,vec2(.5,.0),vec2(.78,.26),.19);
-  float head=length(u-vec2(.86,.3))-.26;
-  float snout=sdCap2(u,vec2(1.0,.24),vec2(1.3,.16),.12);
-  vec2 q=u-vec2(.74,.34);q=vec2(q.x*.95+q.y*.3,-q.x*.3+q.y*.95);
-  float ear=sdEll(q+vec2(0.,.18),vec2(.1,.24));
-  float tail=sdCap2(u,vec2(-.8,.0),vec2(-1.08,.42+.2*wag),.07);
-  return min(min(min(body,min(min(lf1,lf2),min(lb1,lb2))),min(neck,head)),min(min(snout,ear),tail));
-}
-vec3 animals(vec2 p){
-  float cs=.27;vec2 id=floor(p/cs);
-  float h=h2(id+91.);if(h>.64)return vec3(0.);
-  float tp=h2(id+101.);
-  vec2 c=(id+.5+(vec2(h2(id+93.),h2(id+97.))-.5)*.3)*cs;
-  c.x+=sin(uT*.17+h*30.)*.028;c.y+=sin(uT*1.1+h*20.)*.004;
-  float sc=(tp<.5?.052:.047)+.01*h2(id+103.);
-  vec2 u=(p-c)/sc;u.x*=(h2(id+107.)>.5?1.:-1.);
-  u+=tp<.5?vec2(.35,-.05):vec2(-.12,.28);/* 形の中心を合わせる */
-  float wag=sin(uT*3.2+h*40.);
-  float sd=(tp<.5?catSD(u,wag):dogSD(u,wag))*sc;
-  float lw=.0036;
-  vec3 col=rainbow(h2(id+109.)+uT*.01)*2.1;
-  float line=exp(-pow(sd/lw,2.))+.28*exp(-abs(sd)/(lw*5.));
-  float fill=smoothstep(0.,-.004,sd)*.05;
-  vec3 o=col*(line+fill);
-  /* 目: 猫は黄緑、犬は白 */
-  vec2 e1=tp<.5?vec2(.42,.42):vec2(.94,.36);
-  float eye=exp(-pow(length(u-e1)/.065,2.));
-  o+=(tp<.5?vec3(.7,1.,.2):vec3(1.))*eye*1.4;
-  return o;
-}
 void main(){
   vec2 p=(gl_FragCoord.xy-.5*uRes)/uRes.y;
   /* 地面: 苔と土 */
@@ -176,7 +120,7 @@ void main(){
     float outl=clamp(lo.a-li.a,0.,1.);
     nb+=nl*outl*.85+nl*lo.a*.05;
     float dimN=mix(1.,.55,e);
-    col=nb+D*(.35+.65*M)*1.9*dimN+animals(p)*mix(1.,.8,e);
+    col=nb+D*(.35+.65*M)*1.9*dimN;
   }
   float vg=smoothstep(1.15,.25,length(p*vec2(.85,.62)));
   col*=.62+.38*vg;
