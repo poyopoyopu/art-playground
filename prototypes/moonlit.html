@@ -1,0 +1,220 @@
+<!doctype html>
+<!-- MOONLIT — クロちゃん(Claude)作。ap-kit.js統合: クロちゃん。2026/10/31 試作。
+     お題: 「静かで落ち着く作品」(おっちゃん)。伝えたいこと=夜の湖のほとりで月を眺める静けさ。
+     世界のルール: 月の満ち欠けが、世界の明るさを決める。新月の夜は星と天の川、満月の夜は星が薄れて山と湖が銀色に光る。
+       横になぞると月が満ち欠けして世界の明るさが連動し、離すと約8秒で「今夜の本当の月」へゆっくり戻る。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#03050f">
+<title>MOONLIT — 月の満ち欠けが、湖と山の明るさを決める</title>
+<script src="../ap-kit.js"></script>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#03050f;touch-action:none}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#hint{position:fixed;top:calc(env(safe-area-inset-top) + 16px);left:16px;right:16px;text-align:center;pointer-events:none;color:#e6eeff;font:500 10px/1.9 ui-monospace,monospace;letter-spacing:.2em;text-shadow:0 2px 14px #000a;transition:opacity 1.6s}
+#hint b{display:block;font:600 12px/1.9 ui-sans-serif,system-ui,sans-serif;letter-spacing:.14em}
+#hint.off{opacity:0}
+#age{position:fixed;left:18px;bottom:calc(env(safe-area-inset-bottom) + 84px);pointer-events:none;color:#dbe6ff;font:500 11px/1.7 ui-monospace,monospace;letter-spacing:.2em;opacity:.72;text-shadow:0 1px 8px #000}
+</style>
+</head>
+<body>
+<canvas id="art"></canvas>
+<div id="age"></div>
+<div id="hint"><b>今夜の月が、世界の明るさを決める</b>横になぞると、月が満ち欠けする</div>
+<script>
+(()=>{
+'use strict';
+const canvas=document.getElementById('art'),hint=document.getElementById('hint'),ageEl=document.getElementById('age');
+const gl=canvas.getContext('webgl',{antialias:false,alpha:false,preserveDrawingBuffer:true});
+const YH=-.16,SYN=29.530588853;
+const DBG=(new URLSearchParams(location.search)).get('age');/* ?age=12 で月齢を指定して確かめられる */
+let W=1,H=1,scale=1,t=0,last=0,alive=true,touched=false,slow=0,seed=0,held=null,lastTouch=-99;
+/* 今夜の月齢(新月=0)。朔の基準=2000-01-06 18:14 UTC */
+function realAge(){const jd=Date.now()/86400000+2440587.5;let a=(jd-2451550.26)%SYN;if(a<0)a+=SYN;return a}
+function wrapAge(x){return((x+SYN/2)%SYN+SYN)%SYN-SYN/2}
+let age=DBG!==null?parseFloat(DBG):realAge(),tgt=age;
+const VS='attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}';
+const FS=`precision highp float;
+uniform vec2 uRes,uM;uniform float uT,uAge,uSeed;
+const float YH=${YH.toFixed(3)};
+const float PI=3.14159265;
+float h1(float x){return fract(sin(x*127.1+uSeed)*43758.5453);}
+float n1(float x){float i=floor(x),f=fract(x);f=f*f*(3.-2.*f);return mix(h1(i),h1(i+1.),f);}
+float fbm1(float x){return n1(x)*.5+n1(x*2.13+7.)*.25+n1(x*4.37+13.)*.125;}
+float rdg(float x){float f=fbm1(x)*1.7;return 1.-abs(2.*f-1.);}
+float h2(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
+float n2(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(h2(i),h2(i+vec2(1.,0.)),f.x),mix(h2(i+vec2(0.,1.)),h2(i+vec2(1.,1.)),f.x),f.y);}
+float fbm(vec2 p){float a=.5,v=0.;for(int i=0;i<5;i++){v+=a*n2(p);p=p*2.03+vec2(17.1,9.7);a*=.5;}return v;}
+/* 月の満ち欠け: 明るさ(0〜1)と光の向き */
+float phi(){return uAge/${SYN.toFixed(6)}*2.*PI;}
+float illum(){return .5-.5*cos(phi());}
+vec3 lightDir(){float f=phi();return vec3(sin(f),0.,-cos(f));}
+/* 夜空: 新月は星と天の川、満月は星が薄れて空が青く明るい */
+vec3 sky(vec2 p){
+  float il=illum();
+  float v=clamp((p.y-YH)/.9,0.,1.);
+  vec3 c=mix(vec3(.04,.07,.17),vec3(.012,.022,.07),smoothstep(0.,.8,v));
+  c*=.55+1.5*il;
+  vec2 d=p-uM;float r=length(d);
+  c+=vec3(.5,.62,.95)*exp(-r*4.)*il*.35+vec3(.7,.8,1.)*exp(-r*14.)*il*.45;
+  float vis=pow(1.-il,1.6);
+  /* 天の川(新月に近いほど見える) */
+  float bn=(p.x*.62+p.y*.78)-.05;
+  float band=exp(-bn*bn*10.);
+  float mwn=fbm(p*vec2(5.,9.)+uSeed*.1);
+  float mw=band*(.35+1.1*mwn);
+  c+=mix(vec3(.45,.55,.95),vec3(1.,.82,.7),band*band)*mw*.55*vis*smoothstep(YH,YH+.12,p.y);
+  /* 星 */
+  for(int l=0;l<3;l++){
+    float fl=float(l),sc=70.+fl*55.;vec2 g=p*sc;vec2 id=floor(g);float s0=h2(id+fl*13.);
+    float th=.986-.006*fl-band*.03;
+    float tw=.65+.35*sin(uT*(.5+1.2*s0)+s0*50.);
+    c+=mix(vec3(.8,.9,1.),vec3(1.,.9,.75),h2(id+5.))*step(th,s0)*smoothstep(.45,.0,length(fract(g)-.5))*tw*(1.-.2*fl)*(.15+1.4*vis)*step(YH,p.y);
+  }
+  return c;
+}
+/* 月: 満ち欠けの影、海、地球照 */
+vec3 moon(vec2 p,vec3 c){
+  float Rm=.062;
+  vec2 d=(p-uM)/Rm;float r2=dot(d,d);
+  if(r2>1.6)return c;
+  float a=smoothstep(1.,.97,sqrt(r2));
+  vec3 n=vec3(d,sqrt(max(1.-r2,0.)));
+  vec3 L=lightDir();
+  float lit=smoothstep(-.04,.14,dot(n,L));
+  float tex=fbm(d*3.2+vec2(3.,1.));float maria=smoothstep(.42,.62,tex);
+  float crat=fbm(d*11.+7.);
+  vec3 surf=mix(vec3(.93,.92,.86),vec3(.58,.6,.66),maria*.7)*(.9+.2*crat);
+  vec3 earth=vec3(.07,.1,.17)*(.7+.4*maria);/* 暗い側にうっすら地球照 */
+  vec3 mc=mix(earth,surf*1.25,lit);
+  return mix(c,mc,a);
+}
+float ridge(float fk,float x){
+  float base=.1-.018*fk,amp=.2-.03*fk,fr=2.1+1.5*fk;
+  float y=base+amp*(rdg(x*fr+fk*9.3+3.)-.45)*(1.-.15*fk);
+  y+=.035*(rdg(x*fr*2.3+11.+fk*4.)-.5)*(1.-fk*.28);
+  y+=(.008+.004*fk)*(n1(x*fr*8.+fk*5.)-.5)+(.002+.0015*fk)*(n1(x*fr*27.+fk)-.5);
+  if(fk>2.5)y+=.007*abs(fract(x*64.)-.5)*(.4+n1(x*11.));
+  return YH+y;
+}
+/* 山: 月の光が当たる縁と斜面だけが銀色に光る。谷には霧 */
+vec3 scene(vec2 p){
+  vec3 c=sky(p);
+  c=moon(p,c);
+  float il=illum();
+  float aa=1.4/uRes.y;
+  vec3 fog=mix(vec3(.04,.06,.15),vec3(.4,.5,.75),il);
+  for(int k=0;k<4;k++){
+    float fk=float(k);
+    float yk=ridge(fk,p.x);
+    float cov=smoothstep(-aa,aa,yk-p.y);
+    if(cov>0.){
+      float db=yk-p.y;
+      float fa=(.72-.22*fk)*.8;fa=mix(fa,.97,smoothstep(0.,.2,db));
+      vec3 rc=mix(vec3(.012,.02,.05),vec3(.05,.07,.15),1.-fk/3.)*(.5+1.3*il);
+      vec3 col=mix(rc,fog*(.35+.65*il),fa*(.4+.6*il));
+      float sl=(ridge(fk,p.x+.02)-ridge(fk,p.x-.02))/.04;
+      vec2 nrm=normalize(vec2(-sl,1.));
+      vec2 ld=normalize(vec2(uM.x-p.x,max(uM.y-yk,.06)));
+      float face=clamp(dot(nrm,ld),0.,1.);
+      float lit=face*smoothstep(.09,.0,db)*(.55+.45*n1(p.x*30.+p.y*70.+fk*7.))*(1.-fk*.2)*(1.-fa*.5)*il;
+      col=mix(col,vec3(.62,.72,1.)*(.4+.55*face),lit*.8);
+      float hh=(yk-YH)+.03*(n1(p.x*38.+fk*3.)-.5);
+      float snow=smoothstep(.1,.15,hh)*smoothstep(.12,.0,db+.02*(n1(p.x*50.+p.y*90.)-.5))*(1.-fk*.28)*step(fk,2.5);
+      col=mix(col,vec3(.8,.88,1.)*(.35+.6*face),snow*.7*(.25+.75*il));
+      col+=vec3(.6,.72,1.)*smoothstep(.014,.0,db)*exp(-abs(p.x-uM.x)*1.4)*(.05+.5*il)*(1.-fk*.18);
+      c=mix(c,col,cov);
+    }
+  }
+  return c;
+}
+void main(){
+  vec2 p=(gl_FragCoord.xy-.5*uRes)/uRes.y;
+  float il=illum();
+  vec3 col;
+  if(p.y>=YH){col=scene(p);}
+  else{
+    /* 湖: 空と月を映す。月の下に光の道 */
+    float dp=YH-p.y;
+    vec2 q=vec2(p.x+sin(p.y*70.+uT*.4)*.003*(1.+dp*5.)+(n1(p.y*140.)-.5)*.004,2.*YH-p.y);
+    col=scene(q)*vec3(.62,.7,.9)*mix(.8,1.,exp(-dp*3.));
+    float g=exp(-pow((p.x-uM.x)*(12.+dp*18.),2.))*(.3+.7*n1(p.y*120.+uT*.5))*exp(-dp*1.7)*il;
+    col+=vec3(.75,.85,1.)*g*.9;
+    vec2 gg=vec2(p.x*160.,p.y*260.+uT*.15);vec2 gi=floor(gg);float gh=h2(gi);
+    col+=vec3(.95,.97,1.)*step(.94,gh)*smoothstep(.4,.0,length(fract(gg)-.5))*pow(.5+.5*sin(uT*.6+gh*60.),3.)*exp(-pow((p.x-uM.x)*8.,2.))*exp(-dp*1.4)*il*1.3;
+    col=mix(col,mix(vec3(.05,.08,.2),vec3(.45,.55,.8),il)*.8,exp(-dp*16.)*.5);
+    /* 手前の岸と葦 */
+    float shore=-.46+.05*(fbm1(p.x*2.6+80.)-.4);
+    float aa=1.4/uRes.y;
+    float bank=smoothstep(-aa,aa,shore-p.y);
+    float rc2=floor(p.x*55.),rh=h2(vec2(rc2,3.))*.085*step(.35,h2(vec2(rc2,9.)));
+    float lean=(h2(vec2(rc2,5.))-.5)*.5*max(p.y-shore,0.);
+    float rw=.12*(1.-clamp((p.y-shore)/max(rh,1e-3),0.,1.));
+    float reed=step(0.,rh)*step(p.y,shore+rh)*smoothstep(rw+.04,rw,abs(fract(p.x*55.+lean*55.)-.5))*step(shore,p.y)*smoothstep(0.,.5,abs(p.x)*5.-.25);
+    float fgd=max(bank,reed);
+    vec3 fgc=vec3(.008,.012,.03)+vec3(.5,.62,.95)*.05*exp(-abs(p.x-uM.x)*2.)*il;
+    col=mix(col,fgc,fgd);
+  }
+  float vg=smoothstep(1.2,.3,length(p*vec2(.85,.6)));
+  col*=.7+.3*vg;
+  col=1.-exp(-col*1.25);
+  col=pow(col,vec3(.95));
+  col+=(h2(gl_FragCoord.xy+uT)-.5)*.012;
+  gl_FragColor=vec4(col,1.);
+}`;
+function sh(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))console.error(gl.getShaderInfoLog(s));return s}
+const prog=gl.createProgram();gl.attachShader(prog,sh(gl.VERTEX_SHADER,VS));gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,FS));gl.linkProgram(prog);gl.useProgram(prog);
+const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+const loc=gl.getAttribLocation(prog,'a');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+const U={};['uRes','uM','uT','uAge','uSeed'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+function resize(){
+  W=innerWidth;H=innerHeight;const d=Math.min(devicePixelRatio||1,1.5)*scale;
+  canvas.width=Math.max(2,Math.round(W*d));canvas.height=Math.max(2,Math.round(H*d));canvas.style.width=W+'px';canvas.style.height=H+'px';
+  gl.viewport(0,0,canvas.width,canvas.height);
+}
+addEventListener('resize',resize,{passive:true});
+function setAge(cx){tgt=Math.max(0,Math.min(1,cx/W))*SYN}
+function reset(){lastTouch=-99;seed=0}
+function mutate(){seed=Math.random()*50;lastTouch=-99}
+canvas.addEventListener('pointerdown',e=>{
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  touched=true;hint.classList.add('off');try{canvas.setPointerCapture(e.pointerId)}catch(_){}
+  held=e.pointerId;lastTouch=t;setAge(e.clientX);e.preventDefault();
+},{passive:false});
+canvas.addEventListener('pointermove',e=>{if(held===e.pointerId){lastTouch=t;setAge(e.clientX)}});
+function up(e){if(held===e.pointerId){held=null;lastTouch=t}}
+canvas.addEventListener('pointerup',up);canvas.addEventListener('pointercancel',up);
+function phaseName(a,il){
+  if(a<1.8||a>=27.8)return '新月';if(a<6)return '三日月';if(a<9)return '上弦の月';if(a<13.4)return '満ちゆく月';
+  if(a<16.2)return '満月';if(a<20.5)return '欠けゆく月';if(a<24)return '下弦の月';return '有明の月';
+}
+function frame(ts){
+  if(!alive)return;const dt=Math.min(.05,(ts-last)/1000||.016);last=ts;t+=dt;
+  slow=slow*.95+dt*.05;if(slow>.03&&scale>.5){scale*=.85;slow=.016;resize()}
+  /* 触れて動かしたあと約8秒で、ゆっくり「今夜の本当の月」へ戻る */
+  const home=DBG!==null?parseFloat(DBG):realAge();
+  if(held===null&&t-lastTouch>8)tgt=age+wrapAge(home-age);
+  const k=1-Math.exp(-dt*(held!==null?7:(t-lastTouch>8?.5:3)));age+=(tgt-age)*k;
+  age=((age%SYN)+SYN)%SYN;
+  const il=.5-.5*Math.cos(age/SYN*2*Math.PI);
+  ageEl.textContent='月齢 '+age.toFixed(1)+'  '+phaseName(age,il)+'\n明るさ '+Math.round(il*100)+'%';
+  ageEl.style.whiteSpace='pre';
+  const mx=.06+.012*Math.sin(t*.05),my=.27+.006*Math.cos(t*.04);
+  gl.uniform2f(U.uRes,canvas.width,canvas.height);gl.uniform2f(U.uM,mx,my);gl.uniform1f(U.uT,t);gl.uniform1f(U.uAge,age);gl.uniform1f(U.uSeed,seed);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+  if(!touched&&t>18)hint.classList.add('off');
+  requestAnimationFrame(frame);
+}
+document.addEventListener('visibilitychange',()=>{if(document.hidden)alive=false;else if(!alive){alive=true;last=performance.now();requestAnimationFrame(frame)}});
+resize();
+APKit.init({canvas,gifName:'moonlit-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,buttons:[
+  {label:'✦',name:'mutate',onClick:mutate},
+  {label:'↻',name:'reset',onClick:reset}
+]});
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
