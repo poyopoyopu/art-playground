@@ -27,7 +27,7 @@ const canvas=document.getElementById('art'),hint=document.getElementById('hint')
 const gl=canvas.getContext('webgl',{antialias:false,alpha:false,preserveDrawingBuffer:true});
 const MAXO=6,MAXR=.21,TAP_R=.14;
 let W=1,H=1,scale=1,t=0,last=0,alive=true,touched=false,slow=0;
-let hueA=.42,hueB=.02,kA=[.4,.24],kB=[.32,.5];
+let hueA=.42,hueB=.5,kA=[.4,.24],kB=[.32,.5];
 let orbs=[],pops=[];
 const ptrs=new Map();
 const VS='attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}';
@@ -61,12 +61,13 @@ vec3 world(vec2 p,float h,vec2 k,float day){
     float star=step(.988,s)*smoothstep(.5,.0,length(fract(g2)-.5+(hash(id+7.)-.5)*.5))*(.6+.4*sin(uT*2.+s*60.));
     return r+vec3(.85,.92,1.)*star*1.5;
   }
-  float v=smoothstep(.3,3.2,glow);
-  vec3 base=mix(vec3(1.,.8,.5),vec3(1.,.5,.68),smoothstep(-.45,.55,p.y+.18*sin(p.x*3.+uT*.1)));
-  base+=vec3(.25,.2,.1)*exp(-dot(p,p)*3.);
-  vec3 line=mix(vec3(.5,.06,.62),vec3(.1,.28,.88),.5+.5*sin(glow*.4+length(p)*2.));
-  line=mix(line,c1*.7,.18);
-  return mix(base,line,v*.9)+vec3(1.,.95,.8)*smoothstep(6.,13.,glow)*.5;
+  /* 昼=深い青緑の海に金の糸(七宝や金の象嵌のような宝石の世界)。肌色にならないよう、地は暗く、光は金だけにする */
+  float v=smoothstep(.25,3.4,glow);
+  vec3 base=mix(vec3(.0,.13,.17),vec3(.01,.04,.12),smoothstep(-.45,.55,p.y+.16*sin(p.x*3.+uT*.1)));
+  base+=vec3(.0,.1,.1)*exp(-dot(p,p)*3.);
+  vec3 gold=mix(vec3(1.,.66,.22),vec3(1.,.95,.8),smoothstep(3.,12.,glow));
+  vec3 haze=c1*smoothstep(0.,9.,glow)*.16;
+  return base+haze+gold*v*1.25;
 }
 void main(){
   vec2 p=(gl_FragCoord.xy-.5*uRes)/uRes.y;
@@ -144,7 +145,7 @@ function addOrb(x,y,target){
   const o={x,y,bx:x,by:y,R:.004,rv:0,target:target||TAP_R,ph:Math.random()*6.28,held:false};orbs.push(o);pops.push({x,y,t0:t});return o;
 }
 function reset(){
-  orbs=[];pops=[];hueA=.42;hueB=.02;kA=[.4,.24];kB=[.32,.5];
+  orbs=[];pops=[];hueA=.42;hueB=.5;kA=[.4,.24];kB=[.32,.5];
   setTimeout(()=>{if(!orbs.length)addOrb(0,.06,.18)},500);
 }
 function mutate(){
