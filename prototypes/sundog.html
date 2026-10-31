@@ -1,0 +1,176 @@
+<!doctype html>
+<!-- SUNDOG — クロちゃん(Claude)作。ap-kit.js統合: クロちゃん。2026/10/31 試作。
+     世界のルール: 触れた所が太陽になる。太陽のまわりでは、空に漂う氷の結晶が光を曲げ、実在する大気光学の幾何
+       (22°の輪=ハロ、両脇の偽の太陽=幻日、光の柱、46°の淡い輪)を描く。押し続けると空の氷が増えて輪が濃くなる。凍った湖には空と太陽が映る。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0a0f2a">
+<title>SUNDOG — 触れた所が太陽になり、空の氷が輪を描く</title>
+<script src="../ap-kit.js"></script>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#0a0f2a;touch-action:none}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#hint{position:fixed;top:calc(env(safe-area-inset-top) + 16px);left:16px;right:16px;text-align:center;pointer-events:none;color:#fff;font:500 10px/1.9 ui-monospace,monospace;letter-spacing:.2em;text-shadow:0 2px 14px #000a;transition:opacity 1.4s}
+#hint b{display:block;font:600 12px/1.9 ui-sans-serif,system-ui,sans-serif;letter-spacing:.12em}
+#hint.off{opacity:0}
+</style>
+</head>
+<body>
+<canvas id="art"></canvas>
+<div id="hint"><b>触れた所が、太陽になる</b>なぞって動かす · 押し続けると、空の氷が増える</div>
+<script>
+(()=>{
+'use strict';
+const canvas=document.getElementById('art'),hint=document.getElementById('hint');
+const gl=canvas.getContext('webgl',{antialias:false,alpha:false,preserveDrawingBuffer:true});
+const YH=-.16;/* 湖と山の境(水平線)の高さ。画面の高さを1として、中央が0 */
+let W=1,H=1,scale=1,t=0,last=0,alive=true,touched=false,slow=0,seed=0;
+let sun={x:.02,y:YH+.2},tgt={x:.02,y:YH+.2},ice=.45,iceBase=.45,held=null;
+const VS='attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}';
+const FS=`precision highp float;
+uniform vec2 uRes,uSun;uniform float uT,uIce,uSeed;
+const float YH=${YH.toFixed(3)};
+float h1(float x){return fract(sin(x*127.1+uSeed)*43758.5453);}
+float n1(float x){float i=floor(x),f=fract(x);f=f*f*(3.-2.*f);return mix(h1(i),h1(i+1.),f);}
+float fbm1(float x){return n1(x)*.5+n1(x*2.13+7.)*.25+n1(x*4.37+13.)*.125;}
+float rdg(float x){float f=fbm1(x)*1.7;return 1.-abs(2.*f-1.);}
+float h2(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
+vec3 spec(float t){/* 0=赤(内側) 1=青(外側) */return mix(mix(vec3(1.,.38,.28),vec3(1.,.86,.42),smoothstep(0.,.4,t)),mix(vec3(.45,.95,.7),vec3(.42,.6,1.),smoothstep(.55,1.,t)),smoothstep(.35,.7,t));}
+/* 空: 太陽の高さで色が変わる */
+vec3 sky(vec2 p,vec2 s){
+  float e=clamp((s.y-YH)/.55,-.25,1.);
+  vec3 zen=mix(mix(vec3(.01,.015,.07),vec3(.07,.1,.34),smoothstep(-.25,.15,e)),vec3(.22,.46,.9),smoothstep(.15,1.,e));
+  vec3 mid=mix(mix(vec3(.04,.04,.16),vec3(.52,.36,.68),smoothstep(-.2,.2,e)),vec3(.52,.74,1.),smoothstep(.2,1.,e));
+  vec3 hor=mix(mix(vec3(.06,.06,.2),vec3(1.,.62,.46),smoothstep(-.2,.12,e)),vec3(.85,.93,1.),smoothstep(.12,1.,e));
+  float v=clamp((p.y-YH)/.9,0.,1.);
+  vec3 c=mix(hor,mid,smoothstep(0.,.35,v));c=mix(c,zen,smoothstep(.25,1.,v));
+  vec2 d=p-s;float r=length(d);
+  float sa=smoothstep(-.12,.1,s.y-YH);/* 太陽が地平線の下ならあかりは弱い */
+  vec3 warm=mix(vec3(1.,.55,.3),vec3(1.,.93,.78),smoothstep(0.,.5,e));
+  c+=warm*exp(-r*3.2)*.55*sa+warm*exp(-r*11.)*.9*sa;
+  /* 太陽の円盤 */
+  c+=vec3(1.,.97,.9)*(smoothstep(.03,.012,r)*9.+exp(-r*38.)*2.2)*sa;
+  /* 氷の結晶が作る光: 氷の量 uIce で濃さが変わる */
+  float ice=uIce,sd=clamp(1.-smoothstep(.35,.75,e)*.6,0.,1.);
+  /* 22°のハロ: 内側が赤、外側が青 */
+  float R1=.165,w=.011;
+  float t1=(r-R1)/w;float ring=smoothstep(-.8,.1,t1)*smoothstep(2.4,.3,t1);
+  vec3 halo=spec(clamp(t1/2.4,0.,1.))*ring*(.3+.95*ice);
+  float up=smoothstep(-.3,1.,d.y/max(r,1e-3));/* 輪は上下がいちばん明るい */
+  halo*=.65+.7*up*up;
+  c+=halo*sa*.9;
+  c+=vec3(.78,.88,1.)*exp(-pow((r-R1-.015)*13.,2.))*.05*ice*sa;/* 輪の内側のにじみ */
+  /* 46°の淡い輪 */
+  float R2=.34,t2=(r-R2)/.014;float ring2=smoothstep(-.6,.2,t2)*smoothstep(2.,.2,t2);
+  c+=spec(clamp(t2/2.,0.,1.))*ring2*(.04+.28*ice)*sa;
+  /* 幻日: 太陽の両脇、輪の上。外側へ白く尾を引く */
+  for(int k=0;k<2;k++){
+    float sg=k==0?-1.:1.;
+    vec2 q=vec2((p.x-s.x)*sg-R1*1.02,(p.y-s.y)*(1.+e*.5));
+    float core=exp(-(q.x*q.x)/.00028-(q.y*q.y)/.0011);
+    float tail=smoothstep(0.,.04,q.x)*exp(-q.x*14.)*exp(-(q.y*q.y)/.0004)*step(0.,q.x);
+    vec3 pc=mix(vec3(1.,.55,.4),vec3(.9,.95,1.),smoothstep(-.02,.05,q.x));
+    c+=(pc*core*1.3+vec3(.85,.92,1.)*tail*.6)*(.3+1.1*ice)*sd*sa;
+  }
+  /* 光の柱: 低い太陽から縦に伸びる */
+  float pillar=exp(-pow((p.x-s.x)*26.,2.))*exp(-abs(p.y-s.y)*2.4)*(1.-smoothstep(.1,.42,e))*step(s.y,p.y+.05);
+  c+=vec3(1.,.82,.62)*pillar*(.08+.55*ice)*sa;
+  /* 氷の粒(ダイヤモンドダスト): 細かく、太陽の近くほどよく光る */
+  for(int l=0;l<3;l++){
+    float fl=float(l);float sc=120.+fl*70.;vec2 g=p*sc;g.y+=uT*(.5+.3*fl)*(1.+fl);g.x+=sin(uT*.2+fl*3.)*1.5;
+    vec2 id=floor(g);float s0=h2(id+fl*17.);float tw=pow(.5+.5*sin(uT*(2.+4.*s0)+s0*40.),3.);
+    float m=step(.955-.03*ice,s0)*smoothstep(.3,.0,length(fract(g)-.5));
+    c+=mix(vec3(.8,.9,1.),vec3(1.,.9,.7),exp(-r*2.))*m*tw*(.5+2.2*exp(-r*1.8))*(.35+.9*ice)*(1.-.2*fl)*step(YH,p.y);
+  }
+  return c;
+}
+/* 山: 遠いほど霧に溶けて淡く、近いほど暗い */
+vec3 scene(vec2 p,vec2 s){
+  vec3 c=sky(p,s);
+  float e=clamp((s.y-YH)/.55,-.25,1.);
+  vec3 fog=mix(vec3(.12,.12,.32),mix(vec3(1.,.74,.62),vec3(.88,.94,1.),smoothstep(.1,.7,e)),smoothstep(-.2,.15,e));
+  for(int k=0;k<4;k++){
+    float fk=float(k);
+    float base=.1-.018*fk,amp=.2-.03*fk,fr=2.1+1.5*fk;
+    float yk=YH+base+amp*(rdg(p.x*fr+fk*9.3+3.)-.45)*(1.-.15*fk);
+    if(p.y<yk){
+      float fa=(.74-.24*fk)*.8,db=yk-p.y;fa=mix(fa,.97,smoothstep(.0,.2,db));/* 稜線は澄んで、谷に霧が溜まる */
+      vec3 rc=mix(vec3(.03,.045,.13),vec3(.1,.12,.27),1.-fk/3.);
+      vec3 col=mix(rc,fog,fa);
+      float rim=smoothstep(.02,.0,yk-p.y);/* 稜線の縁にだけ光が乗る */
+      col+=vec3(1.,.8,.6)*rim*exp(-abs(p.x-s.x)*1.6)*.55*(1.-fk*.18);
+      col*=.85+.35*exp(-length(p-s)*1.5);
+      c=col;
+    }
+  }
+  return c;
+}
+void main(){
+  vec2 p=(gl_FragCoord.xy-.5*uRes)/uRes.y;
+  vec2 s=uSun;
+  vec3 col;
+  if(p.y>=YH){col=scene(p,s);}
+  else{
+    /* 凍った湖: 空と太陽を映す。氷のさざなみでゆがみ、太陽の下に光の道ができる */
+    float dp=YH-p.y;
+    vec2 q=vec2(p.x+sin(p.y*70.+uT*.6)*.003*(1.+dp*5.)+(n1(p.y*140.)-.5)*.004,2.*YH-p.y);
+    col=scene(q,s)*vec3(.62,.7,.88);
+    float g=exp(-pow((p.x-s.x)*14.,2.))*(.35+.65*n1(p.y*110.+uT*.8))*exp(-dp*2.2)*smoothstep(-.1,.1,s.y-YH);
+    col+=vec3(1.,.82,.6)*g*.9;
+    col=mix(col,scene(vec2(p.x,YH+.001),s)*.9,exp(-dp*14.)*.6);/* 水平線ぎわは空の色に溶ける */
+  }
+  float vg=smoothstep(1.2,.3,length(p*vec2(.85,.6)));
+  col*=.7+.3*vg;
+  col=1.-exp(-col*1.15);
+  col=pow(col,vec3(.95));
+  col+=(h2(gl_FragCoord.xy+uT)-.5)*.014;
+  gl_FragColor=vec4(col,1.);
+}`;
+function sh(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))console.error(gl.getShaderInfoLog(s));return s}
+const prog=gl.createProgram();gl.attachShader(prog,sh(gl.VERTEX_SHADER,VS));gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,FS));gl.linkProgram(prog);gl.useProgram(prog);
+const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+const loc=gl.getAttribLocation(prog,'a');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+const U={};['uRes','uSun','uT','uIce','uSeed'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+function resize(){
+  W=innerWidth;H=innerHeight;const d=Math.min(devicePixelRatio||1,1.5)*scale;
+  canvas.width=Math.max(2,Math.round(W*d));canvas.height=Math.max(2,Math.round(H*d));canvas.style.width=W+'px';canvas.style.height=H+'px';
+  gl.viewport(0,0,canvas.width,canvas.height);
+}
+addEventListener('resize',resize,{passive:true});
+function toP(cx,cy){return {x:(cx-W*.5)/H,y:(H*.5-cy)/H}}
+function setSun(cx,cy){const p=toP(cx,cy);tgt.x=Math.max(-.6,Math.min(.6,p.x));tgt.y=Math.max(YH-.09,Math.min(.62,p.y))}
+function reset(){tgt={x:.02,y:YH+.2};iceBase=.45;ice=.45;seed=0}
+function mutate(){seed=Math.random()*50;tgt={x:(Math.random()-.5)*.6,y:YH-.04+Math.random()*.5};iceBase=.35+Math.random()*.3}
+canvas.addEventListener('pointerdown',e=>{
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  touched=true;hint.classList.add('off');try{canvas.setPointerCapture(e.pointerId)}catch(_){}
+  held=e.pointerId;setSun(e.clientX,e.clientY);e.preventDefault();
+},{passive:false});
+canvas.addEventListener('pointermove',e=>{if(held===e.pointerId)setSun(e.clientX,e.clientY)});
+function up(e){if(held===e.pointerId)held=null}
+canvas.addEventListener('pointerup',up);canvas.addEventListener('pointercancel',up);
+function frame(ts){
+  if(!alive)return;const dt=Math.min(.05,(ts-last)/1000||.016);last=ts;t+=dt;
+  slow=slow*.95+dt*.05;if(slow>.03&&scale>.5){scale*=.85;slow=.016;resize()}
+  const k=1-Math.exp(-dt*(held!==null?9:3.2));sun.x+=(tgt.x-sun.x)*k;sun.y+=(tgt.y-sun.y)*k;
+  /* 押している間は空の氷が増え、離すとゆっくり薄まる */
+  if(held!==null)ice=Math.min(1,ice+dt*.4);else ice+=(iceBase-ice)*(1-Math.exp(-dt*.12));
+  const bob=Math.sin(t*.3)*.004;
+  gl.uniform2f(U.uRes,canvas.width,canvas.height);gl.uniform2f(U.uSun,sun.x,sun.y+(held!==null?0:bob));gl.uniform1f(U.uT,t);gl.uniform1f(U.uIce,ice);gl.uniform1f(U.uSeed,seed);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+  if(!touched&&t>16)hint.classList.add('off');
+  requestAnimationFrame(frame);
+}
+document.addEventListener('visibilitychange',()=>{if(document.hidden)alive=false;else if(!alive){alive=true;last=performance.now();requestAnimationFrame(frame)}});
+resize();
+APKit.init({canvas,gifName:'sundog-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,buttons:[
+  {label:'✦',name:'mutate',onClick:mutate},
+  {label:'↻',name:'reset',onClick:reset}
+]});
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
