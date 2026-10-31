@@ -16,7 +16,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 #hint{position:fixed;top:calc(env(safe-area-inset-top) + 16px);left:16px;right:16px;text-align:center;pointer-events:none;color:#fffbe8;font:500 10px/1.9 ui-monospace,monospace;letter-spacing:.2em;text-shadow:0 2px 14px #000b;transition:opacity 1.6s}
 #hint b{display:block;font:600 12px/1.9 ui-sans-serif,system-ui,sans-serif;letter-spacing:.14em}
 #hint.off{opacity:0}
-#sun{position:fixed;left:18px;bottom:calc(env(safe-area-inset-bottom) + 84px);pointer-events:none;color:#fff3cf;font:500 11px/1.7 ui-monospace,monospace;letter-spacing:.2em;opacity:.75;text-shadow:0 1px 8px #000}
+#sun{white-space:pre;position:fixed;left:18px;bottom:calc(env(safe-area-inset-bottom) + 84px);pointer-events:none;color:#fff3cf;font:500 11px/1.7 ui-monospace,monospace;letter-spacing:.2em;opacity:.75;text-shadow:0 1px 8px #000}
 </style>
 </head>
 <body>
@@ -30,6 +30,13 @@ const canvas=document.getElementById('art'),hint=document.getElementById('hint')
 const gl=canvas.getContext('webgl',{antialias:false,alpha:false,preserveDrawingBuffer:true});
 const DBG=(new URLSearchParams(location.search)).get('f');/* ?f=0 のように日食の時間(-1=前,0=最大,1=あと)を指定して確かめられる */
 let W=1,H=1,scale=1,t=0,last=0,alive=true,touched=false,slow=0,seed=0,held=null,lastTouch=-99;
+/* 日食が1周する長さ(秒)。⏱で 20秒/60秒/3分/10分 を切り替え、端末に保存する。?sec=90 のようにURLでも指定できる */
+const PRESETS=[20,60,180,600];
+function fmtSec(v){return v>=120?(v%60===0?(v/60)+'分':(v/60).toFixed(1)+'分'):v+'秒'}
+let cycle=60;
+try{const q=parseFloat((new URLSearchParams(location.search)).get('sec'));const sv=parseFloat(localStorage.getItem('komorebi-cycle'));
+  cycle=q>0?q:(sv>0?sv:60)}catch(_){}
+cycle=Math.max(5,Math.min(3600,cycle));
 let rest=0;/* 自動の日食が1周したあと、光が丸い状態で休む秒数 */
 let F=DBG!==null?parseFloat(DBG):-1,tgt=F,theme=(new URLSearchParams(location.search)).get('theme')==='neon'?1:0;
 const VS='attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}';
@@ -146,6 +153,7 @@ function setF(cx){tgt=Math.max(0,Math.min(1,(cx-W*.08)/(W*.84)))*2-1}
 function cover(f,mr){const d=Math.abs(f)*1.9,R=1;if(d>=R+mr)return 0;if(d<=Math.abs(R-mr))return mr>=R?1:mr*mr;
   const a=R*R*Math.acos((d*d+R*R-mr*mr)/(2*d*R))+mr*mr*Math.acos((d*d+mr*mr-R*R)/(2*d*mr))-.5*Math.sqrt((-d+mr+R)*(d+mr-R)*(d-mr+R)*(d+mr+R));return Math.min(1,a/Math.PI)}
 function reset(){F=-1;tgt=-1;lastTouch=-99;rest=3}
+function nextCycle(){let i=PRESETS.findIndex(v=>v>cycle+.5);cycle=PRESETS[i<0?0:i];try{localStorage.setItem('komorebi-cycle',String(cycle))}catch(_){}}
 function mutate(){seed=Math.random()*80;theme=1-theme}/* ✦: 森⇄ネオン。森は皆既日食、ネオンは金環日食 */
 canvas.addEventListener('pointerdown',e=>{
   if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
@@ -161,11 +169,11 @@ function frame(ts){
   /* なぞったあと約6秒で、ゆっくり日食が終わって丸い光に戻る */
   /* なぞっていない間は、ひとりでに日食が進む(約60秒で前→皆既→あと。そのあと少し休んで、また最初から) */
   if(DBG===null&&held===null&&t-lastTouch>6){
-    if(rest>0)rest-=dt;else{F+=dt*(2/60);if(F>=1){F=-1;rest=12}}
+    if(rest>0)rest-=dt;else{F+=dt*(2/cycle);if(F>=1){F=-1;rest=12}}
     tgt=F;
   }else{const k=1-Math.exp(-dt*(held!==null?6:2.5));F+=(tgt-F)*k}
   const total=theme===0,mr=total?1.03:.88,cov=cover(F,mr),hid=Math.round(cov*100);
-  sunEl.textContent=(theme?'NEON  ':'FOREST  ')+'太陽の欠け '+hid+'%  '+(cov>.995?(total?'皆既日食':'金環日食'):(Math.abs(F)<.02?'':(F<0?'欠けていく':'戻っていく')));
+  sunEl.textContent='1周 '+fmtSec(cycle)+'\n'+(theme?'NEON  ':'FOREST  ')+'太陽の欠け '+hid+'%  '+(cov>.995?(total?'皆既日食':'金環日食'):(Math.abs(F)<.02?'':(F<0?'欠けていく':'戻っていく')));
   gl.uniform2f(U.uRes,canvas.width,canvas.height);gl.uniform1f(U.uT,t);gl.uniform1f(U.uF,F);gl.uniform1f(U.uCov,cov);gl.uniform1f(U.uMR,mr);gl.uniform1f(U.uTh,theme);gl.uniform1f(U.uSeed,seed);
   gl.drawArrays(gl.TRIANGLES,0,3);
   if(!touched&&t>18)hint.classList.add('off');
@@ -175,6 +183,7 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden)alive=false
 resize();
 APKit.init({canvas,gifName:'komorebi-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,buttons:[
   {label:'✦',name:'mutate',onClick:mutate},
+  {label:'⏱',name:'speed',onClick:nextCycle},
   {label:'↻',name:'reset',onClick:reset}
 ]});
 requestAnimationFrame(frame);
