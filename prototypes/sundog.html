@@ -94,23 +94,48 @@ vec3 sky(vec2 p,vec2 s){
   }
   return c;
 }
-/* 山: 遠いほど霧に溶けて淡く、近いほど暗い */
+/* 山の稜線の高さ。遠い山はなだらか、近い山は細かく尖り、いちばん手前は針葉樹の林のぎざぎざ */
+float ridge(float fk,float x){
+  float base=.1-.018*fk,amp=.2-.03*fk,fr=2.1+1.5*fk;
+  float y=base+amp*(rdg(x*fr+fk*9.3+3.)-.45)*(1.-.15*fk);
+  y+=.035*(rdg(x*fr*2.3+11.+fk*4.)-.5)*(1.-fk*.28);
+  y+=(.008+.004*fk)*(n1(x*fr*8.+fk*5.)-.5)+(.002+.0015*fk)*(n1(x*fr*27.+fk)-.5);
+  if(fk>2.5)y+=.007*abs(fract(x*64.)-.5)*(.4+n1(x*11.));
+  return YH+y;
+}
+/* 山: 遠いほど霧に溶けて淡く、近いほど暗い。太陽に向いた面だけが光り、高い峰には雪 */
 vec3 scene(vec2 p,vec2 s){
   vec3 c=sky(p,s);
   float e=mix(clamp((s.y-YH)/.55,-.25,1.),-.18,uMoon);
   vec3 fog=mix(vec3(.12,.12,.32),mix(vec3(1.,.74,.62),vec3(.88,.94,1.),smoothstep(.1,.7,e)),smoothstep(-.2,.15,e));
+  vec3 lightC=mix(vec3(1.,.66,.46),vec3(1.,.95,.88),smoothstep(0.,.6,e));
+  lightC=mix(lightC,vec3(.62,.74,1.),uMoon);
+  float aa=1.4/uRes.y;
   for(int k=0;k<4;k++){
     float fk=float(k);
-    float base=.1-.018*fk,amp=.2-.03*fk,fr=2.1+1.5*fk;
-    float yk=YH+base+amp*(rdg(p.x*fr+fk*9.3+3.)-.45)*(1.-.15*fk);
-    if(p.y<yk){
-      float fa=(.74-.24*fk)*.8,db=yk-p.y;fa=mix(fa,.97,smoothstep(.0,.2,db));/* 稜線は澄んで、谷に霧が溜まる */
+    float yk=ridge(fk,p.x);
+    float cov=smoothstep(-aa,aa,yk-p.y);
+    if(cov>0.){
+      float db=yk-p.y;
+      float fa=(.74-.24*fk)*.8;fa=mix(fa,.97,smoothstep(.0,.2,db));/* 稜線は澄んで、谷に霧が溜まる */
       vec3 rc=mix(vec3(.03,.045,.13),vec3(.1,.12,.27),1.-fk/3.);
       vec3 col=mix(rc,fog,fa);
-      float rim=smoothstep(.02,.0,yk-p.y);/* 稜線の縁にだけ光が乗る */
-      col+=vec3(1.,.8,.6)*rim*exp(-abs(p.x-s.x)*1.6)*.55*(1.-fk*.18);
+      /* 太陽に向いた斜面が光る */
+      float sl=(ridge(fk,p.x+.02)-ridge(fk,p.x-.02))/.04;/* 広い面で光を当てる(細かい凹凸の縦縞を避ける) */
+      vec2 nrm=normalize(vec2(-sl,1.));
+      vec2 ld=normalize(vec2(s.x-p.x,max(s.y-yk,.06)));
+      float face=clamp(dot(nrm,ld),0.,1.);
+      float lit=face*smoothstep(.09,.0,db)*(.55+.45*n1(p.x*30.+p.y*70.+fk*7.))*(1.-fk*.2)*(1.-fa*.55)*mix(1.,.6,uMoon);
+      col=mix(col,lightC*(.55+.5*face),lit*.8);
+      /* 高い峰の雪 */
+      float hh=(yk-YH)+.03*(n1(p.x*38.+fk*3.)-.5);
+      float snow=smoothstep(.1,.15,hh)*smoothstep(.12,.0,db+.02*(n1(p.x*50.+p.y*90.)-.5))*(1.-fk*.28)*step(fk,2.5);
+      col=mix(col,vec3(.95,.97,1.)*(.5+.55*face)*mix(vec3(1.,.9,.85),vec3(.85,.93,1.),smoothstep(.1,.6,e)),snow*.75*(1.-fa*.4));
+      /* 稜線のふち光 */
+      float rim=smoothstep(.016,.0,db);
+      col+=vec3(1.,.8,.6)*rim*exp(-abs(p.x-s.x)*1.6)*.5*(1.-fk*.18)*mix(1.,.55,uMoon);
       col*=.85+.35*exp(-length(p-s)*1.5);
-      c=col;
+      c=mix(c,col,cov);
     }
   }
   return c;
@@ -124,10 +149,28 @@ void main(){
     /* 凍った湖: 空と太陽を映す。氷のさざなみでゆがみ、太陽の下に光の道ができる */
     float dp=YH-p.y;
     vec2 q=vec2(p.x+sin(p.y*70.+uT*.6)*.003*(1.+dp*5.)+(n1(p.y*140.)-.5)*.004,2.*YH-p.y);
-    col=scene(q,s)*vec3(.62,.7,.88);
-    float g=exp(-pow((p.x-s.x)*14.,2.))*(.35+.65*n1(p.y*110.+uT*.8))*exp(-dp*2.2)*smoothstep(-.1,.1,s.y-YH);
-    col+=vec3(1.,.82,.6)*g*.9;
-    col=mix(col,scene(vec2(p.x,YH+.001),s)*.9,exp(-dp*14.)*.6);/* 水平線ぎわは空の色に溶ける */
+    float eM=mix(clamp((s.y-YH)/.55,-.25,1.),-.18,uMoon);
+    col=scene(q,s)*vec3(.58,.66,.86)*mix(.82,1.,exp(-dp*3.));
+    float sunUp=smoothstep(-.1,.1,s.y-YH)*mix(1.,.6,uMoon);
+    float g=exp(-pow((p.x-s.x)*(12.+dp*18.),2.))*(.3+.7*n1(p.y*120.+uT*.8))*exp(-dp*1.8)*sunUp;
+    col+=mix(vec3(1.,.82,.6),vec3(.8,.9,1.),uMoon)*g*.8;
+    /* 光の道のきらめき */
+    vec2 gg=vec2(p.x*160.,p.y*260.+uT*.3);vec2 gi=floor(gg);float gh=h2(gi);
+    col+=vec3(1.,.95,.85)*step(.93,gh)*smoothstep(.4,.0,length(fract(gg)-.5))*pow(.5+.5*sin(uT*3.+gh*60.),4.)*exp(-pow((p.x-s.x)*8.,2.))*exp(-dp*1.4)*sunUp*1.4;
+    /* 水平線の霧 */
+    vec3 mist=mix(vec3(.2,.2,.42),mix(vec3(1.,.78,.7),vec3(.85,.92,1.),smoothstep(.1,.7,eM)),smoothstep(-.2,.15,eM));
+    col=mix(col,mist,exp(-dp*16.)*.55);
+    /* 手前の岸と葦の影 */
+    float shore=-.46+.05*(fbm1(p.x*2.6+80.)-.4);
+    float aa=1.4/uRes.y;
+    float bank=smoothstep(-aa,aa,shore-p.y);
+    float rc2=floor(p.x*55.),rh=h2(vec2(rc2,3.))*.085*step(.35,h2(vec2(rc2,9.)));
+    float lean=(h2(vec2(rc2,5.))-.5)*.5*max(p.y-shore,0.);
+    float rw=.12*(1.-clamp((p.y-shore)/max(rh,1e-3),0.,1.));
+    float reed=step(0.,rh)*step(p.y,shore+rh)*smoothstep(rw+.04,rw,abs(fract(p.x*55.+lean*55.)-.5))*step(shore,p.y)*smoothstep(0.,.5,abs(p.x)*5.-.25);
+    float fgd=max(bank,reed);
+    vec3 fgc=vec3(.012,.016,.04)+vec3(1.,.8,.65)*.05*exp(-abs(p.x-s.x)*2.)*sunUp;
+    col=mix(col,fgc,fgd);
   }
   float vg=smoothstep(1.2,.3,length(p*vec2(.85,.6)));
   col*=.7+.3*vg;
