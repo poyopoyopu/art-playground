@@ -38,8 +38,10 @@ function timePos(h){
   return {x:-.26+.52*f,y:day?YH+.015+Math.sin(Math.PI*f)*.5:YH+.03+Math.sin(Math.PI*f)*.42,moon:day?0:1};
 }
 const tp0=timePos();
-/* 湖に映る空は、いまとは別の時刻。最初は約11時間ずれ。湖に触れて変えると戻らない */
-let wOff=11,wTgt=11,wFast=false,wMoon=timePos(clockH()+11).moon,wSun={x:timePos(clockH()+11).x,y:timePos(clockH()+11).y},wLast=-99;
+/* 湖に映る空は、いまとは別の時刻。空が昼なら水の中は真夜中、空が夜なら水の中は正午(必ず対照的になる)。湖に触れて変えると、そのあとは自分で決めた時刻のまま */
+function wrap12(x){return((x+12)%24+24)%24-12}
+function autoOff(){const h=clockH();return((h>=6&&h<18)?.5:12.5)-h}
+let wAuto=true,wOff=autoOff(),wTgt=wOff,wMoon=timePos(clockH()+wOff).moon,wSun={x:timePos(clockH()+wOff).x,y:timePos(clockH()+wOff).y};
 let zone='sky',wDown={x:0,t:0,moved:false};
 let sun={x:tp0.x,y:tp0.y},tgt={x:tp0.x,y:tp0.y},moonT=tp0.moon,moon=tp0.moon,lastTouch=-99,ice=.45,iceBase=.45,held=null;
 const VS='attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}';
@@ -221,7 +223,7 @@ function resize(){
 addEventListener('resize',resize,{passive:true});
 function toP(cx,cy){return {x:(cx-W*.5)/H,y:(H*.5-cy)/H}}
 function setSun(cx,cy){const p=toP(cx,cy);tgt.x=Math.max(-.6,Math.min(.6,p.x));tgt.y=Math.max(YH-.09,Math.min(.62,p.y))}
-function reset(){wOff=wTgt=11;lastTouch=-99;iceBase=.45;ice=.45;seed=0}
+function reset(){wAuto=true;lastTouch=-99;iceBase=.45;ice=.45;seed=0}
 function mutate(){seed=Math.random()*50;tgt={x:(Math.random()-.5)*.6,y:YH-.04+Math.random()*.5};iceBase=.35+Math.random()*.3;lastTouch=t}
 canvas.addEventListener('pointerdown',e=>{
   if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
@@ -232,7 +234,7 @@ canvas.addEventListener('pointerdown',e=>{
 },{passive:false});
 canvas.addEventListener('pointermove',e=>{if(held===e.pointerId){lastTouch=t;
   if(zone==='sky')setSun(e.clientX,e.clientY);
-  else{if(Math.abs(e.clientX-wDown.x)>10)wDown.moved=true;if(wDown.moved){/* 横になぞると、水の中の時刻が回る(左端=0時、右端=24時) */const target=e.clientX/W*24;let off=target-clockH();off=((off%24)+24)%24;let diff=off-wTgt;diff=((diff+12)%24+24)%24-12;wTgt+=diff}}}});
+  else{if(Math.abs(e.clientX-wDown.x)>10)wDown.moved=true;if(wDown.moved){wAuto=false;/* 横になぞると、水の中の時刻が回る(左端=0時、右端=24時) */const target=e.clientX/W*24;let off=target-clockH();off=((off%24)+24)%24;let diff=off-wTgt;diff=((diff+12)%24+24)%24-12;wTgt+=diff}}}});
 function up(e){if(held===e.pointerId){held=null;lastTouch=t}}
 canvas.addEventListener('pointerup',up);canvas.addEventListener('pointercancel',up);
 function frame(ts){
@@ -243,7 +245,8 @@ function frame(ts){
   if(held===null&&t-lastTouch>10){tgt.x=tpn.x;tgt.y=tpn.y}
   moon+=(moonT-moon)*(1-Math.exp(-dt*1.5));
   /* 湖を押し続けると、水の中だけ時間が速く流れる */
-  if(held!==null&&zone==='water'&&!wDown.moved&&t-wDown.t>.35)wTgt+=dt*2.4;
+  if(held!==null&&zone==='water'&&!wDown.moved&&t-wDown.t>.35){wAuto=false;wTgt+=dt*2.4}
+  if(wAuto)wTgt+=wrap12(autoOff()-wTgt);
   wOff+=(wTgt-wOff)*(1-Math.exp(-dt*(held!==null?6:2)));
   const wp=timePos(clockH()+wOff);wMoon+=(wp.moon-wMoon)*(1-Math.exp(-dt*1.5));wSun.x=wp.x;wSun.y=wp.y;
   const k=1-Math.exp(-dt*(held!==null?9:(t-lastTouch>10?.7:3.2)));sun.x+=(tgt.x-sun.x)*k;sun.y+=(tgt.y-sun.y)*k;
