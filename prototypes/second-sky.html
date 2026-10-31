@@ -1,0 +1,189 @@
+<!doctype html>
+<!-- SECOND SKY — クロちゃん(Claude)作。ap-kit.js統合: クロちゃん。2026/10/31 試作。
+     世界のルール: 世界は夜の星雲の空。触れた所に「もう一つの空」(昼の宇宙)を覗く窓が開き、窓のまわりの空間は重力レンズのようにねじれる。
+       押し続けると窓が広がり(離しても残る)、なぞると運べる。窓どうしが近づくと液体のようにつながる。窓をタップすると弾けて閉じる。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#04040c">
+<title>SECOND SKY — 触れた所に、もう一つの空が開く</title>
+<script src="../ap-kit.js"></script>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#04040c;touch-action:none}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#hint{position:fixed;top:calc(env(safe-area-inset-top) + 16px);left:16px;right:16px;text-align:center;pointer-events:none;color:#e8eefa;font:500 10px/1.9 ui-monospace,monospace;letter-spacing:.2em;text-shadow:0 2px 12px #000;transition:opacity 1.4s}
+#hint b{display:block;font:600 12px/1.9 ui-sans-serif,system-ui,sans-serif;letter-spacing:.12em;color:#fff}
+#hint.off{opacity:0}
+</style>
+</head>
+<body>
+<canvas id="art"></canvas>
+<div id="hint"><b>触れた所に、もう一つの空が開く</b>押し続けて広げる · なぞって運ぶ · タップで閉じる</div>
+<script>
+(()=>{
+'use strict';
+const canvas=document.getElementById('art'),hint=document.getElementById('hint');
+const gl=canvas.getContext('webgl',{antialias:false,alpha:false,preserveDrawingBuffer:true});
+const MAXO=6,MAXR=.21,TAP_R=.14;
+let W=1,H=1,scale=1,t=0,last=0,alive=true,touched=false,slow=0;
+let hueA=.42,hueB=.02,kA=[.4,.24],kB=[.32,.5];
+let orbs=[],pops=[];
+const ptrs=new Map();
+const VS='attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}';
+const FS=`precision highp float;
+uniform vec2 uRes;uniform float uT;uniform vec3 uO[${MAXO}];uniform vec3 uP[3];
+uniform vec4 uC;uniform vec4 uK;
+float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
+vec3 pal(float x,float h){return .5+.5*cos(6.2832*(x+h+vec3(0.,.33,.67)));}
+/* 光の環: 折り返し+回転+拡大を9回かけ、そのたびに環と線の光を足す(自己相似)。夜=深い藍に冷たい光、昼=淡い空に濃い色の環 */
+vec3 world(vec2 p,float h,vec2 k,float day){
+  vec2 z=p*1.5;
+  float ang=.62+.08*sin(uT*.06+day*2.);
+  mat2 m=mat2(cos(ang),-sin(ang),sin(ang),cos(ang))*1.3;
+  vec2 kk=k+.03*vec2(sin(uT*.09+day),cos(uT*.07));
+  vec3 c=vec3(0.);float glow=0.;
+  vec3 c1=pal(h,0.)*.8+.2,c2=pal(h-.14,0.)*.8+.2;
+  for(int i=0;i<9;i++){
+    z=abs(z)-kk;z=m*z;
+    float dr=abs(length(z)-.5);
+    float dl=abs(z.x+z.y*.6);
+    float g=.011/(dr+.011)+.005/(dl+.008);
+    float fi=float(i);
+    c+=mix(c1,c2,.5+.5*sin(fi*.9+length(z)*2.))*g*(1.-fi*.06);glow+=g;
+  }
+  if(day<.5){
+    float sky=smoothstep(.9,-.5,p.y);
+    vec3 base=mix(vec3(.008,.012,.04),vec3(.06,.02,.13),sky);
+    vec3 haze=c1*smoothstep(0.,7.,glow)*.16;
+    vec3 r=base+haze+c*.3;
+    vec2 g2=p*70.;vec2 id=floor(g2);float s=hash(id);
+    float star=step(.988,s)*smoothstep(.5,.0,length(fract(g2)-.5+(hash(id+7.)-.5)*.5))*(.6+.4*sin(uT*2.+s*60.));
+    return r+vec3(.85,.92,1.)*star*1.5;
+  }
+  float v=smoothstep(.3,3.2,glow);
+  vec3 base=mix(vec3(1.,.8,.5),vec3(1.,.5,.68),smoothstep(-.45,.55,p.y+.18*sin(p.x*3.+uT*.1)));
+  base+=vec3(.25,.2,.1)*exp(-dot(p,p)*3.);
+  vec3 line=mix(vec3(.5,.06,.62),vec3(.1,.28,.88),.5+.5*sin(glow*.4+length(p)*2.));
+  line=mix(line,c1*.7,.18);
+  return mix(base,line,v*.9)+vec3(1.,.95,.8)*smoothstep(6.,13.,glow)*.5;
+}
+void main(){
+  vec2 p=(gl_FragCoord.xy-.5*uRes)/uRes.y;
+  float f=0.,ws=0.;vec2 defl=vec2(0.),cw=vec2(0.);
+  for(int i=0;i<${MAXO};i++){
+    float R=uO[i].z;
+    if(R>.002){vec2 d=p-uO[i].xy;float d2=dot(d,d)+1e-4;float w=R*R/d2;f+=w;defl+=d*w;cw+=uO[i].xy*w;ws+=w;}
+  }
+  cw/=max(ws,1e-4);
+  float inside=smoothstep(.93,1.07,f);
+  float rim=exp(-abs(log(max(f,1e-4)))*15.);
+  vec3 col=vec3(0.);
+  if(inside<.999){
+    vec2 pa=p-defl*.92;
+    col=world(pa,uC.x,uK.xy,0.);
+    /* 窓のふちの色収差(赤と青をずらして引く) */
+    if(rim>.02){
+      vec2 pr=p-defl*.97,pb2=p-defl*.87;
+      col.r=mix(col.r,world(pr,uC.x,uK.xy,0.).r,rim);
+      col.b=mix(col.b,world(pb2,uC.x,uK.xy,0.).b,rim);
+    }
+  }
+  if(inside>.001){
+    vec2 q=p-cw;float s=clamp(1./max(f,1e-3),0.,1.);
+    vec2 pb=cw+q*(.42+1.5*s*s)+vec2(uT*.012,-uT*.008);
+    vec3 cb=world(pb,uC.y,uK.zw,1.);
+    cb*=mix(1.12,.5,s*s*s);
+    cb+=vec3(1.,.82,.6)*pow(s,10.)*.35;
+    col=mix(col,cb,inside);
+  }
+  col+=vec3(1.,.92,.82)*rim*.55;
+  /* 触れた瞬間・閉じた瞬間の波紋 */
+  for(int i=0;i<3;i++){
+    float age=uP[i].z;
+    if(age>0.&&age<1.3){float d=length(p-uP[i].xy);float r=age*.6;float wv=exp(-pow((d-r)*18.,2.))*(1.-age/1.3);col+=vec3(.85,.92,1.)*wv*.7;}
+  }
+  float vg=smoothstep(1.15,.25,length(p*vec2(.9,.62)));
+  col*=.55+.45*vg;
+  col=1.-exp(-col*1.25);
+  col+= (hash(gl_FragCoord.xy+uT)-.5)*.012;
+  gl_FragColor=vec4(col,1.);
+}`;
+function sh(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))console.error(gl.getShaderInfoLog(s));return s}
+const prog=gl.createProgram();gl.attachShader(prog,sh(gl.VERTEX_SHADER,VS));gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,FS));gl.linkProgram(prog);gl.useProgram(prog);
+const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+const loc=gl.getAttribLocation(prog,'a');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+const U={};['uRes','uT','uO','uP','uC','uK'].forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+const uo=new Float32Array(MAXO*3),up=new Float32Array(9);
+function resize(){
+  W=innerWidth;H=innerHeight;const d=Math.min(devicePixelRatio||1,1.5)*scale;
+  canvas.width=Math.max(2,Math.round(W*d));canvas.height=Math.max(2,Math.round(H*d));canvas.style.width=W+'px';canvas.style.height=H+'px';
+  gl.viewport(0,0,canvas.width,canvas.height);
+}
+addEventListener('resize',resize,{passive:true});
+function toP(cx,cy){return [(cx-W*.5)/H,(H*.5-cy)/H]}
+function addOrb(x,y,target){
+  if(orbs.filter(o=>o.target>0).length>=MAXO){const o=orbs.find(o=>o.target>0);if(o){o.target=0;pops.push({x:o.x,y:o.y,t0:t})}}
+  const o={x,y,bx:x,by:y,R:.004,rv:0,target:target||TAP_R,ph:Math.random()*6.28,held:false};orbs.push(o);pops.push({x,y,t0:t});return o;
+}
+function reset(){
+  orbs=[];pops=[];hueA=.42;hueB=.02;kA=[.4,.24];kB=[.32,.5];
+  setTimeout(()=>{if(!orbs.length)addOrb(0,.06,.18)},500);
+}
+function mutate(){
+  hueA=Math.random();hueB=(hueA+.35+Math.random()*.3)%1;
+  kA=[.45+Math.random()*.4,.2+Math.random()*.4];kB=[.4+Math.random()*.35,.4+Math.random()*.4];
+  pops.push({x:0,y:0,t0:t});
+}
+function pick(x,y){let best=null,bd=1e9;for(const o of orbs){if(o.target<=0)continue;const d=Math.hypot(x-o.x,y-o.y);if(d<o.R*.95&&d<bd){bd=d;best=o}}return best}
+canvas.addEventListener('pointerdown',e=>{
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  touched=true;hint.classList.add('off');try{canvas.setPointerCapture(e.pointerId)}catch(_){}
+  const [x,y]=toP(e.clientX,e.clientY);let o=pick(x,y),isNew=false;
+  if(!o){o=addOrb(x,y);isNew=true}
+  o.held=true;ptrs.set(e.pointerId,{o,t0:t,x0:e.clientX,y0:e.clientY,drag:false,isNew,ox:o.x-x,oy:o.y-y});
+  e.preventDefault();
+},{passive:false});
+canvas.addEventListener('pointermove',e=>{
+  const q=ptrs.get(e.pointerId);if(!q)return;
+  if(!q.drag&&Math.hypot(e.clientX-q.x0,e.clientY-q.y0)>9)q.drag=true;
+  if(q.drag){const [x,y]=toP(e.clientX,e.clientY);q.o.bx=x+q.ox;q.o.by=y+q.oy}
+});
+function up_(e){
+  const q=ptrs.get(e.pointerId);if(!q)return;ptrs.delete(e.pointerId);q.o.held=false;
+  /* 既にある窓を短くタップしたら、弾けて閉じる */
+  if(!q.isNew&&!q.drag&&t-q.t0<.28){q.o.target=0;pops.push({x:q.o.x,y:q.o.y,t0:t})}
+}
+canvas.addEventListener('pointerup',up_);canvas.addEventListener('pointercancel',up_);
+function frame(ts){
+  if(!alive)return;const dt=Math.min(.05,(ts-last)/1000||.016);last=ts;t+=dt;
+  slow=slow*.95+dt*.05;if(slow>.03&&scale>.5){scale*=.85;slow=.016;resize()}
+  for(const q of ptrs.values()){const o=q.o;if(!q.drag&&t-q.t0>.28&&o.target>0)o.target=Math.min(MAXR,Math.max(o.target,TAP_R)+dt*.07)}
+  for(let i=orbs.length-1;i>=0;i--){
+    const o=orbs[i];
+    /* 液体のように少し弾んで広がる(ばね) */
+    o.rv+=((o.target-o.R)*70-o.rv*9)*dt;o.R=Math.max(0,o.R+o.rv*dt);
+    if(!o.held){o.bx+=0;}
+    const fl=o.held?0:1;o.x+=((o.bx+Math.sin(t*.37+o.ph)*.012*fl)-o.x)*Math.min(1,dt*14);o.y+=((o.by+Math.cos(t*.31+o.ph)*.012*fl)-o.y)*Math.min(1,dt*14);
+    if(o.target<=0&&o.R<.004)orbs.splice(i,1);
+  }
+  for(let i=pops.length-1;i>=0;i--)if(t-pops[i].t0>1.3)pops.splice(i,1);
+  uo.fill(0);orbs.slice(0,MAXO).forEach((o,i)=>{uo[i*3]=o.x;uo[i*3+1]=o.y;uo[i*3+2]=o.R});
+  up.fill(0);pops.slice(-3).forEach((p,i)=>{up[i*3]=p.x;up[i*3+1]=p.y;up[i*3+2]=Math.max(.0001,t-p.t0)});
+  gl.uniform2f(U.uRes,canvas.width,canvas.height);gl.uniform1f(U.uT,t);gl.uniform3fv(U.uO,uo);gl.uniform3fv(U.uP,up);
+  gl.uniform4f(U.uC,hueA,hueB,0,0);gl.uniform4f(U.uK,kA[0],kA[1],kB[0],kB[1]);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+  if(!touched&&t>16)hint.classList.add('off');
+  requestAnimationFrame(frame);
+}
+document.addEventListener('visibilitychange',()=>{if(document.hidden)alive=false;else if(!alive){alive=true;last=performance.now();requestAnimationFrame(frame)}});
+resize();reset();
+APKit.init({canvas,gifName:'second-sky-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,buttons:[
+  {label:'✦',name:'mutate',onClick:mutate},
+  {label:'↻',name:'reset',onClick:reset}
+]});
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
