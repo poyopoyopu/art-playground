@@ -22,7 +22,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 <body>
 <canvas id="art"></canvas>
 <div id="sun"></div>
-<div id="hint"><b>葉のすきまは、太陽の小さな像をつくる</b>横になぞると、日食が進む。中央で皆既、過ぎると光が戻る</div>
+<div id="hint"><b>葉のすきまは、太陽の小さな像をつくる</b>なぞると日食が進む · 中央で皆既 · ✦で森⇄ネオン</div>
 <script>
 (()=>{
 'use strict';
@@ -65,7 +65,7 @@ vec3 dapples(vec2 p,float cs,float prob,float rb,float so){
       vec3 hc=mix(vec3(1.),rainbow(h2(cell+so+19.)+uT*.015)*mix(1.5,1.9,uTh),amt);
       sum+=k*hc;
       /* ネオン: 光の斑点のまわりに、にじむ光 */
-      sum+=hc*exp(-length(p-c)/(r*1.5))*.22*uTh*(1.-uCov*.85);
+      sum+=hc*exp(-length(p-c)/(r*1.5))*smoothstep(cs*.9,cs*.4,length(p-c))*.22*uTh*(1.-uCov*.85);/* マス目の端で切れないよう、内側で消す */
     }
   }
   return sum;
@@ -87,6 +87,49 @@ vec4 leaf(vec2 p,float sc){
   vec3 col=k<.25?vec3(.72,.26,.07):(k<.5?vec3(.86,.56,.12):(k<.75?vec3(.5,.16,.05):vec3(.42,.48,.1)));
   col=col*(.85+.3*h2(id+71.))*(1.-.35*vein);
   return vec4(col,body);
+}
+/* ネオンの動物: 黒猫と犬を、ネオン管の輪郭で描く。座って、体をゆらし、尻尾を振る */
+float sdCap2(vec2 p,vec2 a,vec2 b,float r){vec2 pa=p-a,ba=b-a;float h=clamp(dot(pa,ba)/dot(ba,ba),0.,1.);return length(pa-ba*h)-r;}
+float sdEll(vec2 p,vec2 r){return (length(p/r)-1.)*min(r.x,r.y);}
+float catSD(vec2 u,float wag){
+  float body=sdEll(u-vec2(0.,-.36),vec2(.52,.68));
+  float head=length(u-vec2(0.,.48))-.4;
+  float earL=sdCap2(u,vec2(-.26,.78),vec2(-.33,.98),.08);
+  float earR=sdCap2(u,vec2(.26,.78),vec2(.33,.98),.08);
+  vec2 t0=vec2(.46,-.78),t1=vec2(.86,-.55+.1*wag),t2=vec2(.98,-.05+.2*wag),t3=vec2(.82,.34+.3*wag);
+  float tail=min(sdCap2(u,t0,t1,.06),min(sdCap2(u,t1,t2,.06),sdCap2(u,t2,t3,.06)));
+  return min(min(body,head),min(min(earL,earR),tail));
+}
+float dogSD(vec2 u,float wag){
+  float body=sdEll(u-vec2(-.12,-.3),vec2(.62,.52));
+  float head=length(u-vec2(.46,.4))-.32;
+  float snout=sdCap2(u,vec2(.62,.32),vec2(.92,.26),.14);
+  float ear=sdEll(u-vec2(.28,.36),vec2(.12,.3));
+  float tail=sdCap2(u,vec2(-.68,-.42),vec2(-1.0,-.08+.22*wag),.07);
+  float legF=sdCap2(u,vec2(.34,-.46),vec2(.36,-.98),.12);
+  float legB=sdCap2(u,vec2(-.4,-.55),vec2(-.34,-.98),.14);
+  return min(min(min(body,head),min(snout,ear)),min(tail,min(legF,legB)));
+}
+vec3 animals(vec2 p){
+  float cs=.27;vec2 id=floor(p/cs);
+  float h=h2(id+91.);if(h>.64)return vec3(0.);
+  float tp=h2(id+101.);
+  vec2 c=(id+.5+(vec2(h2(id+93.),h2(id+97.))-.5)*.3)*cs;
+  c.x+=sin(uT*.17+h*30.)*.028;c.y+=sin(uT*1.1+h*20.)*.004;
+  float sc=.058+.012*h2(id+103.);
+  vec2 u=(p-c)/sc;u.x*=(h2(id+107.)>.5?1.:-1.);
+  float wag=sin(uT*3.2+h*40.);
+  float sd=(tp<.5?catSD(u,wag):dogSD(u,wag))*sc;
+  float lw=.0026;
+  vec3 col=rainbow(h2(id+109.)+uT*.01)*1.6;
+  float line=exp(-pow(sd/lw,2.))+.28*exp(-abs(sd)/(lw*5.));
+  float fill=smoothstep(0.,-.004,sd)*.05;
+  vec3 o=col*(line+fill);
+  /* 目: 猫は黄緑、犬は白 */
+  vec2 e1=tp<.5?vec2(-.17,.55):vec2(.54,.48),e2=tp<.5?vec2(.17,.55):vec2(9.,9.);
+  float eye=exp(-pow(length(u-e1)/.07,2.))+exp(-pow(length(u-e2)/.07,2.));
+  o+=(tp<.5?vec3(.7,1.,.2):vec3(1.))*eye*1.4;
+  return o;
 }
 void main(){
   vec2 p=(gl_FragCoord.xy-.5*uRes)/uRes.y;
@@ -120,7 +163,7 @@ void main(){
     float outl=clamp(lo.a-li.a,0.,1.);
     nb+=nl*outl*.85+nl*lo.a*.05;
     float dimN=mix(1.,.55,e);
-    col=nb+D*(.35+.65*M)*1.9*dimN;
+    col=nb+D*(.35+.65*M)*1.9*dimN+animals(p)*mix(1.,.7,e);
   }
   float vg=smoothstep(1.15,.25,length(p*vec2(.85,.62)));
   col*=.62+.38*vg;
