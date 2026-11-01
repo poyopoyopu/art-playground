@@ -59,7 +59,8 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 /* 隠しメニュー(タイマー・バス・時刻指定)。公開作品なので、ふだんは出さない。?timer=1 で開くと、この端末で有効になる(?timer=0 でやめる)。画面の左上の角を素早く5回タップしても有効になる */
 const TIMER_ON=(()=>{try{const q=new URLSearchParams(location.search).get('timer');if(q==='1')localStorage.setItem('komorebi-timer','1');if(q==='0')localStorage.removeItem('komorebi-timer');return localStorage.getItem('komorebi-timer')==='1'}catch(_){return new URLSearchParams(location.search).get('timer')==='1'}})();
 const canvas=document.getElementById('art'),hint=document.getElementById('hint'),cdEl=document.getElementById('cd');
-if(!TIMER_ON)cdEl.style.display='none';
+let showCd=false;/* タイマーを始めたときだけ残り時間を出す(開いた直後は何も出さない) */
+cdEl.style.display='none';
 const gl=canvas.getContext('webgl',{antialias:false,alpha:false,preserveDrawingBuffer:true});
 const DBG=(new URLSearchParams(location.search)).get('f');/* ?f=0 のように日食の時間(-1=前,0=最大,1=あと)を指定して確かめられる */
 let W=1,H=1,scale=1,t=0,last=0,alive=true,touched=false,slow=0,seed=0,held=null;
@@ -87,9 +88,9 @@ function nextDep(stop,fromMs){
   return null}
 const hm=(h,m)=>('0'+h).slice(-2)+':'+('0'+m).slice(-2);
 let bus=-1,busFlash=0,until=null,untilTime='';
-if(TIMER_ON)try{const u=JSON.parse(localStorage.getItem('komorebi-until')||'null');if(u&&u.t>Date.now())until=u;untilTime=localStorage.getItem('komorebi-until-time')||''}catch(_){}
+if(TIMER_ON)try{untilTime=localStorage.getItem('komorebi-until-time')||''}catch(_){}
 let running=true,loop=true,press=null;
-if(TIMER_ON)try{const bs=parseInt(localStorage.getItem('komorebi-bus'));if(bs>=0&&bs<STOPS.length){const u=busPlan(bs,Date.now());if(u){bus=bs;until=u}}}catch(_){}/* running=日食が進んでいるか。loop=1周したあと、また最初から繰り返すか(オフならタイマーとして1回で止まる) */
+/* running=日食が進んでいるか。loop=1周したあと、また最初から繰り返すか(オフならタイマーとして1回で止まる) */
 if(TIMER_ON)try{if(localStorage.getItem('komorebi-loop')==='0')loop=false}catch(_){}
 let fingerF=0,rest=0,ended=false;/* 自動の日食が1周したあと、光が丸い状態で休む秒数 */
 let F=DBG!==null?parseFloat(DBG):-1,tgt=F,theme=({neon:1,space:2,sea:3,glass:4,sakura:5})[(new URLSearchParams(location.search)).get('theme')]||0;
@@ -248,7 +249,7 @@ function cover(f,mr){const d=Math.abs(f)*1.9,R=1;if(d>=R+mr)return 0;if(d<=Math.
   const a=R*R*Math.acos((d*d+R*R-mr*mr)/(2*d*R))+mr*mr*Math.acos((d*d+mr*mr-R*R)/(2*d*mr))-.5*Math.sqrt((-d+mr+R)*(d+mr-R)*(d-mr+R)*(d+mr+R));return Math.min(1,a/Math.PI)}
 function save(k,v){try{localStorage.setItem(k,String(v))}catch(_){}}
 function restart(run){F=-1;tgt=-1;rest=0;ended=false;running=run}
-function cancelUntil(){until=null;bus=-1;save('komorebi-until','');save('komorebi-bus','')}
+function cancelUntil(){until=null;bus=-1;showCd=false;save('komorebi-until','');save('komorebi-bus','')}
 function reset(){cancelUntil();restart(loop);rest=loop?3:0}/* 最初から。くり返すなら自動で進み、くり返さないなら「スタート」を待つ */
 function mutate(){seed=Math.random()*80;theme=(theme+1)%THEMES.length;save('komorebi-theme',theme)}/* ✦: 配置を作り直し、模様を次へ */
 function setCycle(v){if(until)cancelUntil();cycle=Math.max(5,Math.min(3600,v));save('komorebi-cycle',cycle);refreshMenu()}
@@ -258,15 +259,16 @@ function busPlan(stop,fromMs){
   return {s:fromMs,t:nd.t,bus:true,label:STOPS[stop]+'  '+hm(nd.h,nd.m)+' 発'+(nd.day?'(明日)':''),note:nd.note,after:af?hm(af.h,af.m)+(af.day?'(明日)':''):''}}
 function startBus(stop){
   const u=busPlan(stop,Date.now());if(!u)return;bus=stop;until=u;save('komorebi-bus',stop);save('komorebi-until','');
-  restart(true);ended=false;toggleMenu(false)}
+  restart(true);ended=false;showCd=true;toggleMenu(false)}
 function startUntil(){
   const m=/^(\d{1,2}):(\d{2})/.exec(untilTime||defaultUntil());if(!m)return;
   const now=Date.now(),d=new Date(now);d.setHours(+m[1],+m[2],0,0);
   let tt=d.getTime();if(tt<=now+1000)tt+=86400000;/* すでに過ぎていたら、翌日の同じ時刻まで */
   until={s:now,t:tt,label:('0'+m[1]).slice(-2)+':'+m[2]};save('komorebi-until',JSON.stringify(until));save('komorebi-until-time',untilTime||defaultUntil());
-  restart(true);ended=false;toggleMenu(false)}
+  restart(true);ended=false;showCd=true;toggleMenu(false)}
 function toggleRun(){
-  if(until)cancelUntil();
+  showCd=true;
+  if(until)cancelUntil(),showCd=true;
   if(ended||(!loop&&F>=.999)){restart(true)}/* 終わったあとは、最初からスタート */
   else running=!running;
   refreshMenu()}
@@ -321,14 +323,13 @@ menu.addEventListener('click',e=>{
   const b=e.target.closest('button');if(!b)return;const a=b.dataset.a,v=parseFloat(b.dataset.v);
   if(a==='close'){toggleMenu(false);return}
   if(a==='until'){startUntil();return}
-  if(a==='wait60'){cancelUntil();cycle=60;loop=false;restart(true);toggleMenu(false);return}/* 押した瞬間から60秒。終わると知らせて止まる */
+  if(a==='wait60'){cancelUntil();cycle=60;loop=false;restart(true);showCd=true;toggleMenu(false);return}/* 押した瞬間から60秒。終わると知らせて止まる */
   if(a==='bus'){startBus(v);return}
   if(a==='cancel'){cancelUntil();restart(loop);rest=loop?3:0;refreshMenu();return}
   if(a==='m10')setCycle(cycle-10);else if(a==='p10')setCycle(cycle+10);else if(a==='c')setCycle(v);
   else if(a==='run')toggleRun();else if(a==='rs'){cancelUntil();restart(false);refreshMenu()}
   else if(a==='loop')setLoop(!loop);
 });
-if(TIMER_ON)hint.lastChild.textContent='☰で停留所を選ぶと、発車までを数えます';
 function toggleMenu(on){if(!TIMER_ON)return;menu.hidden=on===undefined?!menu.hidden:!on;if(!menu.hidden)refreshMenu()}
 let lastReal=performance.now();/* 待ち時間を測るため、日食の進みは実際の時計で数える(重い端末や、画面が止まっていた間も遅れない) */
 function frame(ts){
@@ -361,6 +362,7 @@ function frame(ts){
   let goNow=ended&&!wentShown;if(ended&&!wentShown){wentShown=true;flashEl.classList.remove('on');void flashEl.offsetWidth;flashEl.classList.add('on')}
   if(!ended)wentShown=false;
   if(until&&until.bus&&Date.now()<busFlash)goNow=true;
+  cdEl.style.display=(TIMER_ON&&showCd)?'flex':'none';
   cdEl.className=(ended?'end ':'')+(warnNow?'warn ':'')+((goNow||Date.now()<flashUntil)?'go':'');
   const hh=Math.floor(ls/3600),mm=Math.floor(ls%3600/60),ss=ls%60;
   cdEl.querySelector('.t').innerHTML=ended?'00<i>:</i>00':(hh>0?hh+'<i>:</i>':'')+('0'+mm).slice(-2)+'<i>:</i>'+('0'+ss).slice(-2);
