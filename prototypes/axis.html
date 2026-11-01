@@ -9,6 +9,8 @@
      世界のルール: 地軸の傾きが、季節も、昼と夜の形も、氷のある場所も決めている。指でその傾きを変えられる。
        何もしなくても: 宇宙に浮かぶ地球が自転しながら太陽のまわりを回り(1年=約120秒)、昼夜の境目が地表を滑り、
                        夜側に街の灯りがともる。季節につれて雪と氷が極のまわりを行き来する。
+                       25秒ほど触らないでいると、地軸がひとりでにゆっくり別の傾きへ移っていき(木星のような直立から天王星のような横倒しまで)、
+                       氷や昼夜の形が少しずつ変わる。ときどき流れ星が横切る。触るとすぐ止まる(おっちゃん「見ていて変化が欲しい」)。
        横になぞる = 地軸の傾きが変わる(0〜180度)。傾きが大きいほど四季は極端になり、90度を超えると逆まわりの星になる。
                    雪線は気温(その緯度が受ける日射の移り変わり)から計算しているので、傾けた結果として氷の場所が動く
        タップ    = 有名な傾きへ順にジャンプ(木星3度 → 地球23.4度 → 54度 → 天王星98度 → 金星177度)
@@ -42,6 +44,8 @@ uniform float uTime, uSeed, uR, uSea, uDelta, uDrag;
 uniform mat3 uBody, uBodyI;
 uniform vec3 uS, uA;
 uniform sampler2D uT;
+uniform vec4 uMet;
+uniform float uMetU;
 
 float hash(vec3 p){ p=fract(p*.3183099+.1); p*=17.; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
 float hash21(vec2 p){ p=fract(p*vec2(123.34,456.21)); p+=dot(p,p+45.32); return fract(p.x*p.y); }
@@ -66,6 +70,12 @@ vec3 space(vec2 p,float asp){
     float r=length(fr-o);
     float tw=.7+.3*sin(uTime*(.8+b*2.5)+h*60.);
     c+=vec3(.75,.85,1.)*smoothstep(.2+.12*b,0.,r)*(.12+.88*b*b)*tw;
+  }
+  if(uMetU>=0.){
+    vec2 dir=uMet.zw, head=uMet.xy+dir*uMetU*.36, tail=head-dir*.09*sin(3.14159*uMetU);
+    vec2 pa=p-tail, ba=head-tail; float hh=clamp(dot(pa,ba)/max(dot(ba,ba),1e-6),0.,1.);
+    float dd=length(pa-ba*hh);
+    c+=vec3(.92,.96,1.)*smoothstep(.0020,0.,dd)*(.2+.8*hh)*sin(3.14159*uMetU)*1.3;
   }
   vec2 sp=vec2(.5*asp+.28,.07); float sd=length(p-sp);
   c+=vec3(1.,.6,.28)*(.34*exp(-sd*3.2)+.28*exp(-sd*10.));
@@ -121,9 +131,9 @@ void main(){
     sea=mix(sea,vec3(.82,.91,.97)*(.84+.28*grain)*(1.-.25*crack),ice);
     vec3 alb=mix(sea,lc,land);
     // 雲(太陽が真上に来る緯度のまわりに多い)
-    float ca=uTime*.012;
+    float ca=uTime*.03;
     vec3 cb=vec3(b.x*cos(ca)+b.z*sin(ca),b.y,-b.x*sin(ca)+b.z*cos(ca));
-    float cn=fbm(cb*vec3(2.6,3.6,2.6)+vec3(uSeed*2.,uTime*.01,uSeed),5);
+    float cn=fbm(cb*vec3(2.6,3.6,2.6)+vec3(uSeed*2.,uTime*.03,uSeed),5);
     float band=.12*exp(-pow((lat-uDelta)/.30,2.));
     float cl=smoothstep(.555,.80,cn+band);
     // 光
@@ -189,7 +199,7 @@ gl.linkProgram(prog); if(!gl.getProgramParameter(prog,gl.LINK_STATUS)) console.e
 gl.useProgram(prog);
 var buf=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,buf); gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
 var al=gl.getAttribLocation(prog,'a'); gl.enableVertexAttribArray(al); gl.vertexAttribPointer(al,2,gl.FLOAT,false,0,0);
-var U={}; ['uRes','uTime','uSeed','uR','uSea','uDelta','uDrag','uBody','uBodyI','uS','uA','uT'].forEach(function(n){ U[n]=gl.getUniformLocation(prog,n); });
+var U={}; ['uRes','uTime','uSeed','uR','uSea','uDelta','uDrag','uBody','uBodyI','uS','uA','uT','uMet','uMetU'].forEach(function(n){ U[n]=gl.getUniformLocation(prog,n); });
 
 /* ---------- 緯度ごとの気温(64区間)をテクスチャで渡す ---------- */
 var NL=64, Tm=new Float32Array(NL), Tn=new Float32Array(NL), tBytes=new Uint8Array(NL*4);
@@ -272,9 +282,34 @@ function pulseLab(){ labEl.classList.add('on'); clearTimeout(labT); labT=setTime
 
 /* ---------- 触る ---------- */
 var drags={}, drag=0, dragA=0;
+/* 放っておくと、地軸がひとりでにゆっくり別の傾きへ移っていく(見ていて変化があるように)。触るとすぐ止まる */
+var IDLE=hv('i')!==null?hv('i'):25, idle=0, dr=null;
+function touched(){ idle=0; dr=null; }
+function startDrift(){
+  var pools=[[0,12],[18,28],[35,70],[80,110],[140,180]], w=[1,3,2,2,1], to=epsT, tries=0;
+  while(Math.abs(to-epsT)<25 && tries++<20){
+    var r=Math.random()*9, k=0; while(k<4 && r>w[k]){ r-=w[k]; k++; }
+    to=rnd(pools[k][0],pools[k][1]);
+  }
+  dr={from:epsT,to:to,t:0,dur:Math.max(16,Math.abs(to-epsT)/1.8),hold:rnd(7,13)};
+}
+function stepDrift(dt){
+  if(!dr) startDrift();
+  dr.t+=dt;
+  var k=clamp(dr.t/dr.dur,0,1), e=k*k*(3-2*k);
+  epsT=dr.from+(dr.to-dr.from)*e;
+  if(dr.t>dr.dur+dr.hold) dr=null;
+}
+/* 流れ星 */
+var met=[0,0,0,0], metU=-1, nextMet=rnd(3,6);
+function fireMeteor(){
+  var asp=W/H, s=Math.random()<.5?-1:1;
+  met=[rnd(-.42,.42)*asp, rnd(.14,.46), s*rnd(.3,.7), -rnd(.65,.9)];
+  var l=Math.hypot(met[2],met[3]); met[2]/=l; met[3]/=l; metU=0;
+}
 cv.addEventListener('pointerdown',function(ev){
   if(window.APKit && APKit.isUI(ev.clientX,ev.clientY)) return true;
-  ev.preventDefault(); hideHint();
+  ev.preventDefault(); hideHint(); touched();
   drags[ev.pointerId]={x:ev.clientX,x0:ev.clientX,y0:ev.clientY,moved:false,t0:performance.now()};
   try{ cv.setPointerCapture(ev.pointerId); }catch(e){}
 });
@@ -283,18 +318,18 @@ cv.addEventListener('pointermove',function(ev){
   if(!d.moved && Math.hypot(ev.clientX-d.x0,ev.clientY-d.y0)>8){ d.moved=true; d.x=ev.clientX; }
   if(d.moved){
     epsT=clamp(epsT+(ev.clientX-d.x)*.30,0,180); d.x=ev.clientX;
-    drag=1; pulseLab();
+    drag=1; pulseLab(); touched();
   }
 });
 function nextPreset(){
   var i, nx=PRE[0].e;
   for(i=0;i<PRE.length;i++) if(PRE[i].e>epsT+1.5){ nx=PRE[i].e; break; }
-  epsT=nx; pulseLab();
+  epsT=nx; pulseLab(); touched();
 }
 function endPtr(ev){
   var d=drags[ev.pointerId]; if(!d) return;
   if(!d.moved && ev.type==='pointerup' && performance.now()-d.t0<500) nextPreset();
-  delete drags[ev.pointerId];
+  delete drags[ev.pointerId]; touched();
   if(!Object.keys(drags).length) drag=0;
 }
 cv.addEventListener('pointerup',endPtr);
@@ -307,7 +342,13 @@ function frame(now){
   perfT+=dt; perfN++;
   if(perfT>1.5 && tuned<4 && !QF && !navigator.webdriver){ var fps=perfN/perfT; if(fps<40 && Q>0.4){ Q-=0.12; setup(); } else if(fps>58 && Q<0.95 && tuned===0){ Q+=0.1; setup(); } tuned++; perfT=0; perfN=0; }
   if(!frozen){ clock+=dt; theta+=dt*6.2832/TD; psi+=dt*6.2832/TY; }
-  eps+=(epsT-eps)*(1-Math.exp(-dt*(drag?16:7)));
+  if(!frozen){
+    if(!Object.keys(drags).length) idle+=dt;
+    if(idle>IDLE) stepDrift(dt);
+    nextMet-=dt; if(nextMet<0 && metU<0 && !navigator.webdriver){ fireMeteor(); nextMet=rnd(7,15); }
+    if(metU>=0){ metU+=dt/1.1; if(metU>=1) metU=-1; }
+  }
+  eps+=(epsT-eps)*(1-Math.exp(-dt*(drag?16:(dr?2.5:7))));
   dragA+=(drag-dragA)*(1-Math.exp(-dt*8));
   var M=bodyToView(), A=axisDir(M), delta=Math.asin(clamp(S[0]*A[0]+S[1]*A[1]+S[2]*A[2],-1,1));
   if(!frozen) stepClimate(dt,delta); uploadT(); setLab();
@@ -317,6 +358,7 @@ function frame(now){
   gl.uniform1f(U.uDelta,delta); gl.uniform1f(U.uDrag,dragA);
   gl.uniformMatrix3fv(U.uBody,false,tr(tr(M)));   // view→body = M の転置。GLSLは列優先なので、さらに転置して渡す
   gl.uniformMatrix3fv(U.uBodyI,false,tr(M));
+  gl.uniform4f(U.uMet,met[0],met[1],met[2],met[3]); gl.uniform1f(U.uMetU,metU);
   gl.uniform3f(U.uS,S[0],S[1],S[2]); gl.uniform3f(U.uA,A[0],A[1],A[2]);
   gl.drawArrays(gl.TRIANGLES,0,3);
   perf.ms+=performance.now()-a; perf.n++;
@@ -327,10 +369,10 @@ function mutate(){
   seed=rnd(0,60); sea=rnd(.50,.57); TD=rnd(16,34);
   var k=(Math.random()*5)|0;
   epsT=[rnd(0,20),rnd(20,30),rnd(40,70),rnd(80,110),rnd(150,180)][k];
-  theta=rnd(0,6.28);
+  theta=rnd(0,6.28); touched();
   toast('新しい星 — 地軸 '+epsT.toFixed(0)+'°, 1日 '+TD.toFixed(0)+'秒',2600); pulseLab();
 }
-function reset(){ epsT=EARTH; toast('地軸を、いまの地球に戻した',1800); pulseLab(); }
+function reset(){ touched(); epsT=EARTH; toast('地軸を、いまの地球に戻した',1800); pulseLab(); }
 
 var resizeT=0;
 window.addEventListener('resize',function(){ clearTimeout(resizeT); resizeT=setTimeout(setup,200); });
@@ -339,7 +381,7 @@ setup();
 for(var i0=0;i0<NL;i0++) Tm[i0]=.6;
 settle(); uploadT(); setLab();
 requestAnimationFrame(frame);
-window.__ax={perf:perf,get Q(){return Q;},setTilt:function(e){ epsT=eps=e; settle(); },get eps(){return eps;},get T(){return Tm;},next:nextPreset};
+window.__ax={perf:perf,get Q(){return Q;},setTilt:function(e){ epsT=eps=e; settle(); },get eps(){return eps;},get T(){return Tm;},next:nextPreset,meteor:function(u){ fireMeteor(); if(u!==undefined) metU=u; },get dr(){return dr;},get met(){return met;},get epsT(){return epsT;},get idle(){return idle;}};
 
 if(window.APKit){
   APKit.init({
