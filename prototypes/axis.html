@@ -3,17 +3,23 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-<title>AXIS — 地軸を倒すと、昼と夜の形が変わる</title>
+<title>AXIS — 地軸を倒すと、文明の行き先が変わる</title>
 <!-- AXIS — クロちゃん(Claude)作。ap-kit.js統合: クロちゃん。2026/11/01 試作
      おっちゃん「新作の題材候補を3つ」→ クロちゃんの3案(ZEBRA/AXIS/ASAGAO)から「では2」。
-     世界のルール: 地軸の傾きが、季節も、昼と夜の形も、氷のある場所も決めている。指でその傾きを変えられる。
+     世界のルール: 地軸の傾きが、季節も、昼と夜の形も、氷のある場所も、そして文明がどこに灯るかも決めている。指でその傾きを変えられる。
        何もしなくても: 宇宙に浮かぶ地球が自転しながら太陽のまわりを回り(1年=約120秒)、昼夜の境目が地表を滑り、
                        夜側に街の灯りがともる。季節につれて雪と氷が極のまわりを行き来する。
                        25秒ほど触らないでいると、地軸がひとりでにゆっくり別の傾きへ移っていき(木星のような直立から天王星のような横倒しまで)、
                        氷や昼夜の形が少しずつ変わる。ときどき流れ星が横切る。触るとすぐ止まる(おっちゃん「見ていて変化が欲しい」)。
+       住人(2026/11/02、おっちゃん「リアルだけど見ていてつまらない」→3案から「住人を足す」):
+                       夜側の灯りは飾りではなく、生きている文明のシミュレーション。気温から決まる住みやすさに従って、灯りが
+                       広がる(拡散)・増える・使い果たして飢える(赤く明滅)・滅びる(青白い残り火)・また芽吹く、を繰り返す。
+                       海をこえて入植し、オレンジ/白/青の文化圏が混ざる。傾きを変えると住める場所が動き、文明が引っ越す・滅びる。
+                       全滅しかけると、どこかでまた灯りがともる。ラベルの「文明%」=いまの星が支えられる最大の何割が灯っているか。
        横になぞる = 地軸の傾きが変わる(0〜180度)。傾きが大きいほど四季は極端になり、90度を超えると逆まわりの星になる。
                    雪線は気温(その緯度が受ける日射の移り変わり)から計算しているので、傾けた結果として氷の場所が動く
-       タップ    = 有名な傾きへ順にジャンプ(木星3度 → 地球23.4度 → 54度 → 天王星98度 → 金星177度)
+       地球をタップ = そこに文明の種をまく(波紋が走る。凍る所・暑すぎる所・海ならすぐ消える/まけない)
+       宇宙をタップ = 有名な傾きへ順にジャンプ(木星3度 → 地球23.4度 → 54度 → 天王星98度 → 金星177度)
        ✦        = 別の星(大陸・海の量・1日の長さ・地軸の傾き)
        ↻        = 地軸を、いまの地球(23.4度)に戻す
      本物っぽさ: 雪・氷・草・砂漠の分布は、緯度ごとの1日の平均日射量(昼の長さと太陽の高さから計算)を、熱がたまる遅れ付きで追いかけた気温から決める。
@@ -34,7 +40,7 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hint">地球を横になぞると、地軸が傾く<br>タップすると、木星・地球・天王星・金星の傾きへ</div>
+<div id="hint">横になぞると、地軸が傾いて、住める場所が変わる<br>地球をタップ=文明の種 ／ 宇宙をタップ=次の傾き</div>
 <div id="lab"></div>
 <div id="toast"></div>
 <script id="fs" type="x-shader/x-fragment">
@@ -46,7 +52,10 @@ uniform vec3 uS, uA;
 uniform sampler2D uT;
 uniform vec4 uMet;
 uniform float uMetU;
+uniform sampler2D uC;
+uniform vec4 uPing;
 
+//#COMMON_BEGIN
 float hash(vec3 p){ p=fract(p*.3183099+.1); p*=17.; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
 float hash21(vec2 p){ p=fract(p*vec2(123.34,456.21)); p+=dot(p,p+45.32); return fract(p.x*p.y); }
 float noise(vec3 x){
@@ -59,6 +68,7 @@ float fbm(vec3 p,int oct){
   for(int i=0;i<6;i++){ if(i>=oct) break; s+=a*noise(p); w+=a; p=p*2.03+vec3(1.7,9.2,3.1); a*=.5; }
   return s/w;
 }
+//#COMMON_END
 
 vec3 space(vec2 p,float asp){
   vec3 c=vec3(.003,.005,.013)+vec3(.004,.006,.015)*smoothstep(-.4,.5,p.x/asp+p.y*.3);
@@ -98,6 +108,8 @@ void main(){
     vec3 b=normalize(uBody*n);
     float lat=asin(clamp(b.y,-1.,1.));
     float T=texture2D(uT,vec2(lat/3.14159265+.5,.5)).r*1.4;
+    vec4 civ=texture2D(uC,vec2(atan(b.z,b.x)*.15915494+.5,lat*.31830989+.5));   // R=人の多さ G=飢え B=残り火 A=文化圏の色
+    float dens=smoothstep(.03,.6,civ.r);
     vec3 off=vec3(uSeed,uSeed*.61+3.,uSeed*1.37+7.);
     // 大陸
     float f=fbm(b*1.55+off,5);
@@ -124,6 +136,8 @@ void main(){
     snow=max(snow,smoothstep(.78,.98,e)*(1.-smoothstep(.55,.85,T)));
     float grain=fbm(b*26.+off,3);
     lc=mix(lc,vec3(.80,.86,.95)+vec3(.12,.10,.06)*grain,snow);
+    float terrT=dens*smoothstep(.35,.65,noise(b*38.+off));          // 昼側にも、住んでいる土地のうすい跡
+    lc=mix(lc,vec3(.45,.40,.30)*(.8+.4*grain),terrT*.20*(1.-snow));
     float depth=smoothstep(uSea-.14,uSea,f);
     vec3 sea=mix(vec3(.008,.035,.105),vec3(.02,.24,.40),depth*depth);
     float ice=1.-smoothstep(.25,.36,T);
@@ -145,13 +159,25 @@ void main(){
     surf+=vec3(1.,.93,.8)*sp*(1.-land)*(1.-ice)*(1.-cl)*step(0.,ndl);
     float diffC=clamp((ndl+.05)/1.05,0.,1.);
     surf=mix(surf,vec3(.96,.97,1.)*(diffC*1.15+.010),cl*.92);
-    // 夜側の街の灯り
+    // 夜側の街の灯り(文明のシミュレーション結果。人が多いほど、灯る点が増える)
     float nightM=1.-smoothstep(-.12,.10,ndl);
-    float pop=fbm(b*2.0+off*3.1,3);
-    float lights=land*smoothstep(.50,.72,pop)*(smoothstep(.70,.95,noise(b*130.))*.85+smoothstep(.78,.95,noise(b*46.))*.35);
-    lights*=(1.-snow*.8);
-    surf+=vec3(1.,.72,.34)*lights*nightM*(1.-.88*cl)*1.15;
+    float n1=noise(b*130.), n2=noise(b*46.);
+    float th1=mix(.93,.60,dens), th2=mix(.98,.68,dens);
+    float dots=smoothstep(th1,th1+.07,n1)*.85+smoothstep(th2,th2+.06,n2)*.45;
+    float dh=hash(floor(b*130.));
+    float shim=.80+.20*sin(uTime*2.3+dh*40.);
+    float starv=smoothstep(.05,.6,civ.g);
+    float flick=1.-starv*.75*(.5+.5*sin(uTime*11.+dh*50.));
+    vec3 tcol=mix(vec3(1.,.68,.28),vec3(1.,.95,.80),smoothstep(0.,.5,civ.a));
+    tcol=mix(tcol,vec3(.55,.78,1.),smoothstep(.5,1.,civ.a));
+    tcol=mix(tcol,vec3(1.,.24,.10),starv*.55);
+    float liv=land*(1.-snow*.8)*nightM*(1.-.88*cl);
+    surf+=tcol*dots*dens*shim*flick*liv*1.3;
+    surf+=vec3(.38,.48,1.)*civ.b*smoothstep(.74,.93,n1)*(1.-dens)*liv*.30;          // 滅びた文明の残り火(ごく弱い青白い火花)
     surf+=vec3(.010,.018,.040)*nightM*(1.-land);
+    // タップの波紋(種をまいた場所から広がる)
+    float pang=acos(clamp(dot(b,uPing.xyz),-1.,1.)), pr=uPing.w;
+    surf+=vec3(1.,.88,.55)*exp(-pow((pang-pr*.6)/.04,2.))*(1.-pr)*(1.-pr)*step(0.,pr)*1.4;
     // 大気と夕焼け
     float haze=pow(1.-z,2.4);
     surf+=vec3(.26,.50,1.)*haze*clamp(ndl*1.3+.35,0.,1.)*1.1;
@@ -193,13 +219,14 @@ function hv(k){ var m=HASH.match(new RegExp('[#&]'+k+'=(-?[\\d.]+)')); return m?
 /* ---------- シェーダ ---------- */
 var VS='attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}';
 function sh(t,src){ var s=gl.createShader(t); gl.shaderSource(s,src); gl.compileShader(s); if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(s)); return s; }
+var FSRC=document.getElementById('fs').textContent;
 var prog=gl.createProgram();
-gl.attachShader(prog,sh(gl.VERTEX_SHADER,VS)); gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,document.getElementById('fs').textContent));
-gl.linkProgram(prog); if(!gl.getProgramParameter(prog,gl.LINK_STATUS)) console.error(gl.getProgramInfoLog(prog));
+gl.attachShader(prog,sh(gl.VERTEX_SHADER,VS)); gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,FSRC));
+gl.bindAttribLocation(prog,0,'a'); gl.linkProgram(prog); if(!gl.getProgramParameter(prog,gl.LINK_STATUS)) console.error(gl.getProgramInfoLog(prog));
 gl.useProgram(prog);
 var buf=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,buf); gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
 var al=gl.getAttribLocation(prog,'a'); gl.enableVertexAttribArray(al); gl.vertexAttribPointer(al,2,gl.FLOAT,false,0,0);
-var U={}; ['uRes','uTime','uSeed','uR','uSea','uDelta','uDrag','uBody','uBodyI','uS','uA','uT','uMet','uMetU'].forEach(function(n){ U[n]=gl.getUniformLocation(prog,n); });
+var U={}; ['uRes','uTime','uSeed','uR','uSea','uDelta','uDrag','uBody','uBodyI','uS','uA','uT','uMet','uMetU','uC','uPing'].forEach(function(n){ U[n]=gl.getUniformLocation(prog,n); });
 
 /* ---------- 緯度ごとの気温(64区間)をテクスチャで渡す ---------- */
 var NL=64, Tm=new Float32Array(NL), Tn=new Float32Array(NL), tBytes=new Uint8Array(NL*4);
@@ -207,8 +234,9 @@ var tex=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,tex);
 gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
 gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
 function uploadT(){ for(var i=0;i<NL;i++){ tBytes[i*4]=clamp(Tm[i]/1.4,0,1)*255; tBytes[i*4+3]=255; }
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,tex);
   gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,NL,1,0,gl.RGBA,gl.UNSIGNED_BYTE,tBytes); }
-gl.uniform1i(U.uT,0);
+gl.uniform1i(U.uT,0); gl.uniform1i(U.uC,1); gl.uniform4f(U.uPing,0,1,0,-1);
 
 /* ---------- 世界の状態 ---------- */
 var TY=120, TD=24;                     // 1年と1日の長さ(秒)。ゆっくり眺める速さ(おっちゃん「もっとゆっくりがいい」)
@@ -250,6 +278,202 @@ function settle(){      // 傾きを変えたあと、数年ぶんを先に回�
   psi=p0; theta=th;
 }
 
+/* ---------- 住人(文明のシミュレーション) ----------
+   陸地は、描画と同じノイズをGPUで一度だけ経緯度の格子に焼いて読み戻す(だから灯りが海に出ない)。
+   格子の上で「人の多さ」Cc が、気温で決まる住みやすさ K に従って 広がる(拡散)・増える(ロジスティック)。
+   人がいるほど資源 Wd を使い果たし、K が下がって飢える→滅びる→資源が戻ってまた芽吹く、を繰り返す(波になって大陸を渡る)。
+   気温は地軸の傾きから来るので、傾けるたびに住める場所が動き、文明が引っ越す・滅びる。
+   緯度の区切りは気温テクスチャと同じ(NY=NL=64)。Cc/Tb(文化圏の色 0=橙 .5=白 1=青)は二重バッファで更新する。 */
+var NX=128, NY=64, NC=NX*NY;
+var landA=new Uint8Array(NC), terr=new Float32Array(NC), rv=new Float32Array(NC), fMoist=new Float32Array(NC), fPop=new Float32Array(NC);
+var Cc=new Float32Array(NC), Cn=new Float32Array(NC), Tb=new Float32Array(NC), Tn2=new Float32Array(NC);
+var Wd=new Float32Array(NC), Gs=new Float32Array(NC), Gh=new Float32Array(NC);
+var NE=new Int32Array(NC), NW=new Int32Array(NC), NN=new Int32Array(NC), NS=new Int32Array(NC);
+var LI=new Int32Array(NC), nLand=0, OE=new Int32Array(NC), nOE=0;
+var KXr=new Float32Array(NY), band=new Float32Array(NY), cosw=new Float32Array(NY);
+var civBytes=new Uint8Array(NC*4), lpx=new Uint8Array(NC*4);
+var maxPop=1, popPct=0, voy=1, rebirth=8, sprk=15, hiSeen=false, quiet=true, simAcc=0, noteT=0;
+var ping=[0,1,0], pingT=-1;
+var CV={R:2.0, D:1.4, FAM:.5, A0:.15, BETA:1.1, A:.03, B:.05, V0:.7, V1:1.8, S0:12, S1:24};   // 増える速さ・広がる速さ・飢える速さ・(人が増えるのに要る最低の人数・資源が減ると上がる幅)・資源を使う速さ・資源が戻る速さ
+function sm(a,b,x){ x=clamp((x-a)/(b-a),0,1); return x*x*(3-2*x); }
+function bandOf(t){ return sm(.34,.55,t)*(1-sm(.95,1.18,t)); }   // 寒すぎても暑すぎても住めない
+function updBand(){ for(var j=0;j<NY;j++) band[j]=bandOf(Tm[j]); }
+function Kat(i){ return band[(i/NX)|0]*terr[i]; }
+function pickTribe(){ return [0,.5,1][(Math.random()*3)|0]; }
+
+var civTex=gl.createTexture(); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D,civTex);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,NX,NY,0,gl.RGBA,gl.UNSIGNED_BYTE,civBytes);
+var landTex=gl.createTexture(); gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D,landTex);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,NX,NY,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+var fbo=gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);
+gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,landTex,0); gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+gl.activeTexture(gl.TEXTURE0);
+
+/* 陸地を焼く専用シェーダ(描画と同じ hash/noise/fbm を、本体の文字列から借りる) */
+var COMMON=FSRC.split('//#COMMON_BEGIN')[1].split('//#COMMON_END')[0];
+var LFS='precision highp float;\nuniform float uSeed,uSea;\n'+COMMON+
+'void main(){ vec2 uv=gl_FragCoord.xy/vec2('+NX+'.,'+NY+'.);'+
+' float lon=(uv.x-.5)*6.2831853, lat=(uv.y-.5)*3.14159265;'+
+' vec3 b=vec3(cos(lat)*cos(lon),sin(lat),cos(lat)*sin(lon));'+
+' vec3 off=vec3(uSeed,uSeed*.61+3.,uSeed*1.37+7.);'+
+' float f=fbm(b*1.55+off,5); f+=(fbm(b*7.+off*1.7,3)-.5)*.10;'+
+' gl_FragColor=vec4(step(uSea,f),clamp((f-uSea)*3.4,0.,1.),fbm(b*2.4+off*2.1,4),fbm(b*2.0+off*3.1,3)); }';
+var progL=gl.createProgram();
+gl.attachShader(progL,sh(gl.VERTEX_SHADER,VS)); gl.attachShader(progL,sh(gl.FRAGMENT_SHADER,LFS));
+gl.bindAttribLocation(progL,0,'a'); gl.linkProgram(progL);
+if(!gl.getProgramParameter(progL,gl.LINK_STATUS)) console.error(gl.getProgramInfoLog(progL));
+var uLseed=gl.getUniformLocation(progL,'uSeed'), uLsea=gl.getUniformLocation(progL,'uSea');
+
+function bakeWorld(){
+  gl.useProgram(progL); gl.uniform1f(uLseed,seed); gl.uniform1f(uLsea,sea);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,fbo); gl.viewport(0,0,NX,NY);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+  gl.readPixels(0,0,NX,NY,gl.RGBA,gl.UNSIGNED_BYTE,lpx);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.useProgram(prog); gl.viewport(0,0,cv.width,cv.height);
+  var i,j,x,o,e,m,pp,veg,ld,sum=0;
+  nLand=0; nOE=0;
+  for(j=0;j<NY;j++){
+    var lat=((j+.5)/NY-.5)*Math.PI; cosw[j]=Math.cos(lat); KXr[j]=Math.min(2,1/Math.max(.35,Math.cos(lat)));
+    for(x=0;x<NX;x++){
+      i=j*NX+x; o=i*4; ld=lpx[o]>127?1:0; landA[i]=ld;
+      e=lpx[o+1]/255; m=lpx[o+2]/255; pp=lpx[o+3]/255; veg=sm(.38,.62,m);
+      fMoist[i]=m; fPop[i]=pp;
+      terr[i]=ld?(.35+.65*veg)*(1-.6*sm(.55,.95,e))*(.5+.5*sm(.40,.65,pp)):0;   // 土地の豊かさ(雨・山・もともとの人気)
+      rv[i]=.65+.7*Math.abs(Math.sin(i*12.9898+seed*78.233)*43758.5453%1);       // 場所ごとの資源の回復のちがい(みんなが同じ拍で滅びないように)
+      if(ld){ LI[nLand++]=i; sum+=cosw[j]*terr[i]; }
+    }
+  }
+  for(i=0;i<NC;i++){
+    x=i%NX; j=(i/NX)|0;
+    var ee=j*NX+((x+1)%NX), ww=j*NX+((x+NX-1)%NX), nn=j<NY-1?i+NX:-1, ss=j>0?i-NX:-1;
+    NE[i]=landA[ee]?ee:-1; NW[i]=landA[ww]?ww:-1; NN[i]=(nn>=0&&landA[nn])?nn:-1; NS[i]=(ss>=0&&landA[ss])?ss:-1;
+    if(!landA[i] && (NE[i]>=0||NW[i]>=0||NN[i]>=0||NS[i]>=0)) OE[nOE++]=i;
+  }
+  maxPop=Math.max(1,sum);
+}
+function resetCiv(){ Cc.fill(0); Cn.fill(0); Tb.fill(0); Tn2.fill(0); Wd.fill(0); Gs.fill(0); Gh.fill(0); popPct=0; voy=1; rebirth=8; sprk=15; hiSeen=false; }
+function seedAt(i,frac,tribe){    // 種は小さな塊(半径2)で置く。小さすぎると、増える前に周囲へ広がって消える(ある人数を超えないと増えない法則)
+  var x=i%NX, j=(i/NX)|0, dy, dx, jj, q, v;
+  for(dy=-2;dy<=2;dy++){ jj=j+dy; if(jj<0||jj>=NY) continue;
+    for(dx=-(2-Math.abs(dy));dx<=2-Math.abs(dy);dx++){ q=jj*NX+(x+dx+NX)%NX; if(!landA[q]) continue;
+      v=frac*Math.max(band[jj]*terr[q],.12); if(Cc[q]<v) Cc[q]=v; Tb[q]=tribe; Wd[q]=0; } }
+}
+function nbSum(i,r){ var x=i%NX, j=(i/NX)|0, s=0, dy, dx, jj; for(dy=-r;dy<=r;dy++){ jj=j+dy; if(jj<0||jj>=NY) continue; for(dx=-r;dx<=r;dx++) s+=Cc[jj*NX+(x+dx+NX)%NX]; } return s; }
+function spark(){      // 人のいない住める土地に、新しい文明の種が生まれる
+  for(var k=0;k<60;k++){
+    var i=LI[(Math.random()*nLand)|0];
+    if(Cc[i]>.004 || Kat(i)<.45 || nbSum(i,2)>.03) continue;
+    seedAt(i,.9,pickTribe()); return true;
+  }
+  return false;
+}
+function tryVoyage(){  // 人の多い土地から、海をこえた先に種が飛ぶ。返り値 1=誰もいなかった土地へ 0=すでに近くに人がいた -1=失敗
+  for(var k=0;k<16;k++){
+    var i=LI[(Math.random()*nLand)|0]; if(Cc[i]<.4) continue;
+    var j=(i/NX)|0, x=i%NX, a=Math.random()*6.2832, r=rnd(3.5,11);
+    var tx=Math.round(x+Math.cos(a)*r*KXr[j]), ty=j+Math.round(Math.sin(a)*r);
+    if(ty<0||ty>=NY) continue;
+    var t=ty*NX+((tx%NX)+NX)%NX;
+    if(!landA[t] || Cc[t]>.01 || Kat(t)<.35) continue;
+    var fresh=nbSum(t,2)<.02;
+    seedAt(t,.9,Math.random()<.75?Tb[i]:pickTribe());
+    return fresh?1:0;
+  }
+  return -1;
+}
+function note(k){
+  var now=performance.now(); if(now-noteT<14000) return; noteT=now;
+  toast(k==='voyage'?'海をこえて、新しい灯りがともった':k==='rebirth'?'どこかで、また灯りがともった':'文明が、消えかけている…',3200);
+}
+function simTick(h){
+  var j,n,i,c,K,Kc,x,f,w,lap,infl,inT,nb,d,wx,g,die,nc,nt,st,mi,base,tmp,tot=0;
+  for(j=0;j<NY;j++) band[j]=bandOf(Tm[j]);
+  for(n=0;n<nLand;n++){
+    i=LI[n]; j=(i/NX)|0; c=Cc[i]; K=band[j]*terr[i]; w=Wd[i];
+    Kc=Math.max(K,.04); wx=KXr[j]; lap=0; infl=0; inT=0;
+    nb=NE[i]; if(nb>=0){ d=(Cc[nb]-c)*wx; lap+=d; if(d>0){ infl+=d; inT+=d*Tb[nb]; } }
+    nb=NW[i]; if(nb>=0){ d=(Cc[nb]-c)*wx; lap+=d; if(d>0){ infl+=d; inT+=d*Tb[nb]; } }
+    nb=NN[i]; if(nb>=0){ d=Cc[nb]-c; lap+=d; if(d>0){ infl+=d; inT+=d*Tb[nb]; } }
+    nb=NS[i]; if(nb>=0){ d=Cc[nb]-c; lap+=d; if(d>0){ infl+=d; inT+=d*Tb[nb]; } }
+    x=c/Kc; die=0; f=0;
+    if(x<=1){ f=x*(1-x)*(x-(CV.A0+CV.BETA*w)); g=CV.R*Kc*f; if(g<0) die=-g; }   // 人数が資源で決まるしきい値を超えれば満ちる。超えなければ消える
+    else { g=-CV.FAM*(c-Kc); die=-g; f=-.2; }                                  // 収容力を超えた分は、すぐ飢えて減る
+    nc=c+h*(CV.D*lap+g);
+    if(nc<.0003) nc=0; else if(nc>1) nc=1;      // ごく小さい値まで残す(消しすぎると種が育つ前に溶ける)
+    Cn[i]=nc;
+    if(infl>0){ mi=h*CV.D*infl; base=Math.max(c,.0005); nt=(Tb[i]*base+h*CV.D*inT)/(base+mi); } else nt=Tb[i];
+    Tn2[i]=nt;
+    Wd[i]=clamp(w+h*rv[i]*(CV.A*(x<1?x:1)-CV.B*w),0,1.2);     // 人がいる間に資源を使い、いなくなると戻る
+    st=c>.03?clamp(-f/.04,0,1):0;
+    Gs[i]+=(st-Gs[i])*.25;
+    Gh[i]=Math.min(1,Gh[i]+die*h*1.2)*.993;
+    tot+=nc*cosw[j];
+  }
+  tmp=Cc; Cc=Cn; Cn=tmp; tmp=Tb; Tb=Tn2; Tn2=tmp;
+  popPct=tot/maxPop;
+  voy-=h; if(voy<=0){ voy=rnd(CV.V0,CV.V1); if(tryVoyage()===1 && !quiet) note('voyage'); }
+  if(popPct<.025){ rebirth-=h; if(rebirth<=0){ rebirth=rnd(7,12); if(spark() && !quiet) note('rebirth'); } } else rebirth=rnd(5,9);
+  sprk-=h; if(sprk<=0){ sprk=rnd(CV.S0,CV.S1); spark(); }
+  if(popPct>.2) hiSeen=true;
+  if(popPct<.08 && hiSeen){ hiSeen=false; if(!quiet) note('fading'); }
+}
+function uploadCiv(){
+  var n,i,o,q,nb,best,bc;
+  for(n=0;n<nLand;n++){ i=LI[n]; o=i*4; civBytes[o]=Cc[i]*255; civBytes[o+1]=Gs[i]*255; civBytes[o+2]=Gh[i]*255; civBytes[o+3]=Tb[i]*255; }
+  for(n=0;n<nOE;n++){      // 海岸の外側の1マスに陸の値をにじませる(海岸の灯りが薄くならないように。海には描かない)
+    i=OE[n]; best=-1; bc=-1;
+    nb=NE[i]; if(nb>=0&&Cc[nb]>bc){ bc=Cc[nb]; best=nb; }
+    nb=NW[i]; if(nb>=0&&Cc[nb]>bc){ bc=Cc[nb]; best=nb; }
+    nb=NN[i]; if(nb>=0&&Cc[nb]>bc){ bc=Cc[nb]; best=nb; }
+    nb=NS[i]; if(nb>=0&&Cc[nb]>bc){ bc=Cc[nb]; best=nb; }
+    o=i*4; q=best*4;
+    civBytes[o]=civBytes[q]*.85; civBytes[o+1]=civBytes[q+1]; civBytes[o+2]=civBytes[q+2]; civBytes[o+3]=civBytes[q+3];
+  }
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D,civTex);
+  gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,NX,NY,gl.RGBA,gl.UNSIGNED_BYTE,civBytes);
+  gl.activeTexture(gl.TEXTURE0);
+}
+function presim(sec){   // 開いた瞬間から文明が育っているように、先に何十秒か進めておく
+  quiet=true; resetCiv(); updBand();
+  // はじめは「土地ごとに栄えている所と、使い果たして休んでいる所がまだら」。みんなが同じ拍で栄えて滅びないように、場所ごとに時期をずらす
+  for(var n=0;n<nLand;n++){
+    var i=LI[n], j=(i/NX)|0, K=band[j]*terr[i], lit=fPop[i]>.45;
+    var u=clamp((fMoist[i]-.3)/.4,0,1), jt=(rv[i]-.65)/.7;      // なめらかなばらつき + マスごとのばらつき
+    Tb[i]=fMoist[i]<.40?0:fMoist[i]<.52?.5:1;
+    Wd[i]=lit?.05+.30*u+.30*jt:.35+.25*u+.25*jt;
+    if(lit) Cc[i]=K*.95;
+  }
+  for(var s2=0,steps=Math.round(sec/.1);s2<steps;s2++) simTick(.1);
+  uploadCiv(); quiet=false;
+}
+function civStat(){
+  var n,i,cells=0,mx=0,sea=0,starved=0,ghost=0,t=[0,0,0];
+  for(i=0;i<NC;i++){ if(!landA[i]){ if(Cc[i]>0) sea++; continue; } if(Cc[i]>.05){ cells++; t[Tb[i]<.25?0:Tb[i]<.75?1:2]++; } if(Cc[i]>mx) mx=Cc[i]; if(Gs[i]>.3) starved++; if(Gh[i]>.2) ghost++; }
+  return {pop:popPct,cells:cells,max:mx,seaLeak:sea,starved:starved,ghost:ghost,land:nLand,tribes:t};
+}
+/* 画面の座標 → 星の表面(星の外ならnull)。描画シェーダの b=Mᵀn と同じ */
+function viewToBody(sx,sy){
+  var r=Rg*H, qx=(sx-W/2)/r, qy=-(sy-(H/2-.02*H))/r, r2=qx*qx+qy*qy;
+  if(r2>=1) return null;
+  var z=Math.sqrt(1-r2), M=bodyToView();
+  var bx=M[0]*qx+M[3]*qy+M[6]*z, by=M[1]*qx+M[4]*qy+M[7]*z, bz=M[2]*qx+M[5]*qy+M[8]*z;
+  return {b:[bx,by,bz], lat:Math.asin(clamp(by,-1,1)), lon:Math.atan2(bz,bx)};
+}
+function plantAt(sx,sy){   // 地球をタップ=文明の種。星の外ならfalse(→次の傾きへ)
+  var v=viewToBody(sx,sy); if(!v) return false;
+  ping=v.b; pingT=0;
+  var x=Math.floor((v.lon/6.2831853+.5)*NX)%NX, j=clamp(Math.floor((v.lat/Math.PI+.5)*NY),0,NY-1), i=j*NX+x;
+  if(!landA[i]){ toast('海には、住めない',1800); return true; }
+  var K=Kat(i), T=Tm[j];
+  toast(K<.18?(T<.4?'凍てついていて、住めない':T>1.0?'暑すぎて、住めない':'痩せた土地で、住めない'):'文明の種をまいた',K<.18?2000:1600);
+  seedAt(i,.95,pickTribe());
+  return true;
+}
+
 /* ---------- 画面 ---------- */
 var QF=hv('q'), W=0,H=0,DPR=1,Q=QF?QF:0.85,Rg=.3;
 function setup(){
@@ -270,7 +494,7 @@ function setLab(){
   if(e<1.2) nm='季節のない星';
   else for(var i=0;i<PRE.length;i++) if(Math.abs(e-PRE[i].e)<2.5) nm=PRE[i].n;
   if(!nm && e>92) nm='逆まわりの星';
-  var s='地軸 <b>'+e.toFixed(1)+'°</b>'+(nm?' — '+nm:'');
+  var s='地軸 <b>'+e.toFixed(1)+'°</b>'+(nm?' — '+nm:'')+' · 文明 <b>'+Math.round(popPct*100)+'%</b>';
   if(s!==lastLab){ labEl.innerHTML=s; lastLab=s; }
 }
 var hint=document.getElementById('hint'), hinted=false;
@@ -328,7 +552,7 @@ function nextPreset(){
 }
 function endPtr(ev){
   var d=drags[ev.pointerId]; if(!d) return;
-  if(!d.moved && ev.type==='pointerup' && performance.now()-d.t0<500) nextPreset();
+  if(!d.moved && ev.type==='pointerup' && performance.now()-d.t0<500){ if(!plantAt(ev.clientX,ev.clientY)) nextPreset(); }
   delete drags[ev.pointerId]; touched();
   if(!Object.keys(drags).length) drag=0;
 }
@@ -347,7 +571,10 @@ function frame(now){
     if(idle>IDLE) stepDrift(dt);
     nextMet-=dt; if(nextMet<0 && metU<0 && !navigator.webdriver){ fireMeteor(); nextMet=rnd(7,15); }
     if(metU>=0){ metU+=dt/1.1; if(metU>=1) metU=-1; }
+    simAcc+=dt; var ns=0; while(simAcc>=.1 && ns<3){ simTick(.1); simAcc-=.1; ns++; } if(simAcc>.3) simAcc=.3;
+    if(ns) uploadCiv();
   }
+  if(pingT>=0){ pingT+=dt/1.3; if(pingT>=1) pingT=-1; }
   eps+=(epsT-eps)*(1-Math.exp(-dt*(drag?16:(dr?2.5:7))));
   dragA+=(drag-dragA)*(1-Math.exp(-dt*8));
   var M=bodyToView(), A=axisDir(M), delta=Math.asin(clamp(S[0]*A[0]+S[1]*A[1]+S[2]*A[2],-1,1));
@@ -358,7 +585,7 @@ function frame(now){
   gl.uniform1f(U.uDelta,delta); gl.uniform1f(U.uDrag,dragA);
   gl.uniformMatrix3fv(U.uBody,false,tr(tr(M)));   // view→body = M の転置。GLSLは列優先なので、さらに転置して渡す
   gl.uniformMatrix3fv(U.uBodyI,false,tr(M));
-  gl.uniform4f(U.uMet,met[0],met[1],met[2],met[3]); gl.uniform1f(U.uMetU,metU);
+  gl.uniform4f(U.uMet,met[0],met[1],met[2],met[3]); gl.uniform1f(U.uMetU,metU); gl.uniform4f(U.uPing,ping[0],ping[1],ping[2],pingT);
   gl.uniform3f(U.uS,S[0],S[1],S[2]); gl.uniform3f(U.uA,A[0],A[1],A[2]);
   gl.drawArrays(gl.TRIANGLES,0,3);
   perf.ms+=performance.now()-a; perf.n++;
@@ -370,6 +597,7 @@ function mutate(){
   var k=(Math.random()*5)|0;
   epsT=[rnd(0,20),rnd(20,30),rnd(40,70),rnd(80,110),rnd(150,180)][k];
   theta=rnd(0,6.28); touched();
+  eps=epsT; settle(); bakeWorld(); presim(160);      // 新しい星: 気温をなじませ、大陸を焼き直し、文明も育て直す
   toast('新しい星 — 地軸 '+epsT.toFixed(0)+'°, 1日 '+TD.toFixed(0)+'秒',2600); pulseLab();
 }
 function reset(){ touched(); epsT=EARTH; toast('地軸を、いまの地球に戻した',1800); pulseLab(); }
@@ -380,8 +608,9 @@ setup();
 // 初期の気温を用意してから描き始める(最初の1コマから雪の位置が合うように)
 for(var i0=0;i0<NL;i0++) Tm[i0]=.6;
 settle(); uploadT(); setLab();
+bakeWorld(); presim(160); setLab();
 requestAnimationFrame(frame);
-window.__ax={perf:perf,get Q(){return Q;},setTilt:function(e){ epsT=eps=e; settle(); },get eps(){return eps;},get T(){return Tm;},next:nextPreset,meteor:function(u){ fireMeteor(); if(u!==undefined) metU=u; },get dr(){return dr;},get met(){return met;},get epsT(){return epsT;},get idle(){return idle;}};
+window.__ax={perf:perf,get Q(){return Q;},setTilt:function(e){ epsT=eps=e; settle(); },get eps(){return eps;},get T(){return Tm;},next:nextPreset,sim:function(n){ for(var k=0;k<n;k++) simTick(.1); uploadCiv(); },plant:plantAt,stat:civStat,kat:Kat,get CV(){return CV;},get W(){return Wd;},get band(){return band;},get terr(){return terr;},presim:presim,get pop(){return popPct;},get C(){return Cc;},get land(){return landA;},get ping(){return ping;},meteor:function(u){ fireMeteor(); if(u!==undefined) metU=u; },get dr(){return dr;},get met(){return met;},get epsT(){return epsT;},get idle(){return idle;}};
 
 if(window.APKit){
   APKit.init({
