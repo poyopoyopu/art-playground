@@ -116,6 +116,8 @@ var KPX=new Float32Array(NK),KPY=new Float32Array(NK),KVX=new Float32Array(NK),K
 var pf={v:0},pm={v:0},pk={v:0};
 function slot(L,n,ptr){for(var j=0;j<n;j++){var i=(ptr.v+j)%n;if(L[i]<=0){ptr.v=(i+1)%n;return i}}return -1}
 
+/* 炎の舌: 根元から「上」の場に沿ってたどった折れ線。向きを書き換えた所では、舌そのものが曲がる・垂れる・地面を這う */
+var NTG=7,NS=12,TP=new Float32Array(NTG*(NS+1)*2),TW=new Float32Array(NTG*(NS+1)),TH=new Float32Array(NTG),TIPX=new Float32Array(NTG),TIPY=new Float32Array(NTG),TIPDX=new Float32Array(NTG),TIPDY=new Float32Array(NTG),TUW=new Float32Array(NTG);
 var T=0,fuelBase=1,flare=0,flick=1,inten=0.7,wind=0,emitAcc=0,lickAcc=0,smokeAcc=0,sparkAcc=0,fuel=1;
 var NT=3,tC=[0,0,0],tI=[0.7,0.7,0.7],tF=[1,1,1],tw=2.1;
 var layoutSeed=20261101;
@@ -137,7 +139,39 @@ function updateTongues(){
   bedP=0.25+0.75*sstep(0.1,0.7,B);
 }
 
+function traceTongues(){
+  var k,i,c=(NTG-1)/2,gy=FY+U*0.055;
+  for(k=0;k<NTG;k++){
+    var env=1-Math.abs(k-c)/(c+1.3)*0.62;
+    var fl=0.62+0.5*nz(T*1.25+k*7.1,2.3,k)+0.16*nz(T*5.5+k*3.3,7.7,1.1);
+    var H=U*(0.42+0.08*fuel)*Math.pow(clamp(fuel,0.05,1.4),1.7)*env*clamp(fl,0.25,1.3);
+    var Wd=U*(0.075+0.04*clamp(fuel,0,1.2))*env*(0.8+0.4*nz(T*0.9+k*2.7,1.3,4.4));
+    var x=FX+(k-c)*U*0.03+nz(T*0.5+k*9.1,4,2)*U*0.015,y=FY-U*0.012-nz(k*3.1,1,1)*U*0.008,uwMax=0,dxn=0,dyn=-1;
+    TH[k]=H;
+    for(i=0;i<=NS;i++){
+      var sN=i/NS,o=(k*(NS+1)+i);
+      TP[o*2]=x;TP[o*2+1]=y;
+      var wp=(1-Math.pow(sN,0.85))*(0.55+0.45*Math.sin(Math.min(1,sN*3.2)*1.5708));
+      TW[o]=Wd*wp;
+      if(i===NS)break;
+      upAt(x,y);if(UW>uwMax)uwMax=UW;
+      var len=Math.hypot(UX,UY),f=clamp(len,0.14,1);
+      if(len>0.02){dxn=UX/len;dyn=UY/len}else{dxn=0;dyn=-1}
+      var ds=H/NS*f*(1+0.35*Math.sin(sN*3.1416));
+      var px=-dyn,py=dxn;
+      var lat=nz(T*1.7+k*5.3,sN*2.6+k*1.3,0.7)*U*0.12*sN*(0.3+0.7*sN)+0.5*nz(T*4.1+k*2.1,sN*5,1.9)*U*0.03*sN;
+      x+=dxn*ds+px*lat/NS*3.2;y+=dyn*ds+py*lat/NS*3.2;
+      if(y>gy){y=gy;x+=(dxn>=0?1:-1)*ds*0.9} /* 逆さの世界では、炎が地面を舐めて広がる */
+    }
+    TIPX[k]=x;TIPY[k]=y;TIPDX[k]=dxn;TIPDY[k]=dyn;TUW[k]=uwMax;
+  }
+}
 function emitFlame(lick){
+  if(lick){ /* 舌の先から、千切れた炎が飛ぶ */
+    var kk=(Math.random()*NTG)|0,j=slot(FL,NF,pf);if(j<0)return;
+    FPX[j]=TIPX[kk];FPY[j]=TIPY[kk];FVX[j]=TIPDX[kk]*U*(0.25+Math.random()*0.3)+(Math.random()-0.5)*U*0.1;FVY[j]=TIPDY[kk]*U*(0.25+Math.random()*0.3);
+    FAX[j]=TIPX[kk];FL[j]=0.45+Math.random()*0.5;FA[j]=0;FSZ[j]=U*(0.014+Math.random()*0.014);FSD[j]=Math.random();return;
+  }
   var i=slot(FL,NF,pf);if(i<0)return;
   var r=Math.random()*tw,k=0;
   for(k=0;k<NT-1;k++){if(r<tI[k])break;r-=tI[k]}
@@ -175,9 +209,9 @@ function sparkBurst(n,power){
 function updateParticles(dt){
   var i,a,Tn,bu,tu,nx,ny,ax,ay,B_=U*2.0,kN=1/(U*0.18),drag;
   /* 炎 */
-  emitAcc+=680*(0.55+0.6*tw/NT)*fuel*dt;
+  emitAcc+=240*(0.55+0.6*tw/NT)*fuel*dt;
   while(emitAcc>=1){emitAcc--;emitFlame(false)}
-  lickAcc+=3.2*inten*dt; /* 舌の先が千切れて飛ぶ炎 */
+  lickAcc+=7*inten*dt; /* 舌の先が千切れて飛ぶ炎 */
   while(lickAcc>=1){lickAcc--;emitFlame(true)}
   drag=Math.exp(-2.3*dt);
   for(i=0;i<NF;i++){
@@ -435,6 +469,37 @@ function shimmer(g){
     g.drawImage(shC,0,sy,shC.width,sh,shRect.x+dx,shRect.y+y,shRect.w,sh/DPR);
   }
 }
+var TL=[[1.2,[170,40,8],0.07],[0.88,[235,85,14],0.1],[0.6,[255,145,34],0.14],[0.36,[255,205,100],0.18],[0.17,[255,244,210],0.2]];
+function drawTongues(g){
+  var k,L,i,o,s,col,fk=clamp(fuel,0.2,1.2),dk;
+  for(L=0;L<TL.length;L++){
+    s=TL[L][0];col=TL[L][1];
+    for(k=0;k<NTG;k++){
+      if(TH[k]<U*0.02)continue;
+      dk=1-0.55*TUW[k]; /* 向きを書き換えた所で重なりすぎて真っ白にならないように */
+      g.globalAlpha=TL[L][2]*(L>2?(0.45+0.55*fk):1)*dk*flick*clamp(fuel*1.6,0.35,1);
+      g.fillStyle=rgbs(col);
+      var n=(k*(NS+1)),last=(L===4?(NS*0.6)|0:NS),ax,ay,bx,by,dx,dy,ln;
+      g.beginPath();
+      for(i=0;i<=last;i++){
+        o=n+i;var ix=TP[o*2],iy=TP[o*2+1];
+        var jx=i<NS?TP[(o+1)*2]:ix,jy=i<NS?TP[(o+1)*2+1]:iy,hx=i>0?TP[(o-1)*2]:ix,hy=i>0?TP[(o-1)*2+1]:iy;
+        dx=jx-hx;dy=jy-hy;ln=Math.hypot(dx,dy)||1;
+        var w=TW[o]*s;ax=ix-dy/ln*w;ay=iy+dx/ln*w;
+        if(i===0)g.moveTo(ax,ay);else g.lineTo(ax,ay);
+      }
+      for(i=last;i>=0;i--){
+        o=n+i;var ix2=TP[o*2],iy2=TP[o*2+1];
+        var jx2=i<NS?TP[(o+1)*2]:ix2,jy2=i<NS?TP[(o+1)*2+1]:iy2,hx2=i>0?TP[(o-1)*2]:ix2,hy2=i>0?TP[(o-1)*2+1]:iy2;
+        dx=jx2-hx2;dy=jy2-hy2;ln=Math.hypot(dx,dy)||1;
+        var w2=TW[o]*s;bx=ix2+dy/ln*w2;by=iy2-dx/ln*w2;
+        g.lineTo(bx,by);
+      }
+      g.closePath();g.fill();
+    }
+  }
+  g.globalAlpha=1;
+}
 function render(){
   var g=ctx,i,x,y,p,a,Tn,r,al,idx,c,e;
   g.setTransform(DPR,0,0,DPR,0,0);g.globalCompositeOperation='source-over';g.globalAlpha=1;
@@ -499,8 +564,10 @@ function render(){
     g.globalAlpha=al;g.drawImage(SMK[(lit*(NSM-1)+0.5)|0],MPX[i]-r,MPY[i]-r,r*2,r*2);
   }
 
-  /* 炎 */
-  g.globalCompositeOperation='lighter';
+  /* 炎の舌(外側の赤から芯の白黄まで、幅を変えて重ねる) */
+  g.globalCompositeOperation='lighter';g.lineJoin='round';
+  drawTongues(g);
+  /* 炎のにじみ(粒子) */
   for(i=0;i<NF;i++){
     if(FL[i]<=0)continue;
     a=FA[i]/FL[i];Tn=0.8*Math.pow(1-a,1.25);
@@ -533,12 +600,12 @@ function drawLaws(g){
   for(i=0;i<patches.length;i++){
     p=patches[i];s=p.s;if(s<0.03)continue;
     var gr=g.createRadialGradient(p.x,p.y,0,p.x,p.y,p.r);
-    gr.addColorStop(0,'rgba(255,170,90,'+(0.07*s)+')');gr.addColorStop(0.7,'rgba(255,150,70,'+(0.03*s)+')');gr.addColorStop(1,'rgba(255,140,60,0)');
+    gr.addColorStop(0,'rgba(255,170,90,'+(0.12*s)+')');gr.addColorStop(0.7,'rgba(255,150,70,'+(0.05*s)+')');gr.addColorStop(1,'rgba(255,140,60,0)');
     g.fillStyle=gr;g.beginPath();g.arc(p.x,p.y,p.r,0,TAU);g.fill();
-    g.strokeStyle='rgba(255,205,150,'+(0.17*s)+')';g.lineWidth=1;g.setLineDash([2,7]);g.lineDashOffset=-T*10;
+    g.strokeStyle='rgba(255,205,150,'+(0.3*s)+')';g.lineWidth=1;g.setLineDash([2,7]);g.lineDashOffset=-T*10;
     g.beginPath();g.arc(p.x,p.y,p.r*0.78,0,TAU);g.stroke();g.setLineDash([]);
     dx=Math.cos(p.a);dy=Math.sin(p.a);len=p.r*0.13;
-    g.strokeStyle='rgba(255,215,170,'+(0.2*s)+')';g.lineWidth=1.1;
+    g.strokeStyle='rgba(255,215,170,'+(0.34*s)+')';g.lineWidth=1.4;
     for(k=0;k<7;k++){
       ang=k===0?0:(k-1)/6*TAU;px=k===0?p.x:p.x+Math.cos(ang)*p.r*0.42;py=k===0?p.y:p.y+Math.sin(ang)*p.r*0.42;
       g.beginPath();g.moveTo(px-dx*len,py-dy*len);g.lineTo(px+dx*len,py+dy*len);
@@ -684,7 +751,7 @@ function step(dt){
   settleBoost+=(settleTarget-settleBoost)*(1-Math.exp(-dt*5));
   rbT+=dt;fastRebuild-=dt;
   if(rbT>(fastRebuild>0?0.04:0.3)){rbT=0;rebuildLogs()}
-  updateTongues();updatePatches(dt);updateParticles(dt);popUpdate(dt);
+  updateTongues();updatePatches(dt);traceTongues();updateParticles(dt);popUpdate(dt);
 }
 function frame(now){
   requestAnimationFrame(frame);
