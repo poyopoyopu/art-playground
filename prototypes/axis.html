@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>AXIS — 地軸を倒すと、昼と夜の形が変わる</title>
+<!-- AXIS — クロちゃん(Claude)作。ap-kit.js統合: クロちゃん。2026/11/01 試作
+     おっちゃん「新作の題材候補を3つ」→ クロちゃんの3案(ZEBRA/AXIS/ASAGAO)から「では2」。
+     世界のルール: 地軸の傾きが、季節も、昼と夜の形も、氷のある場所も決めている。指でその傾きを変えられる。
+       何もしなくても: 宇宙に浮かぶ地球が自転しながら太陽のまわりを回り(1年=約40秒)、昼夜の境目が地表を滑り、
+                       夜側に街の灯りがともる。季節につれて雪と氷が極のまわりを行き来する。
+       横になぞる = 地軸の傾きが変わる(0〜180度)。傾きが大きいほど四季は極端になり、90度を超えると逆まわりの星になる。
+                   雪線は気温(その緯度が受ける日射の移り変わり)から計算しているので、傾けた結果として氷の場所が動く
+       タップ    = 有名な傾きへ順にジャンプ(木星3度 → 地球23.4度 → 54度 → 天王星98度 → 金星177度)
+       ✦        = 別の星(大陸・海の量・1日の長さ・地軸の傾き)
+       ↻        = 地軸を、いまの地球(23.4度)に戻す
+     本物っぽさ: 雪・氷・草・砂漠の分布は、緯度ごとの1日の平均日射量(昼の長さと太陽の高さから計算)を、熱がたまる遅れ付きで追いかけた気温から決める。
+       地球本体は球に3Dノイズの大陸・雲・街の灯りを貼ったもの。海には太陽の反射、昼夜の境目には夕焼け色、縁には大気の青。
+     描画: WebGL1(フラグメントシェーダ1枚)。重い端末では描画解像度を自動で下げる。 -->
+<script src="../ap-kit.js"></script>
+<style>
+html,body{margin:0;height:100%;background:#010207;overflow:hidden;touch-action:none}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+#hint{position:fixed;left:16px;right:16px;top:calc(env(safe-area-inset-top) + 18px);text-align:center;color:rgba(225,238,255,.88);font:500 11px/1.7 system-ui,sans-serif;letter-spacing:.12em;text-shadow:0 1px 6px rgba(0,0,0,.8);pointer-events:none;transition:opacity 1.2s}
+#hint.off{opacity:0}
+#lab{position:fixed;left:16px;right:16px;bottom:calc(env(safe-area-inset-bottom) + 118px);text-align:center;color:rgba(225,238,255,.82);font:500 12px/1.6 system-ui,sans-serif;letter-spacing:.14em;text-shadow:0 1px 6px rgba(0,0,0,.85);pointer-events:none;opacity:.55;transition:opacity .4s}
+#lab.on{opacity:1}
+#lab b{font-weight:600;font-variant-numeric:tabular-nums}
+#toast{position:fixed;left:16px;right:16px;bottom:calc(env(safe-area-inset-bottom) + 146px);text-align:center;color:rgba(225,238,255,.88);font:500 11px/1.7 system-ui,sans-serif;letter-spacing:.12em;text-shadow:0 1px 6px rgba(0,0,0,.85);pointer-events:none;opacity:0;transition:opacity .5s}
+#toast.on{opacity:1}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">地球を横になぞると、地軸が傾く<br>タップすると、木星・地球・天王星・金星の傾きへ</div>
+<div id="lab"></div>
+<div id="toast"></div>
+<script id="fs" type="x-shader/x-fragment">
+precision highp float;
+uniform vec2 uRes;
+uniform float uTime, uSeed, uR, uSea, uDelta, uDrag;
+uniform mat3 uBody, uBodyI;
+uniform vec3 uS, uA;
+uniform sampler2D uT;
+
+float hash(vec3 p){ p=fract(p*.3183099+.1); p*=17.; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
+float hash21(vec2 p){ p=fract(p*vec2(123.34,456.21)); p+=dot(p,p+45.32); return fract(p.x*p.y); }
+float noise(vec3 x){
+  vec3 i=floor(x), f=fract(x); f=f*f*(3.-2.*f);
+  return mix(mix(mix(hash(i),hash(i+vec3(1.,0.,0.)),f.x),mix(hash(i+vec3(0.,1.,0.)),hash(i+vec3(1.,1.,0.)),f.x),f.y),
+             mix(mix(hash(i+vec3(0.,0.,1.)),hash(i+vec3(1.,0.,1.)),f.x),mix(hash(i+vec3(0.,1.,1.)),hash(i+vec3(1.,1.,1.)),f.x),f.y),f.z);
+}
+float fbm(vec3 p,int oct){
+  float a=.5,s=0.,w=0.;
+  for(int i=0;i<6;i++){ if(i>=oct) break; s+=a*noise(p); w+=a; p=p*2.03+vec3(1.7,9.2,3.1); a*=.5; }
+  return s/w;
+}
+
+vec3 space(vec2 p,float asp){
+  vec3 c=vec3(.003,.005,.013)+vec3(.004,.006,.015)*smoothstep(-.4,.5,p.x/asp+p.y*.3);
+  vec2 sg=gl_FragCoord.xy/(uRes.y/72.), id=floor(sg), fr=fract(sg);
+  float h=hash21(id);
+  if(h>.935){
+    float b=(h-.935)/.065;
+    vec2 o=vec2(hash21(id+7.1),hash21(id+3.7))*.6+.2;
+    float r=length(fr-o);
+    float tw=.7+.3*sin(uTime*(.8+b*2.5)+h*60.);
+    c+=vec3(.75,.85,1.)*smoothstep(.2+.12*b,0.,r)*(.12+.88*b*b)*tw;
+  }
+  vec2 sp=vec2(.5*asp+.28,.07); float sd=length(p-sp);
+  c+=vec3(1.,.6,.28)*(.34*exp(-sd*3.2)+.28*exp(-sd*10.));
+  return c;
+}
+
+void main(){
+  float asp=uRes.x/uRes.y;
+  vec2 p=(gl_FragCoord.xy-.5*uRes)/uRes.y; p.y-=.02;
+  float R=uR, d=length(p)-R, px=1.6/uRes.y;
+  vec3 col=space(p,asp);
+  vec2 sdir=normalize(uS.xy+vec2(1e-4,0.));
+  if(d>0.){
+    float lit=clamp(.5+.8*dot(p/max(length(p),1e-4),sdir),0.,1.);
+    col+=vec3(.22,.46,1.)*exp(-d/(R*.07))*.5*lit+vec3(.15,.3,.8)*exp(-d/(R*.22))*.12*lit;
+  }
+  if(d<px){
+    vec2 q=p/R; float r2=min(dot(q,q),1.); float z=sqrt(1.-r2);
+    vec3 n=vec3(q,z);
+    vec3 b=normalize(uBody*n);
+    float lat=asin(clamp(b.y,-1.,1.));
+    float T=texture2D(uT,vec2(lat/3.14159265+.5,.5)).r*1.4;
+    vec3 off=vec3(uSeed,uSeed*.61+3.,uSeed*1.37+7.);
+    // 大陸
+    float f=fbm(b*1.55+off,5);
+    f+=(fbm(b*7.+off*1.7,3)-.5)*.10;
+    float land=smoothstep(uSea,uSea+.014,f);
+    float e=clamp((f-uSea)*3.4,0.,1.);
+    float ridge=1.-abs(2.*fbm(b*5.2+off*.5,3)-1.);
+    e=clamp(e*.75+.35*ridge*land*smoothstep(.1,.5,e),0.,1.);
+    // 地表の凹凸(月夜でも陰影が出る程度)
+    vec3 t1=normalize(cross(b,abs(b.y)<.98?vec3(0.,1.,0.):vec3(1.,0.,0.)));
+    vec3 t2=cross(b,t1);
+    float h0=fbm(b*18.,3), h1=fbm((b+t1*.014)*18.,3), h2=fbm((b+t2*.014)*18.,3);
+    vec3 g=((h1-h0)*(uBodyI*t1)+(h2-h0)*(uBodyI*t2))/.014;
+    vec3 nb=normalize(n-g*.045*(.3+e)*land);
+    // 気温から決まる氷・雪・草・砂漠
+    float m=fbm(b*2.4+off*2.1,4);
+    float veg=smoothstep(.38,.62,m)*smoothstep(.34,.55,T);
+    vec3 desert=vec3(.55,.42,.25), grass=vec3(.16,.30,.09), forest=vec3(.05,.17,.06), tundra=vec3(.30,.31,.27), rock=vec3(.34,.30,.27);
+    vec3 lc=mix(desert,grass,veg);
+    lc=mix(lc,forest,veg*smoothstep(.55,.8,m)*smoothstep(.55,.8,T));
+    lc=mix(tundra,lc,smoothstep(.30,.50,T));
+    lc=mix(lc,rock,smoothstep(.55,.95,e)*.7);
+    float snow=1.-smoothstep(.27,.42,T);
+    snow=max(snow,smoothstep(.78,.98,e)*(1.-smoothstep(.55,.85,T)));
+    float grain=fbm(b*26.+off,3);
+    lc=mix(lc,vec3(.80,.86,.95)+vec3(.12,.10,.06)*grain,snow);
+    float depth=smoothstep(uSea-.14,uSea,f);
+    vec3 sea=mix(vec3(.008,.035,.105),vec3(.02,.24,.40),depth*depth);
+    float ice=1.-smoothstep(.25,.36,T);
+    float crack=smoothstep(.06,.0,abs(fbm(b*22.+off*1.3,3)-.5));
+    sea=mix(sea,vec3(.82,.91,.97)*(.84+.28*grain)*(1.-.25*crack),ice);
+    vec3 alb=mix(sea,lc,land);
+    // 雲(太陽が真上に来る緯度のまわりに多い)
+    float ca=uTime*.012;
+    vec3 cb=vec3(b.x*cos(ca)+b.z*sin(ca),b.y,-b.x*sin(ca)+b.z*cos(ca));
+    float cn=fbm(cb*vec3(2.6,3.6,2.6)+vec3(uSeed*2.,uTime*.01,uSeed),5);
+    float band=.12*exp(-pow((lat-uDelta)/.30,2.));
+    float cl=smoothstep(.555,.80,cn+band);
+    // 光
+    float ndl=dot(n,uS);
+    float diff=clamp((dot(nb,uS)+.06)/1.06,0.,1.);
+    vec3 surf=alb*(diff*1.25+.010);
+    vec3 hv=normalize(uS+vec3(0.,0.,1.));
+    float sp=pow(max(dot(n,hv),0.),140.)*1.6+pow(max(dot(n,hv),0.),22.)*.12;
+    surf+=vec3(1.,.93,.8)*sp*(1.-land)*(1.-ice)*(1.-cl)*step(0.,ndl);
+    float diffC=clamp((ndl+.05)/1.05,0.,1.);
+    surf=mix(surf,vec3(.96,.97,1.)*(diffC*1.15+.010),cl*.92);
+    // 夜側の街の灯り
+    float nightM=1.-smoothstep(-.12,.10,ndl);
+    float pop=fbm(b*2.0+off*3.1,3);
+    float lights=land*smoothstep(.50,.72,pop)*(smoothstep(.70,.95,noise(b*130.))*.85+smoothstep(.78,.95,noise(b*46.))*.35);
+    lights*=(1.-snow*.8);
+    surf+=vec3(1.,.72,.34)*lights*nightM*(1.-.88*cl)*1.15;
+    surf+=vec3(.010,.018,.040)*nightM*(1.-land);
+    // 大気と夕焼け
+    float haze=pow(1.-z,2.4);
+    surf+=vec3(.26,.50,1.)*haze*clamp(ndl*1.3+.35,0.,1.)*1.1;
+    surf+=vec3(1.,.40,.12)*exp(-pow(ndl/.09,2.))*(.10+.90*haze)*.30;
+    // 赤道線(傾きが見えるように薄く。触っている間は濃く)
+    surf+=vec3(.9,.95,1.)*smoothstep(.007,.0,abs(dot(n,uA)))*(.10+.45*uDrag);
+    col=mix(col,surf,clamp(.5-d/px,0.,1.));
+  }
+  // 地軸の棒(星の外へ突き出た部分だけ。裏側は星に隠れる)
+  vec2 a2=uA.xy; float aa2=dot(a2,a2);
+  if(aa2>1e-4){
+    float s=dot(p,a2)/aa2;
+    float perp=length(p-s*a2);
+    float L=R*1.34, as=abs(s);
+    float vis=(s*uA.z>0. || length(p)>R+px)?1.:0.;
+    float seg=step(R*.995,as)*step(as,L)*vis*smoothstep(L,L*.93,as);
+    vec3 rc=s>0.?vec3(1.,.93,.78):vec3(.55,.62,.75);
+    float lineA=smoothstep(px*1.1,0.,perp)*seg*(.55+.35*uDrag)+exp(-perp/(px*7.))*seg*uDrag*.30;
+    col=mix(col,rc,clamp(lineA,0.,1.));
+    float cap=smoothstep(px*3.2,px*1.2,length(p-L*a2))*(.65+.35*uDrag);
+    col=mix(col,vec3(1.,.95,.82),cap*step(0.,uA.z+1.));
+  }
+  col=1.-exp(-col*1.35);
+  col*=1.-.30*smoothstep(.5,1.15,length(p/vec2(asp*.92,1.)));
+  col+=(hash21(gl_FragCoord.xy+fract(uTime*7.))-.5)*.016;
+  gl_FragColor=vec4(col,1.);
+}
+</script>
+<script>
+(function(){
+'use strict';
+var cv=document.getElementById('c');
+var gl=cv.getContext('webgl',{antialias:false,preserveDrawingBuffer:true,alpha:false})||cv.getContext('experimental-webgl',{preserveDrawingBuffer:true});
+function rnd(a,b){ return a+Math.random()*(b-a); }
+function clamp(v,a,b){ return v<a?a:v>b?b:v; }
+var HASH=location.hash;
+function hv(k){ var m=HASH.match(new RegExp('[#&]'+k+'=(-?[\\d.]+)')); return m?+m[1]:null; }
+
+/* ---------- シェーダ ---------- */
+var VS='attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}';
+function sh(t,src){ var s=gl.createShader(t); gl.shaderSource(s,src); gl.compileShader(s); if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(s)); return s; }
+var prog=gl.createProgram();
+gl.attachShader(prog,sh(gl.VERTEX_SHADER,VS)); gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,document.getElementById('fs').textContent));
+gl.linkProgram(prog); if(!gl.getProgramParameter(prog,gl.LINK_STATUS)) console.error(gl.getProgramInfoLog(prog));
+gl.useProgram(prog);
+var buf=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,buf); gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+var al=gl.getAttribLocation(prog,'a'); gl.enableVertexAttribArray(al); gl.vertexAttribPointer(al,2,gl.FLOAT,false,0,0);
+var U={}; ['uRes','uTime','uSeed','uR','uSea','uDelta','uDrag','uBody','uBodyI','uS','uA','uT'].forEach(function(n){ U[n]=gl.getUniformLocation(prog,n); });
+
+/* ---------- 緯度ごとの気温(64区間)をテクスチャで渡す ---------- */
+var NL=64, Tm=new Float32Array(NL), Tn=new Float32Array(NL), tBytes=new Uint8Array(NL*4);
+var tex=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,tex);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+function uploadT(){ for(var i=0;i<NL;i++){ tBytes[i*4]=clamp(Tm[i]/1.4,0,1)*255; tBytes[i*4+3]=255; }
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,NL,1,0,gl.RGBA,gl.UNSIGNED_BYTE,tBytes); }
+gl.uniform1i(U.uT,0);
+
+/* ---------- 世界の状態 ---------- */
+var TY=40, TD=9;                       // 1年と1日の長さ(秒)
+var S=[.90,0,.43]; (function(){ var l=Math.hypot(S[0],S[1],S[2]); S=[S[0]/l,S[1]/l,S[2]/l]; })();
+var EARTH=23.4;
+var eps=hv('e')!==null?hv('e'):EARTH, epsT=eps;     // 地軸の傾き(度)
+var seed=hv('s')!==null?hv('s'):7, sea=.53;      // 最初の星は固定(大陸が見やすい種)。✦で別の星
+var theta=hv('t')!==null?hv('t'):rnd(0,6.28), psi=hv('y')!==null?hv('y')*6.2832:rnd(0,6.28);
+var frozen=hv('f')===1;
+
+function mm(a,b){ var r=[0,0,0,0,0,0,0,0,0]; for(var i=0;i<3;i++) for(var j=0;j<3;j++){ var s=0; for(var k=0;k<3;k++) s+=a[i*3+k]*b[k*3+j]; r[i*3+j]=s; } return r; }
+function Ry(a){ var c=Math.cos(a),s=Math.sin(a); return [c,0,s, 0,1,0, -s,0,c]; }
+function Rz(a){ var c=Math.cos(a),s=Math.sin(a); return [c,-s,0, s,c,0, 0,0,1]; }
+function tr(m){ return [m[0],m[3],m[6], m[1],m[4],m[7], m[2],m[5],m[8]]; }
+function bodyToView(){ return mm(mm(Ry(psi),Rz(-eps*Math.PI/180)),Ry(theta)); }   // 自転 → 傾き → 公転の向き
+function axisDir(M){ return [M[1],M[4],M[7]]; }
+function sunDelta(M){ var A=axisDir(M); return Math.asin(clamp(S[0]*A[0]+S[1]*A[1]+S[2]*A[2],-1,1)); }
+
+/* 緯度φ・太陽の赤緯δでの、1日の平均日射量(赤道・春分=1) */
+function insol(phi,delta){
+  var tp=Math.tan(phi)*Math.tan(delta), h0=tp>=1?Math.PI:(tp<=-1?0:Math.acos(-tp));   // cos(h0) = -tanφ·tanδ。1以上=極昼(h0=π)、-1以下=極夜(h0=0)
+  return Math.max(0,h0*Math.sin(phi)*Math.sin(delta)+Math.cos(phi)*Math.cos(delta)*Math.sin(h0));
+}
+function stepClimate(dt,delta){
+  var n=Math.max(1,Math.ceil(dt/.05)), h=dt/n, tau=4.5, D=2.2;
+  for(var s=0;s<n;s++){
+    for(var i=0;i<NL;i++){
+      var phi=((i+.5)/NL-.5)*Math.PI;
+      var teq=Math.pow(insol(phi,delta),.95)*.98-.28*Math.pow(Math.abs(Math.sin(phi)),3);
+      var l=Tm[i>0?i-1:i], r=Tm[i<NL-1?i+1:i];
+      Tn[i]=Tm[i]+(teq-Tm[i])*h/tau+D*h*(l+r-2*Tm[i]);
+    }
+    for(i=0;i<NL;i++) Tm[i]=Tn[i];
+  }
+}
+function settle(){      // 傾きを変えたあと、数年ぶんを先に回して気温をなじませる
+  var p0=psi, th=theta, years=3, steps=years*TY/.1;
+  for(var k=0;k<steps;k++){ psi=p0-(steps-k)/steps*years*6.2832; stepClimate(.1,sunDelta(bodyToView())); }
+  psi=p0; theta=th;
+}
+
+/* ---------- 画面 ---------- */
+var QF=hv('q'), W=0,H=0,DPR=1,Q=QF?QF:0.85,Rg=.3;
+function setup(){
+  DPR=Math.min(2,window.devicePixelRatio||1);
+  W=window.innerWidth; H=window.innerHeight;
+  var s=DPR*Q;
+  cv.width=Math.max(2,Math.round(W*s)); cv.height=Math.max(2,Math.round(H*s));
+  gl.viewport(0,0,cv.width,cv.height);
+  var asp=W/H;
+  Rg=Math.min(.30,.40*asp);          // 星の半径(画面の高さを1として)
+}
+
+/* ---------- 表示 ---------- */
+var PRE=[{e:3,n:'木星(ほぼ直立)'},{e:EARTH,n:'いまの地球'},{e:54,n:'極端な四季'},{e:98,n:'天王星(横倒し)'},{e:177,n:'金星(さかさま)'}];
+var labEl=document.getElementById('lab'), labT=0, lastLab='';
+function setLab(){
+  var e=epsT, nm='';
+  if(e<1.2) nm='季節のない星';
+  else for(var i=0;i<PRE.length;i++) if(Math.abs(e-PRE[i].e)<2.5) nm=PRE[i].n;
+  if(!nm && e>92) nm='逆まわりの星';
+  var s='地軸 <b>'+e.toFixed(1)+'°</b>'+(nm?' — '+nm:'');
+  if(s!==lastLab){ labEl.innerHTML=s; lastLab=s; }
+}
+var hint=document.getElementById('hint'), hinted=false;
+function hideHint(){ if(!hinted){ hinted=true; hint.classList.add('off'); } }
+setTimeout(hideHint,9000);
+var toastEl=document.getElementById('toast'), toastT=0;
+function toast(s,ms){ toastEl.textContent=s; toastEl.classList.add('on'); clearTimeout(toastT); toastT=setTimeout(function(){ toastEl.classList.remove('on'); },ms||2400); }
+function pulseLab(){ labEl.classList.add('on'); clearTimeout(labT); labT=setTimeout(function(){ labEl.classList.remove('on'); },2600); }
+
+/* ---------- 触る ---------- */
+var drags={}, drag=0, dragA=0;
+cv.addEventListener('pointerdown',function(ev){
+  if(window.APKit && APKit.isUI(ev.clientX,ev.clientY)) return true;
+  ev.preventDefault(); hideHint();
+  drags[ev.pointerId]={x:ev.clientX,x0:ev.clientX,y0:ev.clientY,moved:false,t0:performance.now()};
+  try{ cv.setPointerCapture(ev.pointerId); }catch(e){}
+});
+cv.addEventListener('pointermove',function(ev){
+  var d=drags[ev.pointerId]; if(!d) return;
+  if(!d.moved && Math.hypot(ev.clientX-d.x0,ev.clientY-d.y0)>8){ d.moved=true; d.x=ev.clientX; }
+  if(d.moved){
+    epsT=clamp(epsT+(ev.clientX-d.x)*.30,0,180); d.x=ev.clientX;
+    drag=1; pulseLab();
+  }
+});
+function nextPreset(){
+  var i, nx=PRE[0].e;
+  for(i=0;i<PRE.length;i++) if(PRE[i].e>epsT+1.5){ nx=PRE[i].e; break; }
+  epsT=nx; pulseLab();
+}
+function endPtr(ev){
+  var d=drags[ev.pointerId]; if(!d) return;
+  if(!d.moved && ev.type==='pointerup' && performance.now()-d.t0<500) nextPreset();
+  delete drags[ev.pointerId];
+  if(!Object.keys(drags).length) drag=0;
+}
+cv.addEventListener('pointerup',endPtr);
+cv.addEventListener('pointercancel',endPtr);
+
+/* ---------- ループ ---------- */
+var last=performance.now(), clock=0, perfT=0, perfN=0, tuned=0, perf={ms:0,n:0};
+function frame(now){
+  var dt=Math.min(0.05,(now-last)/1000); last=now;
+  perfT+=dt; perfN++;
+  if(perfT>1.5 && tuned<4 && !QF && !navigator.webdriver){ var fps=perfN/perfT; if(fps<40 && Q>0.4){ Q-=0.12; setup(); } else if(fps>58 && Q<0.95 && tuned===0){ Q+=0.1; setup(); } tuned++; perfT=0; perfN=0; }
+  if(!frozen){ clock+=dt; theta+=dt*6.2832/TD; psi+=dt*6.2832/TY; }
+  eps+=(epsT-eps)*(1-Math.exp(-dt*(drag?16:7)));
+  dragA+=(drag-dragA)*(1-Math.exp(-dt*8));
+  var M=bodyToView(), A=axisDir(M), delta=Math.asin(clamp(S[0]*A[0]+S[1]*A[1]+S[2]*A[2],-1,1));
+  if(!frozen) stepClimate(dt,delta); uploadT(); setLab();
+  var a=performance.now();
+  gl.uniform2f(U.uRes,cv.width,cv.height);
+  gl.uniform1f(U.uTime,clock); gl.uniform1f(U.uSeed,seed); gl.uniform1f(U.uR,Rg); gl.uniform1f(U.uSea,sea);
+  gl.uniform1f(U.uDelta,delta); gl.uniform1f(U.uDrag,dragA);
+  gl.uniformMatrix3fv(U.uBody,false,tr(tr(M)));   // view→body = M の転置。GLSLは列優先なので、さらに転置して渡す
+  gl.uniformMatrix3fv(U.uBodyI,false,tr(M));
+  gl.uniform3f(U.uS,S[0],S[1],S[2]); gl.uniform3f(U.uA,A[0],A[1],A[2]);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+  perf.ms+=performance.now()-a; perf.n++;
+  requestAnimationFrame(frame);
+}
+
+function mutate(){
+  seed=rnd(0,60); sea=rnd(.50,.57); TD=rnd(6,13);
+  var k=(Math.random()*5)|0;
+  epsT=[rnd(0,20),rnd(20,30),rnd(40,70),rnd(80,110),rnd(150,180)][k];
+  theta=rnd(0,6.28);
+  toast('新しい星 — 地軸 '+epsT.toFixed(0)+'°, 1日 '+TD.toFixed(0)+'秒',2600); pulseLab();
+}
+function reset(){ epsT=EARTH; toast('地軸を、いまの地球に戻した',1800); pulseLab(); }
+
+var resizeT=0;
+window.addEventListener('resize',function(){ clearTimeout(resizeT); resizeT=setTimeout(setup,200); });
+setup();
+// 初期の気温を用意してから描き始める(最初の1コマから雪の位置が合うように)
+for(var i0=0;i0<NL;i0++) Tm[i0]=.6;
+settle(); uploadT(); setLab();
+requestAnimationFrame(frame);
+window.__ax={perf:perf,get Q(){return Q;},setTilt:function(e){ epsT=eps=e; settle(); },get eps(){return eps;},get T(){return Tm;},next:nextPreset};
+
+if(window.APKit){
+  APKit.init({
+    canvas: cv,
+    gifName: 'axis-loop',
+    clockFormat: 'spec',
+    dock: true,
+    autoHide: true,
+    fullscreenButton: false,
+    buttons: [
+      {label:'✦', name:'mutate', onClick:function(){ mutate(); }},
+      {label:'↻', name:'reset',  onClick:function(){ reset(); }}
+    ]
+  });
+}
+})();
+</script>
+</body>
+</html>
