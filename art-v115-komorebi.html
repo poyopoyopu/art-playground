@@ -25,6 +25,13 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 #cd .t i{font-style:normal;opacity:.62}
 #cd .d{font-size:clamp(10px,2.8vw,14px);letter-spacing:.3em;opacity:.62;text-shadow:0 0 3px rgba(0,0,0,.95),0 2px 16px rgba(0,0,0,.9);text-align:center;line-height:1.7;white-space:pre}
 #cd.end .t{color:#ffe9a8}
+#cd.warn .t{color:#ffd36a;animation:cdpulse 1s ease-in-out infinite}
+#cd.go .t{color:#ff8a5c;animation:cdblink .45s steps(2) 6}
+@keyframes cdpulse{50%{opacity:.45}}
+@keyframes cdblink{50%{opacity:.15}}
+#flash{position:fixed;inset:0;z-index:90;pointer-events:none;background:#fff;opacity:0}
+#flash.on{animation:flashA .9s ease-out}
+@keyframes flashA{0%{opacity:.55}100%{opacity:0}}
 #cd.end .d{opacity:.9}
 /* メニュー(☰): ap-kitのカード(.apk-card)に合わせた、暗い半透明のカード */
 #menu{position:fixed;z-index:80;left:50%;top:calc(env(safe-area-inset-top) + 14px);transform:translateX(-50%);width:min(92vw,380px);max-height:62vh;overflow:auto;padding:14px 14px 16px;border-radius:20px;background:rgba(8,8,16,.84);border:1px solid #ffffff1f;-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);color:#fff;font-family:system-ui,-apple-system,sans-serif;box-shadow:0 10px 40px #000a}
@@ -44,7 +51,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 </head>
 <body>
 <canvas id="art"></canvas>
-<div id="cd"><div class="t"></div><div class="d"></div></div>
+<div id="flash"></div><div id="cd"><div class="t"></div><div class="d"></div></div>
 <div id="hint"><b>葉のすきまは、太陽の小さな像をつくる</b>なぞると、日食の時間を動かせる</div>
 <script>
 (()=>{
@@ -264,6 +271,9 @@ function toggleRun(){
   else running=!running;
   refreshMenu()}
 function setLoop(v){loop=v;save('komorebi-loop',v?1:0);if(loop&&ended&&rest<=0){restart(true)}refreshMenu()}
+let warned=false,wentShown=false,flashUntil=0;const flashEl=document.getElementById('flash');
+function buzzShort(){try{navigator.vibrate&&navigator.vibrate([120,80,120])}catch(_){}}
+function flashNow(){flashEl.classList.remove('on');void flashEl.offsetWidth;flashEl.classList.add('on');flashUntil=Date.now()+2800}
 function buzz(){try{navigator.vibrate&&navigator.vibrate([220,120,220,120,400])}catch(_){}}
 /* 画面は、なぞると日食の時間を動かせるだけ(タップでは何も起きない) */
 const cornerTaps=[];let tapT0=0;
@@ -291,7 +301,8 @@ function refreshMenu(){
   if(menu.hidden)return;
   const startLabel=running?'⏸ 一時停止':((ended||(!loop&&F>=.999)||F<=-.999)?'▶ スタート':'▶ 再開');
   if(!untilTime)untilTime=defaultUntil();
-  menu.innerHTML='<div class="mh"><b>BUS · パレット・ライド</b><button class="x" data-a="close" aria-label="閉じる">✕</button></div>'
+  menu.innerHTML='<div class="row"><button class="big" data-a="wait60">⏳ 1分待機を始める</button></div>'
+   +'<div class="mh"><b>BUS · パレット・ライド</b><button class="x" data-a="close" aria-label="閉じる">✕</button></div>'
    +'<div class="row">'+STOPS.map((n,i)=>'<button class="'+(bus===i?'on':'')+'" data-a="bus" data-v="'+i+'">'+(i+1)+' '+n+'</button>').join('')+'</div>'
    +(bus>=0&&until?'<div class="row"><span class="note">次の発車 '+until.label.split('  ')[1]+(until.after?'(その次 '+until.after+')':'')+'</span><button data-a="cancel">解除</button></div>':'<div class="row"><span class="note">乗る停留所を選ぶと、次の発車までを数えます</span></div>')
    +'<div class="mh sub"><b>UNTIL</b></div>'
@@ -310,6 +321,7 @@ menu.addEventListener('click',e=>{
   const b=e.target.closest('button');if(!b)return;const a=b.dataset.a,v=parseFloat(b.dataset.v);
   if(a==='close'){toggleMenu(false);return}
   if(a==='until'){startUntil();return}
+  if(a==='wait60'){cancelUntil();cycle=60;loop=false;restart(true);toggleMenu(false);return}/* 押した瞬間から60秒。終わると知らせて止まる */
   if(a==='bus'){startBus(v);return}
   if(a==='cancel'){cancelUntil();restart(loop);rest=loop?3:0;refreshMenu();return}
   if(a==='m10')setCycle(cycle-10);else if(a==='p10')setCycle(cycle+10);else if(a==='c')setCycle(v);
@@ -330,7 +342,7 @@ function frame(ts){
     const now=Date.now(),tot=until.t-until.s,el=Math.min(tot,Math.max(0,now-until.s));F=-1+2*el/tot;tgt=F;
     if(press&&press.drag)F=fingerF;/* なぞっている間は見た目だけ動かす。残り時間は実際の時計のままで、離すと時刻どおりの位置に戻る */
     if(now>=until.t){
-      if(until.bus){buzz();busFlash=now+8000;const u=busPlan(bus,now);if(u){until=u;F=-1;tgt=-1}}/* 発車: 次の便のカウントダウンへ */
+      if(until.bus){buzz();flashNow();busFlash=now+8000;const u=busPlan(bus,now);if(u){until=u;F=-1;tgt=-1}}/* 発車: 次の便のカウントダウンへ */
       else if(!ended){ended=true;running=false;buzz();save('komorebi-until','');refreshMenu()}}
   }else if(DBG===null&&running&&!dragging){
     if(rest>0)rest-=rdt;else{F+=rdt*(2/cycle);if(F>=1){
@@ -341,7 +353,15 @@ function frame(ts){
   /* 残り時間: 日食の始まり(F=-1)から終わり(F=+1)までが「1周」。残りは (1-F)/2 × 1周 */
   if(!until&&loop&&rest<=0)ended=false;
   const left=ended?0:(until?Math.max(0,(until.t-Date.now())/1000):Math.max(0,(1-F)/2*cycle)),ls=Math.ceil(left-.001);
-  cdEl.className=ended?'end':'';
+  /* 定刻の10秒前に予告(振動+色+脈打ち)、定刻に発車の知らせ(画面が光る+点滅)。iPhoneのSafariは振動が使えないので、色と光でも知らせる */
+  const active=(until||(!loop&&running))&&!ended;
+  const warnNow=active&&left>0&&left<=10;
+  if(warnNow&&!warned){warned=true;buzzShort()}
+  if(!warnNow&&left>10)warned=false;
+  let goNow=ended&&!wentShown;if(ended&&!wentShown){wentShown=true;flashEl.classList.remove('on');void flashEl.offsetWidth;flashEl.classList.add('on')}
+  if(!ended)wentShown=false;
+  if(until&&until.bus&&Date.now()<busFlash)goNow=true;
+  cdEl.className=(ended?'end ':'')+(warnNow?'warn ':'')+((goNow||Date.now()<flashUntil)?'go':'');
   const hh=Math.floor(ls/3600),mm=Math.floor(ls%3600/60),ss=ls%60;
   cdEl.querySelector('.t').innerHTML=ended?'00<i>:</i>00':(hh>0?hh+'<i>:</i>':'')+('0'+mm).slice(-2)+'<i>:</i>'+('0'+ss).slice(-2);
   if(until&&until.bus&&!ended){
