@@ -469,6 +469,112 @@ function shimmer(g){
     g.drawImage(shC,0,sy,shC.width,sh,shRect.x+dx,shRect.y+y,shRect.w,sh/DPR);
   }
 }
+
+/* ---------- 炎本体: WebGLシェーダー(使えない端末では従来の描画に切り替える) ----------
+   画面の各点から、書き換わる「上」の場を逆向きにたどって、炎の根元(地面の線)までの道のりと横のずれを求め、
+   その座標で炎の濃さを決める。だから触った所では、炎が本当に曲がる・垂れる・淀む。 */
+var GL=null,glc=null,glProg=null,GU={},GLOK=false,glW=0,glH=0;
+var VS='attribute vec2 a;void main(){gl_Position=vec4(a,0.0,1.0);}';
+var FS=[
+'precision highp float;',
+'uniform vec4 uRect;uniform vec2 uRes;uniform float uT;uniform vec2 uBase;uniform float uH;uniform float uW;uniform float uU;uniform float uGround;uniform float uGain;uniform float uHeat;uniform float uSeed;',
+'uniform vec4 uP[6];uniform float uA[6];',
+'float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}',
+'float vn(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);return mix(mix(hash(i),hash(i+vec2(1.0,0.0)),f.x),mix(hash(i+vec2(0.0,1.0)),hash(i+vec2(1.0,1.0)),f.x),f.y);}',
+'float fbm(vec2 p){float v=0.0,a=0.5;for(int i=0;i<4;i++){v+=a*vn(p);p=p*2.03+vec2(17.1,9.7);a*=0.5;}return v;}',
+'vec3 upAt(vec2 q){',
+'  vec2 u=vec2(0.0,-1.0);',
+'  for(int i=0;i<6;i++){',
+'    vec2 d=q-uP[i].xy;float d2=dot(d,d)/(uP[i].z*uP[i].z);',
+'    float w=uP[i].w*exp(-d2*1.15);',
+'    u=u*(1.0-w)+vec2(cos(uA[i]),sin(uA[i]))*w;',
+'  }',
+'  return vec3(u,length(u));',
+'}',
+'vec3 ramp(float e){',
+'  vec3 c=vec3(0.0);',
+'  c=mix(c,vec3(0.50,0.07,0.0),smoothstep(0.0,0.28,e));',
+'  c=mix(c,vec3(1.0,0.34,0.04),smoothstep(0.22,0.5,e));',
+'  c=mix(c,vec3(1.0,0.68,0.2),smoothstep(0.45,0.74,e));',
+'  c=mix(c,vec3(1.0,0.94,0.72),smoothstep(0.7,1.0,e));',
+'  return c;',
+'}',
+'void main(){',
+'  vec2 p=vec2(uRect.x+gl_FragCoord.x/uRes.x*uRect.z,uRect.y+(1.0-gl_FragCoord.y/uRes.y)*uRect.w);',
+'  float sd=uH/11.0;',
+'  vec2 q=p;float tau=0.0;float x0=0.0;bool hit=false;',
+'  float py=q.y-uBase.y;',
+'  if(abs(py)<sd*0.5){hit=true;x0=q.x-uBase.x;}',
+'  for(int i=0;i<18;i++){',
+'    if(hit)break;',
+'    vec3 u=upAt(q);',
+'    vec2 dir=u.xy/max(u.z,0.001);',
+'    float len=clamp(u.z,0.12,1.0);',
+'    float sway=(vn(vec2(q.y*0.011+uSeed,uT*1.1))-0.5)*sd*1.3;',
+'    vec2 nq=q-dir*sd+vec2(-dir.y,dir.x)*sway*0.0+vec2(sway,0.0);',
+'    float ny=nq.y-uBase.y;',
+'    tau+=sd/len;',
+'    if(py*ny<=0.0){float f=py/(py-ny+1e-5);tau-=sd/len*(1.0-f);x0=mix(q.x,nq.x,f)-uBase.x;hit=true;break;}',
+'    q=nq;py=ny;',
+'  }',
+'  if(!hit){gl_FragColor=vec4(0.0);return;}',
+'  float h=tau/uH;',
+'  float xl=x0/uW;',
+'  float t=uT;',
+'  float n1=fbm(vec2(xl*1.1+uSeed,h*2.6-t*1.9));',
+'  float n2=fbm(vec2(xl*1.9+7.3,h*4.6-t*2.9));',
+'  float n3=vn(vec2(h*5.0-t*3.5,xl*2.0+3.0));',
+'  float hh=clamp(h,0.0,1.4);',
+'  float taper=mix(1.0,0.16,pow(clamp(hh,0.0,1.0),0.75));',
+'  float lat=abs(xl+(n1-0.5)*2.6*hh)/taper;',
+'  float body=1.0-smoothstep(0.2,1.0,lat);',
+'  float tg=fbm(vec2(xl*2.6+uSeed*0.3,h*1.5-t*0.9));',
+'  body*=smoothstep(0.18,0.62,tg+0.35*(1.0-h)-0.1*h);',
+'  float cut=1.0-smoothstep(0.5,1.0,h+(n2-0.5)*0.7*hh);',
+'  float d=body*cut;',
+'  float e=d*(0.98-0.58*clamp(h,0.0,1.0))*(0.78+0.4*n3);',
+'  e*=uHeat;',
+'  float ground=1.0-smoothstep(uGround,uGround+uU*0.07,p.y);',
+'  float a=smoothstep(0.02,0.42,e)*ground*uGain*smoothstep(0.0,0.07,h);',
+'  vec3 col=ramp(clamp(e,0.0,1.0));',
+'  gl_FragColor=vec4(col*a,a);',
+'}'
+].join('\n');
+function initGL(){
+  try{
+    glc=document.createElement('canvas');glc.width=glc.height=8;
+    GL=glc.getContext('webgl',{alpha:true,premultipliedAlpha:true,antialias:false});
+    if(!GL){GL=null;return}
+    function sh(t,src){var o=GL.createShader(t);GL.shaderSource(o,src);GL.compileShader(o);if(!GL.getShaderParameter(o,GL.COMPILE_STATUS))throw new Error(GL.getShaderInfoLog(o));return o}
+    glProg=GL.createProgram();GL.attachShader(glProg,sh(GL.VERTEX_SHADER,VS));GL.attachShader(glProg,sh(GL.FRAGMENT_SHADER,FS));GL.linkProgram(glProg);
+    if(!GL.getProgramParameter(glProg,GL.LINK_STATUS))throw new Error('link');
+    GL.useProgram(glProg);
+    var buf=GL.createBuffer();GL.bindBuffer(GL.ARRAY_BUFFER,buf);GL.bufferData(GL.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),GL.STATIC_DRAW);
+    var loc=GL.getAttribLocation(glProg,'a');GL.enableVertexAttribArray(loc);GL.vertexAttribPointer(loc,2,GL.FLOAT,false,0,0);
+    ['uRect','uRes','uT','uBase','uH','uW','uU','uGround','uGain','uHeat','uSeed','uP','uA'].forEach(function(n){GU[n]=GL.getUniformLocation(glProg,n)});
+    GLOK=true;
+  }catch(err){GL=null;GLOK=false}
+}
+var PBUF=new Float32Array(24),ABUF=new Float32Array(6);
+function drawGLFlame(g){
+  var x0=Math.max(0,FX-U*0.6),x1=Math.min(W,FX+U*0.6),y0=Math.max(0,FY-U*1.0),y1=FY+U*0.16;
+  var rw=x1-x0,rh=y1-y0;if(rw<4||rh<4)return;
+  var sc=0.9,pw=Math.max(8,Math.ceil(rw*sc)),ph=Math.max(8,Math.ceil(rh*sc));
+  if(pw!==glW||ph!==glH){glc.width=pw;glc.height=ph;glW=pw;glH=ph}
+  GL.viewport(0,0,pw,ph);GL.clearColor(0,0,0,0);GL.clear(GL.COLOR_BUFFER_BIT);
+  var fk=clamp(fuel,0.05,1.4);
+  var Hh=U*(0.36+0.06*fk)*Math.pow(fk,1.15)*(0.82+0.3*nz(T*0.9,6.6,2.2)+0.12*nz(T*4.3,1.5,0.5));
+  var Ww=U*0.15*(0.6+0.4*clamp(fk,0,1.1));
+  GL.uniform4f(GU.uRect,x0,y0,rw,rh);GL.uniform2f(GU.uRes,pw,ph);GL.uniform1f(GU.uT,T);
+  GL.uniform2f(GU.uBase,FX,FY-U*0.012);GL.uniform1f(GU.uH,Math.max(Hh,U*0.04));GL.uniform1f(GU.uW,Ww);GL.uniform1f(GU.uU,U);GL.uniform1f(GU.uGround,FY+U*0.07);
+  GL.uniform1f(GU.uGain,clamp(fk*1.25,0.28,1.15)*flick);GL.uniform1f(GU.uHeat,0.62+0.4*clamp(fk,0,1));GL.uniform1f(GU.uSeed,layoutSeed%97);
+  var i,p;
+  for(i=0;i<6;i++){p=patches[i];if(p){PBUF[i*4]=p.x;PBUF[i*4+1]=p.y;PBUF[i*4+2]=p.r;PBUF[i*4+3]=p.s;ABUF[i]=p.a}else{PBUF[i*4]=-9999;PBUF[i*4+1]=-9999;PBUF[i*4+2]=1;PBUF[i*4+3]=0;ABUF[i]=0}}
+  GL.uniform4fv(GU.uP,PBUF);GL.uniform1fv(GU.uA,ABUF);
+  GL.drawArrays(GL.TRIANGLE_STRIP,0,4);
+  g.globalAlpha=1;g.drawImage(glc,x0,y0,rw,rh);
+}
+
 var TL=[[1.25,[170,40,8],0.04],[0.9,[235,85,14],0.055],[0.62,[255,145,34],0.07],[0.38,[255,205,100],0.085],[0.18,[255,244,210],0.09]];
 function drawTongues(g){
   var k,L,i,o,s,col,fk=clamp(fuel,0.2,1.2),dk;
@@ -566,13 +672,13 @@ function render(){
 
   /* 炎の舌(外側の赤から芯の白黄まで、幅を変えて重ねる) */
   g.globalCompositeOperation='lighter';g.lineJoin='round';
-  drawTongues(g);
+  if(GLOK)drawGLFlame(g);else drawTongues(g);
   /* 炎のにじみ(粒子) */
   for(i=0;i<NF;i++){
     if(FL[i]<=0)continue;
     a=FA[i]/FL[i];Tn=0.8*Math.pow(1-a,1.25);
     r=FSZ[i]*(0.35+0.95*Math.pow(1-a,0.55));
-    al=0.062*(0.35+0.75*Tn/0.8)*(a>0.78?(1-a)/0.22:1)*Math.min(1,a/0.06+0.25);
+    al=(GLOK?0.034:0.062)*(0.35+0.75*Tn/0.8)*(a>0.78?(1-a)/0.22:1)*Math.min(1,a/0.06+0.25);
     g.globalAlpha=al*(0.85+0.3*FSD[i])*(1-0.5*FW[i]); /* 向きを書き換えた所で炎が潰れても、粒の重なりで真っ白に飽和させない */
     g.drawImage(SPR[(Tn*(NSP-1)+0.5)|0],FPX[i]-r,FPY[i]-r,r*2,r*2);
   }
@@ -760,6 +866,7 @@ function frame(now){
 }
 addEventListener('resize',function(){layout()});
 (function(){var q=parseFloat((new URLSearchParams(location.search)).get('burn'));B=isNaN(q)?0.04:clamp(q,0,1)})();
+initGL();
 layout();
 for(var w0=0;w0<60;w0++)step(0.03);
 ready=true;
