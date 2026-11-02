@@ -1,11 +1,11 @@
 <!doctype html>
-<!-- CAMPFIRE — クロちゃん(Claude)作。ap-kit.js統合: クロちゃん。2026/11/01 試作(v2: 炭の変化・陽炎を追加)。
+<!-- CAMPFIRE — クロちゃん(Claude)作。ap-kit.js統合: クロちゃん。2026/11/01 試作(v2: 炭の変化・陽炎を追加 → v4.1: 序盤から焦げ・炎は序盤がピーク・約70秒)。
      お題: おっちゃんが選んだ「焚き火」(リアルに・音付き・炭の変化も)。10/30依頼の新作題材3候補から選択。
      世界のルール: 炎は「上」へ昇る。触った場所だけ、その「上」の向きが書き換わる。
        タップ=その場所の上が「下」になる(炎が垂れ、火の粉が雨のように落ちる) / なぞる=なぞった向きが上になる / 押し続ける=上の向きがゆっくり回り、炎が渦を巻く。
        向きの違う場所の境目には、昇る力が打ち消し合う「無重力の淀み」ができる。離すと数秒かけて元の世界に戻る(複数の指も可)。風が当たった炭は明るく息をする。
        触らなくても、燃え続ける焚き火として成立する。
-     炭の変化: 薪は約100秒かけて、生木(樹皮) → 黒く焦げてひび割れ、割れ目が赤く光る → 細く縮んで白い灰をかぶる → 熾火(灰をかぶった赤い炭の床)へ進む。
+     炭の変化: 薪は約70秒かけて、生木(樹皮) → 黒く焦げてひび割れ、割れ目が赤く光る → 細く縮んで白い灰をかぶる → 熾火(灰をかぶった赤い炭の床)へ進む。
        炎は徐々に小さくなり、途中で薪が崩れ落ちる瞬間がある(火の粉と音)。✦で新しい薪をくべると、また生木から始まる。
        URLに ?burn=0〜1 を付けると、その段階(0=生木、1=熾火)から始まる(確認用)。
      音: WebAudioで生成(音源ファイルなし)。炎のうなり・パチパチ・火の粉の爆ぜる音・触った場所の風音・薪が崩れる音。最初に画面を触ると鳴り始める(ブラウザの決まり)。ドックの🔊/🔇で切替。
@@ -104,9 +104,9 @@ function upAt(x,y){
 }
 
 /* ---------- 燃え進み(薪が炭になる) ---------- */
-var B=0,burnRate=1/100,settleBoost=0,settleTarget=0,fastRebuild=0,rbT=0,ready=false,bedG=0.3,bedP=0.25;
-function fuelCurve(b){return 1.12*(1-0.7*sstep(0.3,1,b))}
-function heatOf(b){return sstep(0.15,0.5,b)*(1-0.45*sstep(0.82,1,b))}
+var B=0,burnRate=1/70,settleBoost=0,settleTarget=0,fastRebuild=0,rbT=0,ready=false,bedG=0.3,bedP=0.25;
+function fuelCurve(b){return 1.18*(1-0.75*sstep(0.04,0.95,b))}
+function heatOf(b){return sstep(0.03,0.34,b)*(1-0.45*sstep(0.82,1,b))}
 
 /* ---------- 粒子 ---------- */
 var NF=1000,NM=170,NK=150;
@@ -369,10 +369,10 @@ function drawStone(g,st){
 function newLog(rnd,x,y,a,l,t){
   var L={x:x,y:y,a:a,l:l,t:t,rate:0.82+rnd()*0.4,off:(rnd()-0.5)*0.16,b:0,bark:[],cr:[],ash:[],em:[]},i,k;
   for(i=0;i<30;i++)L.bark.push({x:(rnd()-0.5)*l,y:(rnd()-0.5)*t*0.9,len:l*(0.05+rnd()*0.22),w:0.6+rnd()*1.2,al:0.2+rnd()*0.32,dy:(rnd()-0.5)*t*0.1});
-  for(i=0;i<18;i++){ /* 焦げ割れ: 縦(木目と直角)が多い、3点の折れ線 */
+  for(i=0;i<26;i++){ /* 焦げ割れ: 縦(木目と直角)が多い、3点の折れ線 */
     var px=(rnd()-0.5)*l*0.9,py=(rnd()-0.5)*t*0.5,an=(rnd()<0.6?Math.PI/2:0)+(rnd()-0.5)*0.9,ln=t*(0.1+rnd()*0.18),pts=[[px,py]];
     for(k=0;k<2;k++){px+=Math.cos(an)*ln+(rnd()-0.5)*t*0.1;py=clamp(py+Math.sin(an)*ln+(rnd()-0.5)*t*0.1,-t*0.4,t*0.4);pts.push([px,py])}
-    L.cr.push({p:pts,w:0.8+rnd()*1.3,thr:0.1+rnd()*0.5,ph:rnd()*TAU,sp:0.7+rnd()*2.2});
+    L.cr.push({p:pts,w:0.8+rnd()*1.3,thr:0.02+rnd()*0.46,ph:rnd()*TAU,sp:0.7+rnd()*2.2});
   }
   for(i=0;i<46;i++)L.ash.push({x:(rnd()-0.5)*l*0.92,y:(rnd()-0.68)*t*0.8,r:t*(0.05+rnd()*0.15),thr:rnd(),al:0.2+rnd()*0.32});
   for(i=0;i<5;i++)L.em.push({x:(rnd()-0.5)*l*0.55,y:(rnd()-0.5)*t*0.5,r:U*(0.016+rnd()*0.022),ph:rnd()*TAU,sp:1.2+rnd()*3});
@@ -391,7 +391,7 @@ function genLayout(rnd){
 /* 薪1本を、燃え進み b(0=生木 1=炭と灰)で描く */
 var WOOD=[[58,38,22],[116,80,47],[76,50,29],[34,21,10]],CHAR=[[26,22,21],[52,45,42],[32,28,27],[12,10,10]];
 function drawLog(g,L,b,li){
-  var m=sstep(0.05,0.55,b),s=clamp(sstep(0.3,0.9,b)+settleBoost,0,1),ashA=sstep(0.55,1,b);
+  var m=sstep(0,0.42,b),s=clamp(sstep(0.3,0.9,b)+settleBoost,0,1),ashA=sstep(0.55,1,b);
   var sx=1-0.4*b,sy=1-0.5*b,l=L.l*sx,t=L.t*sy,a=L.a*(1-0.55*s),cx=L.x,cy=L.y+L.t*0.3*s;
   var ca=Math.cos(a),sa=Math.sin(a),i,k,c,p,q;
   g.save();g.translate(cx,cy);g.rotate(a);
@@ -404,6 +404,10 @@ function drawLog(g,L,b,li){
   var cg=g.createLinearGradient(-l/2,0,l/2,0);
   cg.addColorStop(0,'rgba(0,0,0,0)');cg.addColorStop(0.3,'rgba(8,4,2,0.5)');cg.addColorStop(0.5,'rgba(4,2,1,0.75)');cg.addColorStop(0.7,'rgba(8,4,2,0.5)');cg.addColorStop(1,'rgba(0,0,0,0)');
   g.globalAlpha=1-m*0.6;g.fillStyle=cg;rr(g,-l/2,-t/2,l,t,t*0.32);g.fill();g.globalAlpha=1;
+  /* 焦げ: 炎に近い上側から黒くなり、燃え進みとともに全体へ広がる(v4.1) */
+  var sc=sstep(0,0.3,b),sg=g.createLinearGradient(0,-t/2,0,t/2);
+  sg.addColorStop(0,'rgba(6,4,3,'+(0.82*sc)+')');sg.addColorStop(0.55,'rgba(10,6,4,'+(0.5*sc)+')');sg.addColorStop(1,'rgba(10,6,4,'+(0.12*sc)+')');
+  g.fillStyle=sg;rr(g,-l/2,-t/2,l,t,t*0.32);g.fill();
   /* 焦げ割れ(暗い線)と、光らせるための世界座標を記録 */
   for(i=0;i<L.cr.length;i++){c=L.cr[i];if(c.thr>b)continue;
     var wp=[];g.strokeStyle='rgba(0,0,0,0.72)';g.lineWidth=c.w*(0.5+0.5*sy);g.lineJoin='round';g.beginPath();
@@ -656,7 +660,7 @@ function render(){
   /* 炎に舐められている薪の肌の照り */
   for(i=0;i<EMBW.length;i++){e=EMBW[i];var eb=LOGS[e.li].b;
     al=0.5+0.5*Math.sin(T*e.sp+e.ph)*Math.sin(T*e.sp*0.37+e.ph);
-    g.globalAlpha=(0.2+0.5*al)*flick*clamp(fuel,0.3,1.3)*(1-0.7*sstep(0.5,1,eb));
+    g.globalAlpha=(0.2+0.5*al)*flick*clamp(fuel,0.3,1.3)*(1-0.78*sstep(0.1,0.7,eb));
     g.drawImage(SPR[10+((al*6)|0)],e.x-e.r*2,e.y-e.r*2,e.r*4,e.r*4)}
 
   /* 煙 */
