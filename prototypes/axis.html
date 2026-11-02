@@ -31,10 +31,13 @@ html,body{margin:0;height:100%;background:#010207;overflow:hidden;touch-action:n
 canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
 #hint{position:fixed;left:16px;right:16px;top:calc(env(safe-area-inset-top) + 18px);text-align:center;color:rgba(225,238,255,.88);font:500 11px/1.7 system-ui,sans-serif;letter-spacing:.12em;text-shadow:0 1px 6px rgba(0,0,0,.8);pointer-events:none;transition:opacity 1.2s}
 #hint.off{opacity:0}
-#lab{position:fixed;left:16px;right:16px;bottom:calc(env(safe-area-inset-bottom) + 118px);text-align:center;color:rgba(225,238,255,.82);font:500 12px/1.6 system-ui,sans-serif;letter-spacing:.14em;text-shadow:0 1px 6px rgba(0,0,0,.85);pointer-events:none;opacity:.55;transition:opacity .4s}
+#lab{position:fixed;left:16px;right:16px;bottom:calc(env(safe-area-inset-bottom) + 118px);text-align:center;color:rgba(225,238,255,.82);font:500 12px/1.6 system-ui,sans-serif;letter-spacing:.14em;text-shadow:0 1px 6px rgba(0,0,0,.85);pointer-events:none;opacity:.72;transition:opacity .4s}
 #lab.on{opacity:1}
+.lg{display:block;margin-top:2px;font-size:10px;letter-spacing:.1em;opacity:.85}
+.lg i{display:inline-block;width:7px;height:7px;border-radius:50%;margin:0 4px 0 10px;vertical-align:1px}
+.lg i:first-child{margin-left:0}
 #lab b{font-weight:600;font-variant-numeric:tabular-nums}
-#toast{position:fixed;left:16px;right:16px;bottom:calc(env(safe-area-inset-bottom) + 146px);text-align:center;color:rgba(225,238,255,.88);font:500 11px/1.7 system-ui,sans-serif;letter-spacing:.12em;text-shadow:0 1px 6px rgba(0,0,0,.85);pointer-events:none;opacity:0;transition:opacity .5s}
+#toast{position:fixed;left:16px;right:16px;bottom:calc(env(safe-area-inset-bottom) + 178px);text-align:center;color:rgba(225,238,255,.88);font:500 11px/1.7 system-ui,sans-serif;letter-spacing:.12em;text-shadow:0 1px 6px rgba(0,0,0,.85);pointer-events:none;opacity:0;transition:opacity .5s}
 #toast.on{opacity:1}
 </style>
 </head>
@@ -137,14 +140,13 @@ void main(){
     float grain=fbm(b*26.+off,3);
     lc=mix(lc,vec3(.80,.86,.95)+vec3(.12,.10,.06)*grain,snow);
     // 昼側でも住人が見える: 領地の色(文化圏の橙/白/青)・領地の縁・街の点・飢えた街の赤(夜側の灯りと同じ色づかい)
-    vec3 tD=mix(vec3(.95,.48,.14),vec3(.96,.92,.82),smoothstep(0.,.5,civ.a));
-    tD=mix(tD,vec3(.25,.52,1.),smoothstep(.5,1.,civ.a));
+    vec3 tD=vec3(.97,.68,.24);          // 人が住む所=金(色の意味を1つに: 金=人 / 赤=飢え / 青=廃墟)
     tD=mix(tD,vec3(1.,.20,.10),smoothstep(.05,.6,civ.g)*.6);
     float edgeD=smoothstep(.02,.07,civ.r)*(1.-smoothstep(.10,.20,civ.r));
     float terrT=dens*smoothstep(.30,.60,noise(b*38.+off));
     float dayK=1.-snow*.8;
-    lc=mix(lc,tD*(.55+.45*grain),clamp(terrT*.22+dens*.05,0.,1.)*dayK);
-    lc=mix(lc,tD,edgeD*.55*dayK);
+    lc=mix(lc,tD*(.85+.30*grain),clamp(dens*.42+terrT*.10,0.,1.)*dayK);
+    lc=mix(lc,tD,edgeD*.9*dayK);
     float depth=smoothstep(uSea-.14,uSea,f);
     vec3 sea=mix(vec3(.008,.035,.105),vec3(.02,.24,.40),depth*depth);
     float ice=1.-smoothstep(.25,.36,T);
@@ -174,19 +176,18 @@ void main(){
     vec3 cc=vec3(hash(cid+1.7),hash(cid+5.3),hash(cid+9.1))*.4+.3;
     float dh=hash(cid);
     float rad=.16+.20*hash(cid+3.1);
-    float city=smoothstep(rad,0.,length(cfr-cc))*step(dh,dens*.75);
+    float city=smoothstep(rad,0.,length(cfr-cc))*step(dh,dens*1.0);
     float shim=.82+.18*sin(uTime*1.6+dh*40.);
     float starv=smoothstep(.05,.6,civ.g);
     float flick=1.-starv*.75*(.5+.5*sin(uTime*11.+dh*50.));
-    vec3 tcol=mix(vec3(1.,.68,.28),vec3(1.,.95,.80),smoothstep(0.,.5,civ.a));
-    tcol=mix(tcol,vec3(.55,.78,1.),smoothstep(.5,1.,civ.a));
+    vec3 tcol=vec3(1.,.72,.30);
     tcol=mix(tcol,vec3(1.,.24,.10),starv*.55);
     float liv=land*(1.-snow*.8)*nightM*(1.-.88*cl);
-    surf+=tcol*city*shim*flick*liv*1.6;
+    surf+=tcol*city*shim*flick*liv*2.2;
     // 大陸が雲のようにぼんやり光るグロー(ゆっくり呼吸する)
     float breath=.82+.18*sin(uTime*.7+noise(b*5.)*6.28);
-    float glow=smoothstep(.04,.8,civ.r)*(.55+.45*noise(b*12.+off));
-    surf+=tcol*glow*breath*liv*.55;
+    float glow=smoothstep(.02,.55,civ.r)*(.6+.4*noise(b*12.+off));
+    surf+=tcol*glow*breath*liv*.95;
     surf+=vec3(.38,.48,1.)*civ.b*smoothstep(.74,.93,n1)*(1.-dens)*liv*.30;          // 滅びた文明の残り火(ごく弱い青白い火花)
     surf+=vec3(.010,.018,.040)*nightM*(1.-land);
     // タップの波紋(種をまいた場所から広がる)
@@ -313,6 +314,7 @@ var KXr=new Float32Array(NY), band=new Float32Array(NY), cosw=new Float32Array(N
 var civBytes=new Uint8Array(NC*4), lpx=new Uint8Array(NC*4);
 var maxPop=1, popPct=0, voy=1, rebirth=8, sprk=15, hiSeen=false, quiet=true, simAcc=0, noteT=0;
 var ping=[0,1,0], pingT=-1;
+var bigSeen=false, tiltW=-1, tiltP=0;   // 「広がった」通知の済み・傾きを変えたあとの様子見(残り秒・そのときの文明%)
 var CV={R:2.0, D:1.4, FAM:.5, A0:.15, BETA:1.1, A:.03, B:.05, V0:.7, V1:1.8, S0:12, S1:24};   // 増える速さ・広がる速さ・飢える速さ・(人が増えるのに要る最低の人数・資源が減ると上がる幅)・資源を使う速さ・資源が戻る速さ
 function sm(a,b,x){ x=clamp((x-a)/(b-a),0,1); return x*x*(3-2*x); }
 function bandOf(t){ return sm(.34,.55,t)*(1-sm(.95,1.18,t)); }   // 寒すぎても暑すぎても住めない
@@ -374,7 +376,7 @@ function bakeWorld(){
   }
   maxPop=Math.max(1,sum);
 }
-function resetCiv(){ Cc.fill(0); Cn.fill(0); Tb.fill(0); Tn2.fill(0); Wd.fill(0); Gs.fill(0); Gh.fill(0); popPct=0; voy=1; rebirth=8; sprk=15; hiSeen=false; }
+function resetCiv(){ Cc.fill(0); Cn.fill(0); Tb.fill(0); Tn2.fill(0); Wd.fill(0); Gs.fill(0); Gh.fill(0); popPct=0; voy=1; rebirth=8; sprk=15; hiSeen=false; bigSeen=false; tiltW=-1; }
 function seedAt(i,frac,tribe){    // 種は小さな塊(半径2)で置く。小さすぎると、増える前に周囲へ広がって消える(ある人数を超えないと増えない法則)
   var x=i%NX, j=(i/NX)|0, dy, dx, jj, q, v;
   for(dy=-2;dy<=2;dy++){ jj=j+dy; if(jj<0||jj>=NY) continue;
@@ -404,12 +406,23 @@ function tryVoyage(){  // 人の多い土地から、海をこえた先に種が
   }
   return -1;
 }
-function note(k){
-  var now=performance.now(); if(now-noteT<14000) return; noteT=now;
-  toast(k==='voyage'?'海をこえて、新しい灯りがともった':k==='rebirth'?'どこかで、また灯りがともった':'文明が、消えかけている…',3200);
+var NOTES={
+  voyage:'船で海をこえて、新しい土地に人が住みはじめた',
+  rebirth:'ほとんど滅びたあと、どこかでまた人が住みはじめた',
+  fading:'文明が滅びかけている。青白い廃墟が残る',
+  famine:'人が増えすぎて、土地を使い果たした。赤い街は飢えている',
+  grow:'文明が、大陸いっぱいに広がった',
+  tiltdown:'傾きが変わって、住めない土地が増えた。文明が減っていく',
+  tiltup:'傾きが変わって、住める土地が広がった。文明が増えていく'
+};
+var noteLast={};
+function note(k,force){
+  var now=performance.now(); if(!force && (now-noteT<8000 || now-(noteLast[k]||-1e9)<30000)) return; noteT=now; noteLast[k]=now;
+  toast(NOTES[k]||'',4200);
 }
+function watchTilt(){ tiltW=9; tiltP=popPct; }   // 傾きを変えた9秒後に、文明が増えたか減ったかを伝える
 function simTick(h){
-  var j,n,i,c,K,Kc,x,f,w,lap,infl,inT,nb,d,wx,g,die,nc,nt,st,mi,base,tmp,tot=0;
+  var j,n,i,c,K,Kc,x,f,w,lap,infl,inT,nb,d,wx,g,die,nc,nt,st,mi,base,tmp,tot=0,popN=0,stvN=0;
   for(j=0;j<NY;j++) band[j]=bandOf(Tm[j]);
   for(n=0;n<nLand;n++){
     i=LI[n]; j=(i/NX)|0; c=Cc[i]; K=band[j]*terr[i]; w=Wd[i];
@@ -431,9 +444,15 @@ function simTick(h){
     Gs[i]+=(st-Gs[i])*.25;
     Gh[i]=Math.min(1,Gh[i]+die*h*1.2)*.993;
     tot+=nc*cosw[j];
+    if(nc>.03){ popN++; if(Gs[i]>.5) stvN++; }
   }
   tmp=Cc; Cc=Cn; Cn=tmp; tmp=Tb; Tb=Tn2; Tn2=tmp;
   popPct=tot/maxPop;
+  if(!quiet){
+    if(popN>40 && stvN/popN>.3) note('famine');
+    if(popPct>.5 && !bigSeen){ bigSeen=true; note('grow'); } else if(popPct<.3) bigSeen=false;
+    if(tiltW>0){ tiltW-=h; if(tiltW<=0){ var dp=popPct-tiltP; if(Math.abs(dp)>.06) note(dp<0?'tiltdown':'tiltup',true); } }
+  }
   voy-=h; if(voy<=0){ voy=rnd(CV.V0,CV.V1); if(tryVoyage()===1 && !quiet) note('voyage'); }
   if(popPct<.025){ rebirth-=h; if(rebirth<=0){ rebirth=rnd(7,12); if(spark() && !quiet) note('rebirth'); } } else rebirth=rnd(5,9);
   sprk-=h; if(sprk<=0){ sprk=rnd(CV.S0,CV.S1); spark(); }
@@ -513,7 +532,7 @@ function setLab(){
   if(e<1.2) nm='季節のない星';
   else for(var i=0;i<PRE.length;i++) if(Math.abs(e-PRE[i].e)<2.5) nm=PRE[i].n;
   if(!nm && e>92) nm='逆まわりの星';
-  var s='地軸 <b>'+e.toFixed(1)+'°</b>'+(nm?' — '+nm:'')+' · 文明 <b>'+Math.round(popPct*100)+'%</b>';
+  var s='地軸 <b>'+e.toFixed(1)+'°</b>'+(nm?' — '+nm:'')+' · 文明 <b>'+Math.round(popPct*100)+'%</b><span class="lg"><i style="background:#ffc060"></i>人が住む<i style="background:#ff5a40"></i>飢え<i style="background:#8cb4ff"></i>廃墟</span>';
   if(s!==lastLab){ labEl.innerHTML=s; lastLab=s; }
 }
 var hint=document.getElementById('hint'), hinted=false;
@@ -567,11 +586,12 @@ cv.addEventListener('pointermove',function(ev){
 function nextPreset(){
   var i, nx=PRE[0].e;
   for(i=0;i<PRE.length;i++) if(PRE[i].e>epsT+1.5){ nx=PRE[i].e; break; }
-  epsT=nx; pulseLab(); touched();
+  epsT=nx; pulseLab(); touched(); watchTilt();
 }
 function endPtr(ev){
   var d=drags[ev.pointerId]; if(!d) return;
   if(!d.moved && ev.type==='pointerup' && performance.now()-d.t0<500){ if(!plantAt(ev.clientX,ev.clientY)) nextPreset(); }
+  if(d.moved) watchTilt();
   delete drags[ev.pointerId]; touched();
   if(!Object.keys(drags).length) drag=0;
 }
