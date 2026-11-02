@@ -140,12 +140,10 @@ void main(){
     vec3 tD=mix(vec3(.95,.48,.14),vec3(.96,.92,.82),smoothstep(0.,.5,civ.a));
     tD=mix(tD,vec3(.25,.52,1.),smoothstep(.5,1.,civ.a));
     tD=mix(tD,vec3(1.,.20,.10),smoothstep(.05,.6,civ.g)*.6);
-    float spkD=smoothstep(mix(.93,.62,dens),mix(1.,.70,dens),noise(b*130.))+.5*smoothstep(mix(.98,.70,dens),mix(1.,.80,dens),noise(b*46.));
     float edgeD=smoothstep(.02,.07,civ.r)*(1.-smoothstep(.10,.20,civ.r));
     float terrT=dens*smoothstep(.30,.60,noise(b*38.+off));
     float dayK=1.-snow*.8;
     lc=mix(lc,tD*(.55+.45*grain),clamp(terrT*.22+dens*.05,0.,1.)*dayK);
-    lc=mix(lc,tD,clamp(spkD,0.,1.)*dens*.85*dayK);
     lc=mix(lc,tD,edgeD*.55*dayK);
     float depth=smoothstep(uSea-.14,uSea,f);
     vec3 sea=mix(vec3(.008,.035,.105),vec3(.02,.24,.40),depth*depth);
@@ -170,26 +168,25 @@ void main(){
     surf=mix(surf,vec3(.96,.97,1.)*(diffC*1.15+.010),cl*.92);
     // 夜側の街の灯り(文明のシミュレーション結果。人が多いほど、灯る点が増える)
     float nightM=1.-smoothstep(-.12,.10,ndl);
-    float n1=noise(b*130.), n2=noise(b*46.);
-    float th1=mix(.93,.74,dens), th2=mix(.98,.82,dens);
-    float dots=smoothstep(th1,th1+.06,n1)*.80+smoothstep(th2,th2+.05,n2)*.30;
-    float dh=hash(floor(b*130.));
-    float shim=.80+.20*sin(uTime*2.3+dh*40.);
+    float n1=noise(b*130.);
+    // 街の灯り: 大きめの、丸くやわらかい点(細かい粒・等高線の道は、虫のように見えたのでやめた)
+    vec3 cq=b*30., cid=floor(cq), cfr=fract(cq);
+    vec3 cc=vec3(hash(cid+1.7),hash(cid+5.3),hash(cid+9.1))*.4+.3;
+    float dh=hash(cid);
+    float rad=.16+.20*hash(cid+3.1);
+    float city=smoothstep(rad,0.,length(cfr-cc))*step(dh,dens*.75);
+    float shim=.82+.18*sin(uTime*1.6+dh*40.);
     float starv=smoothstep(.05,.6,civ.g);
     float flick=1.-starv*.75*(.5+.5*sin(uTime*11.+dh*50.));
     vec3 tcol=mix(vec3(1.,.68,.28),vec3(1.,.95,.80),smoothstep(0.,.5,civ.a));
     tcol=mix(tcol,vec3(.55,.78,1.),smoothstep(.5,1.,civ.a));
     tcol=mix(tcol,vec3(1.,.24,.10),starv*.55);
     float liv=land*(1.-snow*.8)*nightM*(1.-.88*cl);
-    surf+=tcol*dots*dens*shim*flick*liv*1.3;
-    // 光の網: 街どうしを結ぶ街道(等高線のような枝分かれ)。人が増えた所ほど濃くなる=文明が育つと、点→道→大陸のやわらかな光、と段階を踏む
-    float web=(1.-smoothstep(0.,.022,abs(noise(b*26.+off)-.5)))*1.0+(1.-smoothstep(0.,.032,abs(noise(b*58.+off*2.)-.5)))*.55;
-    float webK=smoothstep(.10,.55,civ.r);
-    surf+=tcol*web*webK*(.65+.35*shim)*(1.-starv*.55)*liv*.95;
+    surf+=tcol*city*shim*flick*liv*1.6;
     // 大陸が雲のようにぼんやり光るグロー(ゆっくり呼吸する)
     float breath=.82+.18*sin(uTime*.7+noise(b*5.)*6.28);
-    float glow=smoothstep(.05,.9,civ.r)*(.5+.5*noise(b*9.+off));
-    surf+=tcol*glow*breath*liv*.30;
+    float glow=smoothstep(.04,.8,civ.r)*(.55+.45*noise(b*12.+off));
+    surf+=tcol*glow*breath*liv*.55;
     surf+=vec3(.38,.48,1.)*civ.b*smoothstep(.74,.93,n1)*(1.-dens)*liv*.30;          // 滅びた文明の残り火(ごく弱い青白い火花)
     surf+=vec3(.010,.018,.040)*nightM*(1.-land);
     // タップの波紋(種をまいた場所から広がる)
