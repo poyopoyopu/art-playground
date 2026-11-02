@@ -136,8 +136,17 @@ void main(){
     snow=max(snow,smoothstep(.78,.98,e)*(1.-smoothstep(.55,.85,T)));
     float grain=fbm(b*26.+off,3);
     lc=mix(lc,vec3(.80,.86,.95)+vec3(.12,.10,.06)*grain,snow);
-    float terrT=dens*smoothstep(.35,.65,noise(b*38.+off));          // 昼側にも、住んでいる土地のうすい跡
-    lc=mix(lc,vec3(.45,.40,.30)*(.8+.4*grain),terrT*.20*(1.-snow));
+    // 昼側でも住人が見える: 領地の色(文化圏の橙/白/青)・領地の縁・街の点・飢えた街の赤(夜側の灯りと同じ色づかい)
+    vec3 tD=mix(vec3(.95,.48,.14),vec3(.96,.92,.82),smoothstep(0.,.5,civ.a));
+    tD=mix(tD,vec3(.25,.52,1.),smoothstep(.5,1.,civ.a));
+    tD=mix(tD,vec3(1.,.20,.10),smoothstep(.05,.6,civ.g)*.6);
+    float spkD=smoothstep(mix(.93,.62,dens),mix(1.,.70,dens),noise(b*130.))+.5*smoothstep(mix(.98,.70,dens),mix(1.,.80,dens),noise(b*46.));
+    float edgeD=smoothstep(.02,.07,civ.r)*(1.-smoothstep(.10,.20,civ.r));
+    float terrT=dens*smoothstep(.30,.60,noise(b*38.+off));
+    float dayK=1.-snow*.8;
+    lc=mix(lc,tD*(.55+.45*grain),clamp(terrT*.30+dens*.07,0.,1.)*dayK);
+    lc=mix(lc,tD,clamp(spkD,0.,1.)*dens*.85*dayK);
+    lc=mix(lc,tD,edgeD*.55*dayK);
     float depth=smoothstep(uSea-.14,uSea,f);
     vec3 sea=mix(vec3(.008,.035,.105),vec3(.02,.24,.40),depth*depth);
     float ice=1.-smoothstep(.25,.36,T);
