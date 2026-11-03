@@ -17,7 +17,7 @@
 <style>
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#06070d}
 canvas{display:block;width:100%;height:100%;touch-action:none}
-#hint{position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top) + 18px);text-align:center;color:rgba(235,240,255,.78);text-shadow:0 0 8px rgba(0,0,0,.75),0 0 2px rgba(0,0,0,.8);font:500 11px/1.6 system-ui,-apple-system,sans-serif;letter-spacing:.12em;pointer-events:none;transition:opacity 1.2s}
+#hint{position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top) + 66px);text-align:center;color:rgba(235,240,255,.78);text-shadow:0 0 8px rgba(0,0,0,.75),0 0 2px rgba(0,0,0,.8);font:500 11px/1.6 system-ui,-apple-system,sans-serif;letter-spacing:.12em;pointer-events:none;transition:opacity 1.2s}
 #hint.off{opacity:0}
 #error{position:fixed;left:18px;right:18px;bottom:24px;text-align:center;color:#c98aa0;font:12px/1.5 system-ui,sans-serif;display:none}
 </style>
@@ -145,7 +145,7 @@ function reset(){initSeeds();setHint();hint.classList.remove('off')}
 
 /* ---- 傾き ---- */
 const tilt={x:0,y:0},target={x:0,y:0};
-let gyro=false,lastInput=-10,permAsked=false;
+let gyro=false,lastInput=-10,permAsked=false,permDenied=false;
 const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
 function onOrient(e){
   if(e.gamma==null||e.beta==null)return;
@@ -156,14 +156,21 @@ function onOrient(e){
 const DOE=window.DeviceOrientationEvent;
 const needsPerm=!!(DOE&&typeof DOE.requestPermission==='function');
 if(DOE)addEventListener('deviceorientation',onOrient);   // iOSは許可されるまで何も来ない。許可後にも念のため付け直す(同じ関数なので二重にならない)
+let denyTimer=0;
 function askMotion(){
   if(!needsPerm||permAsked)return;
   permAsked=true;
-  DOE.requestPermission().then(s=>{if(s==='granted')addEventListener('deviceorientation',onOrient);setHint()}).catch(()=>{setHint()});
+  const done=ok=>{
+    if(ok)addEventListener('deviceorientation',onOrient);
+    else{permDenied=true;hint.classList.remove('off');clearTimeout(denyTimer);denyTimer=setTimeout(()=>hint.classList.add('off'),5000)}
+    setHint();
+  };
+  DOE.requestPermission().then(s=>done(s==='granted')).catch(()=>done(false));
 }
 const coarse=matchMedia('(pointer:coarse)').matches;
 function setHint(){
-  hint.textContent=needsPerm&&!permAsked&&!gyro?'触れると、傾きが使えるようになります'
+  hint.innerHTML=permDenied&&!gyro?'傾きは使えません(許可されていません)<br>指でなぞると、光を動かせます'
+    :needsPerm&&!permAsked&&!gyro?'触れると「動きと方向」の許可が出ます<br>許可すると、傾けて光らせられます(許可しなくても遊べます)'
     :coarse?'傾けて光を探す · 触れて、新しい法則を置く'
     :'マウスで光を探す · クリックで、新しい法則を置く';
 }

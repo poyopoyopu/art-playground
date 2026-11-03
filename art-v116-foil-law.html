@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#06070d">
+<title>FOIL LAW — 触れた場所が、箔の新しい法則になる</title>
+<!-- FOIL LAW — クロちゃん(Claude)作。2026/11/03 試作(prototypes/foil-law.html)→ 同日採用・art-v116(ap-kitの相対パスをルート用に修正)。ap-kit.js統合: Claude
+     World law: 画面いっぱいのホロ箔は、最初はたった1つの法則でできている。触れた場所が新しい法則
+     (対称数・向き・色)の中心になり、周りの箔を侵食して分かれていく。一度置いた法則は消えず、
+     傾けると法則ごとに違う角度で光る。
+     Render: WebGL2 fullscreen triangle。箔=Voronoi(重み付き)の各セルで、折り返し(kaleidoscope fold)を
+     4階層くり返した自己相似の微小ファセット法線を作り、傾きから作った光と回折色で光らせる。
+     Input: 傾き=deviceorientation(iOSは初回タップで許可)。無い端末はマウス/ドラッグで傾ける。
+            触れる(短いタップ)=法則を置く。ドラッグは傾き専用。 -->
+<script src="ap-kit.js"></script>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#06070d}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#hint{position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top) + 66px);text-align:center;color:rgba(235,240,255,.78);text-shadow:0 0 8px rgba(0,0,0,.75),0 0 2px rgba(0,0,0,.8);font:500 11px/1.6 system-ui,-apple-system,sans-serif;letter-spacing:.12em;pointer-events:none;transition:opacity 1.2s}
+#hint.off{opacity:0}
+#error{position:fixed;left:18px;right:18px;bottom:24px;text-align:center;color:#c98aa0;font:12px/1.5 system-ui,sans-serif;display:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas><div id="hint"></div><div id="error">この端末では WebGL2 を利用できません。</div>
+<script>
+'use strict';
+const canvas=document.getElementById('c'),hint=document.getElementById('hint'),errEl=document.getElementById('error');
+const gl=canvas.getContext('webgl2',{alpha:false,antialias:false,powerPreference:'high-performance'});
+if(!gl){errEl.style.display='block';throw new Error('WebGL2 unavailable')}
+
+const MAXS=16;
+const VS=`#version 300 es
+void main(){
+  vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));
+  gl_Position=vec4(p*2.-1.,0.,1.);
+}`;
+const FS=`#version 300 es
+precision highp float;
+out vec4 fragColor;
+uniform vec2 uRes;
+uniform float uTime;
+uniform float uUnit;        // 画面の幅(デバイスpx)。座標は幅=1
+uniform vec2 uTilt;
+uniform vec4 uA[${MAXS}];   // x, y, N(symmetry), rot
+uniform vec4 uB[${MAXS}];   // hue, scale, (未使用), alive
+const int MAXS=${MAXS};
+const float TAU=6.28318530718;
+
+float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+
+// 1階層ぶんのファセット法線。N等分した扇形を、さらに2枚の面に割る。
+vec2 facet(vec2 q,float N,float rot){
+  float sec=TAU/N;
+  float u=(atan(q.y,q.x+1e-6)-rot)/sec;
+  float k=floor(u);
+  float hf=step(.5,u-k);
+  float th=(k+.25+.5*hf)*sec+rot;
+  return vec2(cos(th+.7),sin(th+.7));
+}
+// 扇形に折り返す。これをスケールを変えながら重ねて自己相似にする。
+vec2 foldQ(vec2 q,float N,float rot){
+  float sec=TAU/N;
+  float a=mod(atan(q.y,q.x+1e-6)-rot,sec);
+  a=abs(a-.5*sec);
+  return length(q)*vec2(cos(a),sin(a));
+}
+
+void main(){
+  vec2 frag=gl_FragCoord.xy;
+  vec2 f=(frag-.5*uRes)/uUnit;
+  float px=1./uUnit;
+  vec2 tl=uTilt;
+
+  float d1=1e9,d2=1e9;int i1=0;
+  for(int i=0;i<MAXS;i++){
+    if(uB[i].w<.5)continue;
+    float r=length(f-uA[i].xy);
+    if(r<d1){d2=d1;d1=r;i1=i;}
+    else if(r<d2){d2=r;}
+  }
+  vec4 A=uA[i1],B=uB[i1];
+  vec2 q=(f-A.xy)*B.y;
+  vec2 nT=vec2(0.);float w=1.;vec2 qq=q;
+  for(int k=0;k<4;k++){                 // 同じ折り返しを4階層
+    nT+=w*facet(qq,A.z,A.w+float(k)*.45);
+    qq=foldQ(qq,A.z,A.w)*2.15-vec2(.62,0.);
+    w*=.55;
+  }
+  vec3 Nn=normalize(vec3(nT*.42,1.));
+  vec3 L=normalize(vec3(-tl*.95,1.));
+  vec3 H=normalize(L+vec3(0.,0.,1.));
+  float nh=max(dot(Nn,H),0.);
+  float spec=pow(nh,70.),wide=pow(nh,10.);
+  float phase=dot(nT,tl)*1.1+B.x+length(q)*.35;
+  vec3 rainbow=.5+.5*cos(TAU*(phase+vec3(0.,.33,.67)));
+  vec3 tint=.5+.5*cos(TAU*(B.x+vec3(0.,.33,.67)));
+  vec3 metal=mix(vec3(.46),tint,.28);
+  float diff=.5+.5*dot(Nn,L);
+  vec3 c=metal*(.10+.26*diff);
+  c+=rainbow*(.08+.9*wide);
+  c+=vec3(1.,.96,.88)*spec*.85;
+  c*=mix(.3,1.,smoothstep(0.,px*3.,d2-d1));            // 法則の境目の継ぎ目
+  // 傾きで流れる艶の帯
+  float bd=dot(f,normalize(vec2(1.,.6)))+tl.x*.5+tl.y*.3;
+  c+=vec3(1.,.97,.9)*exp(-pow(bd/.22,2.))*.12;
+  c+=(hash(frag+fract(uTime))-.5)/255.;
+  fragColor=vec4(c,1.);
+}`;
+
+function compile(type,src){
+  const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){errEl.textContent='シェーダーのコンパイルに失敗しました。';errEl.style.display='block';throw new Error(gl.getShaderInfoLog(s))}
+  return s;
+}
+const prog=gl.createProgram();
+gl.attachShader(prog,compile(gl.VERTEX_SHADER,VS));gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,FS));
+gl.linkProgram(prog);
+if(!gl.getProgramParameter(prog,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(prog));
+gl.useProgram(prog);
+const U={res:gl.getUniformLocation(prog,'uRes'),time:gl.getUniformLocation(prog,'uTime'),unit:gl.getUniformLocation(prog,'uUnit'),
+  tilt:gl.getUniformLocation(prog,'uTilt'),A:gl.getUniformLocation(prog,'uA'),B:gl.getUniformLocation(prog,'uB')};
+
+/* ---- 法則(seed) ---- */
+const now=()=>performance.now()/1000;
+const rnd=(a,b)=>a+Math.random()*(b-a);
+const seeds=[];let nextSlot=0;
+function newLaw(x,y){return{x:x,y:y,N:3+Math.floor(Math.random()*6),rot:rnd(0,Math.PI*2),hue:Math.random(),sc:rnd(1.1,2.2)}}
+function initSeeds(){                 // 最初は、画面ぜんぶがたった1つの法則
+  seeds.length=0;nextSlot=0;
+  seeds.push(newLaw(rnd(-.05,.05),rnd(-.08,.08)));
+}
+initSeeds();
+function plant(cx,cy){
+  const law=newLaw((cx-W/2)/W,-(cy-H/2)/W);
+  if(seeds.length<MAXS)seeds.push(law);else{seeds[nextSlot]=law;nextSlot=(nextSlot+1)%MAXS}
+  hint.classList.add('off');
+}
+function mutate(){                        // 法則を総入れ替え(数はそのまま、性質と場所を引き直す)
+  const hy=.5*H/W;
+  seeds.forEach(s=>{Object.assign(s,newLaw(seeds.length===1?rnd(-.05,.05):rnd(-.5,.5),seeds.length===1?rnd(-.08,.08):rnd(-hy,hy)))});
+}
+function reset(){initSeeds();setHint();hint.classList.remove('off')}
+
+/* ---- 傾き ---- */
+const tilt={x:0,y:0},target={x:0,y:0};
+let gyro=false,lastInput=-10,permAsked=false,permDenied=false;
+const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+function onOrient(e){
+  if(e.gamma==null||e.beta==null)return;
+  if(!gyro){gyro=true;setHint()}
+  target.x=clamp(e.gamma/30,-1.3,1.3);
+  target.y=clamp((e.beta-45)/30,-1.3,1.3);
+}
+const DOE=window.DeviceOrientationEvent;
+const needsPerm=!!(DOE&&typeof DOE.requestPermission==='function');
+if(DOE)addEventListener('deviceorientation',onOrient);   // iOSは許可されるまで何も来ない。許可後にも念のため付け直す(同じ関数なので二重にならない)
+let denyTimer=0;
+function askMotion(){
+  if(!needsPerm||permAsked)return;
+  permAsked=true;
+  const done=ok=>{
+    if(ok)addEventListener('deviceorientation',onOrient);
+    else{permDenied=true;hint.classList.remove('off');clearTimeout(denyTimer);denyTimer=setTimeout(()=>hint.classList.add('off'),5000)}
+    setHint();
+  };
+  DOE.requestPermission().then(s=>done(s==='granted')).catch(()=>done(false));
+}
+const coarse=matchMedia('(pointer:coarse)').matches;
+function setHint(){
+  hint.innerHTML=permDenied&&!gyro?'傾きは使えません(許可されていません)<br>指でなぞると、光を動かせます'
+    :needsPerm&&!permAsked&&!gyro?'触れると「動きと方向」の許可が出ます<br>許可すると、傾けて光らせられます(許可しなくても遊べます)'
+    :coarse?'傾けて光を探す · 触れて、新しい法則を置く'
+    :'マウスで光を探す · クリックで、新しい法則を置く';
+}
+setHint();
+function tiltFromPointer(e){
+  if(gyro)return;
+  target.x=clamp((e.clientX/innerWidth-.5)*2.2,-1.2,1.2);
+  target.y=clamp(-(e.clientY/innerHeight-.5)*2.2,-1.2,1.2);
+  lastInput=now();
+}
+
+/* ---- 入力(短いタップ=法則を置く。動かした指=傾き) ---- */
+let down=null;
+canvas.addEventListener('pointerdown',e=>{
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  down={x:e.clientX,y:e.clientY,moved:false};
+  tiltFromPointer(e);
+},{passive:true});
+canvas.addEventListener('pointermove',e=>{
+  if(down&&Math.hypot(e.clientX-down.x,e.clientY-down.y)>14)down.moved=true;
+  tiltFromPointer(e);
+},{passive:true});
+canvas.addEventListener('pointerup',e=>{
+  if(!down)return;
+  askMotion();
+  if(!down.moved)plant(e.clientX,e.clientY);
+  down=null;
+},{passive:true});
+canvas.addEventListener('pointercancel',()=>{down=null},{passive:true});
+
+/* ---- 描画 ---- */
+let W=1,H=1,dpr=1;
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);W=innerWidth;H=innerHeight;
+  canvas.width=Math.round(W*dpr);canvas.height=Math.round(H*dpr);
+  gl.viewport(0,0,canvas.width,canvas.height);
+}
+addEventListener('resize',resize);resize();
+const A=new Float32Array(MAXS*4),B=new Float32Array(MAXS*4);
+let prevT=now();
+function draw(){
+  const t=now(),dt=Math.min(.1,t-prevT);prevT=t;
+  if(!gyro&&t-lastInput>2.5){target.x=Math.sin(t*.45)*.7;target.y=Math.cos(t*.37)*.6}   // 触られていない間は、ゆっくり自分で傾く
+  const k=1-Math.exp(-dt*10);
+  tilt.x+=(target.x-tilt.x)*k;tilt.y+=(target.y-tilt.y)*k;
+  A.fill(0);B.fill(0);
+  seeds.forEach((s,i)=>{A.set([s.x,s.y,s.N,s.rot],i*4);B.set([s.hue,s.sc,0,1],i*4)});
+  gl.uniform2f(U.res,canvas.width,canvas.height);
+  gl.uniform1f(U.time,t);
+  gl.uniform1f(U.unit,W*dpr);
+  gl.uniform2f(U.tilt,tilt.x,tilt.y);
+  gl.uniform4fv(U.A,A);gl.uniform4fv(U.B,B);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+  requestAnimationFrame(draw);
+}
+APKit.init({canvas:canvas,gifName:'foil-law-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,buttons:[
+  {label:'✦',name:'mutate',onClick:mutate},
+  {label:'↻',name:'reset',onClick:reset}
+]});
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>
