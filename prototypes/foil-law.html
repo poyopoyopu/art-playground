@@ -67,22 +67,43 @@ vec2 foldQ(vec2 q,float N,float rot){
   return length(q)*vec2(cos(a),sin(a));
 }
 
+// ラメ。傾き(H)に向きが合ったかけらだけが光る。cell=かけらの大きさ(px)、stars=1なら星形のきらめき
+float flakes(vec2 frag,vec3 H,float cell,float off,float t,float ring,float stars){
+  vec2 gp=frag/cell+off;
+  vec2 gi=floor(gp),gf=fract(gp)-.5;
+  float h1=hash(gi),h2=hash(gi+17.3),h3=hash(gi+41.7);
+  gf-=(vec2(h3,h1)-.5)*.4;                             // かけらの位置を少しずらして、格子に見えないように
+  vec3 Nf=normalize(vec3((vec2(h1,h2)-.5)*1.1,1.));
+  float lit=pow(max(dot(Nf,H),0.),stars>.5?90.:260.);
+  lit+=step(.985,h3)*(.55+.45*sin(t*4.+h3*60.));       // 傾けなくても、ときどき瞬くかけら
+  lit=max(lit,step(h1,ring*.5));                       // タップの波が通った所は、傾きに関係なく光る(波が濃いほどたくさん)
+  float dotS=smoothstep(.16+.26*h2,0.,length(gf));     // 粒の大きさもばらばらに
+  float cr=max(exp(-abs(gf.x)*22.)*exp(-abs(gf.y)*4.),exp(-abs(gf.y)*22.)*exp(-abs(gf.x)*4.));
+  float shape=stars>.5?(dotS*.5+cr*1.4):dotS;
+  float keep=stars>.5?step(.88,h3):1.;                 // 星形は一部のかけらだけ
+  return lit*shape*keep;
+}
+
 void main(){
   vec2 frag=gl_FragCoord.xy;
   vec2 f=(frag-.5*uRes)/uUnit;
   float px=1./uUnit;
   vec2 tl=uTilt;
 
-  float d1=1e9,d2=1e9,g1=1.;int i1=0;
+  float d1=1e9,d2=1e9,df=1e9,ring=0.;int i1=-1,ifb=0;
   for(int i=0;i<MAXS;i++){
     vec4 B=uB[i];
     if(B.w<.5)continue;
-    float g=clamp((uTime-B.z)/1.1,0.,1.);
-    g=1.-pow(1.-g,3.);                  // 生まれたての法則は小さく始まり、周りを侵食して広がる
-    float d=length(f-uA[i].xy)/max(g,.04);
-    if(d<d1){d2=d1;d1=d;i1=i;g1=g;}
-    else if(d<d2){d2=d;}
+    float ag=uTime-B.z;
+    float r=length(f-uA[i].xy);
+    if(ag>0.&&ag<1.7)ring+=exp(-pow((r-ag*.75)/.05,2.))*(1.-ag/1.7);   // タップ点から広がる、きらめきの輪
+    if(r<df){df=r;ifb=i;}
+    if(r<ag*.75||B.w>1.5){              // 新しい法則は、輪が通った所から先に、その法則に変わる(総入れ替え・リセットは即時)
+      if(r<d1){d2=d1;d1=r;i1=i;}
+      else if(r<d2){d2=r;}
+    }
   }
+  if(i1<0){i1=ifb;d1=df;d2=df+1.;}      // どの波も届いていない(総入れ替えの直後)なら、いちばん近い法則
   vec4 A=uA[i1],B=uB[i1];
   vec2 q=(f-A.xy)*B.y;
   vec2 nT=vec2(0.);float w=1.;vec2 qq=q;
@@ -104,9 +125,14 @@ void main(){
   vec3 c=metal*(.10+.26*diff);
   c+=rainbow*(.08+.9*wide);
   c+=vec3(1.,.96,.88)*spec*.85;
-  float age=uTime-B.z;
-  c+=rainbow*exp(-max(age,0.)*2.4)*step(0.,age)*.7;    // 法則が根づく瞬間の閃き
-  c*=mix(.3,1.,smoothstep(0.,px*3.,(d2-d1)*g1));       // 法則の境目の継ぎ目
+  c*=mix(.3,1.,smoothstep(0.,px*3.,d2-d1));            // 法則の境目の継ぎ目
+  // キラキラ: 細かいラメ + 大きめの星のきらめき + 傾きで流れる艶。タップの輪の上では、ラメが一斉に光る
+  float fine=flakes(frag,H,uUnit*.016,0.,uTime,ring,0.);
+  float big=flakes(frag,H,uUnit*.085,31.,uTime,ring,1.);
+  c+=mix(vec3(1.),rainbow,.4)*(fine*1.5+big*2.2)*(1.+ring*2.);
+  c+=vec3(1.,.9,.95)*ring*.18;
+  float bd=dot(f,normalize(vec2(1.,.6)))+tl.x*.5+tl.y*.3;
+  c+=vec3(1.,.97,.9)*exp(-pow(bd/.22,2.))*.12;
   c+=(hash(frag+fract(uTime))-.5)/255.;
   fragColor=vec4(c,1.);
 }`;
@@ -128,10 +154,10 @@ const U={res:gl.getUniformLocation(prog,'uRes'),time:gl.getUniformLocation(prog,
 const now=()=>performance.now()/1000;
 const rnd=(a,b)=>a+Math.random()*(b-a);
 const seeds=[];let nextSlot=0;
-function newLaw(x,y,born){return{x:x,y:y,N:3+Math.floor(Math.random()*6),rot:rnd(0,Math.PI*2),hue:Math.random(),sc:rnd(1.1,2.2),born:born}}
+function newLaw(x,y,born,inst){return{x:x,y:y,N:3+Math.floor(Math.random()*6),rot:rnd(0,Math.PI*2),hue:Math.random(),sc:rnd(1.1,2.2),born:born,inst:!!inst}}   // inst=波を待たず即座に効く
 function initSeeds(born){                 // 最初は、画面ぜんぶがたった1つの法則
   seeds.length=0;nextSlot=0;
-  seeds.push(newLaw(rnd(-.05,.05),rnd(-.08,.08),born));
+  seeds.push(newLaw(rnd(-.05,.05),rnd(-.08,.08),born,true));
 }
 initSeeds(-10);
 function plant(cx,cy){
@@ -141,7 +167,7 @@ function plant(cx,cy){
 }
 function mutate(){                        // 法則を総入れ替え(数はそのまま、性質と場所を引き直す)
   const t=now(),hy=.5*H/W;
-  seeds.forEach((s,i)=>{Object.assign(s,newLaw(seeds.length===1?rnd(-.05,.05):rnd(-.5,.5),seeds.length===1?rnd(-.08,.08):rnd(-hy,hy),t+i*.06))});
+  seeds.forEach((s,i)=>{Object.assign(s,newLaw(seeds.length===1?rnd(-.05,.05):rnd(-.5,.5),seeds.length===1?rnd(-.08,.08):rnd(-hy,hy),t+i*.06,true))});
 }
 function reset(){initSeeds(now());setHint();hint.classList.remove('off')}
 
@@ -212,7 +238,7 @@ function draw(){
   const k=1-Math.exp(-dt*10);
   tilt.x+=(target.x-tilt.x)*k;tilt.y+=(target.y-tilt.y)*k;
   A.fill(0);B.fill(0);
-  seeds.forEach((s,i)=>{A.set([s.x,s.y,s.N,s.rot],i*4);B.set([s.hue,s.sc,s.born,1],i*4)});
+  seeds.forEach((s,i)=>{A.set([s.x,s.y,s.N,s.rot],i*4);B.set([s.hue,s.sc,s.born,s.inst?2:1],i*4)});
   gl.uniform2f(U.res,canvas.width,canvas.height);
   gl.uniform1f(U.time,t);
   gl.uniform1f(U.unit,W*dpr);
