@@ -1,11 +1,11 @@
 <!doctype html>
-<!-- CAMPFIRE — クロちゃん(Claude)作。ap-kit.js統合: クロちゃん。2026/11/01 試作(v2: 炭の変化・陽炎を追加 → v4.1: 序盤から焦げ・炎は序盤がピーク・約70秒 → v5: 薪を1本ずつ燃やして燃え尽きる・✦で薪が落ちて積み重なる物理)。
+<!-- CAMPFIRE — クロちゃん(Claude)作。ap-kit.js統合: クロちゃん。2026/11/01 試作(v2: 炭の変化・陽炎を追加 → v4.1: 序盤から焦げ・炎は序盤がピーク・約70秒 → v5: 薪を1本ずつ燃やして燃え尽きる・✦で薪が落ちて積み重なる物理 → v5.1: 約45秒で燃え尽きる・うろこ状の焦げ割れ・薪の表面を舐める炎)。
      お題: おっちゃんが選んだ「焚き火」(リアルに・音付き・炭の変化も)。10/30依頼の新作題材3候補から選択。
      世界のルール: 炎は「上」へ昇る。触った場所だけ、その「上」の向きが書き換わる。
        タップ=その場所の上が「下」になる(炎が垂れ、火の粉が雨のように落ちる) / なぞる=なぞった向きが上になる / 押し続ける=上の向きがゆっくり回り、炎が渦を巻く。
        向きの違う場所の境目には、昇る力が打ち消し合う「無重力の淀み」ができる。離すと数秒かけて元の世界に戻る(複数の指も可)。風が当たった炭は明るく息をする。
        触らなくても、燃え続ける焚き火として成立する。
-     炭の変化: 薪は1本ずつ、約70秒かけて 生木(樹皮) → 黒く焦げてひび割れ、割れ目が赤く光る → 細く縮んで白い灰をかぶる → 熾火。その後さらに約45秒で熾火が冷えて灰になる(v5)。
+     炭の変化: 薪は1本ずつ、約45秒かけて 生木(樹皮) → 黒く焦げてひび割れ、割れ目が赤く光る → 細く縮んで白い灰をかぶる → 熾火。その後さらに約30秒で熾火が冷えて灰になる(v5)。
        炎は薪が焦げるにつれて小さくなり、すべての薪が燃え尽きると火が消えて、夜の闇だけが残る。芯まで焦げた薪は、ずるっと崩れ落ちる(火の粉と音)。
        ✦で新しい薪を上から落とす。自前の2D物理(外部ライブラリなし)で、重力・地面・薪どうしの衝突・摩擦を解くので、転がって積み重なる。火が残っていればすぐ着火、冷えきっていると数秒かかる(触って風を送ると早い)。↻で最初の焚き火に戻す。
        URLに ?burn=0〜2 を付けると、その段階から始まる(確認用。0=生木、1=熾火、2=冷えた灰)。
@@ -105,7 +105,7 @@ function upAt(x,y){
 }
 
 /* ---------- 燃え進み(薪1本ずつ。炎・熾火・灰の量は、全部の薪の合計から決まる) ---------- */
-var B=0,ashB=0,burnRate=1/70,coolTime=45,bedG=0.3,bedP=0.25,fuelAgg=1,alive=1,ready=false,rbT=0,coldT=0,coldHint=false,startB=0.04,startCool=0;
+var B=0,ashB=0,burnRate=1/45,coolTime=30,bedG=0.3,bedP=0.25,fuelAgg=1,alive=1,ready=false,rbT=0,coldT=0,coldHint=false,startB=0.04,startCool=0;
 function heatOf(b){return sstep(0.03,0.34,b)*(1-0.45*sstep(0.82,1,b))}
 function flameOf(b){return 1.18*(1-0.75*sstep(0.04,0.95,b))*(1-sstep(0.78,1,b))} /* 薪1本が出す炎の強さ。燃え尽きる手前で0になる */
 
@@ -462,13 +462,24 @@ function physStep(dt){
 /* 薪の配置(乱数で決める。燃え進みで形が変わる元データ)。位置・大きさはU単位で、画面サイズが変わっても保つ */
 function newLog(rnd,x,y,a,l,t,z){
   var L={x:x,y:y,a:a,vx:0,vy:0,w:0,z:z,l:l,t:t,n:Math.max(3,Math.round(l/(t*0.45))),r:t/2,hl:0,air:0,
-    rate:0.82+rnd()*0.4,off:(rnd()-0.5)*0.16,b:0,cool:0,ig:1,glow:1,fl:1,kick:0,bark:[],cr:[],ash:[],em:[]},i,k;
+    rate:0.82+rnd()*0.4,off:(rnd()-0.5)*0.16,b:0,cool:0,ig:1,glow:1,fl:1,kick:0,bark:[],cr:[],sc:[],ash:[],em:[]},i,k;
   L.cx=new Float32Array(L.n);L.cy=new Float32Array(L.n);L.im=1/(l*t);L.iI=12/(l*t*(l*l+t*t));
   for(i=0;i<30;i++)L.bark.push({x:(rnd()-0.5)*l,y:(rnd()-0.5)*t*0.9,len:l*(0.05+rnd()*0.22),w:0.6+rnd()*1.2,al:0.2+rnd()*0.32,dy:(rnd()-0.5)*t*0.1});
-  for(i=0;i<26;i++){ /* 焦げ割れ: 縦(木目と直角)が多い、3点の折れ線 */
-    var px=(rnd()-0.5)*l*0.9,py=(rnd()-0.5)*t*0.5,an=(rnd()<0.6?Math.PI/2:0)+(rnd()-0.5)*0.9,ln=t*(0.1+rnd()*0.18),pts=[[px,py]];
-    for(k=0;k<2;k++){px+=Math.cos(an)*ln+(rnd()-0.5)*t*0.1;py=clamp(py+Math.sin(an)*ln+(rnd()-0.5)*t*0.1,-t*0.4,t*0.4);pts.push([px,py])}
-    L.cr.push({p:pts,w:0.8+rnd()*1.3,thr:0.02+rnd()*0.46,ph:rnd()*TAU,sp:0.7+rnd()*2.2});
+  for(i=0;i<Math.round(l/(t*0.9))*2;i++)L.sc.push({x:(rnd()-0.5)*l*0.95,y:(rnd()-0.5)*t*0.86,w:t*(0.45+rnd()*0.55),h:t*(0.3+rnd()*0.22),al:0.12+rnd()*0.3,thr:0.05+rnd()*0.3}); /* 炭のうろこ(焦げ割れの間のかたまり) */
+  /* 焦げ割れ(v5.1): 炭になった木は、木目と直角の横割れが「うろこ」状に千鳥に並び、その間を縦の割れがつなぐ。
+     真ん中・上側(炎に近い側)から割れて光り始める。3点の折れ線(描画側と共通) */
+  var row,xx,ya,yb,kx,ln2;
+  for(row=0;row<2;row++){
+    xx=-l/2+t*(0.3+rnd()*0.6)+row*t*0.5;
+    while(xx<l/2-t*0.3){
+      ya=row===0?-t*(0.4+rnd()*0.06):-t*(0.02+rnd()*0.08);yb=row===0?t*(0.02+rnd()*0.08):t*(0.4+rnd()*0.06);kx=(rnd()-0.5)*t*0.34;if(rnd()<0.3){if(row===0)yb=ya*0.2+yb*0.8;else ya=ya*0.8+yb*0.2}
+      L.cr.push({p:[[xx,ya],[xx+kx,(ya+yb)/2],[xx+(rnd()-0.5)*t*0.1,yb]],w:1+rnd()*1.1,thr:clamp(0.05+0.3*Math.abs(xx)/(l/2)+row*0.1+rnd()*0.12,0,0.6),ph:rnd()*TAU,sp:0.7+rnd()*2.2});
+      xx+=t*(0.55+rnd()*1.1);
+    }
+  }
+  for(i=0;i<Math.round(l/(t*1.6));i++){ /* 縦の割れ: 横割れの間を、木目に沿ってつなぐ */
+    xx=(rnd()-0.5)*l*0.85;ya=(rnd()-0.5)*t*0.5;ln2=t*(0.6+rnd()*0.9);
+    L.cr.push({p:[[xx,ya],[xx+ln2*0.5,ya+(rnd()-0.5)*t*0.12],[xx+ln2,ya+(rnd()-0.5)*t*0.12]],w:0.8+rnd()*0.8,thr:clamp(0.18+0.25*Math.abs(xx)/(l/2)+rnd()*0.15,0,0.6),ph:rnd()*TAU,sp:0.7+rnd()*2.2});
   }
   for(i=0;i<46;i++)L.ash.push({x:(rnd()-0.5)*l*0.92,y:(rnd()-0.68)*t*0.8,r:t*(0.05+rnd()*0.15),thr:rnd(),al:0.2+rnd()*0.32});
   for(i=0;i<5;i++)L.em.push({x:(rnd()-0.5)*l*0.55,y:(rnd()-0.5)*t*0.5,r:0.016+rnd()*0.022,ph:rnd()*TAU,sp:1.2+rnd()*3});
@@ -509,6 +520,8 @@ function drawLog(g,L){
   var sc=sstep(0,0.3,b),sg=g.createLinearGradient(0,-t/2,0,t/2);
   sg.addColorStop(0,'rgba(6,4,3,'+(0.82*sc)+')');sg.addColorStop(0.55,'rgba(10,6,4,'+(0.5*sc)+')');sg.addColorStop(1,'rgba(10,6,4,'+(0.12*sc)+')');
   g.fillStyle=sg;rr(g,-l/2,-t/2,l,t,t*0.32);g.fill();
+  for(i=0;i<L.sc.length;i++){q=L.sc[i];if(q.thr>b)continue; /* 炭のかたまり: 黒く、縁だけ鈍く光る */
+    g.fillStyle='rgba(2,1,1,'+(q.al*sstep(q.thr,q.thr+0.2,b))+')';rr(g,(q.x-q.w/2)*U*sx,(q.y-q.h/2)*U*sy,q.w*U*sx,q.h*U*sy,q.h*U*sy*0.4);g.fill()}
   /* 焦げ割れ(暗い線)と、光らせるための世界座標を記録 */
   for(i=0;i<L.cr.length;i++){c=L.cr[i];if(c.thr>b)continue;
     var wp=[];g.strokeStyle='rgba(0,0,0,0.72)';g.lineWidth=c.w*(0.5+0.5*sy);g.lineJoin='round';g.beginPath();
@@ -521,6 +534,11 @@ function drawLog(g,L){
   for(i=1;i<4;i++){ell(g,l/2-t*0.1,0,t*0.2*i/4,t*0.5*i/4,0);g.stroke()}
   /* 冷えた薪: 全体が灰色にくすむ(v5) */
   if(cl>0){g.fillStyle='rgba(118,114,108,'+(0.3*cl)+')';rr(g,-l/2,-t/2,l,t,t*0.32);g.fill()}
+  /* 両端から先に灰になる(v5.1) */
+  var ea=sstep(0.5,1,b)*0.5+cl*0.2;
+  if(ea>0.01){var eg=g.createLinearGradient(-l/2,0,l/2,0),ec='rgba(168,163,155,';
+    eg.addColorStop(0,ec+ea+')');eg.addColorStop(0.16,ec+ea*0.4+')');eg.addColorStop(0.32,ec+'0)');eg.addColorStop(0.68,ec+'0)');eg.addColorStop(0.84,ec+ea*0.4+')');eg.addColorStop(1,ec+ea+')');
+    g.fillStyle=eg;rr(g,-l/2,-t/2,l,t,t*0.32);g.fill()}
   /* 白い灰(上側から、少しずつかぶる) */
   for(i=0;i<L.ash.length;i++){q=L.ash[i];if(q.thr>ashA)continue;
     g.fillStyle='rgba(150,145,138,'+(q.al*0.55*Math.min(1,(ashA-q.thr)*4+0.2))+')';ell(g,q.x*U*sx,q.y*U*sy,q.r*U*sx*1.0,q.r*U*sy*0.6,0);g.fill()}
@@ -792,11 +810,12 @@ function render(){
   for(i=0;i<CRKW.length;i++){c=CRKW[i];var lb=c.L.b;if(c.thr>lb||c.L.glow<0.02)continue;
     var pul=0.5+0.5*Math.sin(T*c.sp+c.ph)*Math.sin(T*c.sp*0.41+c.ph*1.7);
     upAt(c.p[2],c.p[3]);
-    var h=clamp(heatOf(lb)*(0.5+0.6*pul)*(1+1.2*UW)*(1-0.45*sstep(0.55,1,lb))*c.L.glow,0,1.2);
+    var px0=(c.p[2]-FX)/U,h=clamp(heatOf(lb)*(0.5+0.6*pul)*(1+1.2*UW)*(1-0.45*sstep(0.55,1,lb))*c.L.glow*(0.35+0.65*Math.exp(-px0*px0/0.03)),0,1.2); /* 炎の真下ほど熱い */
     if(h<0.03)continue;
-    var col=ramp(0.2+0.42*Math.min(h,1));
-    g.globalAlpha=clamp(0.22+0.6*h,0,0.92)*flick;g.strokeStyle=rgbs(col);g.lineWidth=c.w;
-    g.beginPath();g.moveTo(c.p[0],c.p[1]);g.lineTo(c.p[2],c.p[3]);g.lineTo(c.p[4],c.p[5]);g.stroke();
+    var hm=Math.min(h,1);
+    g.beginPath();g.moveTo(c.p[0],c.p[1]);g.lineTo(c.p[2],c.p[3]);g.lineTo(c.p[4],c.p[5]);
+    g.globalAlpha=clamp(0.14*h,0,0.2)*flick;g.strokeStyle=rgbs(ramp(0.1+0.2*hm));g.lineWidth=c.w*3.4;g.stroke(); /* 割れ目からにじむ熱 */
+    g.globalAlpha=clamp(0.22+0.6*h,0,0.92)*flick;g.strokeStyle=rgbs(ramp(0.25+0.5*hm));g.lineWidth=c.w;g.stroke(); /* 熱い所ほど黄色い芯 */
     g.globalAlpha=clamp(0.1+0.3*h,0,0.5)*flick;g.drawImage(SPR[8+((Math.min(h,1)*8)|0)],c.p[2]-9,c.p[3]-9,18,18);
   }
   /* 炎に舐められている薪の肌の照り */
@@ -804,6 +823,23 @@ function render(){
     al=0.5+0.5*Math.sin(T*e.sp+e.ph)*Math.sin(T*e.sp*0.37+e.ph);
     g.globalAlpha=(0.2+0.5*al)*flick*e.L.fl*clamp(fuel,0,1.3)*(1-0.78*sstep(0.1,0.7,eb));
     g.drawImage(SPR[10+((al*6)|0)],e.x-e.r*2,e.y-e.r*2,e.r*4,e.r*4)}
+  /* 炭になった薪は、芯がじわっと赤く熱を持つ(v5.1) */
+  g.lineCap='round';
+  for(i=0;i<LOGS.length;i++){var GL=LOGS[i],gh=heatOf(GL.b)*GL.glow;if(gh<0.04)continue;
+    var gca=Math.cos(GL.a),gsa=Math.sin(GL.a),gcx=FX+GL.x*U,gcy=FY+GL.y*U,gl=GL.l*U*lenK(GL)*0.4,gt=GL.t*U*thkK(GL),gpx=(gcx-FX)/U,gp=0.35+0.65*Math.exp(-gpx*gpx/0.05);
+    g.beginPath();g.moveTo(gcx-gca*gl,gcy-gsa*gl);g.lineTo(gcx+gca*gl,gcy+gsa*gl);
+    g.globalAlpha=0.09*gh*gp*flick;g.strokeStyle=rgbs(ramp(0.22));g.lineWidth=gt*0.8;g.stroke();
+    g.globalAlpha=0.06*gh*gp*flick;g.strokeStyle=rgbs(ramp(0.34));g.lineWidth=gt*0.36;g.stroke()}
+  /* 燃えている薪の表面を舐める小さな炎(v5.1)。炭化が進むと消えて、割れ目の赤い光だけが残る */
+  for(i=0;i<LOGS.length;i++){var LL=LOGS[i],lf=LL.fl*(1-sstep(0.55,0.95,LL.b))*clamp(fuel,0,1);if(lf<0.05)continue;
+    var lsx=lenK(LL),lsy=thkK(LL),lca=Math.cos(LL.a),lsa=Math.sin(LL.a),lcx=FX+LL.x*U,lcy=FY+LL.y*U,side=lca>=0?-1:1,llen=LL.l*U*lsx,lth=LL.t*U*lsy;
+    for(var kk=0;kk<3;kk++){
+      var lu=((kk+0.5)/3-0.5+0.12*Math.sin(T*0.7+kk*2.1+i))*llen*0.8,ly=side*lth*0.45,lw=nz(T*2.6+i*7+kk*3,kk,5)*0.5+0.5,li=lf*(0.35+0.65*lw);
+      if(li<0.06)continue;
+      var lx=lcx+lu*lca-ly*lsa,lyy=lcy+lu*lsa+ly*lca,fh=LL.t*U*(2.2+2.2*lw),fw=LL.t*U*(1.5+0.6*lw);
+      g.globalAlpha=0.2*li*flick;g.drawImage(SPR[10+((lw*3)|0)],lx-fw,lyy-fh*0.85,fw*2,fh); /* 橙の外炎 */
+      g.globalAlpha=0.14*li*flick;g.drawImage(SPR[17],lx-fw*0.5,lyy-fh*0.5,fw,fh*0.7) /* 黄色い芯 */
+    }}
 
   /* 煙 */
   g.globalCompositeOperation='source-over';
