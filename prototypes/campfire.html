@@ -1,12 +1,12 @@
 <!doctype html>
-<!-- CAMPFIRE — クロちゃん(Claude)作。ap-kit.js統合: クロちゃん。2026/11/01 試作(v2: 炭の変化・陽炎を追加 → v4.1: 序盤から焦げ・炎は序盤がピーク・約70秒 → v5: 薪を1本ずつ燃やして燃え尽きる・✦で薪が落ちて積み重なる物理 → v5.1: 約45秒で燃え尽きる・うろこ状の焦げ割れ・薪の表面を舐める炎)。
+<!-- CAMPFIRE — クロちゃん(Claude)作。ap-kit.js統合: クロちゃん。2026/11/01 試作(v2: 炭の変化・陽炎を追加 → v4.1: 序盤から焦げ・炎は序盤がピーク・約70秒 → v5: 薪を1本ずつ燃やして燃え尽きる・✦で薪が落ちて積み重なる物理 → v5.1: 約45秒で燃え尽きる・うろこ状の焦げ割れ・薪の表面を舐める炎 → v5.2: 薪の形を不揃いに・焦げた薪は途中で折れる)。
      お題: おっちゃんが選んだ「焚き火」(リアルに・音付き・炭の変化も)。10/30依頼の新作題材3候補から選択。
      世界のルール: 炎は「上」へ昇る。触った場所だけ、その「上」の向きが書き換わる。
        タップ=その場所の上が「下」になる(炎が垂れ、火の粉が雨のように落ちる) / なぞる=なぞった向きが上になる / 押し続ける=上の向きがゆっくり回り、炎が渦を巻く。
        向きの違う場所の境目には、昇る力が打ち消し合う「無重力の淀み」ができる。離すと数秒かけて元の世界に戻る(複数の指も可)。風が当たった炭は明るく息をする。
        触らなくても、燃え続ける焚き火として成立する。
      炭の変化: 薪は1本ずつ、約45秒かけて 生木(樹皮) → 黒く焦げてひび割れ、割れ目が赤く光る → 細く縮んで白い灰をかぶる → 熾火。その後さらに約30秒で熾火が冷えて灰になる(v5)。
-       炎は薪が焦げるにつれて小さくなり、すべての薪が燃え尽きると火が消えて、夜の闇だけが残る。芯まで焦げた薪は、ずるっと崩れ落ちる(火の粉と音)。
+       炎は薪が焦げるにつれて小さくなり、すべての薪が燃え尽きると火が消えて、夜の闇だけが残る。芯まで焦げた薪は、ずるっと崩れ落ち、細くなった所でぽきっと2本に折れる(折れ口はぎざぎざで赤く光る。火の粉と音)。
        ✦で新しい薪を上から落とす。自前の2D物理(外部ライブラリなし)で、重力・地面・薪どうしの衝突・摩擦を解くので、転がって積み重なる。火が残っていればすぐ着火、冷えきっていると数秒かかる(触って風を送ると早い)。↻で最初の焚き火に戻す。
        URLに ?burn=0〜2 を付けると、その段階から始まる(確認用。0=生木、1=熾火、2=冷えた灰)。
      音: WebAudioで生成(音源ファイルなし)。炎のうなり・パチパチ・火の粉の爆ぜる音・触った場所の風音・薪が崩れる音。最初に画面を触ると鳴り始める(ブラウザの決まり)。ドックの🔊/🔇で切替。
@@ -122,7 +122,7 @@ var NTG=7,NS=12,TP=new Float32Array(NTG*(NS+1)*2),TW=new Float32Array(NTG*(NS+1)
 var T=0,fuelBase=1,flare=0,flick=1,inten=0.7,wind=0,emitAcc=0,lickAcc=0,smokeAcc=0,sparkAcc=0,fuel=1;
 var NT=3,tC=[0,0,0],tI=[0.7,0.7,0.7],tF=[1,1,1],tw=2.1;
 var layoutSeed=20261101;
-var LOGS=[],CH=[],COALS=[],STONES=[],CRKW=[],EMBW=[];
+var LOGS=[],CH=[],COALS=[],STONES=[],CRKW=[],EMBW=[],BRKW=[];
 
 function updateTongues(){
   var k;tw=0;
@@ -459,6 +459,71 @@ function physStep(dt){
   if(impactMax>0.5)logThud(impactMax,impactX);
 }
 
+/* ---------- 薪の形(v5.2): 均一な筒(ちくわ)にならないよう、先細り・こぶ・ゆるい反り・斜めの切り口にする ---------- */
+function makeShape(rnd){
+  var N=9,sh={top:[],bot:[],ctr:[]},tp=(rnd()-0.5)*0.34,bend=(rnd()-0.5)*0.4,k1=rnd(),k2=rnd(),a1=(rnd()-0.25)*0.32,a2=(rnd()-0.25)*0.28,s1=rnd()<0.5,i,f,kn,base,e,d;
+  for(i=0;i<N;i++){f=i/(N-1);
+    e=a1*Math.exp(-Math.pow((f-k1)/0.12,2));d=a2*Math.exp(-Math.pow((f-k2)/0.1,2));
+    base=1+tp*(f-0.5)*2;
+    sh.top.push(base+(s1?e:d)+(rnd()-0.5)*0.1);sh.bot.push(base+(s1?d:e)+(rnd()-0.5)*0.1);
+    sh.ctr.push(bend*(1-Math.pow(2*f-1,2)));
+  }
+  return sh;
+}
+function sawEnd(rnd){ /* 切り口: ほぼ平らで、少し斜め(上から下へ、内側にずれる量。t単位) */
+  var M=7,e=[],sl=(rnd()-0.5)*0.34,j;
+  for(j=0;j<M;j++)e.push(0.05+Math.max(0,sl*(j/(M-1)-0.5)*2)+(j===0||j===M-1?0.05:0)+rnd()*0.02);
+  return e;
+}
+function jagEnd(rnd){ /* 折れた所: ぎざぎざ。相手側と噛み合うよう、(jag, 0.62-jag) の2本を返す */
+  var M=7,a=[],b=[],j,v;
+  for(j=0;j<M;j++){v=(j===0||j===M-1)?0.1+rnd()*0.2:0.05+rnd()*0.95;a.push(v);b.push(1.05-v)} /* 折れ口はささくれて、長いとげが出る */
+  return [a,b];
+}
+function samp(arr,f){var x=f*(arr.length-1),i=Math.min(arr.length-2,Math.floor(x)),u=x-i;return arr[i]*(1-u)+arr[i+1]*u}
+function lp(g,L,l,t){ /* 薪の輪郭を、g上のパスとして作る(l,tは描画サイズ) */
+  var sh=L.sh,N=sh.top.length,M=L.eL.length,i,j,f,xl,xr,yt,yb;
+  g.beginPath();
+  xl=-l/2+L.eL[0]*t;xr=l/2-L.eR[0]*t;
+  for(i=0;i<N;i++){f=i/(N-1);yt=(sh.ctr[i]-sh.top[i]*0.5)*t;if(i===0)g.moveTo(xl,yt);else g.lineTo(xl+(xr-xl)*f,yt)}
+  yt=(sh.ctr[N-1]-sh.top[N-1]*0.5)*t;yb=(sh.ctr[N-1]+sh.bot[N-1]*0.5)*t;
+  for(j=1;j<M-1;j++)g.lineTo(l/2-L.eR[j]*t,yt+(yb-yt)*j/(M-1));
+  xl=-l/2+L.eL[M-1]*t;xr=l/2-L.eR[M-1]*t;
+  for(i=N-1;i>=0;i--){f=i/(N-1);g.lineTo(xl+(xr-xl)*f,(sh.ctr[i]+sh.bot[i]*0.5)*t)}
+  yt=(sh.ctr[0]-sh.top[0]*0.5)*t;yb=(sh.ctr[0]+sh.bot[0]*0.5)*t;
+  for(j=M-2;j>=1;j--)g.lineTo(-l/2+L.eL[j]*t,yt+(yb-yt)*j/(M-1));
+  g.closePath();
+}
+/* 焦げて細くなった薪が、途中でぽきっと折れる。parentの絵(割れ目・樹皮など)を、折れた位置で2つに分ける */
+function cpo(q,dx){var o={},k;for(k in q)o[k]=q[k];o.x-=dx;return o}
+function slicePiece(L,lo,hi,eL,eR,bkL,bkR){
+  var l2=hi-lo,c=(lo+hi)/2,P={},k,i,q,m=L.t*0.25,ok;
+  for(k in L)P[k]=L[k];
+  P.l=l2;P.n=Math.max(3,Math.round(l2/(L.t*0.45)));P.cx=new Float32Array(P.n);P.cy=new Float32Array(P.n);
+  P.im=1/(l2*L.t);P.iI=12/(l2*L.t*(l2*l2+L.t*L.t));
+  P.bark=[];for(i=0;i<L.bark.length;i++){q=L.bark[i];if(q.x>=lo&&q.x+q.len<=hi)P.bark.push(cpo(q,c))}
+  P.sc=[];for(i=0;i<L.sc.length;i++){q=L.sc[i];if(q.x-q.w/2>=lo&&q.x+q.w/2<=hi)P.sc.push(cpo(q,c))}
+  P.ash=[];for(i=0;i<L.ash.length;i++){q=L.ash[i];if(q.x>lo&&q.x<hi)P.ash.push(cpo(q,c))}
+  P.em=[];for(i=0;i<L.em.length;i++){q=L.em[i];if(q.x>lo&&q.x<hi)P.em.push(cpo(q,c))}
+  P.cr=[];for(i=0;i<L.cr.length;i++){q=L.cr[i];ok=true;
+    for(k=0;k<q.p.length;k++)if(q.p[k][0]<lo+m||q.p[k][0]>hi-m)ok=false;
+    if(ok)P.cr.push({p:q.p.map(function(p){return [p[0]-c,p[1]]}),w:q.w,thr:q.thr,ph:q.ph,sp:q.sp})}
+  var f0=(lo+L.l/2)/L.l,f1=(hi+L.l/2)/L.l,sh={top:[],bot:[],ctr:[]},N=L.sh.top.length,f;
+  for(i=0;i<N;i++){f=f0+(f1-f0)*i/(N-1);sh.top.push(samp(L.sh.top,f));sh.bot.push(samp(L.sh.bot,f));sh.ctr.push(samp(L.sh.ctr,f))}
+  P.sh=sh;P.eL=eL;P.eR=eR;P.bkL=bkL;P.bkR=bkR;P.brk=false;
+  return P;
+}
+function breakLog(idx){
+  var L=LOGS[idx],f=0.36+Math.random()*0.28,l=L.l,lA=l*f,sx=lenK(L),ca=Math.cos(L.a),sa=Math.sin(L.a),jg=jagEnd(Math.random),
+      A=slicePiece(L,-l/2,-l/2+lA,L.eL,jg[0],L.bkL,true),B=slicePiece(L,-l/2+lA,l/2,jg[1],L.eR,true,L.bkR),
+      cA=(-l/2+lA/2)*sx,cB=(-l/2+lA+(l-lA)/2)*sx,px=panOf(FX+L.x*U),pk=0.08+Math.random()*0.07;
+  A.x=L.x+cA*ca;A.y=L.y+cA*sa;B.x=L.x+cB*ca;B.y=L.y+cB*sa;
+  A.vx=L.vx-ca*pk;A.vy=L.vy-sa*pk;B.vx=L.vx+ca*pk;B.vy=L.vy+sa*pk;
+  A.w=L.w+0.7+Math.random()*0.9;B.w=L.w-0.7-Math.random()*0.9; /* 折れた端が、垂れ下がるように落ちる */
+  LOGS[idx]=A;LOGS.push(B);wake();
+  if(ready){flare=Math.max(flare,0.55*alive);sparkBurst(16,1.3);crack(3,px,0);thump(px,true,0.7)}
+}
+
 /* 薪の配置(乱数で決める。燃え進みで形が変わる元データ)。位置・大きさはU単位で、画面サイズが変わっても保つ */
 function newLog(rnd,x,y,a,l,t,z){
   var L={x:x,y:y,a:a,vx:0,vy:0,w:0,z:z,l:l,t:t,n:Math.max(3,Math.round(l/(t*0.45))),r:t/2,hl:0,air:0,
@@ -483,6 +548,7 @@ function newLog(rnd,x,y,a,l,t,z){
   }
   for(i=0;i<46;i++)L.ash.push({x:(rnd()-0.5)*l*0.92,y:(rnd()-0.68)*t*0.8,r:t*(0.05+rnd()*0.15),thr:rnd(),al:0.2+rnd()*0.32});
   for(i=0;i<5;i++)L.em.push({x:(rnd()-0.5)*l*0.55,y:(rnd()-0.5)*t*0.5,r:0.016+rnd()*0.022,ph:rnd()*TAU,sp:1.2+rnd()*3});
+  L.sh=makeShape(rnd);L.eL=sawEnd(rnd);L.eR=sawEnd(rnd);L.bkL=false;L.bkR=false;L.brk=rnd()<0.8;L.brkB=0.62+rnd()*0.22;L.bph=rnd()*TAU;
   return L;
 }
 /* 最初の焚き火: 薪5本を少し浮かせて置き、物理で積み上がるまで先に落ち着かせる */
@@ -496,7 +562,7 @@ function initLogs(seed){
 }
 function genBed(){
   var r=mulberry(layoutSeed^0x51ed27),i;CH=[];COALS=[];
-  for(i=0;i<24;i++){var ca=r()*TAU,cr=Math.sqrt(r());CH.push({x:FX+Math.cos(ca)*cr*U*0.17,y:FY-U*0.004+Math.sin(ca)*cr*U*0.032,rx:U*(0.016+r()*0.022),ry:U*(0.008+r()*0.01),rot:(r()-0.5)*1.2,thr:clamp(cr*0.75+r()*0.25,0,1)})}
+  for(i=0;i<24;i++){var ca=r()*TAU,cr=Math.sqrt(r());CH.push({x:FX+Math.cos(ca)*cr*U*0.17,y:FY-U*0.004+Math.sin(ca)*cr*U*0.032,rx:U*(0.016+r()*0.022),ry:U*(0.008+r()*0.01),rot:(r()-0.5)*1.2,thr:clamp(cr*0.75+r()*0.25,0,1),pg:[0,1,2,3,4,5,6].map(function(){return 0.68+r()*0.5})})}
   for(i=0;i<46;i++){var ca2=r()*TAU,cr2=Math.sqrt(r());COALS.push({x:FX+Math.cos(ca2)*cr2*U*0.17,y:FY-U*0.004+Math.sin(ca2)*cr2*U*0.03,r:U*(0.008+r()*0.014),ph:r()*TAU,sp:0.8+r()*2.4,thr:clamp(cr2*0.75+r()*0.25,0,1)})}
 }
 
@@ -510,16 +576,16 @@ function drawLog(g,L){
   g.fillStyle='rgba(0,0,0,'+(0.38*(1-clamp(L.air/0.2,0,1)))+')';ell(g,0,t*0.5,l*0.52,t*0.3,0);g.fill();
   var gr=g.createLinearGradient(0,-t/2,0,t/2);
   gr.addColorStop(0,rgbs(mixc(WOOD[0],CHAR[0],m)));gr.addColorStop(0.35,rgbs(mixc(WOOD[1],CHAR[1],m)));gr.addColorStop(0.7,rgbs(mixc(WOOD[2],CHAR[2],m)));gr.addColorStop(1,rgbs(mixc(WOOD[3],CHAR[3],m)));
-  g.fillStyle=gr;rr(g,-l/2,-t/2,l,t,t*0.32);g.fill();
+  g.fillStyle=gr;lp(g,L,l,t);g.fill();
   for(i=0;i<L.bark.length;i++){q=L.bark[i];
     g.strokeStyle='rgba(16,9,4,'+(q.al*(1-0.6*m))+')';g.lineWidth=q.w;g.beginPath();g.moveTo(q.x*U*sx,q.y*U*sy);g.lineTo(q.x*U*sx+q.len*U*sx,q.y*U*sy+q.dy*U*sy);g.stroke()}
   var cg=g.createLinearGradient(-l/2,0,l/2,0);
   cg.addColorStop(0,'rgba(0,0,0,0)');cg.addColorStop(0.3,'rgba(8,4,2,0.5)');cg.addColorStop(0.5,'rgba(4,2,1,0.75)');cg.addColorStop(0.7,'rgba(8,4,2,0.5)');cg.addColorStop(1,'rgba(0,0,0,0)');
-  g.globalAlpha=1-m*0.6;g.fillStyle=cg;rr(g,-l/2,-t/2,l,t,t*0.32);g.fill();g.globalAlpha=1;
+  g.globalAlpha=1-m*0.6;g.fillStyle=cg;lp(g,L,l,t);g.fill();g.globalAlpha=1;
   /* 焦げ: 炎に近い上側から黒くなり、燃え進みとともに全体へ広がる(v4.1) */
   var sc=sstep(0,0.3,b),sg=g.createLinearGradient(0,-t/2,0,t/2);
   sg.addColorStop(0,'rgba(6,4,3,'+(0.82*sc)+')');sg.addColorStop(0.55,'rgba(10,6,4,'+(0.5*sc)+')');sg.addColorStop(1,'rgba(10,6,4,'+(0.12*sc)+')');
-  g.fillStyle=sg;rr(g,-l/2,-t/2,l,t,t*0.32);g.fill();
+  g.fillStyle=sg;lp(g,L,l,t);g.fill();
   for(i=0;i<L.sc.length;i++){q=L.sc[i];if(q.thr>b)continue; /* 炭のかたまり: 黒く、縁だけ鈍く光る */
     g.fillStyle='rgba(2,1,1,'+(q.al*sstep(q.thr,q.thr+0.2,b))+')';rr(g,(q.x-q.w/2)*U*sx,(q.y-q.h/2)*U*sy,q.w*U*sx,q.h*U*sy,q.h*U*sy*0.4);g.fill()}
   /* 焦げ割れ(暗い線)と、光らせるための世界座標を記録 */
@@ -529,31 +595,35 @@ function drawLog(g,L){
     g.stroke();CRKW.push({p:wp,thr:c.thr,ph:c.ph,sp:c.sp,w:c.w*(0.6+0.4*sy),L:L});
   }
   /* 切り口(右端): 生木は明るい木口、炭は灰色がかった黒 */
-  g.fillStyle=rgbs(mixc([156,118,78],[38,33,31],m));ell(g,l/2-t*0.1,0,t*0.2,t*0.46,0);g.fill();
-  g.strokeStyle='rgba(80,52,30,'+(0.7*(1-m))+')';g.lineWidth=0.8;
-  for(i=1;i<4;i++){ell(g,l/2-t*0.1,0,t*0.2*i/4,t*0.5*i/4,0);g.stroke()}
+  if(!L.bkR){var ehk=(L.sh.top[L.sh.top.length-1]+L.sh.bot[L.sh.bot.length-1])*0.5,ecy=L.sh.ctr[L.sh.ctr.length-1]*t;
+    g.fillStyle=rgbs(mixc([156,118,78],[38,33,31],m));ell(g,l/2-t*0.1,ecy,t*0.2,t*0.46*ehk,0);g.fill();
+    g.strokeStyle='rgba(80,52,30,'+(0.7*(1-m))+')';g.lineWidth=0.8;
+    for(i=1;i<4;i++){ell(g,l/2-t*0.1,ecy,t*0.2*i/4,t*0.5*ehk*i/4,0);g.stroke()}}
   /* 冷えた薪: 全体が灰色にくすむ(v5) */
-  if(cl>0){g.fillStyle='rgba(118,114,108,'+(0.3*cl)+')';rr(g,-l/2,-t/2,l,t,t*0.32);g.fill()}
+  if(cl>0){g.fillStyle='rgba(118,114,108,'+(0.3*cl)+')';lp(g,L,l,t);g.fill()}
   /* 両端から先に灰になる(v5.1) */
   var ea=sstep(0.5,1,b)*0.5+cl*0.2;
   if(ea>0.01){var eg=g.createLinearGradient(-l/2,0,l/2,0),ec='rgba(168,163,155,';
     eg.addColorStop(0,ec+ea+')');eg.addColorStop(0.16,ec+ea*0.4+')');eg.addColorStop(0.32,ec+'0)');eg.addColorStop(0.68,ec+'0)');eg.addColorStop(0.84,ec+ea*0.4+')');eg.addColorStop(1,ec+ea+')');
-    g.fillStyle=eg;rr(g,-l/2,-t/2,l,t,t*0.32);g.fill()}
+    g.fillStyle=eg;lp(g,L,l,t);g.fill()}
   /* 白い灰(上側から、少しずつかぶる) */
   for(i=0;i<L.ash.length;i++){q=L.ash[i];if(q.thr>ashA)continue;
     g.fillStyle='rgba(150,145,138,'+(q.al*0.55*Math.min(1,(ashA-q.thr)*4+0.2))+')';ell(g,q.x*U*sx,q.y*U*sy,q.r*U*sx*1.0,q.r*U*sy*0.6,0);g.fill()}
   g.restore();
+  if(L.bkL)BRKW.push({x:cx-ca*(l/2-t*0.12),y:cy-sa*(l/2-t*0.12),r:t*1.25,ph:L.bph,sp:1.4+L.rate,L:L});
+  if(L.bkR)BRKW.push({x:cx+ca*(l/2-t*0.12),y:cy+sa*(l/2-t*0.12),r:t*1.25,ph:L.bph+2.1,sp:1.1+L.rate,L:L});
   for(i=0;i<L.em.length;i++){q=L.em[i];var ex=q.x*U*sx,ey=q.y*U*sy;EMBW.push({x:cx+ex*ca-ey*sa,y:cy+ex*sa+ey*ca,r:q.r*U*(1-0.3*b),ph:q.ph,sp:q.sp,L:L})}
 }
+function lump(g,c,k,ox,oy){var n=c.pg.length,i,a,m;g.beginPath();for(i=0;i<n;i++){a=i/n*TAU;m=c.pg[i]*k;if(i===0)g.moveTo(ox+Math.cos(a)*c.rx*m,oy+Math.sin(a)*c.ry*m);else g.lineTo(ox+Math.cos(a)*c.rx*m,oy+Math.sin(a)*c.ry*m)}g.closePath()}
 function rebuildLogs(){
   var g=logsX,i,c,ord=LOGS.slice().sort(function(p,q){return p.z-q.z});
   g.setTransform(DPR,0,0,DPR,0,0);g.clearRect(0,0,W,H);
-  CRKW.length=0;EMBW.length=0;
+  CRKW.length=0;EMBW.length=0;BRKW.length=0;
   g.fillStyle='rgb(16,8,5)';ell(g,FX,FY-U*0.004,U*(0.15+0.03*bedP),U*0.034);g.fill();
   for(i=0;i<CH.length;i++){c=CH[i];if(c.thr>bedP)continue;
     g.save();g.translate(c.x,c.y);g.rotate(c.rot);
-    g.fillStyle='rgb(24,17,14)';ell(g,0,0,c.rx,c.ry,0);g.fill();
-    if(ashB>c.thr*0.7){g.fillStyle='rgba(140,135,130,'+(0.4*ashB)+')';ell(g,-c.rx*0.1,-c.ry*0.25,c.rx*0.8,c.ry*0.6,0);g.fill()}
+    g.fillStyle='rgb(24,17,14)';lump(g,c,1,0,0);g.fill(); /* 炭のかたまり: ぎざぎざの輪郭(v5.2) */
+    if(ashB>c.thr*0.7){g.fillStyle='rgba(140,135,130,'+(0.2*ashB)+')';lump(g,c,0.5,-c.rx*0.1,-c.ry*0.3);g.fill()}
     g.restore()}
   for(i=0;i<ord.length;i++)drawLog(g,ord[i]);
 }
@@ -564,6 +634,7 @@ function updateLogs(dt){
   for(i=0;i<patches.length;i++)if(patches[i].s>sMax)sMax=patches[i].s;
   rate=0.2+0.9*clamp(bedG+0.25*fuelAgg,0,1.2)+0.45*sMax; /* 火が弱いと着きにくい。触って風を送ると着きやすい */
   for(i=0;i<n;i++){L=LOGS[i];
+    if(L.brk&&L.b>=L.brkB&&L.l*lenK(L)>0.2){breakLog(i);L=LOGS[i]} /* 焦げて細くなった所でぽきっと折れる */
     if(L.ig<1)L.ig=Math.min(1,L.ig+dt*rate);
     ign=sstep(0.3,0.8,L.ig);
     if(L.b<1){
@@ -823,6 +894,9 @@ function render(){
     al=0.5+0.5*Math.sin(T*e.sp+e.ph)*Math.sin(T*e.sp*0.37+e.ph);
     g.globalAlpha=(0.2+0.5*al)*flick*e.L.fl*clamp(fuel,0,1.3)*(1-0.78*sstep(0.1,0.7,eb));
     g.drawImage(SPR[10+((al*6)|0)],e.x-e.r*2,e.y-e.r*2,e.r*4,e.r*4)}
+  /* 折れた断面は、中の熾火が赤く覗く(v5.2) */
+  for(i=0;i<BRKW.length;i++){e=BRKW[i];al=0.5+0.5*Math.sin(T*e.sp+e.ph)*Math.sin(T*e.sp*0.43+e.ph*1.3);
+    g.globalAlpha=(0.2+0.4*al)*flick*e.L.glow;g.drawImage(SPR[11+((al*6)|0)],e.x-e.r*1.5,e.y-e.r*1.5,e.r*3,e.r*3)}
   /* 炭になった薪は、芯がじわっと赤く熱を持つ(v5.1) */
   g.lineCap='round';
   for(i=0;i<LOGS.length;i++){var GL=LOGS[i],gh=heatOf(GL.b)*GL.glow;if(gh<0.04)continue;
@@ -1021,7 +1095,7 @@ function fresh(seed,b0){
 }
 function addLog(){
   var rnd=Math.random,l=0.3+rnd()*0.12,t=0.04+rnd()*0.02,L,i,bi,bv,v;
-  while(LOGS.length>=9){bi=0;bv=-1;for(i=0;i<LOGS.length;i++){v=LOGS[i].b+LOGS[i].cool;if(v>bv){bv=v;bi=i}}LOGS.splice(bi,1)} /* 増えすぎたら、いちばん燃え尽きた薪(灰)を片づける */
+  while(LOGS.length>=12){bi=0;bv=-1;for(i=0;i<LOGS.length;i++){v=LOGS[i].b+LOGS[i].cool;if(v>bv){bv=v;bi=i}}LOGS.splice(bi,1)} /* 増えすぎたら、いちばん燃え尽きた薪(灰)を片づける */
   L=newLog(rnd,(rnd()-0.5)*0.12,-0.8,(rnd()-0.5)*1.1,l,t,0.15+rnd()*0.7);
   L.ig=0;L.fl=0;L.glow=0;L.vy=0.1;L.w=(rnd()-0.5)*3;
   LOGS.push(L);wake();unlockAudio();hint.classList.add('off');
