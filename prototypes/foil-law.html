@@ -67,21 +67,19 @@ vec2 foldQ(vec2 q,float N,float rot){
   return length(q)*vec2(cos(a),sin(a));
 }
 
-// ラメ。傾き(H)に向きが合ったかけらだけが光る。cell=かけらの大きさ(px)、stars=1なら星形のきらめき
-float flakes(vec2 frag,vec3 H,float cell,float off,float t,float ring,float stars){
+// 星のきらめき。傾き(H)に向きが合った星だけが光る。cell=星1つ分の大きさ(px)
+float glints(vec2 frag,vec3 H,float cell,float off,float t,float ring){
   vec2 gp=frag/cell+off;
   vec2 gi=floor(gp),gf=fract(gp)-.5;
   float h1=hash(gi),h2=hash(gi+17.3),h3=hash(gi+41.7);
-  gf-=(vec2(h3,h1)-.5)*.4;                             // かけらの位置を少しずらして、格子に見えないように
+  gf-=(vec2(h3,h1)-.5)*.4;                             // 位置を少しずらして、格子に見えないように
   vec3 Nf=normalize(vec3((vec2(h1,h2)-.5)*1.1,1.));
-  float lit=pow(max(dot(Nf,H),0.),stars>.5?90.:260.);
-  lit+=step(.985,h3)*(.55+.45*sin(t*4.+h3*60.));       // 傾けなくても、ときどき瞬くかけら
-  lit=max(lit,step(h1,ring*.5));                       // タップの波が通った所は、傾きに関係なく光る(波が濃いほどたくさん)
-  float dotS=smoothstep(.16+.26*h2,0.,length(gf));     // 粒の大きさもばらばらに
+  float lit=pow(max(dot(Nf,H),0.),90.);
+  lit+=step(.985,h3)*(.55+.45*sin(t*4.+h3*60.));       // 傾けなくても、ときどき瞬く星
+  lit=max(lit,step(h1,ring*.5));                       // タップの波が通った所は、傾きに関係なく光る
+  float dotS=smoothstep(.16+.26*h2,0.,length(gf));
   float cr=max(exp(-abs(gf.x)*22.)*exp(-abs(gf.y)*4.),exp(-abs(gf.y)*22.)*exp(-abs(gf.x)*4.));
-  float shape=stars>.5?(dotS*.5+cr*1.4):dotS;
-  float keep=stars>.5?step(.88,h3):1.;                 // 星形は一部のかけらだけ
-  return lit*shape*keep;
+  return lit*(dotS*.5+cr*1.4)*step(.88,h3);            // 星になるのは一部のマスだけ
 }
 
 void main(){
@@ -126,11 +124,10 @@ void main(){
   c+=rainbow*(.08+.9*wide);
   c+=vec3(1.,.96,.88)*spec*.85;
   c*=mix(.3,1.,smoothstep(0.,px*3.,d2-d1));            // 法則の境目の継ぎ目
-  // キラキラ: 細かいラメ + 大きめの星のきらめき + 傾きで流れる艶。タップの輪の上では、ラメが一斉に光る
-  float fine=flakes(frag,H,uUnit*.016,0.,uTime,ring,0.);
-  float big=flakes(frag,H,uUnit*.085,31.,uTime,ring,1.);
-  c+=mix(vec3(1.),rainbow,.4)*(fine*1.5+big*2.2)*(1.+ring*2.);
-  c+=vec3(1.,.9,.95)*ring*.18;
+  // キラキラ: 星のきらめき + 傾きで流れる艶。タップの輪の上では、星が弾ける
+  float big=glints(frag,H,uUnit*.085,31.,uTime,ring);
+  c+=mix(vec3(1.),rainbow,.4)*big*2.2*(1.+ring*2.);
+  c+=vec3(1.,.9,.95)*ring*.3;
   float bd=dot(f,normalize(vec2(1.,.6)))+tl.x*.5+tl.y*.3;
   c+=vec3(1.,.97,.9)*exp(-pow(bd/.22,2.))*.12;
   c+=(hash(frag+fract(uTime))-.5)/255.;
