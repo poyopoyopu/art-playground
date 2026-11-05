@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#05070f">
+<title>GAZE LAW — 見つめた場所だけが、結晶になる</title>
+<script src="../ap-kit.js"></script>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#05070f;color:#fff;touch-action:none}
+canvas{display:block;width:100%;height:100%;touch-action:none;outline:none}
+#hint{position:fixed;top:calc(env(safe-area-inset-top) + 16px);left:0;right:0;text-align:center;pointer-events:none;font:500 10px/1.6 ui-monospace,monospace;letter-spacing:.2em;color:rgba(216,232,255,.66);transition:opacity 1.2s}
+#hint.off{opacity:0}
+#eye{position:fixed;left:0;top:0;width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:50%;border:1px solid rgba(220,236,255,.34);pointer-events:none;opacity:0;transition:opacity .6s}
+#eye.on{opacity:1}
+#eye::after{content:"";position:absolute;left:50%;top:50%;width:3px;height:3px;margin:-1.5px 0 0 -1.5px;border-radius:50%;background:rgba(220,236,255,.7)}
+video{position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none}
+</style>
+</head>
+<body>
+<canvas id="c" aria-label="箱の奥行きの中に砂のような粒が漂う。見つめた場所だけが入れ子の結晶になり、視線を外すと砂に戻る"></canvas>
+<div id="eye"></div>
+<div id="hint">STARE AT A POINT · IT CRYSTALLIZES</div>
+<video id="cam" playsinline muted></video>
+<script>
+/* GAZE LAW — クロちゃん作(おっちゃんと相談して決めた「箱の中の小宇宙」)。
+   世界のルール: 見られた場所だけが秩序(結晶)になり、目を逸らすと砂に戻る。見つめ続けるほど入れ子が深くなる(フラクタル)。
+   視点は画面を窓に見立てたオフアクシス投影。インカメラ(👁)で頭の位置と視線を追う。カメラはボタンを押すまで起動しない。 */
+(()=>{
+'use strict';
+const canvas=document.getElementById('c'),hint=document.getElementById('hint'),eyeEl=document.getElementById('eye'),video=document.getElementById('cam');
+const gl=canvas.getContext('webgl2',{alpha:false,antialias:true,preserveDrawingBuffer:true});
+if(!gl){hint.textContent='WEBGL2 IS NOT AVAILABLE';throw Error('WebGL2 unavailable')}
+
+/* ---------- 結晶の定義(入れ子の八面体)---------- */
+/* family: 子の方向。各階層で半分のサイズの結晶が、親の中心から方向×(親半径×off)の位置に付く */
+const FAMILIES=[
+  {name:'AXIS',  dirs:[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]], off:.5,  maxDepth:4},
+  {name:'RING',  dirs:[[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]],                    off:.55, maxDepth:4},
+  {name:'CORNER',dirs:(()=>{const a=[],k=1/Math.sqrt(3);for(const x of[-1,1])for(const y of[-1,1])for(const z of[-1,1])a.push([x*k,y*k,z*k]);return a})(), off:.5, maxDepth:3}
+];
+const MAX_SHARDS=1555;                       // AXISの 1+6+36+216+1296
+const slotArr=new Float32Array(MAX_SHARDS*3), metaArr=new Float32Array(MAX_SHARDS*3), seedArr=new Float32Array(MAX_SHARDS*4);
+const formState=new Float32Array(MAX_SHARDS);   // 0=砂 1=結晶
+const slotDepth=new Float32Array(MAX_SHARDS), slotJit=new Float32Array(MAX_SHARDS);
+let famIndex=0, hueBase=.52, seedPhase=0;
+
+function buildSlots(){
+  const fam=FAMILIES[famIndex];let n=0;
+  function rec(pos,k,r){
+    if(n>=MAX_SHARDS)return;
+    const i=n++;slotArr[i*3]=pos[0];slotArr[i*3+1]=pos[1];slotArr[i*3+2]=pos[2];slotDepth[i]=k;slotJit[i]=Math.random();
+    if(k>=fam.maxDepth)return;
+    for(const d of fam.dirs)rec([pos[0]+d[0]*r*fam.off,pos[1]+d[1]*r*fam.off,pos[2]+d[2]*r*fam.off],k+1,r*.5);
+  }
+  rec([0,0,0],0,1);
+  for(let i=n;i<MAX_SHARDS;i++){slotDepth[i]=99;slotJit[i]=Math.random()}   // 使わない粒は砂のまま
+  for(let i=0;i<MAX_SHARDS;i++){metaArr[i*3]=slotDepth[i]>90?0:slotDepth[i];metaArr[i*3+2]=1}
+}
+function buildSeeds(){for(let i=0;i<MAX_SHARDS*4;i++)seedArr[i]=Math.random()}
+
+/* ---------- シェーダー ---------- */
+const VS=`#version 300 es
+precision highp float;
+in vec3 aPos; in vec3 aBary;
+in vec3 aSlot; in vec4 aSeed; in vec3 aMeta;   // aMeta.x=階層 aMeta.y=結晶度 aMeta.z=明るさ(子ができた親は薄くなる)
+uniform mat4 uProj; uniform vec3 uEye; uniform vec3 uAnchor; uniform mat3 uRot;
+uniform vec3 uHalf; uniform float uR, uTime, uHue;
+out vec3 vBary; out vec3 vWorld; out vec3 vCol; out float vForm; out float vTw; out float vDepth; out float vBright;
+mat3 rotY(float a){float c=cos(a),s=sin(a);return mat3(c,0.,-s, 0.,1.,0., s,0.,c);}
+mat3 rotX(float a){float c=cos(a),s=sin(a);return mat3(1.,0.,0., 0.,c,s, 0.,-s,c);}
+void main(){
+  vec4 s=aSeed;
+  vec3 home=vec3((s.x*2.-1.)*uHalf.x*.94,(s.y*2.-1.)*.94,-(.04+s.z*.92)*uHalf.z);
+  home+=.05*vec3(sin(uTime*.3+s.w*40.),cos(uTime*.27+s.w*31.),sin(uTime*.22+s.w*57.));
+  vec3 target=uAnchor+uRot*(aSlot*uR);
+  float f=aMeta.y, e=f*f*(3.-2.*f);
+  vec3 arc=(vec3(fract(s.w*7.1),fract(s.w*13.7),fract(s.w*3.3))-.5)*2.*sin(3.14159*e)*.22;
+  vec3 pos=mix(home,target,e)+arc;
+  float sz=mix(.007+.010*s.w, uR*exp2(-aMeta.x)*.92, e);
+  float ang=(1.-e)*(uTime*(.4+s.w*1.2)+s.w*20.);
+  vec3 lp=aPos*sz;
+  vec3 tumbled=rotX(ang*.7)*rotY(ang)*lp;
+  vec3 w=pos+mix(tumbled,uRot*lp,e);
+  vWorld=w; vBary=aBary; vForm=e; vDepth=aMeta.x; vBright=aMeta.z;
+  float h=uHue+aMeta.x*.11+s.w*.04;
+  vec3 c=.5+.5*cos(6.28318*(vec3(0.,.33,.67)*.55+h));
+  vCol=mix(c,vec3(1.),.35);
+  vTw=.55+.45*sin(uTime*2.2+s.w*60.);
+  vec3 d=w-uEye;
+  gl_Position=uProj*vec4(d,1.);
+}`;
+const FS=`#version 300 es
+precision highp float;
+in vec3 vBary; in vec3 vWorld; in vec3 vCol; in float vForm; in float vTw; in float vDepth; in float vBright;
+uniform vec3 uEye; uniform vec3 uHalf;
+out vec4 o;
+void main(){
+  float m=min(vBary.x,min(vBary.y,vBary.z));
+  float edge=1.-smoothstep(0.,fwidth(m)*1.6+.001,m);
+  vec3 n=normalize(cross(dFdx(vWorld),dFdy(vWorld)));
+  float fac=abs(dot(n,normalize(uEye-vWorld)));
+  float face=.05+.16*(1.-fac);
+  float fog=exp(-(-vWorld.z)/uHalf.z*.55);
+  float dust=(.20+.55*edge)*vTw;
+  float dw=vBright/(1.+vDepth);
+  float cry=edge*.8*dw+face*dw*.5;
+  float a=mix(dust,cry,vForm)*fog;
+  vec3 col=mix(mix(vec3(.62,.8,1.),vCol,.35),vCol,vForm);
+  o=vec4(col,a);
+}`;
+const LVS=`#version 300 es
+precision highp float;
+in vec3 aP; in float aA;
+uniform mat4 uProj; uniform vec3 uEye;
+out float vA;
+void main(){vA=aA;gl_Position=uProj*vec4(aP-uEye,1.);}`;
+const LFS=`#version 300 es
+precision highp float;
+in float vA; out vec4 o;
+void main(){o=vec4(.55,.72,1.,vA);}`;
+
+function prog(vs,fs){
+  const p=gl.createProgram();
+  for(const [t,src] of [[gl.VERTEX_SHADER,vs],[gl.FRAGMENT_SHADER,fs]]){
+    const s=gl.createShader(t);gl.shaderSource(s,src);gl.compileShader(s);
+    if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(s));
+    gl.attachShader(p,s);
+  }
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(p));
+  return p;
+}
+const pShard=prog(VS,FS), pLine=prog(LVS,LFS);
+
+/* 八面体(面ごとに頂点を分けて、重心座標で縁を描く) */
+const V=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+const F=[[0,2,4],[2,1,4],[1,3,4],[3,0,4],[2,0,5],[1,2,5],[3,1,5],[0,3,5]];
+const octPos=[],octBary=[];
+for(const f of F){const B=[[1,0,0],[0,1,0],[0,0,1]];f.forEach((vi,k)=>{octPos.push(...V[vi]);octBary.push(...B[k])})}
+
+const vaoShard=gl.createVertexArray();gl.bindVertexArray(vaoShard);
+function attr(p,name,data,size,div,usage){
+  const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,data,usage||gl.STATIC_DRAW);
+  const l=gl.getAttribLocation(p,name);gl.enableVertexAttribArray(l);gl.vertexAttribPointer(l,size,gl.FLOAT,false,0,0);
+  if(div)gl.vertexAttribDivisor(l,div);return b;
+}
+attr(pShard,'aPos',new Float32Array(octPos),3,0);
+attr(pShard,'aBary',new Float32Array(octBary),3,0);
+const bufSlot=attr(pShard,'aSlot',slotArr,3,1,gl.DYNAMIC_DRAW);
+const bufSeed=attr(pShard,'aSeed',seedArr,4,1,gl.DYNAMIC_DRAW);
+const bufMeta=attr(pShard,'aMeta',metaArr,3,1,gl.DYNAMIC_DRAW);
+
+/* 箱の枠線 */
+const vaoLine=gl.createVertexArray();let lineCount=0,bufLineP,bufLineA;
+function buildBox(a,D){
+  const P=[],A=[];
+  const seg=(x1,y1,z1,x2,y2,z2,al)=>{P.push(x1,y1,z1,x2,y2,z2);A.push(al,al)};
+  const N=8;
+  for(let i=0;i<=N;i++){
+    const z=-D*i/N,al=i===N?.5:.34*(1-.55*i/N);
+    seg(-a,-1,z,a,-1,z,al);seg(a,-1,z,a,1,z,al);seg(a,1,z,-a,1,z,al);seg(-a,1,z,-a,-1,z,al);
+  }
+  for(const sx of[-1,1])for(const sy of[-1,1])seg(sx*a,sy*1,0,sx*a,sy*1,-D,.4);
+  for(let k=-3;k<=3;k++){
+    seg(k*a/3,-1,0,k*a/3,-1,-D,.13);seg(k*a/3,1,0,k*a/3,1,-D,.13);
+    seg(-a,k/3,0,-a,k/3,-D,.13);seg(a,k/3,0,a,k/3,-D,.13);
+    seg(k*a/3,-1,-D,k*a/3,1,-D,.15);seg(-a,k/3,-D,a,k/3,-D,.15);
+  }
+  lineCount=P.length/3;
+  gl.bindVertexArray(vaoLine);
+  if(!bufLineP){bufLineP=gl.createBuffer();bufLineA=gl.createBuffer()}
+  gl.bindBuffer(gl.ARRAY_BUFFER,bufLineP);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(P),gl.STATIC_DRAW);
+  let l=gl.getAttribLocation(pLine,'aP');gl.enableVertexAttribArray(l);gl.vertexAttribPointer(l,3,gl.FLOAT,false,0,0);
+  gl.bindBuffer(gl.ARRAY_BUFFER,bufLineA);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(A),gl.STATIC_DRAW);
+  l=gl.getAttribLocation(pLine,'aA');gl.enableVertexAttribArray(l);gl.vertexAttribPointer(l,1,gl.FLOAT,false,0,0);
+}
+
+/* ---------- 画面と箱の寸法(単位: 画面の高さの半分=1) ---------- */
+let W=0,H=0,ASP=1,DEPTH=2.2,R=.6;
+const NEAR=.05,FAR=30;
+function resize(){
+  const dpr=Math.min(window.devicePixelRatio||1,2);
+  W=Math.max(1,innerWidth);H=Math.max(1,innerHeight);
+  canvas.width=Math.round(W*dpr);canvas.height=Math.round(H*dpr);
+  ASP=W/H;DEPTH=1.2+1.2*Math.min(ASP,1);R=.8*Math.min(ASP,1);
+  buildBox(ASP,DEPTH);
+}
+addEventListener('resize',resize);
+
+function frustum(l,r,b,t,n,f){
+  return new Float32Array([2*n/(r-l),0,0,0, 0,2*n/(t-b),0,0, (r+l)/(r-l),(t+b)/(t-b),-(f+n)/(f-n),-1, 0,0,-2*f*n/(f-n),0]);
+}
+function rotMat(yaw,pitch){            // 結晶の向き(mat3, 列優先)
+  const cy=Math.cos(yaw),sy=Math.sin(yaw),cx=Math.cos(pitch),sx=Math.sin(pitch);
+  // Ry * Rx
+  return new Float32Array([cy,0,-sy, sy*sx,cx,cy*sx, sy*cx,-sx,cy*cx]);
+}
+
+/* ---------- 視点・視線の状態 ---------- */
+const EZ0=3.2;                                   // 視点の標準距離(画面の高さの半分=1)
+const eye={x:0,y:0,z:EZ0}, eyeT={x:0,y:0,z:EZ0};
+const gaze={x:0,y:0,on:false}, gazeS={x:0,y:0}, gazePrev={x:0,y:0};
+const anchor={x:0,y:0,z:-DEPTH*.5};
+let dwell=0, mode='auto';                        // auto | pointer | camera
+let lastInput=-99, pointerDown=false, isTouch=false;
+let tNow=0;
+const ptr={nx:0,ny:0,has:false};
+
+function onPointer(e){
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  isTouch=e.pointerType==='touch';
+  ptr.nx=e.clientX/W*2-1;ptr.ny=e.clientY/H*2-1;ptr.has=true;lastInput=tNow;
+}
+canvas.addEventListener('pointermove',onPointer);
+canvas.addEventListener('pointerdown',e=>{pointerDown=true;onPointer(e)});
+addEventListener('pointerup',()=>{pointerDown=false});
+addEventListener('pointercancel',()=>{pointerDown=false});
+
+/* 自動デモ: 数秒ごとに別の一点を見つめる */
+function autoState(t){
+  const seg=7, k=Math.floor(t/seg), u=t/seg-k;
+  const rnd=(n)=>{const s=Math.sin(n*127.1+311.7)*43758.5453;return s-Math.floor(s)};
+  const p=(kk)=>({x:(rnd(kk*2+1)*2-1)*ASP*.7,y:(rnd(kk*2+2)*2-1)*.65});
+  const a=p(k-1),b=p(k),m=Math.min(1,u*seg/1.3),e=m*m*(3-2*m);
+  return {gx:a.x+(b.x-a.x)*e,gy:a.y+(b.y-a.y)*e,
+          ex:.55*Math.sin(t*.37)*Math.min(ASP,1.2),ey:.3*Math.sin(t*.29+1)};
+}
+
+/* ---------- インカメラ(頭の位置 + 視線)---------- */
+const cam={on:false,stream:null,fm:null,busy:false,lastFace:-99,loading:false,
+  base:null,gazeBase:null,hFilt:null};
+class OneEuro{
+  constructor(minC,beta){this.minC=minC;this.beta=beta;this.x=null;this.dx=0}
+  alpha(c,dt){const tau=1/(2*Math.PI*c);return 1/(1+tau/dt)}
+  f(v,dt){
+    if(this.x===null){this.x=v;return v}
+    const d=(v-this.x)/dt;this.dx+=(d-this.dx)*this.alpha(1,dt);
+    const c=this.minC+this.beta*Math.abs(this.dx);this.x+=(v-this.x)*this.alpha(c,dt);return this.x;
+  }
+}
+const fx=new OneEuro(1.2,6),fy=new OneEuro(1.2,6),fz=new OneEuro(.8,3),fgx=new OneEuro(1.5,3),fgy=new OneEuro(1.5,3);
+const HFOV=65*Math.PI/180, EYE_SPAN_CM=8.8;
+function unitsPerCm(){return 2/((isTouch||W<820)?14:19)}   // 画面の物理サイズを端末の種類から仮置き
+
+function onFace(res){
+  const L=res.multiFaceLandmarks&&res.multiFaceLandmarks[0];
+  if(!L)return;
+  const now=performance.now()/1000, vw=video.videoWidth||640, vh=video.videoHeight||480;
+  cam.lastFace=now;
+  // 目の外側の端(33と263)の距離から、顔までの距離を出す
+  const dxp=(L[263].x-L[33].x)*vw, dyp=(L[263].y-L[33].y)*vh;
+  const spanPx=Math.hypot(dxp,dyp)||1;
+  const fpx=vw/2/Math.tan(HFOV/2);
+  const distCm=fpx*EYE_SPAN_CM/spanPx;
+  const cx=(L[33].x+L[263].x)/2, cy=(L[33].y+L[263].y)/2;
+  const xCm=(.5-cx)*vw*distCm/fpx, yCm=(.5-cy)*vh*distCm/fpx;       // 右・上がプラス(映像は左右反転して見る)
+  if(!cam.base)cam.base={x:xCm,y:yCm,d:distCm};
+  else{const k=.0015;cam.base.x+=(xCm-cam.base.x)*k;cam.base.y+=(yCm-cam.base.y)*k;cam.base.d+=(distCm-cam.base.d)*k}
+  const u=unitsPerCm();
+  eyeT.x=Math.max(-1.2,Math.min(1.2,(xCm-cam.base.x)*u*.85));
+  eyeT.y=Math.max(-.9,Math.min(.9,(yCm-cam.base.y)*u*.85));
+  eyeT.z=Math.max(1.9,Math.min(6,EZ0+(distCm-cam.base.d)*u));
+  // 視線: 虹彩が目のどこにあるか(精度は粗い)
+  if(L.length>=478){
+    const rx=(L[468].x-L[33].x)/((L[133].x-L[33].x)||1e-4);
+    const lx=(L[473].x-L[362].x)/((L[263].x-L[362].x)||1e-4);
+    const eyeW=Math.abs(L[133].x-L[33].x)||1e-4;
+    const ry=(L[468].y-(L[159].y+L[145].y)/2)/eyeW, ly=(L[473].y-(L[386].y+L[374].y)/2)/(Math.abs(L[263].x-L[362].x)||1e-4);
+    const h=(rx+lx)/2-.5, v=(ry+ly)/2;
+    if(!cam.gazeBase)cam.gazeBase={h,v};
+    else{const k=.004;cam.gazeBase.h+=(h-cam.gazeBase.h)*k;cam.gazeBase.v+=(v-cam.gazeBase.v)*k}
+    const yaw=((L[1].x-cx))*2.2;                                  // 顔の向きも少し足す
+    const hh=(h-cam.gazeBase.h)*.75+(h)*.25;
+    const gxn=-(hh*5.2+yaw*1.4), gyn=((v-cam.gazeBase.v)*.75+v*.25)*5.8;
+    cam.gx=Math.max(-1,Math.min(1,gxn));cam.gy=Math.max(-1,Math.min(1,gyn));
+  }
+}
+
+function loadScript(src){
+  return new Promise((ok,ng)=>{const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=()=>ng(Error('load '+src));document.head.appendChild(s)});
+}
+async function startCamera(){
+  if(cam.on||cam.loading)return;
+  cam.loading=true;
+  try{
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw Error('no getUserMedia');
+    cam.stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:640},height:{ideal:480}},audio:false});
+    video.srcObject=cam.stream;await video.play();
+    hint.textContent='LOADING FACE TRACKER…';hint.classList.remove('off');
+    if(!window.FaceMesh)await loadScript('../lib/face_mesh/face_mesh.js');
+    if(!cam.fm){
+      cam.fm=new window.FaceMesh({locateFile:f=>'../lib/face_mesh/'+f});
+      cam.fm.setOptions({maxNumFaces:1,refineLandmarks:true,minDetectionConfidence:.5,minTrackingConfidence:.5});
+      cam.fm.onResults(onFace);
+      await cam.fm.initialize();
+    }
+    if(!cam.stream)return;                       // 読み込み中にもう一度押されて止められた
+    cam.on=true;cam.base=null;cam.gazeBase=null;cam.gx=0;cam.gy=0;cam.lastFace=-99;
+    mode='camera';
+    hint.textContent='CAMERA ON · VIDEO STAYS ON THIS DEVICE';
+    setTimeout(()=>hint.classList.add('off'),4500);
+    pumpCamera();
+  }catch(err){
+    console.error(err);
+    stopCamera();
+    const denied=err&&(err.name==='NotAllowedError'||err.name==='SecurityError');
+    if(window.APKit)APKit.toast(denied?'カメラが許可されませんでした。マウスやタッチで遊べます':'この端末ではカメラ追跡を始められませんでした');
+    setCamButton(false);
+  }finally{cam.loading=false}
+}
+function stopCamera(){
+  cam.on=false;
+  if(cam.stream){cam.stream.getTracks().forEach(t=>t.stop());cam.stream=null}
+  video.srcObject=null;
+  if(mode==='camera')mode='auto';
+  lastInput=tNow-99;
+}
+async function pumpCamera(){
+  if(!cam.on)return;
+  if(!cam.busy&&video.readyState>=2){
+    cam.busy=true;
+    try{await cam.fm.send({image:video})}catch(e){console.error(e)}
+    cam.busy=false;
+  }
+  if(video.requestVideoFrameCallback)video.requestVideoFrameCallback(()=>pumpCamera());else requestAnimationFrame(pumpCamera);
+}
+let camBtn=null;
+function setCamButton(on){if(camBtn)camBtn.classList.toggle('apk-on',on)}
+
+function smooth(a,b,x){const u=Math.max(0,Math.min(1,(x-a)/(b-a)));return u*u*(3-2*u)}
+
+/* ---------- 毎フレーム ---------- */
+const uni={};
+function loc(p,n){const k=n+(p===pShard?'S':'L');return uni[k]||(uni[k]=gl.getUniformLocation(p,n))}
+let last=performance.now(), formCount=0;
+
+function frame(nowMs){
+  const dt=Math.min(.05,Math.max(.001,(nowMs-last)/1000));last=nowMs;tNow+=dt;
+  const t=tNow;
+
+  /* 入力 → 視点(eyeT)と視線(gaze)を決める */
+  let gx=0,gy=0,gazeOn=false;
+  const camLive=cam.on&&(performance.now()/1000-cam.lastFace)<.7;
+  if(cam.on){
+    mode='camera';
+    if(camLive){gx=fgx.f(cam.gx||0,dt)*ASP;gy=-fgy.f(cam.gy||0,dt);gazeOn=true}
+  }else if(ptr.has&&(t-lastInput)<5){
+    mode='pointer';
+    const k=Math.min(ASP,1);
+    eyeT.x=ptr.nx*k*.9;eyeT.y=-ptr.ny*.55;eyeT.z=EZ0;
+    gx=ptr.nx*ASP;gy=-ptr.ny;gazeOn=!isTouch||pointerDown;
+  }else{
+    mode='auto';
+    const a=autoState(t);eyeT.x=a.ex;eyeT.y=a.ey;eyeT.z=EZ0;gx=a.gx;gy=a.gy;gazeOn=true;
+  }
+  const ke=cam.on?1:1-Math.exp(-dt*(mode==='auto'?2:6));
+  if(cam.on){eye.x=fx.f(eyeT.x,dt);eye.y=fy.f(eyeT.y,dt);eye.z=fz.f(eyeT.z,dt)}
+  else{eye.x+=(eyeT.x-eye.x)*ke;eye.y+=(eyeT.y-eye.y)*ke;eye.z+=(eyeT.z-eye.z)*ke}
+
+  /* 見つめている時間(dwell)。じっとしているほど増え、動かすと崩れる */
+  const ks=1-Math.exp(-dt*7);
+  gazeS.x+=(gx-gazeS.x)*ks;gazeS.y+=(gy-gazeS.y)*ks;
+  const sp=Math.hypot(gazeS.x-gazePrev.x,gazeS.y-gazePrev.y)/dt;gazePrev.x=gazeS.x;gazePrev.y=gazeS.y;
+  const still=sp<(cam.on?.75:.5);
+  if(gazeOn){dwell+=still?dt:-dt*2.6}else dwell-=dt*(isTouch&&mode==='pointer'?.4:1.6);
+  dwell=Math.max(0,Math.min(5,dwell));
+  const reveal=dwell/.85;                       // 1.0ごとに1階層深くなる
+
+  /* 見ている点 → 箱の中ほどの奥行きに結晶の中心を置く */
+  const zA=-DEPTH*.5, tt=(EZ0-zA)/EZ0;               // 標準の視点から見た一点。頭を動かしても結晶は流れず、角度で見え方だけが変わる
+  const tx=gazeS.x*tt, ty=gazeS.y*tt;
+  const lim=ASP-R*.35, limY=1-R*.35;
+  const ka=1-Math.exp(-dt*4.5);
+  anchor.x+=(Math.max(-lim,Math.min(lim,tx))-anchor.x)*ka;
+  anchor.y+=(Math.max(-limY,Math.min(limY,ty))-anchor.y)*ka;anchor.z=zA;
+  const hue=hueBase+anchor.x*.06+dwell*.012;
+
+  /* 粒ごとの結晶度 */
+  const fam=FAMILIES[famIndex];formCount=0;
+  for(let i=0;i<MAX_SHARDS;i++){
+    const need=reveal-slotDepth[i]-.55*slotJit[i];
+    const tg=slotDepth[i]>90?0:(gazeOn||dwell>0?Math.max(0,Math.min(1,need*2+.1)):0);
+    const rate=(tg>formState[i]?2.2:3.4)+3*slotJit[i];
+    formState[i]+=(tg-formState[i])*(1-Math.exp(-dt*rate));
+    metaArr[i*3+1]=formState[i];
+    metaArr[i*3+2]=slotDepth[i]>=fam.maxDepth?1:1-.85*smooth(slotDepth[i]+.4,slotDepth[i]+1.4,reveal);
+    if(formState[i]>.5)formCount++;
+  }
+  gl.bindVertexArray(vaoShard);
+  gl.bindBuffer(gl.ARRAY_BUFFER,bufMeta);gl.bufferSubData(gl.ARRAY_BUFFER,0,metaArr);
+
+  /* 描画 */
+  gl.viewport(0,0,canvas.width,canvas.height);
+  gl.clearColor(.02,.027,.055,1);gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.disable(gl.DEPTH_TEST);gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE);
+  const n=NEAR/eye.z;
+  const P=frustum((-ASP-eye.x)*n,(ASP-eye.x)*n,(-1-eye.y)*n,(1-eye.y)*n,NEAR,FAR);
+
+  gl.useProgram(pLine);gl.bindVertexArray(vaoLine);
+  gl.uniformMatrix4fv(loc(pLine,'uProj'),false,P);gl.uniform3f(loc(pLine,'uEye'),eye.x,eye.y,eye.z);
+  gl.drawArrays(gl.LINES,0,lineCount);
+
+  gl.useProgram(pShard);gl.bindVertexArray(vaoShard);
+  gl.uniformMatrix4fv(loc(pShard,'uProj'),false,P);gl.uniform3f(loc(pShard,'uEye'),eye.x,eye.y,eye.z);
+  gl.uniform3f(loc(pShard,'uAnchor'),anchor.x,anchor.y,anchor.z);
+  gl.uniformMatrix3fv(loc(pShard,'uRot'),false,rotMat(t*.22+seedPhase,.45+.12*Math.sin(t*.17)));
+  gl.uniform3f(loc(pShard,'uHalf'),ASP,1,DEPTH);
+  gl.uniform1f(loc(pShard,'uR'),R);gl.uniform1f(loc(pShard,'uTime'),t);gl.uniform1f(loc(pShard,'uHue'),hue);
+  gl.drawArraysInstanced(gl.TRIANGLES,0,24,MAX_SHARDS);
+
+  /* 画面上の「目」の印(カメラ/自動のときだけ) */
+  const showEye=(mode==='camera'&&gazeOn)||mode==='auto';
+  eyeEl.classList.toggle('on',showEye);
+  if(showEye)eyeEl.style.transform='translate('+((gazeS.x/ASP*.5+.5)*W)+'px,'+((-gazeS.y*.5+.5)*H)+'px)';
+
+  requestAnimationFrame(frame);
+}
+
+/* ---------- 起動 ---------- */
+buildSeeds();buildSlots();
+gl.bindVertexArray(vaoShard);
+gl.bindBuffer(gl.ARRAY_BUFFER,bufSlot);gl.bufferData(gl.ARRAY_BUFFER,slotArr,gl.DYNAMIC_DRAW);
+gl.bindBuffer(gl.ARRAY_BUFFER,bufSeed);gl.bufferData(gl.ARRAY_BUFFER,seedArr,gl.DYNAMIC_DRAW);
+resize();
+setTimeout(()=>hint.classList.add('off'),6500);
+requestAnimationFrame(frame);
+
+function mutate(){            // 結晶の種類(AXIS→RING→CORNER)・色・砂の配置を作り直す
+  famIndex=(famIndex+1)%FAMILIES.length;
+  hueBase=Math.random();seedPhase=Math.random()*6.28;
+  buildSeeds();buildSlots();
+  gl.bindVertexArray(vaoShard);
+  gl.bindBuffer(gl.ARRAY_BUFFER,bufSlot);gl.bufferData(gl.ARRAY_BUFFER,slotArr,gl.DYNAMIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER,bufSeed);gl.bufferData(gl.ARRAY_BUFFER,seedArr,gl.DYNAMIC_DRAW);
+  formState.fill(0);dwell=0;
+  hint.textContent='CRYSTAL · '+FAMILIES[famIndex].name;hint.classList.remove('off');
+  setTimeout(()=>hint.classList.add('off'),2500);
+}
+function reset(){formState.fill(0);dwell=0}
+
+APKit.init({
+  canvas:canvas,
+  gifName:'gaze-law-loop',
+  clockFormat:'spec',
+  dock:true,
+  autoHide:true,
+  fullscreenButton:false,
+  buttons:[
+    {label:'✦',name:'mutate',onClick:mutate},
+    {label:'↻',name:'reset',onClick:reset},
+    {label:'👁',name:'camera',toggle:true,onClick:(b)=>{
+      camBtn=b;
+      // toggleはクリック処理の後にクラスが反転するので、いまの状態から判断する
+      if(cam.on||cam.loading){stopCamera();setTimeout(()=>setCamButton(false),0)}
+      else startCamera();
+    }}
+  ]
+});
+})();
+</script>
+</body>
+</html>
