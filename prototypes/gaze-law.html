@@ -325,19 +325,21 @@ function lsqFit(F,ys){
   const w=solveN(A,B);
   return [w[0]-w.slice(1).reduce((s,c,j)=>s+c*mu[j],0),...w.slice(1)];
 }
-function looRms(F,ys){                          // 1点ずつ外して予測し、外した点の誤差を見る(過学習していない本当の誤差)
+function looRms(F,ys,gs){                       // 校正の点を1つずつ丸ごと外して予測し、外した点の全コマの誤差を見る(過学習していない本当の誤差。gs=各コマがどの点か)
   let se=0;
-  for(let i=0;i<F.length;i++){
-    const w=lsqFit(F.filter((_,j)=>j!==i),ys.filter((_,j)=>j!==i));
-    se+=(w[0]+F[i].reduce((s,v,j)=>s+w[j+1]*v,0)-ys[i])**2;
+  for(const id of new Set(gs)){
+    const tr=[],te=[];gs.forEach((g,i)=>(g===id?te:tr).push(i));
+    const w=lsqFit(tr.map(i=>F[i]),tr.map(i=>ys[i]));
+    for(const i of te)se+=(w[0]+F[i].reduce((s,v,j)=>s+w[j+1]*v,0)-ys[i])**2;
   }
   return Math.sqrt(se/F.length);
 }
 function pickModel(P,ys,main,head){             // 小さなモデル・目の開き(ear)を足したモデル・全特徴のモデルを、誤差で比べて一番良いものを採る
   const small=[main,head], plus=[...small,'ear'], full=[...small,...KEYS.filter(k=>!small.includes(k))];
   let best=null;
-  for(const keys of (P.length>=7?[small,plus,full]:[small])){
-    const F=P.map(p=>keys.map(k=>p[k])), r=looRms(F,ys);
+  const gs=P.map(p=>p.g), npts=new Set(gs).size;     // P=校正中のコマ(g=見ていた点の番号)
+  for(const keys of (npts>=7?[small,plus,full]:[small])){
+    const F=P.map(p=>keys.map(k=>p[k])), r=looRms(F,ys,gs);
     if(!best||r<best.rms)best={keys,rms:r,w:lsqFit(F,ys)};
   }
   const w=Array(KEYS.length+1).fill(0);w[0]=best.w[0];best.keys.forEach((k,j)=>{w[1+KEYS.indexOf(k)]=best.w[1+j]});
@@ -350,9 +352,11 @@ const cal={on:false,t0:null,tStart:0,buf:[]};      // t0=最初に顔が映っ�
 const calEl=document.getElementById('cal');
 function startCal(){
   cal.on=true;cal.t0=null;cal.tStart=performance.now();cal.buf=CAL_PTS.map(()=>[]);
-  hint.textContent='LOOK AT EACH DOT · 9 POINTS';hint.classList.remove('off','big');
+  hint.textContent='LOOK AT EACH DOT\nAND MOVE YOUR HEAD SLOWLY';hint.classList.remove('off');hint.classList.add('big');
   calEl.classList.add('on');
+  if(window.APKit)APKit.toast('点を目で追いながら、顔とスマホをゆっくり動かして(顔は画面から外さない)');
 }
+function hintOff(ms){setTimeout(()=>hint.classList.add('off'),ms);setTimeout(()=>hint.classList.remove('big'),ms+1500)}
 function calSample(f){
   if(cal.t0===null)cal.t0=performance.now();
   const el=performance.now()-cal.t0, i=Math.floor(el/CAL_STEP);
@@ -370,19 +374,22 @@ function calTick(){
 }
 function finishCal(){
   cal.on=false;calEl.classList.remove('on');
-  const P=[];
+  /* 動的校正: 点を見ながら顔・スマホを動かしてもらい、頭の向きが違うコマを全部使って当てはめる(点ごとに1つへ潰さない。
+     頭の向きによる目の見え方の違い=yw/pt/earの効き方を学べる)。1点あたり60コマ前後に間引いて、点ごとの重みをそろえる */
+  const P=[];let npts=0;
   cal.buf.forEach((b,i)=>{
     if(b.length<3)return;                         // 顔が外れていた点は使わない
-    const m=k=>median(b.map(f=>f[k]));
-    P.push({h:m('h'),v:m('v'),yw:m('yw'),pt:m('pt'),ear:m('ear'),x:CAL_PTS[i][0],y:CAL_PTS[i][1]});
+    npts++;
+    const step=Math.max(1,Math.floor(b.length/60));
+    for(let k=0;k<b.length;k+=step){const f=b[k];P.push({h:f.h,v:f.v,yw:f.yw,pt:f.pt,ear:f.ear,x:CAL_PTS[i][0],y:CAL_PTS[i][1],g:i})}
   });
-  if(P.length<5){
+  if(npts<5){
     hint.textContent='CALIBRATION FAILED · TAP 👁 TO RETRY';
     if(window.APKit)APKit.toast('視線の補正に失敗しました。顔が映る明るい所で、👁をもう一度');
-    setTimeout(()=>hint.classList.add('off'),4000);return;
+    hintOff(4000);return;
   }
   const mx=pickModel(P,P.map(p=>p.x),'h','yw'), my=pickModel(P,P.map(p=>p.y),'v','pt');
-  if(![...mx.w,...my.w].every(isFinite)){hint.textContent='CALIBRATION FAILED';setTimeout(()=>hint.classList.add('off'),4000);return}
+  if(![...mx.w,...my.w].every(isFinite)){hint.textContent='CALIBRATION FAILED';hintOff(4000);return}
   cam.fit={x:mx.w,y:my.w};
   const err=Math.sqrt((mx.rms*mx.rms+my.rms*my.rms)/2), pct=Math.round(err*100);   // 画面の半幅/半高に対する平均の誤差
   /* 原因の切り分け用: 同じ点を見ている間の、換算後の位置のブレ(コマごとの揺れ)。誤差よりずっと小さければ換算式の問題、同じくらいなら読み取りのノイズ */
@@ -391,10 +398,10 @@ function finishCal(){
   cal.buf.forEach(b=>{if(b.length<3)return;jx+=sd(b.map(f=>evalFit(mx.w,f)));jy+=sd(b.map(f=>evalFit(my.w,f)));jn++});
   jx=Math.round(jx/jn*100);jy=Math.round(jy/jn*100);
   const ex=Math.round(mx.rms*100), ey=Math.round(my.rms*100);
-  console.log('gaze calibration: points',P.length,'LOO error',pct+'%','x',ex,'y',ey,'jitter x',jx,'y',jy,JSON.stringify(cam.fit));
-  hint.textContent='CALIBRATED · ERROR ±'+pct+'%\nX ±'+ex+'  Y ±'+ey+'  ·  JITTER X '+jx+'  Y '+jy+'  ·  PTS '+P.length+'/9\nUSES X:'+mx.keys.join('+')+'  Y:'+my.keys.join('+')+(err>.5?'\nTRY BRIGHTER LIGHT':'');
+  console.log('gaze calibration: points',npts,'frames',P.length,'LOO error',pct+'%','x',ex,'y',ey,'jitter x',jx,'y',jy,JSON.stringify(cam.fit));
+  hint.textContent='CALIBRATED · ERROR ±'+pct+'%\nX ±'+ex+'  Y ±'+ey+'  ·  JITTER X '+jx+'  Y '+jy+'  ·  PTS '+npts+'/9\nUSES X:'+mx.keys.join('+')+'  Y:'+my.keys.join('+')+'  ·  FRAMES '+P.length+(err>.5?'\nTRY BRIGHTER LIGHT':'');
   hint.classList.add('big');hint.classList.remove('off');   // 精度の数字は見逃しやすいので、大きくして15秒出す
-  setTimeout(()=>hint.classList.add('off'),15000);setTimeout(()=>hint.classList.remove('big'),16500);
+  hintOff(15000);
 }
 
 function loadScript(src){
@@ -419,7 +426,7 @@ async function startCamera(){
     cam.on=true;cam.base=null;cam.gx=0;cam.gy=0;cam.lastFace=-99;
     mode='camera';
     hint.textContent='CAMERA ON · VIDEO STAYS ON THIS DEVICE';
-    setTimeout(()=>hint.classList.add('off'),4500);
+    setTimeout(()=>{if(!cal.on)hint.classList.add('off')},4500);   // 校正中は案内を消さない
     pumpCamera();
     startCal();
   }catch(err){
@@ -431,6 +438,7 @@ async function startCamera(){
   }finally{cam.loading=false}
 }
 function stopCamera(){
+  if(cal.on)hintOff(0);                            // 校正の途中で止めたら、案内を片付ける
   cam.on=false;cal.on=false;calEl.classList.remove('on');
   if(cam.stream){cam.stream.getTracks().forEach(t=>t.stop());cam.stream=null}
   video.srcObject=null;
