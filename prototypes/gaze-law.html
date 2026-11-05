@@ -235,7 +235,7 @@ function autoState(t){
 /* ---------- インカメラ(頭の位置 + 視線)---------- */
 const cam={on:false,stream:null,fm:null,busy:false,lastFace:-99,loading:false,
   base:null,feat:null,
-  fit:{x:[0,-5.2,-1.4],y:[0,5.8,0]}};      // 視線の換算式(校正前の仮の値。校正で上書きする)
+  fit:{x:[0,-5.2,0,-1.4,0],y:[0,0,5.8,0,0]}};   // 視線の換算式 [切片,h,v,yw,pt の係数](校正前の仮の値。校正で上書きする)
 class OneEuro{
   constructor(minC,beta){this.minC=minC;this.beta=beta;this.x=null;this.dx=0}
   alpha(c,dt){const tau=1/(2*Math.PI*c);return 1/(1+tau/dt)}
@@ -271,27 +271,80 @@ function onFace(res){
   if(L.length>=478){
     const f=gazeFeat(L,vw,vh,spanPx,cx,cy);
     cam.feat=f;
-    if(cal.on)calSample(f);
-    const c1=v=>Math.max(-1,Math.min(1,v)), F=cam.fit;
-    cam.gx=c1(F.x[0]+F.x[1]*f.h+F.x[2]*f.yw);
-    cam.gy=c1(F.y[0]+F.y[1]*f.v+F.y[2]*f.pt);
+    if(f.ear>BLINK){                                  // まばたき中の1コマは使わない(黒目が隠れて値が跳ねる)
+      if(cal.on)calSample(f);
+      const c1=v=>Math.max(-1,Math.min(1,v)), F=cam.fit;
+      cam.gx=c1(evalFit(F.x,f));cam.gy=c1(evalFit(F.y,f));
+    }
   }
 }
-/* 目の特徴量: h/v=虹彩の位置(目の幅に対する比)、yw/pt=鼻先の位置(顔の向き)。縦横の画素比は掛けて揃える */
+/* 目の特徴量。h/v=黒目が「目の軸」のどこにあるか(両目の平均、目の幅で割る)。軸は目頭と目尻を結ぶ線なので、
+   頭が傾いても値が変わらない。縦は瞼ではなく、この軸からのずれで測る(下を見ても瞼が一緒に動くため瞼比は鈍い)。
+   yw/pt=鼻先の位置(顔の向き)、ear=目の開き(まばたき判定用) */
+const BLINK=.13, KEYS=['h','v','yw','pt'];
 function gazeFeat(L,vw,vh,span,cx,cy){
-  const wR=Math.abs(L[133].x-L[33].x)*vw||1, wL=Math.abs(L[263].x-L[362].x)*vw||1;
-  const rx=(L[468].x-L[33].x)/((L[133].x-L[33].x)||1e-4), lx=(L[473].x-L[362].x)/((L[263].x-L[362].x)||1e-4);
-  const ry=(L[468].y-(L[159].y+L[145].y)/2)*vh/wR, ly=(L[473].y-(L[386].y+L[374].y)/2)*vh/wL;
-  return {h:(rx+lx)/2-.5, v:(ry+ly)/2, yw:(L[1].x-cx)*vw/span, pt:(L[1].y-cy)*vh/span};
+  let h=0,v=0,ear=0;
+  for(const e of [[33,133,468,159,145],[362,263,473,386,374]]){
+    const ox=L[e[0]].x*vw,oy=L[e[0]].y*vh,ix=L[e[1]].x*vw,iy=L[e[1]].y*vh;
+    const ux=ix-ox,uy=iy-oy,w=Math.hypot(ux,uy)||1,ax=ux/w,ay=uy/w;
+    const dx=L[e[2]].x*vw-(ox+ix)/2, dy=L[e[2]].y*vh-(oy+iy)/2;
+    h+=(dx*ax+dy*ay)/w/2; v+=(-dx*ay+dy*ax)/w/2;
+    ear+=Math.hypot((L[e[3]].x-L[e[4]].x)*vw,(L[e[3]].y-L[e[4]].y)*vh)/w/2;
+  }
+  return {h,v,ear,yw:(L[1].x-cx)*vw/span, pt:(L[1].y-cy)*vh/span};
+}
+function evalFit(w,f){return w[0]+w[1]*f.h+w[2]*f.v+w[3]*f.yw+w[4]*f.pt}
+function median(a){const b=a.slice().sort((x,y)=>x-y),n=b.length;return n%2?b[(n-1)/2]:(b[n/2-1]+b[n/2])/2}
+function solveN(A,B){                           // 連立一次方程式(ガウスの消去法)
+  const n=B.length,M=A.map((r,i)=>[...r,B[i]]);
+  for(let c=0;c<n;c++){
+    let p=c;for(let r=c+1;r<n;r++)if(Math.abs(M[r][c])>Math.abs(M[p][c]))p=r;
+    [M[c],M[p]]=[M[p],M[c]];
+    const d=M[c][c]||1e-12;
+    for(let r=0;r<n;r++)if(r!==c){const k=M[r][c]/d;for(let j=c;j<=n;j++)M[r][j]-=k*M[c][j]}
+  }
+  return M.map((r,i)=>r[n]/(r[i]||1e-12));
+}
+/* F=特徴量の行列(点×特徴)、ys=目標(画面位置)。平均を引いてから、傾きにだけ弱い正則化をかけて解く → [切片,係数…] */
+function lsqFit(F,ys){
+  const n=ys.length,k=F[0].length,mu=Array(k).fill(0);
+  F.forEach(r=>r.forEach((v,j)=>{mu[j]+=v/n}));
+  const A=Array.from({length:k+1},()=>Array(k+1).fill(0)),B=Array(k+1).fill(0);
+  for(let i=0;i<n;i++){
+    const r=[1,...F[i].map((v,j)=>v-mu[j])];
+    for(let a=0;a<=k;a++){B[a]+=r[a]*ys[i];for(let b=0;b<=k;b++)A[a][b]+=r[a]*r[b]}
+  }
+  let tr=0;for(let j=1;j<=k;j++)tr+=A[j][j];
+  const lam=1e-3*tr/k+1e-12;for(let j=1;j<=k;j++)A[j][j]+=lam;
+  const w=solveN(A,B);
+  return [w[0]-w.slice(1).reduce((s,c,j)=>s+c*mu[j],0),...w.slice(1)];
+}
+function looRms(F,ys){                          // 1点ずつ外して予測し、外した点の誤差を見る(過学習していない本当の誤差)
+  let se=0;
+  for(let i=0;i<F.length;i++){
+    const w=lsqFit(F.filter((_,j)=>j!==i),ys.filter((_,j)=>j!==i));
+    se+=(w[0]+F[i].reduce((s,v,j)=>s+w[j+1]*v,0)-ys[i])**2;
+  }
+  return Math.sqrt(se/F.length);
+}
+function pickModel(P,ys,main,head){             // 小さなモデルと4特徴すべてのモデルを、誤差で比べて良い方を採る
+  const small=[main,head], full=[...small,...KEYS.filter(k=>!small.includes(k))];
+  let best=null;
+  for(const keys of (P.length>=7?[small,full]:[small])){
+    const F=P.map(p=>keys.map(k=>p[k])), r=looRms(F,ys);
+    if(!best||r<best.rms)best={keys,rms:r,w:lsqFit(F,ys)};
+  }
+  const w=[best.w[0],0,0,0,0];best.keys.forEach((k,j)=>{w[1+KEYS.indexOf(k)]=best.w[1+j]});
+  return {w,rms:best.rms};
 }
 
-/* ---------- 視線の校正: 画面の点を順に見てもらい、その人の目の動き→画面位置の換算を最小二乗で作る ---------- */
-const CAL_PTS=[[0,0],[-.8,0],[.8,0],[0,-.8],[0,.8]], CAL_STEP=1400, CAL_SETTLE=500;   // 点は画面の半幅/半高を1とした位置
+/* ---------- 視線の校正: 画面の9つの点を順に見てもらい、その人の目の動き→画面位置の換算を最小二乗で作る ---------- */
+const CAL_PTS=[[0,0],[-.8,-.8],[0,-.8],[.8,-.8],[.8,0],[.8,.8],[0,.8],[-.8,.8],[-.8,0]], CAL_STEP=1100, CAL_SETTLE=400;   // 点は画面の半幅/半高を1とした位置
 const cal={on:false,t0:null,tStart:0,buf:[]};      // t0=最初に顔が映った時刻(それまで時計は進めない)
 const calEl=document.getElementById('cal');
 function startCal(){
   cal.on=true;cal.t0=null;cal.tStart=performance.now();cal.buf=CAL_PTS.map(()=>[]);
-  hint.textContent='LOOK AT THE DOT · KEEP YOUR HEAD STILL';hint.classList.remove('off');
+  hint.textContent='LOOK AT EACH DOT · 9 POINTS';hint.classList.remove('off');
   calEl.classList.add('on');
 }
 function calSample(f){
@@ -309,29 +362,6 @@ function calTick(){
   if(i>=CAL_PTS.length){finishCal();return}
   calEl.style.transform='translate('+((CAL_PTS[i][0]*.5+.5)*W)+'px,'+((CAL_PTS[i][1]*.5+.5)*H)+'px)';
 }
-function median(a){const b=a.slice().sort((x,y)=>x-y),n=b.length;return n%2?b[(n-1)/2]:(b[n/2-1]+b[n/2])/2}
-function solve3(A,B){                         // 3元連立一次方程式(ガウスの消去法)
-  const M=A.map((r,i)=>[...r,B[i]]);
-  for(let c=0;c<3;c++){
-    let p=c;for(let r=c+1;r<3;r++)if(Math.abs(M[r][c])>Math.abs(M[p][c]))p=r;
-    [M[c],M[p]]=[M[p],M[c]];
-    const d=M[c][c]||1e-12;
-    for(let r=0;r<3;r++)if(r!==c){const k=M[r][c]/d;for(let j=c;j<4;j++)M[r][j]-=k*M[c][j]}
-  }
-  return [M[0][3]/(M[0][0]||1e-12),M[1][3]/(M[1][1]||1e-12),M[2][3]/(M[2][2]||1e-12)];
-}
-/* ys = 目標(画面位置)、f1/f2 = 特徴量。平均を引いてから、傾きにだけ弱い正則化をかけて解く */
-function fitAxis(f1,f2,ys){
-  const n=ys.length, m1=f1.reduce((a,b)=>a+b,0)/n, m2=f2.reduce((a,b)=>a+b,0)/n;
-  const A=[[0,0,0],[0,0,0],[0,0,0]],B=[0,0,0];
-  for(let k=0;k<n;k++){
-    const r=[1,f1[k]-m1,f2[k]-m2];
-    for(let i=0;i<3;i++){B[i]+=r[i]*ys[k];for(let j=0;j<3;j++)A[i][j]+=r[i]*r[j]}
-  }
-  const lam=1e-3*(A[1][1]+A[2][2])/2+1e-12;A[1][1]+=lam;A[2][2]+=lam;
-  const w=solve3(A,B);
-  return [w[0]-w[1]*m1-w[2]*m2,w[1],w[2]];
-}
 function finishCal(){
   cal.on=false;calEl.classList.remove('on');
   const P=[];
@@ -340,19 +370,18 @@ function finishCal(){
     const m=k=>median(b.map(f=>f[k]));
     P.push({h:m('h'),v:m('v'),yw:m('yw'),pt:m('pt'),x:CAL_PTS[i][0],y:CAL_PTS[i][1]});
   });
-  if(P.length<4){
+  if(P.length<5){
     hint.textContent='CALIBRATION FAILED · TAP 👁 TO RETRY';
     if(window.APKit)APKit.toast('視線の補正に失敗しました。顔が映る明るい所で、👁をもう一度');
     setTimeout(()=>hint.classList.add('off'),4000);return;
   }
-  const fx_=fitAxis(P.map(p=>p.h),P.map(p=>p.yw),P.map(p=>p.x));
-  const fy_=fitAxis(P.map(p=>p.v),P.map(p=>p.pt),P.map(p=>p.y));
-  if(![...fx_,...fy_].every(isFinite)){hint.textContent='CALIBRATION FAILED';setTimeout(()=>hint.classList.add('off'),4000);return}
-  cam.fit={x:fx_,y:fy_};
-  let se=0;P.forEach(p=>{const ex=fx_[0]+fx_[1]*p.h+fx_[2]*p.yw-p.x, ey=fy_[0]+fy_[1]*p.v+fy_[2]*p.pt-p.y;se+=ex*ex+ey*ey});
-  const rms=Math.sqrt(se/P.length);
-  hint.textContent=rms>.45?'CALIBRATED · LOW ACCURACY (TRY BRIGHTER LIGHT)':'CALIBRATED · NOW LOOK AROUND';
-  hint.classList.remove('off');setTimeout(()=>hint.classList.add('off'),3500);
+  const mx=pickModel(P,P.map(p=>p.x),'h','yw'), my=pickModel(P,P.map(p=>p.y),'v','pt');
+  if(![...mx.w,...my.w].every(isFinite)){hint.textContent='CALIBRATION FAILED';setTimeout(()=>hint.classList.add('off'),4000);return}
+  cam.fit={x:mx.w,y:my.w};
+  const err=Math.sqrt((mx.rms*mx.rms+my.rms*my.rms)/2), pct=Math.round(err*100);   // 画面の半幅/半高に対する平均の誤差
+  console.log('gaze calibration: points',P.length,'LOO error',pct+'%',JSON.stringify(cam.fit));
+  hint.textContent='CALIBRATED · ERROR ±'+pct+'%'+(err>.5?' · TRY BRIGHTER LIGHT':' · NOW LOOK AROUND');
+  hint.classList.remove('off');setTimeout(()=>hint.classList.add('off'),5000);
 }
 
 function loadScript(src){
