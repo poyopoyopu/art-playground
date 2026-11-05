@@ -16,9 +16,13 @@ canvas{display:block;width:100%;height:100%;touch-action:none;outline:none}
 #eye{position:fixed;left:0;top:0;width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:50%;border:1px solid rgba(220,236,255,.34);pointer-events:none;opacity:0;transition:opacity .6s}
 #eye.on{opacity:1}
 #eye::after{content:"";position:absolute;left:50%;top:50%;width:3px;height:3px;margin:-1.5px 0 0 -1.5px;border-radius:50%;background:rgba(220,236,255,.7)}
-#cal{position:fixed;left:0;top:0;width:30px;height:30px;margin:-15px 0 0 -15px;border-radius:50%;border:2px solid rgba(255,255,255,.9);background:rgba(255,255,255,.22);pointer-events:none;opacity:0;transition:transform .3s ease,opacity .3s;box-shadow:0 0 22px rgba(160,210,255,.7)}
-#cal.on{opacity:1;animation:calp 1s ease-in-out infinite}
-@keyframes calp{50%{box-shadow:0 0 34px rgba(160,210,255,1)}}
+/* 校正の点=「種」。--s=点が出てからの収束(0→1、リングが縮んで視線を中心に集める) --u=見つめた時間(0→1、種が光で満ちる) */
+#cal{--s:1;--u:0;position:fixed;left:0;top:0;width:30px;height:30px;margin:-15px 0 0 -15px;border-radius:50%;border:2px solid rgba(255,255,255,.9);background:rgba(255,255,255,calc(.12 + .5*var(--u)));pointer-events:none;opacity:0;transition:transform .3s ease,opacity .3s;box-shadow:0 0 calc(14px + 30px*var(--u)) rgba(160,210,255,calc(.5 + .5*var(--u)))}
+#cal.on{opacity:1}
+#cal::before{content:"";position:absolute;left:50%;top:50%;width:30px;height:30px;margin:-15px 0 0 -15px;border-radius:50%;border:1px solid rgba(200,225,255,.85);transform:scale(calc(1 + 2.2*(1 - var(--s))));opacity:calc(.9*(1 - var(--s)))}
+#cal::after{content:"";position:absolute;left:50%;top:50%;width:8px;height:8px;margin:-4px 0 0 -4px;background:#fff;transform:rotate(45deg) scale(calc(.4 + 1.3*var(--u)));box-shadow:0 0 calc(4px + 12px*var(--u)) #fff}
+#tip{position:fixed;left:16px;right:16px;bottom:calc(env(safe-area-inset-bottom) + 96px);text-align:center;pointer-events:none;font:500 14px/1.7 system-ui,-apple-system,"Hiragino Sans",sans-serif;letter-spacing:.06em;color:#fff;text-shadow:0 0 14px rgba(120,180,255,.85);opacity:0;transition:opacity 1.2s}
+#tip.on{opacity:1}
 video{position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none}
 </style>
 </head>
@@ -27,6 +31,7 @@ video{position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-e
 <div id="eye"></div>
 <div id="cal"></div>
 <div id="hint">STARE AT A POINT · IT CRYSTALLIZES</div>
+<div id="tip"></div>
 <video id="cam" playsinline muted></video>
 <script>
 /* GAZE LAW — クロちゃん作(おっちゃんと相談して決めた「箱の中の小宇宙」)。
@@ -34,7 +39,7 @@ video{position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-e
    視点は画面を窓に見立てたオフアクシス投影。インカメラ(👁)で頭の位置と視線を追う。カメラはボタンを押すまで起動しない。 */
 (()=>{
 'use strict';
-const canvas=document.getElementById('c'),hint=document.getElementById('hint'),eyeEl=document.getElementById('eye'),video=document.getElementById('cam');
+const canvas=document.getElementById('c'),hint=document.getElementById('hint'),tipEl=document.getElementById('tip'),eyeEl=document.getElementById('eye'),video=document.getElementById('cam');
 const gl=canvas.getContext('webgl2',{alpha:false,antialias:true,preserveDrawingBuffer:true});
 if(!gl){hint.textContent='WEBGL2 IS NOT AVAILABLE';throw Error('WebGL2 unavailable')}
 
@@ -214,6 +219,9 @@ let dwell=0, mode='auto';                        // auto | pointer | camera
 let cyc=0, cycT=0, cycD=5, pulse=0, seedHold=0;
 const PULSE_SEC=2.4, FALL_RATE=2.2, SEED_DWELL=.45;
 function resetCycle(){cyc=0;cycT=0;pulse=0;seedHold=0}
+/* 校正の直後の数秒だけ、見た場所にすぐ結晶が咲いて視線についてくる(因果を先に体感させる。そのあとは通常のルール) */
+const INTRO_SEC=6, INTRO_FLOOR=2.6;
+let introT=0;
 let lastInput=-99, pointerDown=false, isTouch=false;
 let tNow=0;
 const ptr={nx:0,ny:0,has:false};
@@ -348,15 +356,27 @@ function pickModel(P,ys,main,head){             // 小さなモデル・目の�
 
 /* ---------- 視線の校正: 画面の9つの点を順に見てもらい、その人の目の動き→画面位置の換算を最小二乗で作る ---------- */
 const CAL_PTS=[[0,0],[-.8,-.8],[0,-.8],[.8,-.8],[.8,0],[.8,.8],[0,.8],[-.8,.8],[-.8,0]], CAL_STEP=2000, CAL_SETTLE=800;   // 点は画面の半幅/半高を1とした位置
-const cal={on:false,t0:null,tStart:0,buf:[]};      // t0=最初に顔が映った時刻(それまで時計は進めない)
+const cal={on:false,t0:null,tStart:0,buf:[],idx:-1};      // t0=最初に顔が映った時刻(それまで時計は進めない)
 const calEl=document.getElementById('cal');
 function startCal(){
-  cal.on=true;cal.t0=null;cal.tStart=performance.now();cal.buf=CAL_PTS.map(()=>[]);
-  hint.textContent='LOOK AT EACH DOT\nAND MOVE YOUR HEAD SLOWLY';hint.classList.remove('off');hint.classList.add('big');
+  cal.on=true;cal.t0=null;cal.tStart=performance.now();cal.buf=CAL_PTS.map(()=>[]);cal.idx=-1;
+  hint.textContent='光る点を見つめてね\n顔とスマホをゆっくり動かして';hint.classList.remove('off');hint.classList.add('big');
   calEl.classList.add('on');
   if(window.APKit)APKit.toast('点を目で追いながら、顔とスマホをゆっくり動かして(顔は画面から外さない)');
 }
 function hintOff(ms){setTimeout(()=>hint.classList.add('off'),ms);setTimeout(()=>hint.classList.remove('big'),ms+1500)}
+/* 開始前の案内(日本語2行)。カメラを始めたら片付ける */
+let introTimer=null,tipTimer=null;
+function showIntro(){
+  hint.textContent='あなたの視線が、箱の中の小宇宙を育てる\n👁 を押して、画面を見つめてみて';
+  hint.classList.add('big');hint.classList.remove('off');
+  introTimer=setTimeout(()=>{hint.classList.add('off');introTimer=setTimeout(()=>{hint.classList.remove('big');introTimer=null},1500)},8000);
+}
+function clearIntro(){if(introTimer){clearTimeout(introTimer);introTimer=null}}
+function showTip(ms){                           // 校正の直後に1行だけ、やることを出して自然に消す
+  tipEl.textContent='見つめた場所が結晶になる／逸らすと砂に戻る';tipEl.classList.add('on');
+  clearTimeout(tipTimer);tipTimer=setTimeout(()=>tipEl.classList.remove('on'),ms);
+}
 function calSample(f){
   if(cal.t0===null)cal.t0=performance.now();
   const el=performance.now()-cal.t0, i=Math.floor(el/CAL_STEP);
@@ -366,11 +386,20 @@ function calTick(){
   if(!cal.on)return;
   if(cal.t0===null){                              // 顔が映るまでは最初の点を出して待つ(12秒で諦める)
     if(performance.now()-cal.tStart>12000){finishCal();return}
-    calEl.style.transform='translate('+((CAL_PTS[0][0]*.5+.5)*W)+'px,'+((CAL_PTS[0][1]*.5+.5)*H)+'px)';return;
+    calEl.style.transform='translate('+((CAL_PTS[0][0]*.5+.5)*W)+'px,'+((CAL_PTS[0][1]*.5+.5)*H)+'px)';
+    calEl.style.setProperty('--s','1');calEl.style.setProperty('--u','0');return;
   }
   const el=performance.now()-cal.t0, i=Math.floor(el/CAL_STEP);
   if(i>=CAL_PTS.length){finishCal();return}
   calEl.style.transform='translate('+((CAL_PTS[i][0]*.5+.5)*W)+'px,'+((CAL_PTS[i][1]*.5+.5)*H)+'px)';
+  /* 見た目だけ: 点が出たらリングが縮んで中心に視線を集め(SETTLEの間)、そのあと種が光で満ちる。点の位置・時間・採るコマは変えない */
+  const et=el-i*CAL_STEP;
+  calEl.style.setProperty('--s',Math.min(1,et/CAL_SETTLE).toFixed(3));
+  calEl.style.setProperty('--u',Math.max(0,Math.min(1,(et-CAL_SETTLE)/(CAL_STEP-CAL_SETTLE))).toFixed(3));
+  if(i!==cal.idx){                                // 次の点に移る瞬間、前の種が咲いたように一瞬光る
+    if(cal.idx>=0&&calEl.animate)calEl.animate([{filter:'brightness(2.2)'},{filter:'brightness(1)'}],{duration:400,easing:'ease-out'});
+    cal.idx=i;
+  }
 }
 function finishCal(){
   cal.on=false;calEl.classList.remove('on');
@@ -402,6 +431,7 @@ function finishCal(){
   hint.textContent='CALIBRATED · ERROR ±'+pct+'%\nX ±'+ex+'  Y ±'+ey+'  ·  JITTER X '+jx+'  Y '+jy+'  ·  PTS '+npts+'/9\nUSES X:'+mx.keys.join('+')+'  Y:'+my.keys.join('+')+'  ·  FRAMES '+P.length+(err>.5?'\nTRY BRIGHTER LIGHT':'');
   hint.classList.add('big');hint.classList.remove('off');   // 精度の数字は見逃しやすいので、大きくして15秒出す
   hintOff(15000);
+  introT=INTRO_SEC;showTip(7000);                 // 校正の直後: 見た場所にすぐ結晶が咲く数秒+やることの1行
 }
 
 function loadScript(src){
@@ -414,7 +444,8 @@ async function startCamera(){
     if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw Error('no getUserMedia');
     cam.stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:640},height:{ideal:480}},audio:false});
     video.srcObject=cam.stream;await video.play();
-    hint.textContent='LOADING FACE TRACKER…';hint.classList.remove('off');
+    clearIntro();hint.classList.remove('big');
+    hint.textContent='顔の読み取りを準備中…';hint.classList.remove('off');
     if(!window.FaceMesh)await loadScript('../lib/face_mesh/face_mesh.js');
     if(!cam.fm){
       cam.fm=new window.FaceMesh({locateFile:f=>'../lib/face_mesh/'+f});
@@ -439,7 +470,7 @@ async function startCamera(){
 }
 function stopCamera(){
   if(cal.on)hintOff(0);                            // 校正の途中で止めたら、案内を片付ける
-  cam.on=false;cal.on=false;calEl.classList.remove('on');
+  cam.on=false;cal.on=false;calEl.classList.remove('on');introT=0;tipEl.classList.remove('on');
   if(cam.stream){cam.stream.getTracks().forEach(t=>t.stop());cam.stream=null}
   video.srcObject=null;
   if(mode==='camera')mode='auto';
@@ -495,6 +526,7 @@ function frame(nowMs){
   const still=sp<(cam.on?1.1:.5);
   if(gazeOn){dwell+=still?dt:-dt*2.6}else dwell-=dt*(isTouch&&mode==='pointer'?.4:1.6);
   dwell=Math.max(0,Math.min(5,dwell));
+  if(introT>0){introT-=dt;if(gazeOn&&cyc===0)dwell=Math.max(dwell,Math.min(INTRO_FLOOR,(INTRO_SEC-introT)*2.2))}
   if(cyc===0){
     if(dwell>=4.95&&gazeOn){cyc=1;cycT=0}
     pulse=Math.max(0,pulse-dt*1.5);
@@ -565,7 +597,7 @@ gl.bindVertexArray(vaoShard);
 gl.bindBuffer(gl.ARRAY_BUFFER,bufSlot);gl.bufferData(gl.ARRAY_BUFFER,slotArr,gl.DYNAMIC_DRAW);
 gl.bindBuffer(gl.ARRAY_BUFFER,bufSeed);gl.bufferData(gl.ARRAY_BUFFER,seedArr,gl.DYNAMIC_DRAW);
 resize();
-setTimeout(()=>hint.classList.add('off'),6500);
+showIntro();
 requestAnimationFrame(frame);
 
 function mutate(){            // 結晶の種類(AXIS→RING→CORNER)・色・砂の配置を作り直す
@@ -576,6 +608,7 @@ function mutate(){            // 結晶の種類(AXIS→RING→CORNER)・色・�
   gl.bindBuffer(gl.ARRAY_BUFFER,bufSlot);gl.bufferData(gl.ARRAY_BUFFER,slotArr,gl.DYNAMIC_DRAW);
   gl.bindBuffer(gl.ARRAY_BUFFER,bufSeed);gl.bufferData(gl.ARRAY_BUFFER,seedArr,gl.DYNAMIC_DRAW);
   formState.fill(0);dwell=0;resetCycle();
+  if(introTimer){clearIntro();hint.classList.remove('big')}      // 開始前の案内が出ている間に押されたら、案内を片付ける
   hint.textContent='CRYSTAL · '+FAMILIES[famIndex].name;hint.classList.remove('off');
   setTimeout(()=>hint.classList.add('off'),2500);
 }
