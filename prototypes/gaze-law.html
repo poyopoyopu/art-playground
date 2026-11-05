@@ -15,12 +15,16 @@ canvas{display:block;width:100%;height:100%;touch-action:none;outline:none}
 #eye{position:fixed;left:0;top:0;width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:50%;border:1px solid rgba(220,236,255,.34);pointer-events:none;opacity:0;transition:opacity .6s}
 #eye.on{opacity:1}
 #eye::after{content:"";position:absolute;left:50%;top:50%;width:3px;height:3px;margin:-1.5px 0 0 -1.5px;border-radius:50%;background:rgba(220,236,255,.7)}
+#cal{position:fixed;left:0;top:0;width:30px;height:30px;margin:-15px 0 0 -15px;border-radius:50%;border:2px solid rgba(255,255,255,.9);background:rgba(255,255,255,.22);pointer-events:none;opacity:0;transition:transform .3s ease,opacity .3s;box-shadow:0 0 22px rgba(160,210,255,.7)}
+#cal.on{opacity:1;animation:calp 1s ease-in-out infinite}
+@keyframes calp{50%{box-shadow:0 0 34px rgba(160,210,255,1)}}
 video{position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none}
 </style>
 </head>
 <body>
 <canvas id="c" aria-label="箱の奥行きの中に砂のような粒が漂う。見つめた場所だけが入れ子の結晶になり、視線を外すと砂に戻る"></canvas>
 <div id="eye"></div>
+<div id="cal"></div>
 <div id="hint">STARE AT A POINT · IT CRYSTALLIZES</div>
 <video id="cam" playsinline muted></video>
 <script>
@@ -230,7 +234,8 @@ function autoState(t){
 
 /* ---------- インカメラ(頭の位置 + 視線)---------- */
 const cam={on:false,stream:null,fm:null,busy:false,lastFace:-99,loading:false,
-  base:null,gazeBase:null,hFilt:null};
+  base:null,feat:null,
+  fit:{x:[0,-5.2,-1.4],y:[0,5.8,0]}};      // 視線の換算式(校正前の仮の値。校正で上書きする)
 class OneEuro{
   constructor(minC,beta){this.minC=minC;this.beta=beta;this.x=null;this.dx=0}
   alpha(c,dt){const tau=1/(2*Math.PI*c);return 1/(1+tau/dt)}
@@ -240,7 +245,7 @@ class OneEuro{
     const c=this.minC+this.beta*Math.abs(this.dx);this.x+=(v-this.x)*this.alpha(c,dt);return this.x;
   }
 }
-const fx=new OneEuro(1.2,6),fy=new OneEuro(1.2,6),fz=new OneEuro(.8,3),fgx=new OneEuro(1.5,3),fgy=new OneEuro(1.5,3);
+const fx=new OneEuro(1.2,6),fy=new OneEuro(1.2,6),fz=new OneEuro(.8,3),fgx=new OneEuro(1,2),fgy=new OneEuro(1,2);
 const HFOV=65*Math.PI/180, EYE_SPAN_CM=8.8;
 function unitsPerCm(){return 2/((isTouch||W<820)?14:19)}   // 画面の物理サイズを端末の種類から仮置き
 
@@ -262,20 +267,92 @@ function onFace(res){
   eyeT.x=Math.max(-1.2,Math.min(1.2,(xCm-cam.base.x)*u*.85));
   eyeT.y=Math.max(-.9,Math.min(.9,(yCm-cam.base.y)*u*.85));
   eyeT.z=Math.max(1.9,Math.min(6,EZ0+(distCm-cam.base.d)*u));
-  // 視線: 虹彩が目のどこにあるか(精度は粗い)
+  // 視線: 虹彩が目のどこにあるか → 校正で作った換算式で画面上の位置にする
   if(L.length>=478){
-    const rx=(L[468].x-L[33].x)/((L[133].x-L[33].x)||1e-4);
-    const lx=(L[473].x-L[362].x)/((L[263].x-L[362].x)||1e-4);
-    const eyeW=Math.abs(L[133].x-L[33].x)||1e-4;
-    const ry=(L[468].y-(L[159].y+L[145].y)/2)/eyeW, ly=(L[473].y-(L[386].y+L[374].y)/2)/(Math.abs(L[263].x-L[362].x)||1e-4);
-    const h=(rx+lx)/2-.5, v=(ry+ly)/2;
-    if(!cam.gazeBase)cam.gazeBase={h,v};
-    else{const k=.004;cam.gazeBase.h+=(h-cam.gazeBase.h)*k;cam.gazeBase.v+=(v-cam.gazeBase.v)*k}
-    const yaw=((L[1].x-cx))*2.2;                                  // 顔の向きも少し足す
-    const hh=(h-cam.gazeBase.h)*.75+(h)*.25;
-    const gxn=-(hh*5.2+yaw*1.4), gyn=((v-cam.gazeBase.v)*.75+v*.25)*5.8;
-    cam.gx=Math.max(-1,Math.min(1,gxn));cam.gy=Math.max(-1,Math.min(1,gyn));
+    const f=gazeFeat(L,vw,vh,spanPx,cx,cy);
+    cam.feat=f;
+    if(cal.on)calSample(f);
+    const c1=v=>Math.max(-1,Math.min(1,v)), F=cam.fit;
+    cam.gx=c1(F.x[0]+F.x[1]*f.h+F.x[2]*f.yw);
+    cam.gy=c1(F.y[0]+F.y[1]*f.v+F.y[2]*f.pt);
   }
+}
+/* 目の特徴量: h/v=虹彩の位置(目の幅に対する比)、yw/pt=鼻先の位置(顔の向き)。縦横の画素比は掛けて揃える */
+function gazeFeat(L,vw,vh,span,cx,cy){
+  const wR=Math.abs(L[133].x-L[33].x)*vw||1, wL=Math.abs(L[263].x-L[362].x)*vw||1;
+  const rx=(L[468].x-L[33].x)/((L[133].x-L[33].x)||1e-4), lx=(L[473].x-L[362].x)/((L[263].x-L[362].x)||1e-4);
+  const ry=(L[468].y-(L[159].y+L[145].y)/2)*vh/wR, ly=(L[473].y-(L[386].y+L[374].y)/2)*vh/wL;
+  return {h:(rx+lx)/2-.5, v:(ry+ly)/2, yw:(L[1].x-cx)*vw/span, pt:(L[1].y-cy)*vh/span};
+}
+
+/* ---------- 視線の校正: 画面の点を順に見てもらい、その人の目の動き→画面位置の換算を最小二乗で作る ---------- */
+const CAL_PTS=[[0,0],[-.8,0],[.8,0],[0,-.8],[0,.8]], CAL_STEP=1400, CAL_SETTLE=500;   // 点は画面の半幅/半高を1とした位置
+const cal={on:false,t0:null,tStart:0,buf:[]};      // t0=最初に顔が映った時刻(それまで時計は進めない)
+const calEl=document.getElementById('cal');
+function startCal(){
+  cal.on=true;cal.t0=null;cal.tStart=performance.now();cal.buf=CAL_PTS.map(()=>[]);
+  hint.textContent='LOOK AT THE DOT · KEEP YOUR HEAD STILL';hint.classList.remove('off');
+  calEl.classList.add('on');
+}
+function calSample(f){
+  if(cal.t0===null)cal.t0=performance.now();
+  const el=performance.now()-cal.t0, i=Math.floor(el/CAL_STEP);
+  if(i<CAL_PTS.length&&el-i*CAL_STEP>CAL_SETTLE)cal.buf[i].push(f);
+}
+function calTick(){
+  if(!cal.on)return;
+  if(cal.t0===null){                              // 顔が映るまでは最初の点を出して待つ(12秒で諦める)
+    if(performance.now()-cal.tStart>12000){finishCal();return}
+    calEl.style.transform='translate('+((CAL_PTS[0][0]*.5+.5)*W)+'px,'+((CAL_PTS[0][1]*.5+.5)*H)+'px)';return;
+  }
+  const el=performance.now()-cal.t0, i=Math.floor(el/CAL_STEP);
+  if(i>=CAL_PTS.length){finishCal();return}
+  calEl.style.transform='translate('+((CAL_PTS[i][0]*.5+.5)*W)+'px,'+((CAL_PTS[i][1]*.5+.5)*H)+'px)';
+}
+function median(a){const b=a.slice().sort((x,y)=>x-y),n=b.length;return n%2?b[(n-1)/2]:(b[n/2-1]+b[n/2])/2}
+function solve3(A,B){                         // 3元連立一次方程式(ガウスの消去法)
+  const M=A.map((r,i)=>[...r,B[i]]);
+  for(let c=0;c<3;c++){
+    let p=c;for(let r=c+1;r<3;r++)if(Math.abs(M[r][c])>Math.abs(M[p][c]))p=r;
+    [M[c],M[p]]=[M[p],M[c]];
+    const d=M[c][c]||1e-12;
+    for(let r=0;r<3;r++)if(r!==c){const k=M[r][c]/d;for(let j=c;j<4;j++)M[r][j]-=k*M[c][j]}
+  }
+  return [M[0][3]/(M[0][0]||1e-12),M[1][3]/(M[1][1]||1e-12),M[2][3]/(M[2][2]||1e-12)];
+}
+/* ys = 目標(画面位置)、f1/f2 = 特徴量。平均を引いてから、傾きにだけ弱い正則化をかけて解く */
+function fitAxis(f1,f2,ys){
+  const n=ys.length, m1=f1.reduce((a,b)=>a+b,0)/n, m2=f2.reduce((a,b)=>a+b,0)/n;
+  const A=[[0,0,0],[0,0,0],[0,0,0]],B=[0,0,0];
+  for(let k=0;k<n;k++){
+    const r=[1,f1[k]-m1,f2[k]-m2];
+    for(let i=0;i<3;i++){B[i]+=r[i]*ys[k];for(let j=0;j<3;j++)A[i][j]+=r[i]*r[j]}
+  }
+  const lam=1e-3*(A[1][1]+A[2][2])/2+1e-12;A[1][1]+=lam;A[2][2]+=lam;
+  const w=solve3(A,B);
+  return [w[0]-w[1]*m1-w[2]*m2,w[1],w[2]];
+}
+function finishCal(){
+  cal.on=false;calEl.classList.remove('on');
+  const P=[];
+  cal.buf.forEach((b,i)=>{
+    if(b.length<3)return;                         // 顔が外れていた点は使わない
+    const m=k=>median(b.map(f=>f[k]));
+    P.push({h:m('h'),v:m('v'),yw:m('yw'),pt:m('pt'),x:CAL_PTS[i][0],y:CAL_PTS[i][1]});
+  });
+  if(P.length<4){
+    hint.textContent='CALIBRATION FAILED · TAP 👁 TO RETRY';
+    if(window.APKit)APKit.toast('視線の補正に失敗しました。顔が映る明るい所で、👁をもう一度');
+    setTimeout(()=>hint.classList.add('off'),4000);return;
+  }
+  const fx_=fitAxis(P.map(p=>p.h),P.map(p=>p.yw),P.map(p=>p.x));
+  const fy_=fitAxis(P.map(p=>p.v),P.map(p=>p.pt),P.map(p=>p.y));
+  if(![...fx_,...fy_].every(isFinite)){hint.textContent='CALIBRATION FAILED';setTimeout(()=>hint.classList.add('off'),4000);return}
+  cam.fit={x:fx_,y:fy_};
+  let se=0;P.forEach(p=>{const ex=fx_[0]+fx_[1]*p.h+fx_[2]*p.yw-p.x, ey=fy_[0]+fy_[1]*p.v+fy_[2]*p.pt-p.y;se+=ex*ex+ey*ey});
+  const rms=Math.sqrt(se/P.length);
+  hint.textContent=rms>.45?'CALIBRATED · LOW ACCURACY (TRY BRIGHTER LIGHT)':'CALIBRATED · NOW LOOK AROUND';
+  hint.classList.remove('off');setTimeout(()=>hint.classList.add('off'),3500);
 }
 
 function loadScript(src){
@@ -297,11 +374,12 @@ async function startCamera(){
       await cam.fm.initialize();
     }
     if(!cam.stream)return;                       // 読み込み中にもう一度押されて止められた
-    cam.on=true;cam.base=null;cam.gazeBase=null;cam.gx=0;cam.gy=0;cam.lastFace=-99;
+    cam.on=true;cam.base=null;cam.gx=0;cam.gy=0;cam.lastFace=-99;
     mode='camera';
     hint.textContent='CAMERA ON · VIDEO STAYS ON THIS DEVICE';
     setTimeout(()=>hint.classList.add('off'),4500);
     pumpCamera();
+    startCal();
   }catch(err){
     console.error(err);
     stopCamera();
@@ -311,7 +389,7 @@ async function startCamera(){
   }finally{cam.loading=false}
 }
 function stopCamera(){
-  cam.on=false;
+  cam.on=false;cal.on=false;calEl.classList.remove('on');
   if(cam.stream){cam.stream.getTracks().forEach(t=>t.stop());cam.stream=null}
   video.srcObject=null;
   if(mode==='camera')mode='auto';
@@ -342,7 +420,8 @@ function frame(nowMs){
 
   /* 入力 → 視点(eyeT)と視線(gaze)を決める */
   let gx=0,gy=0,gazeOn=false;
-  const camLive=cam.on&&(performance.now()/1000-cam.lastFace)<.7;
+  const camLive=cam.on&&!cal.on&&(performance.now()/1000-cam.lastFace)<.7;
+  calTick();
   if(cam.on){
     mode='camera';
     if(camLive){gx=fgx.f(cam.gx||0,dt)*ASP;gy=-fgy.f(cam.gy||0,dt);gazeOn=true}
@@ -363,7 +442,7 @@ function frame(nowMs){
   const ks=1-Math.exp(-dt*7);
   gazeS.x+=(gx-gazeS.x)*ks;gazeS.y+=(gy-gazeS.y)*ks;
   const sp=Math.hypot(gazeS.x-gazePrev.x,gazeS.y-gazePrev.y)/dt;gazePrev.x=gazeS.x;gazePrev.y=gazeS.y;
-  const still=sp<(cam.on?.75:.5);
+  const still=sp<(cam.on?1.1:.5);
   if(gazeOn){dwell+=still?dt:-dt*2.6}else dwell-=dt*(isTouch&&mode==='pointer'?.4:1.6);
   dwell=Math.max(0,Math.min(5,dwell));
   const reveal=dwell/.85;                       // 1.0ごとに1階層深くなる
@@ -411,7 +490,7 @@ function frame(nowMs){
   gl.drawArraysInstanced(gl.TRIANGLES,0,24,MAX_SHARDS);
 
   /* 画面上の「目」の印(カメラ/自動のときだけ) */
-  const showEye=(mode==='camera'&&gazeOn)||mode==='auto';
+  const showEye=(mode==='camera'&&gazeOn&&!cal.on)||mode==='auto';
   eyeEl.classList.toggle('on',showEye);
   if(showEye)eyeEl.style.transform='translate('+((gazeS.x/ASP*.5+.5)*W)+'px,'+((-gazeS.y*.5+.5)*H)+'px)';
 
