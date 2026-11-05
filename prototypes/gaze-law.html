@@ -241,7 +241,7 @@ function autoState(t){
 /* ---------- インカメラ(頭の位置 + 視線)---------- */
 const cam={on:false,stream:null,fm:null,busy:false,lastFace:-99,loading:false,
   base:null,feat:null,
-  fit:{x:[0,-5.2,0,-1.4,0],y:[0,0,5.8,0,0]}};   // 視線の換算式 [切片,h,v,yw,pt の係数](校正前の仮の値。校正で上書きする)
+  fit:{x:[0,-5.2,0,-1.4,0,0],y:[0,0,5.8,0,0,0]}};   // 視線の換算式 [切片,h,v,yw,pt,ear の係数](校正前の仮の値。校正で上書きする)
 class OneEuro{
   constructor(minC,beta){this.minC=minC;this.beta=beta;this.x=null;this.dx=0}
   alpha(c,dt){const tau=1/(2*Math.PI*c);return 1/(1+tau/dt)}
@@ -287,7 +287,7 @@ function onFace(res){
 /* 目の特徴量。h/v=黒目が「目の軸」のどこにあるか(両目の平均、目の幅で割る)。軸は目頭と目尻を結ぶ線なので、
    頭が傾いても値が変わらない。縦は瞼ではなく、この軸からのずれで測る(下を見ても瞼が一緒に動くため瞼比は鈍い)。
    yw/pt=鼻先の位置(顔の向き)、ear=目の開き(まばたき判定用) */
-const BLINK=.13, KEYS=['h','v','yw','pt'];
+const BLINK=.13, KEYS=['h','v','yw','pt','ear'];
 function gazeFeat(L,vw,vh,span,cx,cy){
   let h=0,v=0,ear=0;
   for(const e of [[33,133,468,159,145],[362,263,473,386,374]]){
@@ -299,7 +299,7 @@ function gazeFeat(L,vw,vh,span,cx,cy){
   }
   return {h,v,ear,yw:(L[1].x-cx)*vw/span, pt:(L[1].y-cy)*vh/span};
 }
-function evalFit(w,f){return w[0]+w[1]*f.h+w[2]*f.v+w[3]*f.yw+w[4]*f.pt}
+function evalFit(w,f){return w[0]+w[1]*f.h+w[2]*f.v+w[3]*f.yw+w[4]*f.pt+w[5]*f.ear}
 function median(a){const b=a.slice().sort((x,y)=>x-y),n=b.length;return n%2?b[(n-1)/2]:(b[n/2-1]+b[n/2])/2}
 function solveN(A,B){                           // 連立一次方程式(ガウスの消去法)
   const n=B.length,M=A.map((r,i)=>[...r,B[i]]);
@@ -333,15 +333,15 @@ function looRms(F,ys){                          // 1点ずつ外して予測し�
   }
   return Math.sqrt(se/F.length);
 }
-function pickModel(P,ys,main,head){             // 小さなモデルと4特徴すべてのモデルを、誤差で比べて良い方を採る
-  const small=[main,head], full=[...small,...KEYS.filter(k=>!small.includes(k))];
+function pickModel(P,ys,main,head){             // 小さなモデル・目の開き(ear)を足したモデル・全特徴のモデルを、誤差で比べて一番良いものを採る
+  const small=[main,head], plus=[...small,'ear'], full=[...small,...KEYS.filter(k=>!small.includes(k))];
   let best=null;
-  for(const keys of (P.length>=7?[small,full]:[small])){
+  for(const keys of (P.length>=7?[small,plus,full]:[small])){
     const F=P.map(p=>keys.map(k=>p[k])), r=looRms(F,ys);
     if(!best||r<best.rms)best={keys,rms:r,w:lsqFit(F,ys)};
   }
-  const w=[best.w[0],0,0,0,0];best.keys.forEach((k,j)=>{w[1+KEYS.indexOf(k)]=best.w[1+j]});
-  return {w,rms:best.rms};
+  const w=Array(KEYS.length+1).fill(0);w[0]=best.w[0];best.keys.forEach((k,j)=>{w[1+KEYS.indexOf(k)]=best.w[1+j]});
+  return {w,rms:best.rms,keys:best.keys};
 }
 
 /* ---------- 視線の校正: 画面の9つの点を順に見てもらい、その人の目の動き→画面位置の換算を最小二乗で作る ---------- */
@@ -374,7 +374,7 @@ function finishCal(){
   cal.buf.forEach((b,i)=>{
     if(b.length<3)return;                         // 顔が外れていた点は使わない
     const m=k=>median(b.map(f=>f[k]));
-    P.push({h:m('h'),v:m('v'),yw:m('yw'),pt:m('pt'),x:CAL_PTS[i][0],y:CAL_PTS[i][1]});
+    P.push({h:m('h'),v:m('v'),yw:m('yw'),pt:m('pt'),ear:m('ear'),x:CAL_PTS[i][0],y:CAL_PTS[i][1]});
   });
   if(P.length<5){
     hint.textContent='CALIBRATION FAILED · TAP 👁 TO RETRY';
@@ -392,7 +392,7 @@ function finishCal(){
   jx=Math.round(jx/jn*100);jy=Math.round(jy/jn*100);
   const ex=Math.round(mx.rms*100), ey=Math.round(my.rms*100);
   console.log('gaze calibration: points',P.length,'LOO error',pct+'%','x',ex,'y',ey,'jitter x',jx,'y',jy,JSON.stringify(cam.fit));
-  hint.textContent='CALIBRATED · ERROR ±'+pct+'%\nX ±'+ex+'  Y ±'+ey+'  ·  JITTER X '+jx+'  Y '+jy+'  ·  PTS '+P.length+'/9'+(err>.5?'\nTRY BRIGHTER LIGHT':'');
+  hint.textContent='CALIBRATED · ERROR ±'+pct+'%\nX ±'+ex+'  Y ±'+ey+'  ·  JITTER X '+jx+'  Y '+jy+'  ·  PTS '+P.length+'/9\nUSES X:'+mx.keys.join('+')+'  Y:'+my.keys.join('+')+(err>.5?'\nTRY BRIGHTER LIGHT':'');
   hint.classList.add('big');hint.classList.remove('off');   // 精度の数字は見逃しやすいので、大きくして15秒出す
   setTimeout(()=>hint.classList.add('off'),15000);setTimeout(()=>hint.classList.remove('big'),16500);
 }
