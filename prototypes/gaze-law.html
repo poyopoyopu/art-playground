@@ -70,7 +70,7 @@ precision highp float;
 in vec3 aPos; in vec3 aBary;
 in vec3 aSlot; in vec4 aSeed; in vec3 aMeta;   // aMeta.x=階層 aMeta.y=結晶度 aMeta.z=明るさ(子ができた親は薄くなる)
 uniform mat4 uProj; uniform vec3 uEye; uniform vec3 uAnchor; uniform mat3 uRot;
-uniform vec3 uHalf; uniform float uR, uTime, uHue;
+uniform vec3 uHalf; uniform float uR, uTime, uHue, uPulse;
 out vec3 vBary; out vec3 vWorld; out vec3 vCol; out float vForm; out float vTw; out float vDepth; out float vBright;
 mat3 rotY(float a){float c=cos(a),s=sin(a);return mat3(c,0.,-s, 0.,1.,0., s,0.,c);}
 mat3 rotX(float a){float c=cos(a),s=sin(a);return mat3(1.,0.,0., 0.,c,s, 0.,-s,c);}
@@ -82,12 +82,13 @@ void main(){
   float f=aMeta.y, e=f*f*(3.-2.*f);
   vec3 arc=(vec3(fract(s.w*7.1),fract(s.w*13.7),fract(s.w*3.3))-.5)*2.*sin(3.14159*e)*.22;
   vec3 pos=mix(home,target,e)+arc;
-  float sz=mix(.007+.010*s.w, uR*exp2(-aMeta.x)*.92, e);
+  float pw=.5+.5*sin(uTime*9.-aMeta.x*1.3);          // 脈打ち: 根元から先へ波が走る(階層が深いほど遅れる)
+  float sz=mix(.007+.010*s.w, uR*exp2(-aMeta.x)*.92, e)*(1.+uPulse*.12*pw*e);
   float ang=(1.-e)*(uTime*(.4+s.w*1.2)+s.w*20.);
   vec3 lp=aPos*sz;
   vec3 tumbled=rotX(ang*.7)*rotY(ang)*lp;
   vec3 w=pos+mix(tumbled,uRot*lp,e);
-  vWorld=w; vBary=aBary; vForm=e; vDepth=aMeta.x; vBright=aMeta.z;
+  vWorld=w; vBary=aBary; vForm=e; vDepth=aMeta.x; vBright=aMeta.z*(1.+1.2*uPulse*pw);
   float h=uHue+aMeta.x*.11+s.w*.04;
   vec3 c=.5+.5*cos(6.28318*(vec3(0.,.33,.67)*.55+h));
   vCol=mix(c,vec3(1.),.35);
@@ -208,6 +209,10 @@ const eye={x:0,y:0,z:EZ0}, eyeT={x:0,y:0,z:EZ0};
 const gaze={x:0,y:0,on:false}, gazeS={x:0,y:0}, gazePrev={x:0,y:0};
 const anchor={x:0,y:0,z:-DEPTH*.5};
 let dwell=0, mode='auto';                        // auto | pointer | camera
+/* 最大まで育った後の循環: 0=育つ → 1=脈打つ → 2=砂に還る(根元の種だけ残って、また育つ) */
+let cyc=0, cycT=0, cycD=5, pulse=0, seedHold=0;
+const PULSE_SEC=2.4, FALL_RATE=2.2, SEED_DWELL=.45;
+function resetCycle(){cyc=0;cycT=0;pulse=0;seedHold=0}
 let lastInput=-99, pointerDown=false, isTouch=false;
 let tNow=0;
 const ptr={nx:0,ny:0,has:false};
@@ -474,6 +479,17 @@ function frame(nowMs){
   const still=sp<(cam.on?1.1:.5);
   if(gazeOn){dwell+=still?dt:-dt*2.6}else dwell-=dt*(isTouch&&mode==='pointer'?.4:1.6);
   dwell=Math.max(0,Math.min(5,dwell));
+  if(cyc===0){
+    if(dwell>=4.95&&gazeOn){cyc=1;cycT=0}
+    pulse=Math.max(0,pulse-dt*1.5);
+    seedHold=Math.max(0,seedHold-dt/6);
+  }else if(cyc===1){                              // 脈打つ(視線は見ない。最大のまま2.4秒)
+    cycT+=dt;dwell=5;pulse=smooth(0,.6,cycT);
+    if(cycT>PULSE_SEC){cyc=2;cycD=5}
+  }else{                                          // 砂に還る。深い階層から先にほどけ、根元だけ種として残る
+    cycD-=dt*FALL_RATE;dwell=cycD;pulse=Math.max(0,pulse-dt*1.5);
+    if(cycD<=SEED_DWELL){cyc=0;dwell=SEED_DWELL;seedHold=1}
+  }
   const reveal=dwell/.85;                       // 1.0ごとに1階層深くなる
 
   /* 見ている点 → 箱の中ほどの奥行きに結晶の中心を置く */
@@ -489,7 +505,8 @@ function frame(nowMs){
   const fam=FAMILIES[famIndex];formCount=0;
   for(let i=0;i<MAX_SHARDS;i++){
     const need=reveal-slotDepth[i]-.55*slotJit[i];
-    const tg=slotDepth[i]>90?0:(gazeOn||dwell>0?Math.max(0,Math.min(1,need*2+.1)):0);
+    let tg=slotDepth[i]>90?0:(gazeOn||dwell>0?Math.max(0,Math.min(1,need*2+.1)):0);
+    if(i===0&&seedHold>0)tg=Math.max(tg,.9*Math.min(1,seedHold*2));   // 還ったあとも根元の1つだけは結晶で残る(次の種)
     const rate=(tg>formState[i]?2.2:3.4)+3*slotJit[i];
     formState[i]+=(tg-formState[i])*(1-Math.exp(-dt*rate));
     metaArr[i*3+1]=formState[i];
@@ -515,7 +532,7 @@ function frame(nowMs){
   gl.uniform3f(loc(pShard,'uAnchor'),anchor.x,anchor.y,anchor.z);
   gl.uniformMatrix3fv(loc(pShard,'uRot'),false,rotMat(t*.22+seedPhase,.45+.12*Math.sin(t*.17)));
   gl.uniform3f(loc(pShard,'uHalf'),ASP,1,DEPTH);
-  gl.uniform1f(loc(pShard,'uR'),R);gl.uniform1f(loc(pShard,'uTime'),t);gl.uniform1f(loc(pShard,'uHue'),hue);
+  gl.uniform1f(loc(pShard,'uR'),R);gl.uniform1f(loc(pShard,'uTime'),t);gl.uniform1f(loc(pShard,'uHue'),hue);gl.uniform1f(loc(pShard,'uPulse'),pulse);
   gl.drawArraysInstanced(gl.TRIANGLES,0,24,MAX_SHARDS);
 
   /* 画面上の「目」の印(カメラ/自動のときだけ) */
@@ -542,11 +559,11 @@ function mutate(){            // 結晶の種類(AXIS→RING→CORNER)・色・�
   gl.bindVertexArray(vaoShard);
   gl.bindBuffer(gl.ARRAY_BUFFER,bufSlot);gl.bufferData(gl.ARRAY_BUFFER,slotArr,gl.DYNAMIC_DRAW);
   gl.bindBuffer(gl.ARRAY_BUFFER,bufSeed);gl.bufferData(gl.ARRAY_BUFFER,seedArr,gl.DYNAMIC_DRAW);
-  formState.fill(0);dwell=0;
+  formState.fill(0);dwell=0;resetCycle();
   hint.textContent='CRYSTAL · '+FAMILIES[famIndex].name;hint.classList.remove('off');
   setTimeout(()=>hint.classList.add('off'),2500);
 }
-function reset(){formState.fill(0);dwell=0}
+function reset(){formState.fill(0);dwell=0;resetCycle()}
 
 APKit.init({
   canvas:canvas,
