@@ -12,7 +12,7 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#05070f;col
 canvas{display:block;width:100%;height:100%;touch-action:none;outline:none}
 #hint{position:fixed;top:calc(env(safe-area-inset-top) + 16px);left:0;right:0;text-align:center;pointer-events:none;font:500 10px/1.6 ui-monospace,monospace;letter-spacing:.2em;color:rgba(216,232,255,.66);transition:opacity 1.2s}
 #hint.off{opacity:0}
-#hint.big{font-size:15px;letter-spacing:.12em;color:#fff}
+#hint.big{font-size:15px;letter-spacing:.08em;color:#fff;white-space:pre-line}
 #eye{position:fixed;left:0;top:0;width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:50%;border:1px solid rgba(220,236,255,.34);pointer-events:none;opacity:0;transition:opacity .6s}
 #eye.on{opacity:1}
 #eye::after{content:"";position:absolute;left:50%;top:50%;width:3px;height:3px;margin:-1.5px 0 0 -1.5px;border-radius:50%;background:rgba(220,236,255,.7)}
@@ -345,7 +345,7 @@ function pickModel(P,ys,main,head){             // 小さなモデルと4特徴�
 }
 
 /* ---------- 視線の校正: 画面の9つの点を順に見てもらい、その人の目の動き→画面位置の換算を最小二乗で作る ---------- */
-const CAL_PTS=[[0,0],[-.8,-.8],[0,-.8],[.8,-.8],[.8,0],[.8,.8],[0,.8],[-.8,.8],[-.8,0]], CAL_STEP=1100, CAL_SETTLE=400;   // 点は画面の半幅/半高を1とした位置
+const CAL_PTS=[[0,0],[-.8,-.8],[0,-.8],[.8,-.8],[.8,0],[.8,.8],[0,.8],[-.8,.8],[-.8,0]], CAL_STEP=2000, CAL_SETTLE=800;   // 点は画面の半幅/半高を1とした位置
 const cal={on:false,t0:null,tStart:0,buf:[]};      // t0=最初に顔が映った時刻(それまで時計は進めない)
 const calEl=document.getElementById('cal');
 function startCal(){
@@ -385,8 +385,14 @@ function finishCal(){
   if(![...mx.w,...my.w].every(isFinite)){hint.textContent='CALIBRATION FAILED';setTimeout(()=>hint.classList.add('off'),4000);return}
   cam.fit={x:mx.w,y:my.w};
   const err=Math.sqrt((mx.rms*mx.rms+my.rms*my.rms)/2), pct=Math.round(err*100);   // 画面の半幅/半高に対する平均の誤差
-  console.log('gaze calibration: points',P.length,'LOO error',pct+'%',JSON.stringify(cam.fit));
-  hint.textContent='CALIBRATED · ERROR ±'+pct+'%'+(err>.5?' · TRY BRIGHTER LIGHT':' · NOW LOOK AROUND');
+  /* 原因の切り分け用: 同じ点を見ている間の、換算後の位置のブレ(コマごとの揺れ)。誤差よりずっと小さければ換算式の問題、同じくらいなら読み取りのノイズ */
+  const sd=a=>{const m=a.reduce((s,v)=>s+v,0)/a.length;return Math.sqrt(a.reduce((s,v)=>s+(v-m)*(v-m),0)/a.length)};
+  let jx=0,jy=0,jn=0;
+  cal.buf.forEach(b=>{if(b.length<3)return;jx+=sd(b.map(f=>evalFit(mx.w,f)));jy+=sd(b.map(f=>evalFit(my.w,f)));jn++});
+  jx=Math.round(jx/jn*100);jy=Math.round(jy/jn*100);
+  const ex=Math.round(mx.rms*100), ey=Math.round(my.rms*100);
+  console.log('gaze calibration: points',P.length,'LOO error',pct+'%','x',ex,'y',ey,'jitter x',jx,'y',jy,JSON.stringify(cam.fit));
+  hint.textContent='CALIBRATED · ERROR ±'+pct+'%\nX ±'+ex+'  Y ±'+ey+'  ·  JITTER X '+jx+'  Y '+jy+'  ·  PTS '+P.length+'/9'+(err>.5?'\nTRY BRIGHTER LIGHT':'');
   hint.classList.add('big');hint.classList.remove('off');   // 精度の数字は見逃しやすいので、大きくして15秒出す
   setTimeout(()=>hint.classList.add('off'),15000);setTimeout(()=>hint.classList.remove('big'),16500);
 }
