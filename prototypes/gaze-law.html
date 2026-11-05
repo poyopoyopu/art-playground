@@ -222,6 +222,15 @@ function resetCycle(){cyc=0;cycT=0;pulse=0;seedHold=0}
 /* 校正の直後の数秒だけ、見た場所にすぐ結晶が咲いて視線についてくる(因果を先に体感させる。そのあとは通常のルール) */
 const INTRO_SEC=6, INTRO_FLOOR=2.6;
 let introT=0;
+/* 縦の視線は横より粗い(実機で Y ±44% / 横 ±20%)。精度を上げる代わりに作品側で吸収する(B案): カメラのときだけ、縦を「上・中・下」の
+   3段へ6割寄せる。見ている場所が段としてはっきり分かり、縦の小さなブレで「じっと見ている」が崩れない。段の境目は、いまの段から離れすぎたときだけ移る */
+const VBAND=[-.6,0,.6], VBAND_W=.6, VBAND_HYST=.42;
+let vbIdx=1;
+function bandY(v){
+  let near=0;for(let k=1;k<3;k++)if(Math.abs(v-VBAND[k])<Math.abs(v-VBAND[near]))near=k;
+  if(near!==vbIdx&&Math.abs(v-VBAND[vbIdx])>VBAND_HYST)vbIdx=near;
+  return v*(1-VBAND_W)+VBAND[vbIdx]*VBAND_W;
+}
 let lastInput=-99, pointerDown=false, isTouch=false;
 let tNow=0;
 const ptr={nx:0,ny:0,has:false};
@@ -359,7 +368,7 @@ const CAL_PTS=[[0,0],[-.8,-.8],[0,-.8],[.8,-.8],[.8,0],[.8,.8],[0,.8],[-.8,.8],[
 const cal={on:false,t0:null,tStart:0,buf:[],idx:-1};      // t0=最初に顔が映った時刻(それまで時計は進めない)
 const calEl=document.getElementById('cal');
 function startCal(){
-  cal.on=true;cal.t0=null;cal.tStart=performance.now();cal.buf=CAL_PTS.map(()=>[]);cal.idx=-1;
+  cal.on=true;cal.t0=null;cal.tStart=performance.now();cal.buf=CAL_PTS.map(()=>[]);cal.idx=-1;vbIdx=1;
   hint.textContent='光る点を見つめてね\n顔とスマホをゆっくり動かして';hint.classList.remove('off');hint.classList.add('big');
   calEl.classList.add('on');
   if(window.APKit)APKit.toast('点を目で追いながら、顔とスマホをゆっくり動かして(顔は画面から外さない)');
@@ -505,7 +514,7 @@ function frame(nowMs){
   calTick();
   if(cam.on){
     mode='camera';
-    if(camLive){gx=fgx.f(cam.gx||0,dt)*ASP;gy=-fgy.f(cam.gy||0,dt);gazeOn=true}
+    if(camLive){gx=fgx.f(cam.gx||0,dt)*ASP;gy=-bandY(fgy.f(cam.gy||0,dt));gazeOn=true}
   }else if(ptr.has&&(t-lastInput)<5){
     mode='pointer';
     const k=Math.min(ASP,1);
