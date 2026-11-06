@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#07080c">
+<title>UNWATCHED — 見られていない石像だけが動ける</title>
+<!-- UNWATCHED — ムーちゃん(Muse)作。2026/11/06 試作。前作 GAZE GARDEN(庭)が実機で「つまらんなー」と
+     却下された(変化が繊細すぎて粗い視線精度に負けた)ため、題材ごと作り直した第2作。
+     世界のルール: 見られていない石像だけが動ける。暗い美術館ホールに大理石の石像が5体立つ。
+     視線(半径=画面の約30%)が当たっている石像は光を浴びて白く照らされ、完全に止まる。
+     視線の外の石像はゆっくり観客へ近づき(奥行きが進む=大きく・下へ)、頭がこちらを向き、ポーズが少しずつ変わる。
+     視線を戻したとき「さっきより近い/姿が違う」と気づくのが核で、見ている正面では滑って動かない
+     (前進量は視線の効き influence の残りでのみ決まり、中心で見ている石像の前進は厳密に0)。
+     近づきすぎた石像は前景いっぱいの所で静かにフェードして奥へ戻る。ゲーム要素・音・スコアは一切なし。
+     視線: 前面カメラ+MediaPipe Face Landmarker(tasks-vision、CDN)で虹彩と顔の向きから推定する
+     (推定コードは GAZE GARDEN から再利用。校正なし、半径約30%で作品側が粗さを吸収する)。
+     カメラ映像は画面に出さず、端末の外へ送らない。カメラが無い/拒否/読み込み失敗のときは
+     指・マウスの位置が視線の代わりになり、何も触らないと視線がゆっくり巡回する自動デモになる。
+     Render: Canvas 2D。石像は奥行き depth(0=奥..1=前景)で投影し、遠→近の順に描く。
+     ap-kit.js統合: Muse(必須オプション一式。loopFrameは渡さない=◉なし) -->
+<script src="../ap-kit.js"></script>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#07080c;color:#fff;touch-action:none}
+canvas{display:block;width:100%;height:100%;touch-action:none;outline:none}
+#hint{position:fixed;top:calc(env(safe-area-inset-top) + 18px);left:16px;right:16px;text-align:center;pointer-events:none;font:500 15px/1.9 system-ui,-apple-system,"Hiragino Sans",sans-serif;letter-spacing:.06em;color:#fff;text-shadow:0 0 14px rgba(0,0,0,.9),0 1px 3px rgba(0,0,0,.8);transition:opacity 1.4s}
+#hint .sub{font-size:11px;color:rgba(255,255,255,.82);letter-spacing:.1em}
+#hint.off{opacity:0}
+#tip{position:fixed;left:16px;right:16px;bottom:calc(env(safe-area-inset-bottom) + 96px);text-align:center;pointer-events:none;font:500 13px/1.7 system-ui,-apple-system,"Hiragino Sans",sans-serif;letter-spacing:.05em;color:#fff;text-shadow:0 0 12px rgba(0,0,0,.9),0 1px 3px rgba(0,0,0,.8);opacity:0;transition:opacity .8s}
+#tip.on{opacity:1}
+video{position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none}
+</style>
+</head>
+<body>
+<canvas id="c" aria-label="暗い美術館のホールに立つ石像たち。見つめている石像は止まって白く照らされ、見ていない石像だけが少しずつ近づいてくる"></canvas>
+<div id="hint">みられていない石像だけが、うごける<br><span class="sub">👁 をおすと カメラが視線を追う · ゆびでも うごく</span></div>
+<div id="tip"></div>
+<video id="cam" playsinline muted></video>
+<script>
+'use strict';
+const canvas=document.getElementById('c'),ctx=canvas.getContext('2d'),
+      hint=document.getElementById('hint'),tipEl=document.getElementById('tip'),video=document.getElementById('cam');
+const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+const now=()=>performance.now()/1000;
+
+/* ---------- 乱数(種つき。✦で引き直し、↻で最初の種に戻る) ---------- */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const FIRST_SEED=20261106;
+let rnd=mulberry32(FIRST_SEED);
+const rr=(a,b)=>a+rnd()*(b-a);
+
+/* ---------- 石像(世界の状態) ----------
+   lane: ホールの左右位置(-1..1) / depth: 奥行き(0=奥..1=前景いっぱい)
+   pose: ポーズの型(0..3) / poseT: 見られていない間にだけ進む「変化の時計」
+   lit: 照らされ具合(視線の効きへ滑らかに追う) / watch: 今フレームの視線の効き */
+let statues=[];
+function arrange(seed){
+  rnd=mulberry32(seed);
+  const lanes=[-.82,-.42,0,.42,.82], depths=[.08,.22,.38,.52,.66];
+  // 並びは種で入れ替える(中央が必ず一番手前、にならないように)
+  for(let i=depths.length-1;i>0;i--){const j=(rnd()*(i+1))|0;const t=depths[i];depths[i]=depths[j];depths[j]=t}
+  statues=lanes.map((lane,i)=>({
+    lane:lane+rr(-.05,.05), depth:depths[i],
+    speed:rr(.030,.046),                 // 奥行きの進む速さ(体ごとに違う)
+    pose:i%4, poseT:rr(0,.4), sway:rr(0,6.28),
+    lit:0, watch:0, px:0, py:0, ph:0
+  }));
+}
+arrange(FIRST_SEED);
+function resetStatue(s,back){
+  s.depth=back?rr(.02,.10):s.depth;
+  s.poseT=0; s.lit=0;
+  if(back){s.lane=rr(-.9,.9); s.pose=(rnd()*4)|0; s.speed=rr(.030,.046)}
+}
+
+/* ---------- 画面と視線 ---------- */
+let W=1,H=1,U=1,R=100,horizonY=0;
+function resize(){
+  const dpr=Math.min(window.devicePixelRatio||1,2);
+  W=Math.max(1,innerWidth);H=Math.max(1,innerHeight);U=Math.min(W,H);
+  canvas.width=Math.round(W*dpr);canvas.height=Math.round(H*dpr);
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  R=Math.max(W,H)*.30;                       // 視線が効く半径(粗い推定を吸収する広さ)
+  horizonY=H*.40;
+}
+addEventListener('resize',resize);resize();
+
+const gaze={x:innerWidth/2,y:innerHeight/3};
+const gazeT={x:gaze.x,y:gaze.y};
+let mode='auto';                                     // auto | pointer | camera
+let lastPointer=-10,lastFace=-10,camState='off';     // off | starting | on
+function influence(x,y){
+  const dx=x-gaze.x,dy=y-gaze.y,d=Math.sqrt(dx*dx+dy*dy);
+  if(d>=R)return 0;
+  const q=1-d/R;return q*q;
+}
+
+/* ---------- 投影(奥行き→画面) ---------- */
+function project(s){
+  const t=s.depth;
+  s.px=W/2+s.lane*W*(.13+.40*t);                       // 奥では中央に寄り、手前で広がる
+  s.py=horizonY+(H*1.03-horizonY)*Math.pow(t,1.35);    // 足元(手前ほど下へ)
+  s.ph=H*(.15+.98*Math.pow(t,1.65));                    // 背丈(手前ほど大きく)
+}
+
+/* ---------- 更新: 見られていない石像だけが動ける ---------- */
+function updateStatue(s,dt){
+  project(s);
+  s.watch=influence(s.px,s.py-s.ph*.55);               // 石像の中心で視線の効きを見る
+  const tau=s.watch>s.lit?.25:1.1;
+  s.lit+=(s.watch-s.lit)*(1-Math.exp(-dt/tau));
+  // 前進は「視線の効きの残り」でのみ決まる。効きが .55 以上ある石像は厳密に止まる
+  // (見つめている正面で滑って動く、を起こさないためのデッドゾーン)。
+  const free=clamp((.55-s.watch)/.55,0,1);
+  const move=free*free;
+  s.depth+=dt*s.speed*move;
+  s.poseT+=dt*move*.35;                                // ポーズ・頭の向きの変化も、見られていない間だけ(ゆっくり)
+  if(s.depth>=1.14)resetStatue(s,true);                // 前景いっぱい→静かに奥へ戻る(描画側でフェード)
+}
+
+/* ---------- 描画: ホール ---------- */
+function drawHall(){
+  // 奥の壁
+  const gw=ctx.createLinearGradient(0,0,0,horizonY);
+  gw.addColorStop(0,'#05060a');gw.addColorStop(1,'#14171f');
+  ctx.fillStyle=gw;ctx.fillRect(0,0,W,horizonY+1);
+  // 壁のパネル(奥に吸い込まれる縦線)
+  ctx.strokeStyle='rgba(190,200,220,.055)';ctx.lineWidth=1;
+  for(let i=-4;i<=4;i++){
+    const x0=W/2+i*W*.11,x1=W/2+i*W*.30;
+    ctx.beginPath();ctx.moveTo(x0,0);ctx.lineTo(x1,horizonY);ctx.stroke();
+  }
+  ctx.strokeStyle='rgba(190,200,220,.07)';
+  ctx.beginPath();ctx.moveTo(0,horizonY*.55);ctx.lineTo(W,horizonY*.55);ctx.stroke();
+  // 遠くの明かり(ホールの奥の小さなランプ2つ)
+  for(const fx of [.36,.64]){
+    const lx=W*fx,ly=horizonY*.60;
+    const gl=ctx.createRadialGradient(lx,ly,0,lx,ly,U*.05);
+    gl.addColorStop(0,'rgba(255,214,150,.30)');gl.addColorStop(1,'rgba(255,214,150,0)');
+    ctx.fillStyle=gl;ctx.fillRect(lx-U*.05,ly-U*.05,U*.1,U*.1);
+    ctx.fillStyle='rgba(255,224,170,.75)';
+    ctx.beginPath();ctx.arc(lx,ly,Math.max(1.2,U*.004),0,6.2832);ctx.fill();
+  }
+  // 床(遠近のタイル)
+  const gf=ctx.createLinearGradient(0,horizonY,0,H);
+  gf.addColorStop(0,'#101218');gf.addColorStop(1,'#1d2027');
+  ctx.fillStyle=gf;ctx.fillRect(0,horizonY,W,H-horizonY);
+  ctx.strokeStyle='rgba(200,210,230,.10)';
+  for(let i=-5;i<=5;i++){
+    ctx.beginPath();ctx.moveTo(W/2+i*W*.045,horizonY);ctx.lineTo(W/2+i*W*.30,H);ctx.stroke();
+  }
+  for(let i=1;i<=6;i++){
+    const y=horizonY+(H-horizonY)*Math.pow(i/6,1.8);
+    ctx.strokeStyle='rgba(200,210,230,'+(0.04+i*0.012)+')';
+    ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();
+  }
+  // 視線の光(壁と床の上に薄く)
+  const gg=ctx.createRadialGradient(gaze.x,gaze.y,0,gaze.x,gaze.y,R);
+  gg.addColorStop(0,'rgba(255,240,205,.16)');gg.addColorStop(1,'rgba(255,240,205,0)');
+  ctx.fillStyle=gg;ctx.fillRect(gaze.x-R,gaze.y-R,R*2,R*2);
+}
+
+/* ---------- 描画: 石像1体 ----------
+   大理石の人型。ローブ姿(裾の広い胴)+頭+腕のポーズで一目で石像と分かる形にする。
+   headTurn(0..1): 横向き気味→正面(こちらを見る)。poseTで少しずつ進む。
+   reach(0..1): 腕が観客側へ伸びる量。poseTで進む。 */
+function marble(lit,alpha){
+  const r=Math.round(74+(232-74)*lit),g=Math.round(80+(230-80)*lit),b=Math.round(92+(218-92)*lit);
+  return 'rgba('+r+','+g+','+b+','+alpha+')';
+}
+function drawStatue(s){
+  const cx=s.px,baseY=s.py,h=s.ph,w=h*.36;
+  let alpha=1;
+  if(s.depth>1)alpha=clamp(1-(s.depth-1)/.14,0,1);     // 前景いっぱい→フェードアウト
+  if(alpha<=0)return;
+  const lit=.16+.84*s.lit;
+  const headTurn=clamp(.20+s.poseT*.09,0,1);           // 見られていない時間が長いほど正面を向く(約25秒で正面)
+  const reach=clamp(s.poseT*.07,0,.8);
+  ctx.save();ctx.globalAlpha=alpha;
+  // 影
+  ctx.fillStyle='rgba(0,0,0,.45)';
+  ctx.beginPath();ctx.ellipse(cx,baseY,w*.62,h*.035,0,0,6.2832);ctx.fill();
+  // 台座(低い円盤)
+  ctx.fillStyle=marble(lit*.7,1);
+  ctx.beginPath();ctx.ellipse(cx,baseY-h*.012,w*.60,h*.030,0,0,6.2832);ctx.fill();
+  ctx.fillRect(cx-w*.60,baseY-h*.030,w*1.20,h*.020);
+  const shoulderY=baseY-h*.80,hemY=baseY-h*.025;
+  // ローブ(胴)
+  ctx.fillStyle=marble(lit,1);
+  ctx.beginPath();
+  ctx.moveTo(cx-w*.20,shoulderY);
+  ctx.quadraticCurveTo(cx-w*.30,baseY-h*.45,cx-w*.52,hemY);
+  ctx.lineTo(cx+w*.52,hemY);
+  ctx.quadraticCurveTo(cx+w*.30,baseY-h*.45,cx+w*.20,shoulderY);
+  ctx.quadraticCurveTo(cx,shoulderY+h*.05,cx-w*.20,shoulderY);
+  ctx.fill();
+  // ローブのひだ(暗い線)
+  ctx.strokeStyle='rgba(20,22,30,.28)';ctx.lineWidth=Math.max(1,h*.006);ctx.lineCap='round';
+  for(const fx of [-.30,-.10,.12,.32]){
+    ctx.beginPath();ctx.moveTo(cx+w*fx*.7,baseY-h*.52);
+    ctx.quadraticCurveTo(cx+w*fx*1.05,baseY-h*.28,cx+w*fx,hemY-h*.01);ctx.stroke();
+  }
+  // たすき(斜めの帯)とひび
+  ctx.strokeStyle='rgba(20,22,30,.22)';ctx.lineWidth=Math.max(1,h*.010);
+  ctx.beginPath();ctx.moveTo(cx-w*.19,shoulderY+h*.03);ctx.lineTo(cx+w*.16,baseY-h*.40);ctx.stroke();
+  ctx.lineWidth=Math.max(1,h*.004);
+  ctx.beginPath();ctx.moveTo(cx+w*.05,baseY-h*.62);ctx.lineTo(cx+w*.10,baseY-h*.52);ctx.lineTo(cx+w*.07,baseY-h*.44);ctx.stroke();
+  // 腕(ポーズ別。肩→肘→手の折れ線)
+  ctx.strokeStyle=marble(lit*.94,1);ctx.lineWidth=h*.085;
+  const shL={x:cx-w*.21,y:shoulderY+h*.03},shR={x:cx+w*.21,y:shoulderY+h*.03};
+  function arm(sh,el,ha){
+    ctx.beginPath();ctx.moveTo(sh.x,sh.y);ctx.lineTo(el.x,el.y);ctx.lineTo(ha.x,ha.y);ctx.stroke();
+    ctx.fillStyle=marble(lit*.94,1);
+    ctx.beginPath();ctx.arc(ha.x,ha.y,h*.040,0,6.2832);ctx.fill();
+  }
+  const down=.30+reach*.10;
+  if(s.pose===0){          // 右手を上げる
+    arm(shR,{x:cx+w*.36,y:shoulderY-h*.10-reach*h*.05},{x:cx+w*.30,y:shoulderY-h*.30-reach*h*.06});
+    arm(shL,{x:cx-w*.34,y:baseY-h*.55},{x:cx-w*.30,y:baseY-h*.30});
+  }else if(s.pose===1){    // 両腕を前に伸ばす(近づくほど reach で前に出る)
+    arm(shR,{x:cx+w*.34,y:baseY-h*(.62-reach*.10)},{x:cx+w*.22+reach*w*.20,y:baseY-h*(.52-reach*.16)});
+    arm(shL,{x:cx-w*.34,y:baseY-h*(.62-reach*.10)},{x:cx-w*.22-reach*w*.20,y:baseY-h*(.52-reach*.16)});
+  }else if(s.pose===2){    // 腕を胸で組む
+    arm(shR,{x:cx+w*.30,y:baseY-h*.58},{x:cx-w*.10,y:baseY-h*.66});
+    arm(shL,{x:cx-w*.30,y:baseY-h*.54},{x:cx+w*.10,y:baseY-h*.62});
+  }else{                   // 右手をあごへ(考える人風)、左腕は腰
+    arm(shR,{x:cx+w*.33,y:baseY-h*.60},{x:cx+w*.05,y:baseY-h*.86});
+    arm(shL,{x:cx-w*.35,y:baseY-h*.52},{x:cx-w*.05,y:baseY-h*(.48-down*.1)});
+  }
+  // 首と頭
+  const headR=h*.088,headY=shoulderY-headR*.95;
+  ctx.fillStyle=marble(lit*.96,1);
+  ctx.fillRect(cx-h*.030,shoulderY-headR*.55,h*.060,headR*.62);
+  ctx.beginPath();ctx.arc(cx,headY,headR,0,6.2832);ctx.fill();
+  // 髪(頭頂の弧)
+  ctx.strokeStyle='rgba(20,22,30,.30)';ctx.lineWidth=Math.max(1,h*.012);
+  ctx.beginPath();ctx.arc(cx,headY-headR*.12,headR*.86,Math.PI*1.08,Math.PI*1.92);ctx.stroke();
+  // 顔: 正面を向くほど両目が見える。横向き気味の間は鼻の影が片側へ寄る
+  const eyeY=headY-headR*.05,eyeDx=headR*.38*headTurn,noseX=(1-headTurn)*headR*.34;
+  ctx.fillStyle='rgba(20,22,30,'+(0.18+0.30*headTurn)+')';
+  if(headTurn>.35){
+    ctx.beginPath();ctx.arc(cx-eyeDx,eyeY,headR*.085,0,6.2832);ctx.fill();
+    ctx.beginPath();ctx.arc(cx+eyeDx,eyeY,headR*.085,0,6.2832);ctx.fill();
+  }else{
+    ctx.beginPath();ctx.arc(cx+eyeDx*.4,eyeY,headR*.085,0,6.2832);ctx.fill();
+  }
+  ctx.strokeStyle='rgba(20,22,30,.25)';ctx.lineWidth=Math.max(1,h*.005);
+  ctx.beginPath();ctx.moveTo(cx+noseX,eyeY+headR*.06);ctx.lineTo(cx+noseX+headR*.07,eyeY+headR*.38);ctx.stroke();
+  // 照らされた石像の足元の光だまり
+  if(s.lit>.03){
+    const gl=ctx.createRadialGradient(cx,baseY,0,cx,baseY,w*1.15);
+    gl.addColorStop(0,'rgba(255,240,205,'+(0.20*s.lit)+')');gl.addColorStop(1,'rgba(255,240,205,0)');
+    ctx.fillStyle=gl;ctx.fillRect(cx-w*1.15,baseY-w*1.15,w*2.3,w*2.3);
+  }
+  ctx.restore();
+}
+
+/* ---------- フレーム ---------- */
+let prevT=now();
+function frame(){
+  const t=now();let dt=Math.min(.05,t-prevT);prevT=t;
+  if(mode!=='camera'&&t-lastPointer>5){
+    gazeT.x=W*(.5+.40*Math.sin(t*.17));
+    gazeT.y=H*(.46+.28*Math.sin(t*.131+1.1));
+  }
+  const k=1-Math.exp(-dt*7);
+  gaze.x+=(gazeT.x-gaze.x)*k;gaze.y+=(gazeT.y-gaze.y)*k;
+  detectGaze();
+  for(const s of statues)updateStatue(s,dt);
+  drawHall();
+  const order=statues.slice().sort((a,b)=>a.depth-b.depth);
+  for(const s of order)drawStatue(s);
+  // 全体のビネット
+  const vg=ctx.createRadialGradient(W/2,H/2,U*.35,W/2,H/2,Math.max(W,H)*.78);
+  vg.addColorStop(0,'rgba(0,0,0,0)');vg.addColorStop(1,'rgba(0,0,0,.55)');
+  ctx.fillStyle=vg;ctx.fillRect(0,0,W,H);
+  requestAnimationFrame(frame);
+}
+
+/* ---------- 指・マウス(視線の代わり) ---------- */
+function pointerGaze(e){
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  gazeT.x=e.clientX;gazeT.y=e.clientY;lastPointer=now();
+  if(mode!=='camera')mode='pointer';
+  hint.classList.add('off');
+}
+canvas.addEventListener('pointermove',pointerGaze,{passive:true});
+canvas.addEventListener('pointerdown',pointerGaze,{passive:true});
+
+/* ---------- カメラ+視線推定(MediaPipe Face Landmarker、CDNから遅延読み込み。GAZE GARDENから再利用) ---------- */
+const MP_VER='0.10.14';
+const MP_URL='https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@'+MP_VER+'/vision_bundle.mjs';
+const WASM_URL='https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@'+MP_VER+'/wasm';
+const MODEL_URL='https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
+let landmarker=null,camStream=null,lastVideoTime=-1,lastDetectMs=0;
+let tipTimer=0;
+function tip(msg,sec){
+  tipEl.textContent=msg;tipEl.classList.add('on');
+  clearTimeout(tipTimer);tipTimer=setTimeout(()=>tipEl.classList.remove('on'),(sec||4)*1000);
+}
+async function makeLandmarker(vision,delegate){
+  const fileset=await vision.FilesetResolver.forVisionTasks(WASM_URL);
+  return await vision.FaceLandmarker.createFromOptions(fileset,{
+    baseOptions:{modelAssetPath:MODEL_URL,delegate:delegate},
+    runningMode:'VIDEO',numFaces:1,
+    minFaceDetectionConfidence:.5,minFacePresenceConfidence:.5,minTrackingConfidence:.5
+  });
+}
+async function startCamera(){
+  if(camState==='on'){stopCamera();return}
+  if(camState==='starting')return;
+  camState='starting';
+  tip('カメラと顔の読み取りを準備中…',6);
+  try{
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw new Error('no getUserMedia');
+    camStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:640},height:{ideal:480}},audio:false});
+    video.srcObject=camStream;await video.play();
+    if(!landmarker){
+      const vision=await import(MP_URL);
+      try{landmarker=await makeLandmarker(vision,'GPU')}
+      catch(e){landmarker=await makeLandmarker(vision,'CPU')}
+    }
+    camState='on';mode='camera';lastFace=now();
+    hint.classList.add('off');
+    tip('カメラで視線を追っています。石像を見つめてみて',4);
+  }catch(e){
+    camState='off';mode='auto';stopStream();
+    tip('カメラは使えませんでした。指でなぞると、そこが視線の代わりになります',6);
+  }
+}
+function stopStream(){
+  if(camStream){camStream.getTracks().forEach(tr=>tr.stop());camStream=null}
+  video.srcObject=null;
+}
+function stopCamera(){
+  camState='off';mode='auto';lastPointer=-10;stopStream();
+  tip('カメラを止めました。指でも動かせます',3);
+}
+function detectGaze(){
+  if(camState!=='on'||!landmarker||video.readyState<2)return;
+  const ms=performance.now();
+  if(ms-lastDetectMs<50||video.currentTime===lastVideoTime)return;   // 推定は間引く(負荷対策)
+  lastDetectMs=ms;lastVideoTime=video.currentTime;
+  let res;
+  try{res=landmarker.detectForVideo(video,ms)}catch(e){return}
+  if(!res||!res.faceLandmarks||!res.faceLandmarks.length)return;
+  const lm=res.faceLandmarks[0];
+  // まばたき中(目がほぼ閉じている)コマは捨てる
+  const openR=lm[145].y-lm[159].y,openL=lm[374].y-lm[386].y;
+  if(openR<.006&&openL<.006)return;
+  lastFace=now();
+  // 虹彩の位置: 目の両端を基準にした割合(頭が傾いてもぶれにくい)
+  const ratio=(p,a,b)=>(p-a)/((b-a)||1e-6);
+  const h=(ratio(lm[468].x,lm[33].x,lm[133].x)+ratio(lm[473].x,lm[362].x,lm[263].x))/2;
+  const v=(ratio(lm[468].y,lm[159].y,lm[145].y)+ratio(lm[473].y,lm[386].y,lm[374].y))/2;
+  // 顔の向き: 鼻先が顔の枠の中心からどれだけずれているか
+  const yaw=ratio(lm[1].x,lm[234].x,lm[454].x)*2-1;
+  const pitch=ratio(lm[1].y,lm[10].y,lm[152].y)*2-1;
+  const rawX=.5+(h-.5)*2.6+yaw*.28;
+  const rawY=.5+(v-.5)*1.7+pitch*.45;
+  gazeT.x=(1-clamp(rawX,0,1))*W;          // 自撮り視点: 左右は鏡像になる
+  gazeT.y=clamp(rawY,0,1)*H;
+}
+
+/* ---------- テスト用フック(検証スクリプトから状態を読むため) ---------- */
+window.__UW={gaze:gaze,gazeT:gazeT,
+  get statues(){return statues},
+  setGaze:function(x,y){gaze.x=gazeT.x=x;gaze.y=gazeT.y=y;lastPointer=now()+1e9;mode='pointer'},
+  arrange:arrange};
+
+/* ---------- ap-kit(必須オプション一式。loopFrameは渡さない) ---------- */
+setTimeout(()=>hint.classList.add('off'),11000);
+APKit.init({canvas:canvas,gifName:'unwatched-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,buttons:[
+  {label:'✦',name:'mutate',onClick:()=>{arrange((Math.random()*1e9)|0);hint.classList.add('off')}},
+  {label:'↻',name:'reset',onClick:()=>{arrange(FIRST_SEED)}},
+  {label:'👁',name:'camera',toggle:true,onClick:()=>{startCamera()}}
+]});
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
