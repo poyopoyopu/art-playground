@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0b0e14">
+<title>GAZE GARDEN — 見た場所だけ、色と時間がもどる庭</title>
+<!-- GAZE GARDEN — ムーちゃん(Muse)作。2026/11/06 試作。おっちゃん承認の案「見た場所だけ、色と動きが戻る世界」。
+     世界のルール: 庭はモノクロで凍っている。各要素は自分の時計を持ち、視線の近くにある間だけ
+     その時計が進む=色づき、揺れ、舞い、咲く。視線を外すと、色も時間もゆっくり冷めて静止に戻る。
+     視線: 前面カメラ+MediaPipe Face Landmarker(tasks-vision、CDN)で虹彩と顔の向きから推定する。
+     校正はしない(実測で粗いことが分かっているので、効く半径を画面の約3割と広く取り、要素側で吸収する)。
+     カメラ映像は画面に出さず、端末の外へ送らない。カメラが無い/拒否/読み込み失敗のときは
+     指・マウスの位置が視線の代わりになり、何も触らないと見つめ先がゆっくり巡回する自動デモになる。
+     Render: Canvas 2D。要素ごとに warmth(0..1)を持ち、彩度と自分の時計の進みが warmth に比例する。
+     ap-kit.js統合: Muse(必須オプション一式。loopFrameは渡さない=◉なし) -->
+<script src="../ap-kit.js"></script>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#0b0e14;color:#fff;touch-action:none}
+canvas{display:block;width:100%;height:100%;touch-action:none;outline:none}
+#hint{position:fixed;top:calc(env(safe-area-inset-top) + 18px);left:16px;right:16px;text-align:center;pointer-events:none;font:500 15px/1.9 system-ui,-apple-system,"Hiragino Sans",sans-serif;letter-spacing:.06em;color:#fff;text-shadow:0 0 14px rgba(30,50,20,.8),0 1px 3px rgba(0,0,0,.6);transition:opacity 1.4s}
+#hint .sub{font-size:11px;color:rgba(255,255,255,.82);letter-spacing:.1em}
+#hint.off{opacity:0}
+#tip{position:fixed;left:16px;right:16px;bottom:calc(env(safe-area-inset-bottom) + 96px);text-align:center;pointer-events:none;font:500 13px/1.7 system-ui,-apple-system,"Hiragino Sans",sans-serif;letter-spacing:.05em;color:#fff;text-shadow:0 0 12px rgba(30,50,20,.85),0 1px 3px rgba(0,0,0,.6);opacity:0;transition:opacity .8s}
+#tip.on{opacity:1}
+video{position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none}
+</style>
+</head>
+<body>
+<canvas id="c" aria-label="モノクロに凍った庭。見つめた場所だけ色づいて、花が揺れ、蝶が舞う。視線を外すとまた凍る"></canvas>
+<div id="hint">みた ばしょだけ、色と時間が もどる<br><span class="sub">👁 をおすと カメラが視線を追う · ゆびでも うごく</span></div>
+<div id="tip"></div>
+<video id="cam" playsinline muted></video>
+<script>
+'use strict';
+const canvas=document.getElementById('c'),ctx=canvas.getContext('2d'),
+      hint=document.getElementById('hint'),tipEl=document.getElementById('tip'),video=document.getElementById('cam');
+const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+const now=()=>performance.now()/1000;
+
+/* ---------- 色(カラー版とモノクロ版を要素ごとに持ち、warmthで混ぜる) ---------- */
+function hsl(h,s,l){ // -> [r,g,b] 0..255
+  h=((h%360)+360)%360;s=clamp(s,0,1);l=clamp(l,0,1);
+  const c=(1-Math.abs(2*l-1))*s,x=c*(1-Math.abs((h/60)%2-1)),m=l-c/2;
+  let r=0,g=0,b=0;
+  if(h<60){r=c;g=x}else if(h<120){r=x;g=c}else if(h<180){g=c;b=x}
+  else if(h<240){g=x;b=c}else if(h<300){r=x;b=c}else{r=c;b=x}
+  return [Math.round((r+m)*255),Math.round((g+m)*255),Math.round((b+m)*255)];
+}
+function grayOf(c){const g=Math.round(.299*c[0]+.587*c[1]+.114*c[2]);return [g,g,g]}
+function pair(h,s,l){const c=hsl(h,s,l);return {c:c,g:grayOf(c)}}
+function mixCss(p,w,a){
+  const r=Math.round(p.g[0]+(p.c[0]-p.g[0])*w),g=Math.round(p.g[1]+(p.c[1]-p.g[1])*w),b=Math.round(p.g[2]+(p.c[2]-p.g[2])*w);
+  return a===undefined?'rgb('+r+','+g+','+b+')':'rgba('+r+','+g+','+b+','+a+')';
+}
+
+/* ---------- 乱数(種つき。✦で引き直し、↻で最初の種に戻る) ---------- */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const FIRST_SEED=20261106;
+let rnd=mulberry32(FIRST_SEED);
+const rr=(a,b)=>a+rnd()*(b-a);
+
+/* ---------- 庭の要素(位置は画面比 0..1。w=warmth、t=自分の時計) ---------- */
+let trees=[],flowers=[],grass=[],clouds=[],flies=[],petals=[];
+let skyHue=0;
+function buildGarden(seed){
+  rnd=mulberry32(seed);
+  skyHue=rr(-14,14);
+  trees=[.16,.5,.85].map((x,i)=>({
+    x:x+rr(-.03,.03), y:[.665,.70,.645][i], s:[1,.82,1.12][i],
+    w:0,t:rr(0,9),phase:rr(0,6.28),
+    trunk:pair(26,.42,.30),
+    leaf:pair(105+rr(-16,16),.42,.34), leaf2:pair(88+rr(-14,14),.46,.42)
+  }));
+  const petalHues=[338,48,268,0,18,205];
+  flowers=[];
+  for(let i=0;i<84;i++){
+    const y=rr(.655,.975), hue=petalHues[(rnd()*petalHues.length)|0];
+    flowers.push({x:rr(.02,.98),y:y,s:.55+.75*((y-.655)/.32),w:0,t:rr(0,9),phase:rr(0,6.28),
+      stem:pair(110,.4,.30), petal:hue===0?pair(0,0,.96):pair(hue,.72,.66), core:pair(46,.9,.55)});
+  }
+  flowers.sort((a,b)=>a.y-b.y);
+  grass=[];
+  for(let i=0;i<130;i++)grass.push({x:rr(.01,.99),y:rr(.63,.99),s:rr(.6,1.3),w:0,t:rr(0,9),phase:rr(0,6.28),col:pair(104+rr(-14,14),.42,.32)});
+  clouds=[];
+  for(let i=0;i<3;i++)clouds.push({x:rr(.05,.8),y:rr(.08,.26),s:rr(.7,1.25),w:0,t:rr(0,9),phase:rr(0,6.28),col:pair(220,.25,.97)});
+  const flyHues=[28,200,0,320,150];
+  flies=[];
+  for(let i=0;i<5;i++)flies.push({ax:rr(.15,.85),ay:rr(.3,.6),rx:rr(.05,.13),ry:rr(.03,.07),sp:rr(.25,.5)*(rnd()<.5?-1:1),
+    w:0,t:rr(0,9),x:0,y:0,col:pair(flyHues[i],.85,.6),dark:pair(30,.3,.2)});
+  petals=[];
+  for(let i=0;i<16;i++)petals.push({x:rr(0,1),y:rr(0,1),s:rr(.6,1.2),vy:rr(.008,.02),w:0,t:rr(0,9),phase:rr(0,6.28),col:pair(340,.6,.78)});
+}
+buildGarden(FIRST_SEED);
+
+/* ---------- 画面と視線 ---------- */
+let W=1,H=1,U=1,R=100;
+function resize(){
+  const dpr=Math.min(window.devicePixelRatio||1,2);
+  W=Math.max(1,innerWidth);H=Math.max(1,innerHeight);U=Math.min(W,H);
+  canvas.width=Math.round(W*dpr);canvas.height=Math.round(H*dpr);
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  R=Math.max(W,H)*.30;                       // 視線が効く半径(粗い推定を吸収する広さ)
+}
+addEventListener('resize',resize);resize();
+
+const gaze={x:innerWidth/2,y:innerHeight/3};         // 平滑化後の視線(px)
+const gazeT={x:gaze.x,y:gaze.y};                     // 目標
+let mode='auto';                                     // auto | pointer | camera
+let lastPointer=-10,lastFace=-10,camState='off';     // off | starting | on
+function influence(x,y){
+  const dx=x-gaze.x,dy=y-gaze.y,d=Math.sqrt(dx*dx+dy*dy);
+  if(d>=R)return 0;
+  const q=1-d/R;return q*q;
+}
+function warm(el,dt){
+  const target=influence(el.px,el.py),tau=target>el.w?.35:1.8;
+  el.w+=(target-el.w)*(1-Math.exp(-dt/tau));
+  el.t+=dt*el.w;                                     // 自分の時計は、暖かい間だけ進む
+}
+
+/* ---------- 描画 ---------- */
+function drawBackground(dt){
+  const skyW=influence(W*.5,H*.14),hillW=influence(W*.5,H*.52),meaW=influence(W*.5,H*.82);
+  const skyTop=pair(222+skyHue,.62,.62),skyBot=pair(32+skyHue,.85,.78);
+  const gSky=ctx.createLinearGradient(0,0,0,H*.66);
+  gSky.addColorStop(0,mixCss(skyTop,skyW));gSky.addColorStop(1,mixCss(skyBot,skyW));
+  ctx.fillStyle=gSky;ctx.fillRect(0,0,W,H*.67);
+  // 太陽
+  const sx=W*.78,sy=H*.185,sr=U*.052,sun={px:sx,py:sy,w:0,t:0};sun.w=influence(sx,sy);
+  const gSun=ctx.createRadialGradient(sx,sy,0,sx,sy,sr*3.4);
+  gSun.addColorStop(0,mixCss(pair(44,.95,.62),sun.w,.55*sun.w+.08));gSun.addColorStop(1,'rgba(255,220,130,0)');
+  ctx.fillStyle=gSun;ctx.fillRect(sx-sr*3.4,sy-sr*3.4,sr*6.8,sr*6.8);
+  ctx.fillStyle=mixCss(pair(46,.92,.66),sun.w);ctx.beginPath();ctx.arc(sx,sy,sr,0,6.2832);ctx.fill();
+  // 雲(自分の時計で流れる。凍ると止まる)
+  for(const c of clouds){
+    c.px=c.x*W;c.py=c.y*H;warm(c,dt);
+    const cx=((c.x+c.t*.006)%1.15-.075)*W,cy=c.y*H,s=c.s*U;
+    ctx.fillStyle=mixCss(c.col,c.w,.92);
+    for(const [ox,oy,or] of [[0,0,.075],[.06,.012,.058],[-.062,.014,.052],[.02,-.02,.05],[-.025,-.016,.045]]){
+      ctx.beginPath();ctx.arc(cx+ox*s,cy+oy*s,or*s,0,6.2832);ctx.fill();
+    }
+  }
+  // 遠の丘
+  ctx.fillStyle=mixCss(pair(96,.32,.5),hillW);
+  ctx.beginPath();ctx.moveTo(0,H*.60);
+  ctx.quadraticCurveTo(W*.3,H*.485,W*.58,H*.565);
+  ctx.quadraticCurveTo(W*.82,H*.625,W,H*.575);
+  ctx.lineTo(W,H*.68);ctx.lineTo(0,H*.68);ctx.closePath();ctx.fill();
+  // 草原
+  const gMea=ctx.createLinearGradient(0,H*.6,0,H);
+  gMea.addColorStop(0,mixCss(pair(96,.45,.42),meaW));gMea.addColorStop(1,mixCss(pair(112,.5,.27),meaW));
+  ctx.fillStyle=gMea;
+  ctx.beginPath();ctx.moveTo(0,H*.655);
+  ctx.quadraticCurveTo(W*.35,H*.615,W*.65,H*.65);
+  ctx.quadraticCurveTo(W*.85,H*.672,W,H*.655);
+  ctx.lineTo(W,H);ctx.lineTo(0,H);ctx.closePath();ctx.fill();
+  // 視線のグロー(背景の上)
+  const gg=ctx.createRadialGradient(gaze.x,gaze.y,0,gaze.x,gaze.y,R);
+  gg.addColorStop(0,'rgba(255,244,200,.20)');gg.addColorStop(1,'rgba(255,244,200,0)');
+  ctx.fillStyle=gg;ctx.fillRect(gaze.x-R,gaze.y-R,R*2,R*2);
+}
+function drawTree(tr,dt){
+  tr.px=tr.x*W;tr.py=tr.y*H;warm(tr,dt);
+  const s=tr.s*U,sway=Math.sin(tr.t*.7+tr.phase)*.006*U*tr.w;
+  ctx.strokeStyle=mixCss(tr.trunk,tr.w);ctx.lineCap='round';
+  ctx.lineWidth=s*.030;
+  ctx.beginPath();ctx.moveTo(tr.px,tr.py);ctx.quadraticCurveTo(tr.px+sway*.4,tr.py-s*.10,tr.px+sway,tr.py-s*.175);ctx.stroke();
+  ctx.lineWidth=s*.016;
+  ctx.beginPath();ctx.moveTo(tr.px+sway*.7,tr.py-s*.13);ctx.quadraticCurveTo(tr.px-s*.06,tr.py-s*.19,tr.px-s*.085+sway,tr.py-s*.235);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(tr.px+sway*.7,tr.py-s*.145);ctx.quadraticCurveTo(tr.px+s*.06,tr.py-s*.20,tr.px+s*.09+sway,tr.py-s*.25);ctx.stroke();
+  const blobs=[[0,-.27,.105],[.075,-.235,.082],[-.078,-.232,.08],[.035,-.315,.072],[-.04,-.308,.068],[.095,-.285,.055],[-.1,-.275,.052]];
+  blobs.forEach((b,i)=>{
+    const bx=tr.px+b[0]*s+sway*(1+b[1]*2),by=tr.py+b[1]*s,br=b[2]*s*(1+.03*Math.sin(tr.t*.9+tr.phase+i)*tr.w);
+    ctx.fillStyle=mixCss(i%2?tr.leaf:tr.leaf2,tr.w);
+    ctx.beginPath();ctx.arc(bx,by,br,0,6.2832);ctx.fill();
+  });
+}
+function drawFlower(f,dt){
+  f.px=f.x*W;f.py=f.y*H;warm(f,dt);
+  const s=f.s*U,stemH=s*.085,bend=Math.sin(f.t*1.4+f.phase)*s*.02*f.w;
+  ctx.strokeStyle=mixCss(f.stem,f.w);ctx.lineWidth=Math.max(1,s*.006);ctx.lineCap='round';
+  ctx.beginPath();ctx.moveTo(f.px,f.py);ctx.quadraticCurveTo(f.px+bend*.4,f.py-stemH*.6,f.px+bend,f.py-stemH);ctx.stroke();
+  const hx=f.px+bend,hy=f.py-stemH,pr=s*.016*(0.72+0.38*f.w);
+  ctx.fillStyle=mixCss(f.petal,f.w);
+  for(let i=0;i<5;i++){
+    const a=f.phase+i*1.2566+Math.sin(f.t*.8+f.phase)*.08*f.w;
+    ctx.beginPath();ctx.arc(hx+Math.cos(a)*pr*1.15,hy+Math.sin(a)*pr*1.15,pr,0,6.2832);ctx.fill();
+  }
+  ctx.fillStyle=mixCss(f.core,f.w);
+  ctx.beginPath();ctx.arc(hx,hy,pr*.62,0,6.2832);ctx.fill();
+}
+function drawGrass(g,dt){
+  g.px=g.x*W;g.py=g.y*H;warm(g,dt);
+  const s=g.s*U,bend=Math.sin(g.t*1.9+g.phase)*s*.02*g.w;
+  ctx.strokeStyle=mixCss(g.col,g.w);ctx.lineWidth=Math.max(1,s*.005);ctx.lineCap='round';
+  for(const o of [-.012,0,.012]){
+    ctx.beginPath();ctx.moveTo(g.px+o*s,g.py);
+    ctx.quadraticCurveTo(g.px+o*s+bend*.4,g.py-s*.035,g.px+o*s*1.6+bend,g.py-s*.055-Math.abs(o)*s*.4);
+    ctx.stroke();
+  }
+}
+function drawFly(f,dt){
+  // 蝶の位置は自分の時計で進む。まず仮位置で warmth を決め、時計を進めてから位置を出す
+  f.px=(f.ax+Math.cos(f.t*f.sp)*f.rx)*W;f.py=(f.ay+Math.sin(f.t*f.sp*1.35)*f.ry)*H;
+  warm(f,dt);
+  f.px=(f.ax+Math.cos(f.t*f.sp)*f.rx)*W;f.py=(f.ay+Math.sin(f.t*f.sp*1.35)*f.ry)*H;
+  const s=U*.02,flap=Math.sin(f.t*16)*0.85,dir=f.sp>0?1:-1;
+  ctx.save();ctx.translate(f.px,f.py);ctx.scale(dir,1);
+  ctx.fillStyle=mixCss(f.col,f.w,.95);
+  for(const sd of [-1,1]){
+    ctx.save();ctx.rotate(sd*(.5+flap*.55));
+    ctx.beginPath();ctx.ellipse(sd*s*.5,-s*.18,s*.55,s*.34,sd*.5,0,6.2832);ctx.fill();
+    ctx.restore();
+    ctx.save();ctx.rotate(sd*(.4-flap*.4));
+    ctx.beginPath();ctx.ellipse(sd*s*.42,s*.22,s*.42,s*.26,sd*.4,0,6.2832);ctx.fill();
+    ctx.restore();
+  }
+  ctx.fillStyle=mixCss(f.dark,f.w);
+  ctx.beginPath();ctx.ellipse(0,0,s*.13,s*.4,0,0,6.2832);ctx.fill();
+  ctx.restore();
+}
+function drawPetal(p,dt){
+  p.px=p.x*W;p.py=p.y*H;warm(p,dt);
+  p.y+=p.vy*dt*(0.15+0.85*p.w);                        // 落ちる速さも warmth で変わる
+  p.x+=Math.sin(p.t*1.6+p.phase)*.0006*(0.2+p.w);
+  if(p.y>1.02){p.y=-.02;p.x=rnd()}
+  const s=p.s*U*.012,rot=p.t*1.2+p.phase;
+  ctx.save();ctx.translate(p.px,p.py);ctx.rotate(rot);
+  ctx.fillStyle=mixCss(p.col,p.w,.9);
+  ctx.beginPath();ctx.ellipse(0,0,s,s*.55,0,0,6.2832);ctx.fill();
+  ctx.restore();
+}
+let prevT=now();
+function frame(){
+  const t=now();let dt=Math.min(.05,t-prevT);prevT=t;
+  // 視線の行き先: カメラ/指の入力が無ければ、ゆっくり巡回する(自動デモ)
+  if(mode!=='camera'&&t-lastPointer>5){
+    gazeT.x=W*(.5+.36*Math.sin(t*.21));
+    gazeT.y=H*(.46+.27*Math.sin(t*.157+1.3));
+  }
+  const k=1-Math.exp(-dt*7);
+  gaze.x+=(gazeT.x-gaze.x)*k;gaze.y+=(gazeT.y-gaze.y)*k;
+  detectGaze();
+  drawBackground(dt);
+  for(const g of grass)if(g.y<.8)drawGrass(g,dt);
+  for(const tr of trees)drawTree(tr,dt);
+  for(const f of flowers)drawFlower(f,dt);
+  for(const g of grass)if(g.y>=.8)drawGrass(g,dt);
+  for(const p of petals)drawPetal(p,dt);
+  for(const f of flies)drawFly(f,dt);
+  // 仕上げの柔らかい光
+  const gg=ctx.createRadialGradient(gaze.x,gaze.y,0,gaze.x,gaze.y,R*.8);
+  gg.addColorStop(0,'rgba(255,246,210,.10)');gg.addColorStop(1,'rgba(255,246,210,0)');
+  ctx.fillStyle=gg;ctx.fillRect(gaze.x-R,gaze.y-R,R*2,R*2);
+  requestAnimationFrame(frame);
+}
+
+/* ---------- 指・マウス(視線の代わり) ---------- */
+function pointerGaze(e){
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  gazeT.x=e.clientX;gazeT.y=e.clientY;lastPointer=now();
+  if(mode!=='camera')mode='pointer';
+  hint.classList.add('off');
+}
+canvas.addEventListener('pointermove',pointerGaze,{passive:true});
+canvas.addEventListener('pointerdown',pointerGaze,{passive:true});
+
+/* ---------- カメラ+視線推定(MediaPipe Face Landmarker、CDNから遅延読み込み) ---------- */
+const MP_VER='0.10.14';
+const MP_URL='https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@'+MP_VER+'/vision_bundle.mjs';
+const WASM_URL='https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@'+MP_VER+'/wasm';
+const MODEL_URL='https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
+let landmarker=null,camStream=null,lastVideoTime=-1,lastDetectMs=0;
+let tipTimer=0;
+function tip(msg,sec){
+  tipEl.textContent=msg;tipEl.classList.add('on');
+  clearTimeout(tipTimer);tipTimer=setTimeout(()=>tipEl.classList.remove('on'),(sec||4)*1000);
+}
+async function makeLandmarker(vision,delegate){
+  const fileset=await vision.FilesetResolver.forVisionTasks(WASM_URL);
+  return await vision.FaceLandmarker.createFromOptions(fileset,{
+    baseOptions:{modelAssetPath:MODEL_URL,delegate:delegate},
+    runningMode:'VIDEO',numFaces:1,
+    minFaceDetectionConfidence:.5,minFacePresenceConfidence:.5,minTrackingConfidence:.5
+  });
+}
+async function startCamera(){
+  if(camState==='on'){stopCamera();return}
+  if(camState==='starting')return;
+  camState='starting';
+  tip('カメラと顔の読み取りを準備中…',6);
+  try{
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw new Error('no getUserMedia');
+    camStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:640},height:{ideal:480}},audio:false});
+    video.srcObject=camStream;await video.play();
+    if(!landmarker){
+      const vision=await import(MP_URL);
+      try{landmarker=await makeLandmarker(vision,'GPU')}
+      catch(e){landmarker=await makeLandmarker(vision,'CPU')}
+    }
+    camState='on';mode='camera';lastFace=now();
+    hint.classList.add('off');
+    tip('カメラで視線を追っています。庭を見つめてみて',4);
+  }catch(e){
+    camState='off';mode='auto';stopStream();
+    tip('カメラは使えませんでした。指でなぞると、そこが視線の代わりになります',6);
+  }
+}
+function stopStream(){
+  if(camStream){camStream.getTracks().forEach(tr=>tr.stop());camStream=null}
+  video.srcObject=null;
+}
+function stopCamera(){
+  camState='off';mode='auto';lastPointer=-10;stopStream();
+  tip('カメラを止めました。指でも動かせます',3);
+}
+function detectGaze(){
+  if(camState!=='on'||!landmarker||video.readyState<2)return;
+  const ms=performance.now();
+  if(ms-lastDetectMs<50||video.currentTime===lastVideoTime)return;   // 推定は間引く(負荷対策)
+  lastDetectMs=ms;lastVideoTime=video.currentTime;
+  let res;
+  try{res=landmarker.detectForVideo(video,ms)}catch(e){return}
+  if(!res||!res.faceLandmarks||!res.faceLandmarks.length)return;
+  const lm=res.faceLandmarks[0];
+  // まばたき中(目がほぼ閉じている)コマは捨てる
+  const openR=lm[145].y-lm[159].y,openL=lm[374].y-lm[386].y;
+  if(openR<.006&&openL<.006)return;
+  lastFace=now();
+  // 虹彩の位置: 目の両端を基準にした割合(頭が傾いてもぶれにくい)
+  const ratio=(p,a,b)=>(p-a)/((b-a)||1e-6);
+  const h=(ratio(lm[468].x,lm[33].x,lm[133].x)+ratio(lm[473].x,lm[362].x,lm[263].x))/2;
+  const v=(ratio(lm[468].y,lm[159].y,lm[145].y)+ratio(lm[473].y,lm[386].y,lm[374].y))/2;
+  // 顔の向き: 鼻先が顔の枠の中心からどれだけずれているか
+  const yaw=ratio(lm[1].x,lm[234].x,lm[454].x)*2-1;
+  const pitch=ratio(lm[1].y,lm[10].y,lm[152].y)*2-1;
+  const rawX=.5+(h-.5)*2.6+yaw*.28;
+  const rawY=.5+(v-.5)*1.7+pitch*.45;
+  gazeT.x=(1-clamp(rawX,0,1))*W;          // 自撮り視点: 左右は鏡像になる
+  gazeT.y=clamp(rawY,0,1)*H;
+}
+
+/* ---------- ap-kit(必須オプション一式。loopFrameは渡さない) ---------- */
+setTimeout(()=>hint.classList.add('off'),11000);
+APKit.init({canvas:canvas,gifName:'gaze-garden-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,buttons:[
+  {label:'✦',name:'mutate',onClick:()=>{buildGarden((Math.random()*1e9)|0);hint.classList.add('off')}},
+  {label:'↻',name:'reset',onClick:()=>{buildGarden(FIRST_SEED)}},
+  {label:'👁',name:'camera',toggle:true,onClick:()=>{startCamera()}}
+]});
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
