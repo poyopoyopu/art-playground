@@ -1,0 +1,359 @@
+<!doctype html>
+<!-- BLINK LAW — クロちゃん(Claude)作。2026/11/06 試作(おっちゃんと相談: 「他の機能を使った作品」→まばたき)。
+     世界のルール: 見ている間、世界は止まって氷になる。目を閉じた間だけ時間が流れ、自己相似の結晶が育つ。
+     カメラは👁を押したときだけ起動し、映像は端末の外へ出さない。顔認識(lib/face_mesh)は GAZE LAW と同じものを使う。
+     カメラが無い/使わないときは「画面を押している間=目を閉じている間」で遊べる。何もしないと自動デモ。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#03050d">
+<title>BLINK LAW — 見ていない間にだけ、世界は育つ</title>
+<script src="../ap-kit.js"></script>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#03050d;color:#fff;touch-action:none}
+canvas{display:block;width:100%;height:100%;touch-action:none;outline:none}
+#hint{position:fixed;top:calc(env(safe-area-inset-top) + 16px);left:0;right:0;text-align:center;pointer-events:none;font:500 10px/1.6 ui-monospace,monospace;letter-spacing:.2em;color:rgba(216,232,255,.8);text-shadow:0 0 14px rgba(0,0,0,.9);transition:opacity 1.2s}
+#hint.off{opacity:0}
+#hint.big{font:500 14px/1.8 system-ui,-apple-system,"Hiragino Sans",sans-serif;letter-spacing:.06em;color:#fff;white-space:pre-line}
+#dbg{position:fixed;left:10px;bottom:calc(env(safe-area-inset-bottom) + 10px);pointer-events:none;font:500 9px/1.5 ui-monospace,monospace;letter-spacing:.08em;color:rgba(216,232,255,.55);opacity:0;transition:opacity .6s}
+#dbg.on{opacity:1}
+video{position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none}
+</style>
+</head>
+<body>
+<canvas id="c" aria-label="暗い空間の中心から、対称な枝分かれの結晶が育つ。見ている間は氷のように止まり、目を閉じた間だけ育つ"></canvas>
+<div id="hint"></div>
+<div id="dbg"></div>
+<video id="cam" playsinline muted></video>
+<script>
+(function(){
+'use strict';
+/* BLINK LAW — 世界のルール: 見られている間は凍り、見られていない(目を閉じた)間だけ時間が流れて育つ。
+   育ち方は自己相似の枝分かれ(同じ変換を最大8階層)。開けるたびに「閉じていた間の変化」が一度に現れる。
+   完成(全階層が育って花になる)した世界は、次のまばたきで種に戻り、別の形(腕の数・角度・ねじれ・色)で育ち直す。 */
+const canvas=document.getElementById('c'), ctx=canvas.getContext('2d',{alpha:false});
+const hint=document.getElementById('hint'), dbg=document.getElementById('dbg'), video=document.getElementById('cam');
+const TAU=Math.PI*2, rnd=(a,b)=>a+Math.random()*(b-a), clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+
+/* ---------- 画面 ---------- */
+let W=0,H=0,DPR=1,CX=0,CY=0,R=1,dirty=true;
+function resize(){
+  DPR=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;
+  canvas.width=Math.round(W*DPR);canvas.height=Math.round(H*DPR);ctx.setTransform(DPR,0,0,DPR,0,0);
+  CX=W/2;CY=H*.5;R=Math.min(W*.47,H*.4);dirty=true;
+}
+addEventListener('resize',resize,{passive:true});
+
+/* ---------- 世界(種類) ---------- */
+function makeSpecies(){
+  const kids=Math.random()<.62?2:3;
+  return {
+    sym:[5,6,6,7,8,9][Math.floor(Math.random()*6)],     // 腕の数(回転対称)
+    kids, D:kids===2?8:5,                               // 枝の数と、育つ階層の数
+    ang:rnd(24,50)*Math.PI/180,                         // 枝の開き
+    ratio:kids===2?rnd(.6,.72):rnd(.5,.6),              // 1階層ごとの縮み(自己相似の縮尺)
+    tw:rnd(-9,9)*Math.PI/180,                           // 階層ごとのねじれ(渦になる)
+    hue:Math.random()*360, hueStep:rnd(8,22)*(Math.random()<.5?-1:1)
+  };
+}
+function build(sp){                                     // 1本の腕の全部の枝を、階層ごとの配列に作る
+  const lists=Array.from({length:sp.D+1},()=>[]);let maxR=0;
+  (function rec(x,y,dir,len,d){
+    const x1=x+Math.cos(dir)*len, y1=y+Math.sin(dir)*len;
+    lists[d].push(x,y,x1,y1);maxR=Math.max(maxR,Math.hypot(x1,y1));
+    if(d>=sp.D)return;
+    const nl=len*sp.ratio, td=dir+sp.tw;
+    rec(x1,y1,td+sp.ang,nl,d+1);rec(x1,y1,td-sp.ang,nl,d+1);
+    if(sp.kids===3)rec(x1,y1,td,nl*.95,d+1);
+  })(0,0,-Math.PI/2,1,0);
+  const inv=1/(maxR||1), segs=lists.map(a=>{const f=new Float32Array(a.length);for(let i=0;i<a.length;i++)f[i]=a[i]*inv;return f});
+  const cosA=[],sinA=[];for(let k=0;k<sp.sym;k++){cosA.push(Math.cos(k*TAU/sp.sym));sinA.push(Math.sin(k*TAU/sp.sym))}
+  return {sp,segs,cosA,sinA};
+}
+let st=build(makeSpecies());
+let ghost=null;                                         // 前の世界の消えていく姿 {st,t}
+
+/* ---------- 状態 ---------- */
+let G=0;                                                // 育ち具合(階層の数。D+1で完成)
+const RATE=1.8, BONUS=.2;                               // 目を閉じている間の育つ速さ(階層/秒)・1回のまばたきのおまけ
+let closed=false, prevClosed=false, closedT=0, G0=0, Sopen=99;
+let ring=null, bloomAmt=0, lid=0;
+let tNow=0, lastInput=-99, holdDown=false;
+const cam={on:false,loading:false,stream:null,fm:null,busy:false,lastFace:-99,ear:0,openLevel:0,init:[],eyeClosed:false};
+
+/* ---------- 入力: 画面を押している間=目を閉じている間 ---------- */
+canvas.addEventListener('pointerdown',e=>{
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  holdDown=true;lastInput=tNow;if(introTimer){clearIntro();hint.classList.remove('big');hint.classList.add('off')}
+});
+addEventListener('pointerup',()=>{holdDown=false});
+addEventListener('pointercancel',()=>{holdDown=false});
+addEventListener('blur',()=>{holdDown=false});
+
+/* 自動デモ: ときどき短くまばたき、たまに長く目を閉じる */
+const demo={next:2,end:-1};
+function demoStep(){
+  if(demo.end>tNow)return true;
+  if(tNow>=demo.next){const long=Math.random()<.28,dur=long?rnd(1.3,2.2):rnd(.16,.3);demo.end=tNow+dur;demo.next=demo.end+rnd(1.6,3.4);return true}
+  return false;
+}
+
+/* ---------- 世界の切り替え ---------- */
+function newWorld(){ghost={st,t:0};st=build(makeSpecies());G=0;G0=0;dirty=true}
+function onCloseStart(){closedT=0;if(G>=st.sp.D+1-1e-6)newWorld();G0=G}
+function onOpen(){
+  const D=st.sp.D;
+  if(closedT>.05&&G<D+1)G=Math.min(D+1,G+BONUS);          // まばたき1回ごとに、必ず少し進む
+  const gain=G-G0;
+  if(gain>.05)ring={t:0,amp:Math.min(1,.35+gain*.4)};     // 開けた瞬間、「世界が進んだ」波が出る
+  dirty=true;
+}
+
+/* ---------- 色 ---------- */
+function hsl(h,s,l){h=((h%360)+360)%360/360;const a=s*Math.min(l,1-l);const f=n=>{const k=(n+h*12)%12;return l-a*Math.max(-1,Math.min(k-3,9-k,1))};return [f(0)*255,f(8)*255,f(4)*255]}
+const ICE=[198,224,255];
+function colorAt(sp,d,ice){
+  const c=hsl(sp.hue+d*sp.hueStep,.8,.56+.025*d);
+  return [c[0]+(ICE[0]-c[0])*ice, c[1]+(ICE[1]-c[1])*ice, c[2]+(ICE[2]-c[2])*ice];
+}
+const rgba=(c,a)=>'rgba('+(c[0]|0)+','+(c[1]|0)+','+(c[2]|0)+','+a.toFixed(3)+')';
+const easeOut=u=>1-(1-u)*(1-u);
+
+/* ---------- 描画 ---------- */
+const dust=Array.from({length:70},()=>({a:Math.random()*TAU,r:rnd(.12,1.3),s:rnd(.02,.09),m:rnd(.5,1.4)}));
+function drawStruct(s,Gv,aMul,scale,ice,vivid,bloom){
+  const sp=s.sp,D=sp.D,Rr=R*scale,wk=R/170;
+  for(let d=0;d<=D;d++){
+    const fr=clamp(Gv-d,0,1);if(fr<=0)break;
+    const e=easeOut(fr),arr=s.segs[d],col=colorAt(sp,d,ice);
+    ctx.beginPath();
+    for(let k=0;k<sp.sym;k++){
+      const c=s.cosA[k],sn=s.sinA[k];
+      for(let i=0;i<arr.length;i+=4){
+        const x0=arr[i],y0=arr[i+1],x1=x0+(arr[i+2]-x0)*e,y1=y0+(arr[i+3]-y0)*e;
+        ctx.moveTo(CX+Rr*(x0*c-y0*sn),CY+Rr*(x0*sn+y0*c));
+        ctx.lineTo(CX+Rr*(x1*c-y1*sn),CY+Rr*(x1*sn+y1*c));
+      }
+    }
+    const w=Math.max(.6,2.6*Math.pow(.74,d))*wk;
+    ctx.lineWidth=w*3.6;ctx.strokeStyle=rgba(col,(.06+.1*vivid)*aMul);ctx.stroke();      // にじみ
+    ctx.lineWidth=w;ctx.strokeStyle=rgba(col,(.88-.035*d)*aMul);ctx.stroke();            // 芯
+  }
+  /* 完成: 先端がぜんぶ花になる */
+  if(bloom>.01){
+    const arr=s.segs[D],col=colorAt(sp,D,ice*.7);
+    ctx.beginPath();
+    for(let k=0;k<sp.sym;k++){
+      const c=s.cosA[k],sn=s.sinA[k];
+      for(let i=0;i<arr.length;i+=4){
+        const x1=arr[i+2],y1=arr[i+3],px=CX+Rr*(x1*c-y1*sn),py=CY+Rr*(x1*sn+y1*c);
+        ctx.moveTo(px+3.2*wk*bloom,py);ctx.arc(px,py,3.2*wk*bloom,0,TAU);
+      }
+    }
+    ctx.fillStyle=rgba(col,.55*aMul*bloom);ctx.fill();
+  }
+  /* 育っている先端の火花(見えるのは閉じている間と、開けた直後) */
+  const df=Math.floor(Gv);
+  if(vivid>.2&&df<=D&&Gv-df>0&&Gv-df<1&&aMul>.5){
+    const arr=s.segs[df],e=easeOut(Gv-df),col=colorAt(sp,df,ice*.3);
+    ctx.beginPath();
+    for(let k=0;k<sp.sym;k++){
+      const c=s.cosA[k],sn=s.sinA[k];
+      for(let i=0;i<arr.length;i+=12){
+        const x0=arr[i],y0=arr[i+1],x1=x0+(arr[i+2]-x0)*e,y1=y0+(arr[i+3]-y0)*e,px=CX+Rr*(x1*c-y1*sn),py=CY+Rr*(x1*sn+y1*c);
+        ctx.moveTo(px+1.8*wk,py);ctx.arc(px,py,1.8*wk,0,TAU);
+      }
+    }
+    ctx.fillStyle=rgba(col,.8*vivid);ctx.fill();
+  }
+}
+function draw(vivid,ice){
+  /* 背景 */
+  ctx.globalCompositeOperation='source-over';
+  const g=ctx.createRadialGradient(CX,CY,0,CX,CY,Math.max(W,H)*.7);
+  g.addColorStop(0,'#0b1330');g.addColorStop(1,'#03050d');
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  ctx.globalCompositeOperation='lighter';
+  /* 塵(閉じている間だけ流れる) */
+  ctx.beginPath();
+  for(const p of dust){const x=CX+Math.cos(p.a)*p.r*R*1.2,y=CY+Math.sin(p.a)*p.r*R*1.2;ctx.moveTo(x+1.2,y);ctx.arc(x,y,1.2,0,TAU)}
+  ctx.fillStyle='rgba(170,200,255,'+(.16+.2*vivid).toFixed(3)+')';ctx.fill();
+  /* 中心の種 */
+  const sc=colorAt(st.sp,0,ice);
+  ctx.beginPath();ctx.arc(CX,CY,R*.013,0,TAU);ctx.fillStyle=rgba(sc,.9);ctx.fill();
+  if(ghost){const u=ghost.t;drawStruct(ghost.st,ghost.st.sp.D+1,(1-u)*.9,1-.85*easeOut(u),.85,0,1-u)}
+  drawStruct(st,G,1,1,ice,vivid,bloomAmt);
+  /* 開けた瞬間の波 */
+  if(ring){
+    const u=ring.t,e=easeOut(u);
+    ctx.beginPath();ctx.arc(CX,CY,R*(.08+1.2*e),0,TAU);
+    ctx.lineWidth=(1.2+2.4*(1-u))*R/170;ctx.strokeStyle='rgba(196,224,255,'+((1-u)*.55*ring.amp).toFixed(3)+')';ctx.stroke();
+  }
+  /* まぶた(目を閉じているのが分かる合図) */
+  ctx.globalCompositeOperation='source-over';
+  if(lid>.01){
+    const h=H*.3*lid;
+    let gr=ctx.createLinearGradient(0,0,0,h);gr.addColorStop(0,'rgba(0,0,0,'+(.82*lid).toFixed(3)+')');gr.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=gr;ctx.fillRect(0,0,W,h);
+    gr=ctx.createLinearGradient(0,H,0,H-h);gr.addColorStop(0,'rgba(0,0,0,'+(.82*lid).toFixed(3)+')');gr.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=gr;ctx.fillRect(0,H-h,W,h);
+  }
+}
+
+/* ---------- 案内 ---------- */
+let introTimer=null;
+function showIntro(){
+  hint.textContent='見ている間、世界は止まる。目を閉じた間だけ育つ\n画面を押す=目を閉じる　👁=カメラでまばたき';
+  hint.classList.add('big');hint.classList.remove('off');
+  introTimer=setTimeout(()=>{hint.classList.add('off');introTimer=setTimeout(()=>{hint.classList.remove('big');introTimer=null},1500)},9000);
+}
+function clearIntro(){if(introTimer){clearTimeout(introTimer);introTimer=null}}
+let hintT=null;
+function say(text,big,ms){
+  clearIntro();clearTimeout(hintT);
+  hint.textContent=text;hint.classList.toggle('big',!!big);hint.classList.remove('off');
+  if(ms)hintT=setTimeout(()=>{hint.classList.add('off');hintT=setTimeout(()=>hint.classList.remove('big'),1500)},ms);
+}
+
+/* ---------- カメラ: まばたきの検出 ---------- */
+/* 目の開き(EAR)= まぶたの上下の距離 ÷ 目の幅(片目3か所の平均、両目の平均)。個人差・向きの差が大きいので、
+   「いつもの開き具合」を自分で学び(上へは素早く・下へはゆっくり)、その62%を下回ったら閉じた、78%を超えたら開いた(ヒステリシス) */
+const EYE_L=[[33,133,[[160,144],[159,145],[158,153]]],[362,263,[[385,380],[386,374],[387,373]]]];
+function earOf(L,vw,vh){
+  let sum=0;
+  for(const e of EYE_L){
+    const w=Math.hypot((L[e[0]].x-L[e[1]].x)*vw,(L[e[0]].y-L[e[1]].y)*vh)||1;
+    let v=0;for(const p of e[2])v+=Math.hypot((L[p[0]].x-L[p[1]].x)*vw,(L[p[0]].y-L[p[1]].y)*vh);
+    sum+=v/3/w;
+  }
+  return sum/2;
+}
+function median(a){const b=a.slice().sort((x,y)=>x-y),n=b.length;return n%2?b[(n-1)/2]:(b[n/2-1]+b[n/2])/2}
+function feedEar(ear){                                   // 1コマごとに呼ぶ(カメラの結果。テストでも直接呼べる)
+  cam.ear=ear;
+  if(cam.init.length<20){cam.init.push(ear);if(cam.init.length===20)cam.openLevel=median(cam.init);return}
+  if(!cam.eyeClosed)cam.openLevel+=(ear-cam.openLevel)*(ear>cam.openLevel?.08:.01);
+  const closeTh=cam.openLevel*.62, openTh=cam.openLevel*.78;
+  if(!cam.eyeClosed&&ear<closeTh)cam.eyeClosed=true;
+  else if(cam.eyeClosed&&ear>openTh)cam.eyeClosed=false;
+}
+function onFace(res){
+  const L=res.multiFaceLandmarks&&res.multiFaceLandmarks[0];
+  if(!L||L.length<468)return;
+  cam.lastFace=performance.now()/1000;
+  feedEar(earOf(L,video.videoWidth||640,video.videoHeight||480));
+}
+function loadScript(src){return new Promise((ok,ng)=>{const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=()=>ng(Error('load '+src));document.head.appendChild(s)})}
+async function startCamera(){
+  if(cam.on||cam.loading)return;
+  cam.loading=true;
+  try{
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw Error('no getUserMedia');
+    cam.stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:640},height:{ideal:480}},audio:false});
+    video.srcObject=cam.stream;await video.play();
+    say('顔の読み取りを準備中…',true,0);
+    if(!window.FaceMesh)await loadScript('../lib/face_mesh/face_mesh.js');
+    if(!cam.fm){
+      cam.fm=new window.FaceMesh({locateFile:f=>'../lib/face_mesh/'+f});
+      cam.fm.setOptions({maxNumFaces:1,refineLandmarks:true,minDetectionConfidence:.5,minTrackingConfidence:.5});
+      cam.fm.onResults(onFace);
+      await cam.fm.initialize();
+    }
+    if(!cam.stream)return;                                // 読み込み中にもう一度押されて止められた
+    cam.on=true;cam.lastFace=-99;cam.init=[];cam.eyeClosed=false;cam.openLevel=0;
+    dbg.classList.add('on');
+    say('まばたきするたびに、世界が一歩進む\n数秒つむると、大きく育つ(映像は端末の外に出ません)',true,8000);
+    pumpCamera();
+  }catch(err){
+    console.error(err);
+    stopCamera();
+    const denied=err&&(err.name==='NotAllowedError'||err.name==='SecurityError');
+    if(window.APKit)APKit.toast(denied?'カメラが許可されませんでした。画面を押して遊べます':'この端末ではカメラを始められませんでした');
+    setCamButton(false);
+  }finally{cam.loading=false}
+}
+function stopCamera(){
+  cam.on=false;cam.eyeClosed=false;dbg.classList.remove('on');
+  if(cam.stream){cam.stream.getTracks().forEach(t=>t.stop());cam.stream=null}
+  video.srcObject=null;lastInput=tNow;
+}
+async function pumpCamera(){
+  if(!cam.on)return;
+  if(!cam.busy&&video.readyState>=2){cam.busy=true;try{await cam.fm.send({image:video})}catch(e){console.error(e)}cam.busy=false}
+  if(video.requestVideoFrameCallback)video.requestVideoFrameCallback(()=>pumpCamera());else requestAnimationFrame(pumpCamera);
+}
+let camBtn=null;
+function setCamButton(on){if(camBtn)camBtn.classList.toggle('apk-on',on)}
+
+/* ---------- 毎フレーム ---------- */
+let last=performance.now(), dbgT=0, noFaceShown=false, firstDraw=true;
+function frame(ms){
+  const dt=Math.min(.05,Math.max(.001,(ms-last)/1000));last=ms;tNow+=dt;
+  const now=performance.now()/1000, D=st.sp.D;
+
+  /* いま「目を閉じている」か */
+  let want=false;
+  const demoOn=!cam.on&&!holdDown&&(tNow-lastInput>5);
+  if(demoOn)want=demoStep();else{demo.end=-1;demo.next=tNow+1.5}
+  if(holdDown)want=true;
+  if(cam.on){
+    const stale=now-cam.lastFace>.5;                      // 顔を見失っても、直前まで閉じていたなら4秒までは閉じていたことにする
+    want=want||(cam.eyeClosed&&(!stale||now-cam.lastFace<4));
+    const lost=now-cam.lastFace>2.5;
+    if(lost&&!noFaceShown){noFaceShown=true;say('顔が映っていません\n明るい所で、顔を画面に向けて',true,0)}
+    else if(!lost&&noFaceShown){noFaceShown=false;say('',false,1)}
+  }
+  closed=want;
+  if(closed&&!prevClosed)onCloseStart();
+  if(!closed&&prevClosed)onOpen();
+  prevClosed=closed;
+
+  /* 世界の時間: 閉じている間だけ進む */
+  if(closed){
+    closedT+=dt;Sopen=0;
+    if(G<D+1)G=Math.min(D+1,G+dt*RATE);
+    for(const p of dust)p.a+=dt*p.s*p.m;
+  }else Sopen+=dt;
+  const vivid=closed?1:Math.exp(-Sopen/2.4), ice=(1-vivid)*.86;   // 見つめているうちに氷の色になる
+  const bt=G>=D+1-1e-4?1:0, bAmt0=bloomAmt;
+  bloomAmt+=(bt-bloomAmt)*(1-Math.exp(-dt*3));if(Math.abs(bt-bloomAmt)<.003)bloomAmt=bt;
+  const lt=closed?1:0;lid+=(lt-lid)*(1-Math.exp(-dt*(lt>lid?22:9)));if(lid<.004&&!closed)lid=0;
+  if(ring){ring.t+=dt/1.1;if(ring.t>=1)ring=null}
+  if(ghost){ghost.t+=dt/.9;if(ghost.t>=1)ghost=null}
+
+  const anim=closed||lid>.004||vivid>.012||ring||ghost||bloomAmt!==bAmt0||firstDraw;
+  if(anim||dirty){draw(vivid,ice);dirty=false;firstDraw=false}   // 止まっている間(氷になった後)は描き直さない
+
+  if(cam.on&&now-dbgT>.2){dbgT=now;dbg.textContent='EAR '+cam.ear.toFixed(2)+' / OPEN '+cam.openLevel.toFixed(2)+' · '+(cam.eyeClosed?'閉':'開')+' · G '+G.toFixed(1)+'/'+(D+1)}
+  requestAnimationFrame(frame);
+}
+
+/* ---------- 起動 ---------- */
+resize();showIntro();requestAnimationFrame(frame);
+
+function mutate(){newWorld();ghost=null;lastInput=tNow;say('SEED · '+st.sp.sym+' ARMS',false,2200)}
+function reset(){G=0;G0=0;ring=null;bloomAmt=0;dirty=true;lastInput=tNow}
+
+APKit.init({
+  canvas:canvas,
+  gifName:'blink-law-loop',
+  clockFormat:'spec',
+  dock:true,
+  autoHide:true,
+  fullscreenButton:false,
+  buttons:[
+    {label:'✦',name:'mutate',onClick:mutate},
+    {label:'↻',name:'reset',onClick:reset},
+    {label:'👁',name:'camera',toggle:true,onClick:(b)=>{
+      camBtn=b;
+      if(cam.on||cam.loading){stopCamera();setTimeout(()=>setCamButton(false),0)}
+      else startCamera();
+    }}
+  ]
+});
+})();
+</script>
+</body>
+</html>
