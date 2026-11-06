@@ -1,0 +1,513 @@
+<!doctype html>
+<!-- BLOWN GLASS — クロちゃん(Claude)作。2026/11/06 試作(おっちゃん「息を吹く作品、タンポポ以外で」→吹きガラス)。
+     世界のルール: 息で膨らむのは「熱いガラス」だけ。息が途切れた所から冷めて固まり、その形のまま二度と戻らない。
+       → 息の強弱がそのまま形の凹凸になる(吹き続ければ丸い玉、吹いて休んでを繰り返せばくびれのある壺)。吹きすぎると割れる。
+     マイクは「マイクで息を吹く」を押したときだけ起動(ギャラリーのタイルで勝手に許可が出ない)。声は区別して無視する。
+     マイクが無い/使わないときは、画面を押している間が息になる。何も触らないと自動デモが吹く。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#070608">
+<title>BLOWN GLASS — 息の強さが形になり、冷めると固まる</title>
+<script src="../ap-kit.js"></script>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#070608;color:#fff;touch-action:none;
+  -webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+canvas{display:block;width:100%;height:100%;touch-action:none;outline:none}
+#msg{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 21vh);text-align:center;pointer-events:none;
+  font:500 13px/1.8 system-ui,-apple-system,"Hiragino Sans",sans-serif;letter-spacing:.08em;color:rgba(255,236,214,.86);
+  text-shadow:0 0 12px rgba(0,0,0,.9);transition:opacity .8s;white-space:pre-line}
+#msg.off{opacity:0}
+#mic{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 12vh);transform:translateX(-50%);z-index:20;
+  border:1px solid rgba(255,214,170,.5);background:rgba(20,12,8,.72);color:#ffe9d2;border-radius:999px;padding:11px 20px;
+  font:600 13px/1 system-ui,-apple-system,"Hiragino Sans",sans-serif;letter-spacing:.08em;cursor:pointer;
+  -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);transition:opacity .6s}
+#mic.off{opacity:0;pointer-events:none}
+#dbg{position:fixed;left:10px;top:calc(env(safe-area-inset-top) + 10px);pointer-events:none;font:500 9px/1.5 ui-monospace,monospace;
+  letter-spacing:.06em;color:rgba(255,236,214,.6);white-space:pre}
+#guide{position:fixed;inset:0;z-index:60;display:none;align-items:flex-end;justify-content:center;background:rgba(0,0,0,.55)}
+#guide.on{display:flex}
+#guide .sheet{width:min(560px,100%);max-height:86%;overflow-y:auto;-webkit-overflow-scrolling:touch;background:#17110d;color:#f3e4d2;
+  border-radius:18px 18px 0 0;padding:18px 20px calc(env(safe-area-inset-bottom) + 22px);font:13px/1.75 system-ui,-apple-system,"Hiragino Sans",sans-serif;
+  border-top:1px solid rgba(255,200,150,.25)}
+#guide h2{margin:0 0 2px;font-size:18px;letter-spacing:.1em}
+#guide .law{margin:0 0 12px;color:#d9a577}
+#guide h3{margin:14px 0 4px;font-size:13px;color:#ffb877}
+#guide .ops div{display:flex;gap:10px;align-items:baseline;margin:3px 0}
+#guide .ops b{flex:0 0 3.6em;color:#fff}
+#guide .close{position:sticky;top:0;float:right;border:0;background:#2b2018;color:#f3e4d2;width:34px;height:34px;border-radius:17px;font-size:18px;line-height:34px}
+</style>
+</head>
+<body>
+<canvas id="c" aria-label="吹きガラスの作業場。ガラスに息を吹き込むと、熱いうちだけ膨らみ、冷めるとその形で固まって棚に並ぶ"></canvas>
+<div id="msg"></div>
+<button id="mic" type="button">🎤 マイクで息を吹く</button>
+<div id="dbg"></div>
+<div id="guide"><div class="sheet"><button class="close" aria-label="閉じる">×</button>
+  <h2>BLOWN GLASS</h2>
+  <p class="law">熱いガラスだけが、息で膨らむ。冷めたら、もう戻らない。</p>
+  <h3>操作</h3>
+  <div class="ops">
+    <div><b>息</b><span>マイクに息を吹く(声は無視します)。下の「マイクで息を吹く」を押すと許可を聞かれます</span></div>
+    <div><b>押す</b><span>マイクが使えないときは、画面を押している間が息になります</span></div>
+    <div><b>✦</b><span>ガラスの色を変える</span></div>
+    <div><b>↻</b><span>棚を空にして、最初から</span></div>
+  </div>
+  <h3>コツ</h3>
+  <div class="ops">
+    <div><b>続ける</b><span>ずっと吹き続けると、ひとつの丸い玉になります</span></div>
+    <div><b>休む</b><span>吹いて、休んで、また吹くと、休んだ所がくびれた壺になります</span></div>
+    <div><b>吹きすぎ</b><span>大きくなりすぎて薄くなると、割れます</span></div>
+  </div>
+</div></div>
+<script>
+(function(){
+'use strict';
+/* BLOWN GLASS — 世界のルール: 息で膨らむのは熱いガラスだけ。冷めた所は二度と動かない。
+   ガラスは「輪切りの列」で持つ(各輪切り = 半径r・温度T)。息は温度の高い輪切りだけを膨らませ、温度は時間で下がる。
+   冷えた部分は形が固定されるので、吹いた強さ・休んだ長さが、そのまま壺の輪郭になる。 */
+const cv=document.getElementById('c'), ctx=cv.getContext('2d',{alpha:false});
+const msg=document.getElementById('msg'), micBtn=document.getElementById('mic'), dbgEl=document.getElementById('dbg');
+const guide=document.getElementById('guide');
+const TAU=Math.PI*2, clamp=(v,a,b)=>v<a?a:v>b?b:v, lerp=(a,b,t)=>a+(b-a)*t, rnd=(a,b)=>a+Math.random()*(b-a);
+const smooth=(a,b,x)=>{const t=clamp((x-a)/(b-a),0,1);return t*t*(3-2*t)};
+const DBG=/[?&]dbg=1/.test(location.search);
+
+/* ---------- 息(マイク) ----------
+   息 = なだらかな雑音。声 = 倍音の山が鋭い。そこで「スペクトルの細かい凸凹(roughness)」で声を弾き、
+   残った音量(静かな時の床からの高さ)を息の強さにする。AGC/ノイズ抑制は息を消すので切る。 */
+const Breath=(function(){
+  const S={on:false,denied:false,starting:false,level:0,voice:0,rough:0,pk:0,db:-90,floor:-90};
+  let ac=null,an=null,td=null,fd=null,pw=null,ring=new Float32Array(6),ri=0,sm=0,cal=0,calN=0,calFloor=-70,binHz=43,dsb=new Float32Array(512),acTick=0,pkS=0,roughS=0;
+  /* 声は周期的(基本周波数70〜400Hzで波形が繰り返す)、息は繰り返さない。4分の1に間引いて自己相関をとる */
+  function periodicity(){
+    for(let i=0;i<512;i++)dsb[i]=(td[4*i]+td[4*i+1]+td[4*i+2]+td[4*i+3])*.25;
+    let m=0;for(let i=0;i<512;i++)m+=dsb[i];m/=512;
+    let r0=0;for(let i=0;i<512;i++){dsb[i]-=m;r0+=dsb[i]*dsb[i]}
+    if(r0<1e-9)return 0;
+    const sr4=ac.sampleRate/4, lagMin=Math.floor(sr4/400), lagMax=Math.min(300,Math.ceil(sr4/70));
+    let best=0,neg=false;
+    for(let lag=2;lag<=lagMax;lag++){
+      let sum=0;for(let i=0;i<512-lag;i++)sum+=dsb[i]*dsb[i+lag];
+      const r=sum/r0*(512/(512-lag));
+      if(r<0)neg=true;
+      if(neg&&lag>=lagMin&&r>best)best=r;
+    }
+    return clamp(best,0,1);
+  }
+  async function start(){
+    if(S.on||S.starting||S.denied)return;
+    S.starting=true;
+    try{
+      const md=navigator.mediaDevices;
+      if(!md||!md.getUserMedia)throw new Error('nomic');
+      const st=await md.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+      const AC=window.AudioContext||window.webkitAudioContext;
+      ac=new AC(); if(ac.state==='suspended')await ac.resume();
+      const src=ac.createMediaStreamSource(st);
+      an=ac.createAnalyser(); an.fftSize=2048; an.smoothingTimeConstant=0; src.connect(an);
+      td=new Float32Array(an.fftSize); fd=new Float32Array(an.frequencyBinCount); pw=new Float32Array(an.frequencyBinCount);
+      binHz=ac.sampleRate/an.fftSize; S.on=true;
+    }catch(e){S.denied=true}
+    S.starting=false;
+  }
+  function update(dt){
+    if(!S.on){S.level=0;return 0}
+    an.getFloatTimeDomainData(td);
+    let ss=0; for(let i=0;i<td.length;i++)ss+=td[i]*td[i];
+    const db=20*Math.log10(Math.sqrt(ss/td.length)+1e-7); S.db=db;
+    /* 床(静かな時の音量): 最初の約0.7秒で測り、その後は下がるのは速く・上がるのは遅く追う */
+    if(calN<40){cal+=db;calN++;if(calN===40){calFloor=cal/40;S.floor=calFloor}}
+    else{
+      if(db<S.floor)S.floor+=(db-S.floor)*Math.min(1,dt*4); else S.floor+=1.2*dt;
+      S.floor=clamp(S.floor,calFloor-12,calFloor+14);
+    }
+    /* 声の判定: 平均したパワースペクトルの、局所平均からのズレ(dB)。息はなだらか、声は倍音で凸凹 */
+    an.getFloatFrequencyData(fd);
+    const kLo=Math.max(14,Math.round(150/binHz)), kHi=Math.min(fd.length-14,Math.round(6000/binHz));
+    for(let k=0;k<fd.length;k++){const v=fd[k],p=(v>-140&&v<20)?Math.pow(10,v/10):0;pw[k]=pw[k]*.7+p*.3}
+    let sum=0,cnt=0;
+    for(let k=kLo;k<kHi;k++){
+      let m=0;for(let j=-12;j<=12;j++)m+=10*Math.log10(pw[k+j]+1e-14);
+      m/=25; sum+=Math.abs(10*Math.log10(pw[k]+1e-14)-m); cnt++;
+    }
+    roughS+=((cnt?sum/cnt:0)-roughS)*.25; const rough=roughS; S.rough=rough;
+    if((acTick++%3)===0)pkS+=(periodicity()-pkS)*.5;
+    S.pk=pkS;
+    const voice=Math.max(smooth(2.6,4.2,rough),smooth(.5,.75,pkS)); S.voice=voice;
+    const x=clamp((db-S.floor-9)/28,0,1);
+    const raw=calN<40?0:x*(1-voice);
+    /* 直近約0.1秒ずっと続いた分だけ採用(拍手などの一瞬の音を弾く) */
+    ring[ri]=raw; ri=(ri+1)%ring.length; let mn=1; for(let i=0;i<ring.length;i++)mn=Math.min(mn,ring[i]);
+    sm+=(mn-sm)*(1-Math.exp(-dt/(mn>sm?.10:.22)));
+    S.level=sm; return sm;
+  }
+  return {S,start,update};
+})();
+window.APBreath=Breath;
+
+/* ---------- 画面 ---------- */
+let W=0,H=0,DPR=1,u=100,dy=9,y0=0,shelfY=0,cx=0;
+function layout(){
+  u=Math.min(W*.40,H*.20); dy=H*.0105; y0=H*.19; shelfY=H*.935; cx=W/2;
+}
+function resize(){
+  DPR=Math.min(2,window.devicePixelRatio||1); W=window.innerWidth; H=window.innerHeight;
+  cv.width=Math.round(W*DPR); cv.height=Math.round(H*DPR); ctx.setTransform(DPR,0,0,DPR,0,0); layout();
+}
+window.addEventListener('resize',resize); resize();
+
+/* ---------- ガラス ---------- */
+const NMAX=60, TINTS=[
+  {c:[150,205,235],s:0},    /* クリア */
+  {c:[60,110,255],s:.8},    /* コバルト */
+  {c:[255,50,80],s:.8},     /* ルビー */
+  {c:[40,210,140],s:.8},    /* エメラルド */
+  {c:[255,175,50],s:.7},    /* アンバー */
+  {c:[170,90,255],s:.8}     /* バイオレット */
+];
+function glassCol(T,tint){
+  const t0=TINTS[tint];
+  const c0=[lerp(150,t0.c[0],t0.s),lerp(205,t0.c[1],t0.s),lerp(235,t0.c[2],t0.s),.20+.22*t0.s];
+  const c1=[lerp(c0[0],170,.4),lerp(c0[1],80,.4),lerp(c0[2],60,.4),.38];
+  const st=[[0,c0],[.08,c1],[.2,[150,45,25,.8]],[.4,[230,80,25,.93]],[.65,[255,150,50,.97]],[1,[255,232,160,.99]]];
+  T=clamp(T,0,1);
+  for(let i=1;i<st.length;i++){
+    if(T<=st[i][0]){
+      const a=st[i-1],b=st[i],f=(T-a[0])/(b[0]-a[0]);
+      return [lerp(a[1][0],b[1][0],f),lerp(a[1][1],b[1][1],f),lerp(a[1][2],b[1][2],f),lerp(a[1][3],b[1][3],f)];
+    }
+  }
+  return st[st.length-1][1];
+}
+const rgba=(c,aMul)=>'rgba('+(c[0]|0)+','+(c[1]|0)+','+(c[2]|0)+','+(c[3]*(aMul==null?1:aMul)).toFixed(3)+')';
+
+let tintNext=Math.floor(Math.random()*TINTS.length);
+function newPiece(){
+  const tint=tintNext; tintNext=(tintNext+1+Math.floor(Math.random()*(TINTS.length-1)))%TINTS.length;
+  return {secs:[{r:.11,T:1},{r:.12,T:1},{r:.11,T:1}],grow:0,stress:0,phase:'wait',pt:0,began:false,tint,hue:rnd(0,360),
+          cx:cx,topY:y0,s:1,mv:0,mvFrom:null,wob:0};
+}
+let cur=newPiece(), shelf=[], shards=[], flash=0, tt=0;
+
+function stepPiece(p,b,dt){
+  p.pt+=dt;
+  const S=p.secs;
+  if(p.phase==='wait'||p.phase==='blow'){
+    const act=b>.10?(b-.10)/.90:0;
+    if(act>0&&!p.began){p.began=true;p.phase='blow'}
+    let n=S.length;
+    if(p.began){
+      for(let i=0;i<n;i++){const s=S[i];s.T*=Math.exp(-dt/(2.7/(.8+.8*Math.min(1,s.r)))*(1+.8*act)*(1+3.5*Math.exp(-i/2.2)))}
+    }
+    if(act>0){
+      for(let i=0;i<n;i++){
+        const s=S[i], edge=Math.min(1,(i+.5)/3)*Math.pow(Math.min(1,(n-i-.5)/2),.7), w=Math.pow(s.T,2.2);
+        s.r+=act*2.4*w*edge*(1.1-Math.min(s.r,1.1))*dt;
+      }
+      p.grow+=act*2.0*dt;
+      while(p.grow>=1&&S.length<NMAX&&layoutY(S,0,1).end<H*.56){p.grow-=1;S.push({r:Math.max(.08,S[S.length-1].r*.8),T:1})}
+      n=S.length;
+    }
+    /* 熱い所だけ表面張力でなめらかになる(冷えた所は動かない=くびれが残る) */
+    for(let i=1;i<n-1;i++){
+      const k=Math.min(S[i-1].T,S[i].T,S[i+1].T);
+      S[i].r+=((S[i-1].r+S[i+1].r)*.5-S[i].r)*k*k*5*dt;
+    }
+    /* 吹きすぎ: 熱くて大きい所に息を送り続けると、薄くなって割れる */
+    let over=0;
+    for(let i=0;i<n;i++)if(S[i].T>.3&&S[i].r>.93)over=Math.max(over,S[i].r-.9);
+    let cold=0;
+    for(let i=0;i<n;i++)if(S[i].T<.25&&S[i].r>.3)cold=Math.max(cold,S[i].r);
+    const hard=act>.93?(act-.93)*cold*16:0;
+    if(act>0&&(over>0||hard>0))p.stress+=(act*over*8+hard)*dt; else p.stress=Math.max(0,p.stress-.3*dt);
+    p.wob=Math.min(1,p.stress*1.3);
+    if(p.stress>=1){burst(p);return}
+    if(p.began&&act===0){
+      let mx=0;for(let i=0;i<n;i++)mx=Math.max(mx,S[i].T);
+      if(mx<.10){p.phase='set';p.pt=0}
+    }
+  }else if(p.phase==='set'){
+    for(let i=0;i<S.length;i++)S[i].T*=Math.exp(-dt/.7);
+    if(p.pt>2.4){p.phase='move';p.pt=0;p.mv=0;p.mvFrom={cx:p.cx,topY:p.topY};for(let i=0;i<S.length;i++)S[i].T=0}
+  }else if(p.phase==='move'){
+    p.mv=Math.min(1,p.pt/1.5);
+    if(p.mv>=1){
+      const slot=slotInfo(shelf.length+1,shelf.length);
+      shelf.push({secs:p.secs,tint:p.tint,hue:p.hue,x:slot.x,tx:slot.x,s:SHELF_S});
+      cur=newPiece();
+    }
+  }
+}
+const SHELF_S=.2;
+function slotCount(){return Math.max(3,Math.min(8,Math.floor(W/62)))}
+function slotInfo(total,i){const c=slotCount();return {x:W*(i+.5)/c}}
+function secH(r){return dy*(.5+6*r)}
+function layoutY(secs,topY,s){const out=[];let y=topY;for(let i=0;i<secs.length;i++){const h=secH(secs[i].r)*s;out.push(y+h/2);y+=h}return {ys:out,end:y}}
+function pieceHeight(secs,s){return layoutY(secs,0,s).end+secs[secs.length-1].r*u*.75*s}
+
+function burst(p){
+  const S=p.secs,n=S.length,cs=cx,top=p.topY,ly=layoutY(S,top,1).ys;
+  for(let i=0;i<n-1;i++){
+    for(const sd of [-1,1]){
+      const a=S[i],b=S[i+1],ya=ly[i],yb=ly[i+1];
+      const pieces=2;
+      for(let q=0;q<pieces;q++){
+        const f0=q/pieces,f1=(q+1)/pieces;
+        const xs=[a.r*u*f0,a.r*u*f1,b.r*u*f1,b.r*u*f0];
+        const ys=[ya,ya,yb,yb];
+        const pts=xs.map((x,k)=>[cs+sd*x+rnd(-2,2),ys[k]+rnd(-2,2)]);
+        const mx=pts.reduce((s,q2)=>s+q2[0],0)/4,my=(ya+yb)/2;
+        shards.push({pts:pts.map(q2=>[q2[0]-mx,q2[1]-my]),x:mx,y:my,vx:sd*rnd(60,360)*(.4+f0*1.2),vy:rnd(-340,-60),rot:0,vr:rnd(-5,5),T:(a.T+b.T)/2,tint:p.tint,life:1});
+      }
+    }
+  }
+  flash=1; p.phase='burst'; p.pt=0;
+}
+
+/* ---------- 入力 ---------- */
+let holding=0, lastInput=-99, started=false;
+const ptrs=new Set();
+function uiTarget(e){
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return true;
+  const t=e.target; return !!(t&&t.closest&&t.closest('#mic,#guide'));
+}
+window.addEventListener('pointerdown',e=>{if(uiTarget(e))return;ptrs.add(e.pointerId);lastInput=tt;started=true},{passive:true});
+function pup(e){ptrs.delete(e.pointerId)}
+window.addEventListener('pointerup',pup,{passive:true});window.addEventListener('pointercancel',pup,{passive:true});
+window.addEventListener('blur',()=>ptrs.clear());
+
+let msgTimer=0;
+function say(t,sec){msg.textContent=t;msg.classList.remove('off');msgTimer=sec||0}
+micBtn.addEventListener('click',async()=>{
+  micBtn.textContent='マイクの許可を聞いています…';
+  await Breath.start();
+  if(Breath.S.on){micBtn.classList.add('off');say('息を吹いてみて\n(マイクに向かって、ふーっと)',6)}
+  else{micBtn.classList.add('off');say('マイクが使えませんでした\n画面を押している間が、息になります',7)}
+});
+
+/* ---------- 自動デモ(誰も触らない間、ひとりで吹く) ---------- */
+const demo={t:0,wait:1.2,seq:null,i:0};
+function demoPick(){
+  const k=Math.random();
+  if(k<.4)demo.seq=[[rnd(1.8,2.6),rnd(.62,.72)]];
+  else if(k<.8){const m=3+Math.floor(Math.random()*3),a=rnd(.62,.72);demo.seq=[];for(let j=0;j<m;j++)demo.seq.push([.45,a],[.7,0])}
+  else demo.seq=[[rnd(2.4,3.2),rnd(.45,.55)]];
+  demo.i=0;demo.t=0;
+}
+function demoBreath(dt){
+  if(demo.wait>0){demo.wait-=dt;return 0}
+  if(!demo.seq)demoPick();
+  const seg=demo.seq[demo.i];demo.t+=dt;
+  const ph=clamp(demo.t/seg[0],0,1), env=Math.sin(Math.PI*Math.min(1,ph*1.0))*.5+.5*Math.min(1,Math.sin(Math.PI*ph)*3);
+  const v=seg[1]*Math.min(1,Math.sin(Math.PI*ph)*2.2);
+  if(demo.t>=seg[0]){demo.i++;demo.t=0;if(demo.i>=demo.seq.length){demo.seq=null;demo.wait=rnd(.8,2.2)}}
+  return v;
+}
+
+/* ---------- 描画 ---------- */
+function vesselPts(secs,topY,s,wob){
+  const n=secs.length, pts=[{y:topY,r:.045}], lay=layoutY(secs,topY,s);
+  for(let i=0;i<n;i++){
+    const w=wob?(1+wob*.035*Math.sin(i*1.9+tt*38)):1;
+    pts.push({y:lay.ys[i],r:secs[i].r*w});
+  }
+  const L=pts[pts.length-1], us=u*s;
+  for(let k=1;k<=6;k++){const a=k/6*Math.PI/2;pts.push({y:L.y+L.r*us*.75*Math.sin(a),r:L.r*Math.cos(a)})}
+  return pts;
+}
+function trace(pts,x,us,k){
+  ctx.beginPath();
+  ctx.moveTo(x-pts[0].r*us*k,pts[0].y);
+  for(let i=1;i<pts.length;i++){
+    const a=pts[i-1],b=pts[i];
+    ctx.quadraticCurveTo(x-a.r*us*k,a.y,x-(a.r+b.r)/2*us*k,(a.y+b.y)/2);
+  }
+  const e=pts[pts.length-1]; ctx.lineTo(x-e.r*us*k,e.y); ctx.lineTo(x+e.r*us*k,e.y);
+  for(let i=pts.length-1;i>0;i--){
+    const a=pts[i],b=pts[i-1];
+    ctx.quadraticCurveTo(x+a.r*us*k,a.y,x+(a.r+b.r)/2*us*k,(a.y+b.y)/2);
+  }
+  ctx.lineTo(x+pts[0].r*us*k,pts[0].y); ctx.closePath();
+}
+function drawVessel(secs,x,topY,s,tint,hue,wob,shine){
+  const pts=vesselPts(secs,topY,s,wob), us=u*s, n=secs.length;
+  const yTop=pts[0].y, yBot=pts[pts.length-1].y, span=Math.max(1,yBot-yTop);
+  const grad=(fn)=>{
+    const g=ctx.createLinearGradient(0,yTop,0,yBot);
+    g.addColorStop(0,fn(secs[0],0));
+    for(let i=0;i<n;i++)g.addColorStop(clamp((pts[i+1].y-yTop)/span,0,1),fn(secs[i],i));
+    g.addColorStop(1,fn(secs[n-1],n-1));
+    return g;
+  };
+  let hot=0;for(let i=0;i<n;i++)hot=Math.max(hot,secs[i].T);
+  const flick=wob?(.85+.15*Math.sin(tt*50)):1;
+  trace(pts,x,us,1);
+  ctx.fillStyle=grad(s2=>rgba(glassCol(s2.T,tint),flick));
+  ctx.fill();
+  ctx.save(); ctx.clip();
+  /* 縁: 熱い所は暗く赤く、冷えた所は明るい縁になる */
+  ctx.lineJoin='round';
+  ctx.strokeStyle=grad(s2=>{const h=clamp(s2.T*2.2,0,1);return rgba([lerp(235,110,h),lerp(248,15,h),lerp(255,0,h),lerp(.42,.5,h)])});
+  trace(pts,x,us,1); ctx.lineWidth=Math.max(5,18*s*1.4); ctx.stroke();
+  /* 熱い芯 */
+  if(hot>.25){
+    ctx.globalCompositeOperation='lighter';
+    ctx.fillStyle=grad(s2=>'rgba(255,220,140,'+(clamp((s2.T-.2)*.5,0,.4)).toFixed(3)+')');
+    trace(pts,x,us,.55); ctx.fill();
+    ctx.globalCompositeOperation='source-over';
+  }
+  /* 薄膜の虹(冷えた所): 厚みにあたる半径で色が変わる=息の跡の色 */
+  if(hot<.9){
+    ctx.globalCompositeOperation='lighter';
+    ctx.fillStyle=grad((s2,i)=>{const h=(hue+s2.r*210+i*4)%360;return 'hsla('+h.toFixed(0)+',90%,60%,'+(.11*(1-clamp(s2.T*3,0,1))).toFixed(3)+')'});
+    trace(pts,x,us,1); ctx.fill();
+    ctx.globalCompositeOperation='source-over';
+  }
+  /* 透明なガラスの反射の筋 */
+  ctx.lineCap='round';
+  const streak=(k,aMax,lw)=>{
+    ctx.beginPath();
+    for(let i=0;i<n;i++){const px=x-secs[i].r*us*k,py=pts[i+1].y;i?ctx.lineTo(px,py):ctx.moveTo(px,py)}
+    ctx.strokeStyle=grad(s2=>'rgba(255,255,255,'+(aMax*(1-clamp(s2.T*3,0,1))).toFixed(3)+')');
+    ctx.lineWidth=lw; ctx.stroke();
+  };
+  streak(.55,.55,Math.max(1.4,3*s*1.3)); streak(-.62,.25,Math.max(1,2*s*1.3));
+  /* 固まった瞬間の光の走り */
+  if(shine!=null&&shine>0&&shine<1){
+    const gx=x-us*1.3+shine*us*2.6, g=ctx.createLinearGradient(gx-us*.25,yTop,gx+us*.25,yTop+span*.35);
+    g.addColorStop(0,'rgba(255,255,255,0)');g.addColorStop(.5,'rgba(255,255,255,'+(.75*Math.sin(shine*Math.PI)).toFixed(3)+')');g.addColorStop(1,'rgba(255,255,255,0)');
+    ctx.fillStyle=g; ctx.fillRect(x-us*1.5,yTop,us*3,span);
+  }
+  ctx.restore();
+  /* 外周の細い光 */
+  trace(pts,x,us,1);
+  ctx.strokeStyle=grad(s2=>{const h=clamp(s2.T*2.2,0,1);return rgba([lerp(215,255,h),lerp(238,150,h),lerp(255,60,h),lerp(.45,.65,h)])});
+  ctx.lineWidth=1.2; ctx.stroke();
+  return hot;
+}
+function drawPipe(topY,glow,b){
+  const w=.045*u;
+  const g=ctx.createLinearGradient(cx-w,0,cx+w,0);
+  g.addColorStop(0,'#14110f');g.addColorStop(.35,'#6d625a');g.addColorStop(.55,'#2a2420');g.addColorStop(1,'#0c0a09');
+  ctx.fillStyle=g; ctx.fillRect(cx-w,-4,w*2,topY+4);
+  if(glow>0){
+    const r=u*.55, rg=ctx.createRadialGradient(cx,topY,0,cx,topY,r);
+    rg.addColorStop(0,'rgba(255,170,70,'+(.45*glow).toFixed(3)+')');rg.addColorStop(1,'rgba(255,120,30,0)');
+    ctx.fillStyle=rg; ctx.fillRect(cx-r,topY-r,r*2,r*2);
+  }
+  if(b>.02){
+    const r=u*.7, rg=ctx.createRadialGradient(cx,0,0,cx,0,r);
+    rg.addColorStop(0,'rgba(210,230,255,'+(.55*b).toFixed(3)+')');rg.addColorStop(1,'rgba(160,200,255,0)');
+    ctx.fillStyle=rg; ctx.fillRect(cx-r,0,r*2,r);
+  }
+}
+function drawShards(dt){
+  for(let i=shards.length-1;i>=0;i--){
+    const s=shards[i]; s.life-=dt*.55; if(s.life<=0||s.y>H+40){shards.splice(i,1);continue}
+    s.vy+=900*dt; s.x+=s.vx*dt; s.y+=s.vy*dt; s.rot+=s.vr*dt;
+    ctx.save(); ctx.translate(s.x,s.y); ctx.rotate(s.rot);
+    ctx.beginPath(); ctx.moveTo(s.pts[0][0],s.pts[0][1]); for(let k=1;k<4;k++)ctx.lineTo(s.pts[k][0],s.pts[k][1]); ctx.closePath();
+    const c=glassCol(s.T*s.life,s.tint); ctx.fillStyle=rgba(c,clamp(s.life*1.4,0,1)); ctx.fill();
+    ctx.strokeStyle='rgba(255,255,255,'+(.5*s.life).toFixed(3)+')'; ctx.lineWidth=1; ctx.stroke();
+    ctx.restore();
+  }
+}
+function drawShelf(dt){
+  const g=ctx.createLinearGradient(0,shelfY,0,shelfY+H*.065);
+  g.addColorStop(0,'rgba(255,225,190,.22)');g.addColorStop(.12,'rgba(255,225,190,.05)');g.addColorStop(1,'rgba(255,225,190,0)');
+  ctx.fillStyle=g; ctx.fillRect(0,shelfY,W,H*.065);
+  ctx.fillStyle='rgba(255,230,200,.3)'; ctx.fillRect(0,shelfY-.5,W,1);
+  const c=slotCount();
+  while(shelf.length>c)shelf.shift();
+  for(let i=0;i<shelf.length;i++){
+    const it=shelf[i]; it.tx=W*(i+.5)/c; it.x+=(it.tx-it.x)*Math.min(1,dt*6);
+    drawVessel(it.secs,it.x,shelfY-pieceHeight(it.secs,it.s),it.s,it.tint,it.hue,0,null);
+    /* 棚への映り込み */
+  }
+}
+
+/* ---------- ループ ---------- */
+let last=0,bNow=0,bDraw=0;
+function frame(t){
+  const dt=Math.min(.05,last?(t-last)/1000:.016); last=t; tt+=dt;
+  /* 息 = マイク / 押している間 / 自動デモ の最大 */
+  const mic=Breath.update(dt);
+  const hold=ptrs.size?.7:0;
+  let dem=0;
+  if(!Breath.S.on&&!ptrs.size&&tt-lastInput>9&&tt>2.5)dem=demoBreath(dt); else if(!Breath.S.on&&!ptrs.size){/* 触った直後はデモを止める */}
+  const target=Math.max(mic,hold,dem);
+  bNow+=(target-bNow)*(1-Math.exp(-dt/(target>bNow?.08:.18)));
+  bDraw=bNow;
+
+  if(cur.phase==='burst'){
+    cur.pt+=dt; if(cur.pt>1.8){cur=newPiece()}
+  }else stepPiece(cur,bNow,dt);
+  if(flash>0)flash=Math.max(0,flash-dt*2.2);
+
+  /* 背景: 熱いガラスが作業場を照らす */
+  const bg=ctx.createLinearGradient(0,0,0,H); bg.addColorStop(0,'#0b0809');bg.addColorStop(1,'#050405');
+  ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+  let hotAll=0; for(let i=0;i<cur.secs.length;i++)hotAll=Math.max(hotAll,cur.secs[i].T);
+  if(cur.phase==='burst')hotAll=0;
+  const gl=hotAll*(cur.phase==='wait'?.55+.1*Math.sin(tt*2.6):1)+flash*.8;
+  if(gl>.02){
+    const gy=(y0+layoutY(cur.secs,y0,1).end)/2, rad=Math.max(W,H)*.75;
+    const rg=ctx.createRadialGradient(cx,gy,0,cx,gy,rad);
+    rg.addColorStop(0,'rgba(255,110,30,'+(.30*gl).toFixed(3)+')');rg.addColorStop(.5,'rgba(190,60,15,'+(.10*gl).toFixed(3)+')');rg.addColorStop(1,'rgba(120,30,10,0)');
+    ctx.fillStyle=rg; ctx.fillRect(0,0,W,H);
+  }
+  drawShelf(dt);
+
+  let px=cx,pyTop=y0,ps=1;
+  if(cur.phase==='move'){
+    const e=cur.mv<.5?2*cur.mv*cur.mv:1-Math.pow(-2*cur.mv+2,2)/2;
+    const slot=slotInfo(shelf.length+1,shelf.length), c=slotCount();
+    const tx=W*(Math.min(shelf.length,c-1)+.5)/c, tS=SHELF_S, tTop=shelfY-pieceHeight(cur.secs,tS);
+    px=lerp(cx,tx,e); pyTop=lerp(y0,tTop,e); ps=lerp(1,tS,e);
+  }
+  const pipeGlow=cur.phase==='wait'?.9+.1*Math.sin(tt*3):(cur.phase==='blow'?hotAll:0);
+  if(cur.phase!=='burst'){
+    if(cur.phase!=='move'||cur.mv<.25)drawPipe(y0,pipeGlow*(cur.phase==='move'?1-cur.mv*4:1),bDraw);
+    drawVessel(cur.secs,px,pyTop,ps,cur.tint,cur.hue,cur.wob,cur.phase==='set'?cur.pt/1.3:null);
+  }else drawPipe(y0,0,0);
+  drawShards(dt);
+  if(flash>0){ctx.fillStyle='rgba(255,235,210,'+(.28*flash).toFixed(3)+')';ctx.fillRect(0,0,W,H)}
+
+  /* 案内文 */
+  if(msgTimer>0){msgTimer-=dt;if(msgTimer<=0)msg.classList.add('off')}
+  if(DBG)dbgEl.textContent='b '+bNow.toFixed(2)+' mic '+mic.toFixed(2)+'\ndb '+Breath.S.db.toFixed(1)+' floor '+Breath.S.floor.toFixed(1)+'\nrough '+Breath.S.rough.toFixed(1)+' voice '+Breath.S.voice.toFixed(2)+'\nphase '+cur.phase+' n '+cur.secs.length+' stress '+cur.stress.toFixed(2);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+/* ---------- ボタン(ap-kit) ---------- */
+function mutate(){
+  cur.tint=(cur.tint+1+Math.floor(Math.random()*(TINTS.length-1)))%TINTS.length; cur.hue=rnd(0,360);
+}
+function resetAll(){shelf.length=0;shards.length=0;cur=newPiece();demo.seq=null;demo.wait=.8}
+function openGuide(){guide.classList.add('on')}
+guide.addEventListener('click',e=>{if(e.target===guide||e.target.closest('.close'))guide.classList.remove('on')});
+window.__glass={get cur(){return cur},get shelf(){return shelf},get shards(){return shards},get b(){return bNow},
+  /* テスト用: 描画せずに物理だけ進める */
+  step(b,dt){if(cur.phase==='burst'){cur.pt+=dt;if(cur.pt>1.8)cur=newPiece()}else stepPiece(cur,b,dt)}};
+
+if(window.APKit)APKit.init({
+  canvas:cv,
+  gifName:'blown-glass',
+  clockFormat:'spec',
+  dock:true,
+  autoHide:true,
+  fullscreenButton:false,
+  buttons:[
+    {label:'✦',name:'mutate',onClick:mutate},
+    {label:'↻',name:'reset',onClick:resetAll},
+    {label:'？',name:'guide',onClick:openGuide}
+  ]
+});
+})();
+</script>
+</body>
+</html>
