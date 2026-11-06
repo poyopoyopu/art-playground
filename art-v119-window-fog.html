@@ -1,0 +1,635 @@
+<!doctype html>
+<!-- WINDOW FOG — クロちゃん(Claude)作。2026/11/06 試作(prototypes/window-fog.html。おっちゃん「息を吹く作品、タンポポ以外で」→窓の曇り)→ 同日採用・art-v119(ap-kitの相対パスをルート用に修正)。
+     世界のルール: 指で拭いた跡は消えない。曇りが晴れると見えなくなるだけで、窓は覚えていて、息を吹くとまた浮かび上がる。
+       → 曇った窓に描いた絵は、曇りが晴れると消える。でも拭いた所は曇りにくいままなので、もう一度息を吹くと絵が戻ってくる。
+       → 乾いた窓を指でなぞっても、見えない跡が残る(息を吹いて初めて分かる)。
+     2026/11/06 夜 追加(おっちゃん「もうちょっと『おっ!』が欲しい」→案1・2・3):
+       1 雫: 曇りが濃いと水滴ができて、垂れ落ちる。通った跡は拭けた跡(=窓が覚える跡)になるので、息を吹き直すと筋が浮かぶ。
+       2 隠しメッセージ: 窓には最初から見えない言葉が残っていて、晴れた窓に息を吹くと浮かぶ(✦で景色を変えると新しい言葉になる)。
+       3 動く景色: 窓の向こうを電車が通り、車のライトが流れ、窓の明かりが点いたり消えたりする(曇りの向こうでも、ぼんやり動いて見える)。
+     マイクは「マイクで息を吹く」を押したときだけ起動(ギャラリーのタイルで勝手に許可が出ない)。声は区別して無視する(Breath部分はBLOWN GLASSと同じ)。
+     マイクが無い/使わないときは、ボタンを押している間が息になる。何も触らないと自動デモが吹いて書く。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#070a1c">
+<title>WINDOW FOG — 消えた指の跡は、息でまた浮かぶ</title>
+<script src="ap-kit.js"></script>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#070a1c;color:#fff;touch-action:none;
+  -webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+canvas{display:block;width:100%;height:100%;touch-action:none;outline:none}
+#msg{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 21vh);text-align:center;pointer-events:none;
+  font:500 13px/1.8 system-ui,-apple-system,"Hiragino Sans",sans-serif;letter-spacing:.08em;color:rgba(255,255,255,.92);
+  text-shadow:0 0 10px rgba(10,20,40,.95),0 0 3px rgba(10,20,40,.9);transition:opacity .8s;white-space:pre-line}
+#msg.off{opacity:0}
+#mic{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 12vh);transform:translateX(-50%);z-index:20;
+  border:1px solid rgba(255,255,255,.55);background:rgba(15,25,45,.62);color:#fff;border-radius:999px;padding:11px 20px;
+  font:600 13px/1 system-ui,-apple-system,"Hiragino Sans",sans-serif;letter-spacing:.08em;cursor:pointer;touch-action:none;
+  -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);transition:opacity .6s}
+#mic.off{opacity:0;pointer-events:none}
+#mic.hold.down{background:rgba(255,255,255,.35)}
+#dbg{position:fixed;left:10px;top:calc(env(safe-area-inset-top) + 10px);pointer-events:none;font:500 9px/1.5 ui-monospace,monospace;
+  letter-spacing:.06em;color:rgba(255,255,255,.7);white-space:pre}
+#guide{position:fixed;inset:0;z-index:60;display:none;align-items:flex-end;justify-content:center;background:rgba(0,0,0,.55)}
+#guide.on{display:flex}
+#guide .sheet{width:min(560px,100%);max-height:86%;overflow-y:auto;-webkit-overflow-scrolling:touch;background:#0f1730;color:#e6eefc;
+  border-radius:18px 18px 0 0;padding:18px 20px calc(env(safe-area-inset-bottom) + 22px);font:13px/1.75 system-ui,-apple-system,"Hiragino Sans",sans-serif;
+  border-top:1px solid rgba(160,200,255,.25)}
+#guide h2{margin:0 0 2px;font-size:18px;letter-spacing:.1em}
+#guide .law{margin:0 0 12px;color:#9cc4f2}
+#guide h3{margin:14px 0 4px;font-size:13px;color:#8fd0ff}
+#guide .ops div{display:flex;gap:10px;align-items:baseline;margin:3px 0}
+#guide .ops b{flex:0 0 3.6em;color:#fff}
+#guide .close{position:sticky;top:0;float:right;border:0;background:#1b2848;color:#e6eefc;width:34px;height:34px;border-radius:17px;font-size:18px;line-height:34px}
+</style>
+</head>
+<body>
+<canvas id="c" aria-label="曇った窓。息を吹くと曇り、指でなぞると跡がつく。曇りが晴れても跡は残っていて、もう一度息を吹くと浮かび上がる。窓には見えない言葉も残っている"></canvas>
+<div id="msg"></div>
+<button id="mic" type="button">🎤 マイクで息を吹く</button>
+<div id="dbg"></div>
+<div id="guide"><div class="sheet"><button class="close" aria-label="閉じる">×</button>
+  <h2>WINDOW FOG</h2>
+  <p class="law">指でなぞった跡は消えない。曇りが晴れると、見えなくなるだけ。</p>
+  <h3>操作</h3>
+  <div class="ops">
+    <div><b>息</b><span>マイクに息を吹くと窓が曇ります(声は無視します)。下の「マイクで息を吹く」を押すと許可を聞かれます</span></div>
+    <div><b>押す</b><span>マイクが使えないときは、下のボタンを押している間が息になります</span></div>
+    <div><b>なぞる</b><span>指でなぞると、曇りが拭えて絵や文字が描けます</span></div>
+    <div><b>✦</b><span>窓の向こうの景色を変える。窓に新しい「見えない言葉」も残ります</span></div>
+    <div><b>↻</b><span>窓を拭き直す(跡も、見えない言葉も全部消えます)</span></div>
+  </div>
+  <h3>コツ</h3>
+  <div class="ops">
+    <div><b>晴れる</b><span>曇りは20秒ほどで晴れて、描いた絵も見えなくなります</span></div>
+    <div><b>もう一度</b><span>晴れたあとにもう一度息を吹くと、拭いた所だけ曇りにくいので、絵が浮かび上がります</span></div>
+    <div><b>見えない言葉</b><span>窓にはもともと、誰かの言葉が残っています。晴れた窓に息を吹いてみてください</span></div>
+    <div><b>雫</b><span>曇りが濃いと水滴ができて、垂れ落ちます。通った跡も、窓が覚えています</span></div>
+    <div><b>見えない絵</b><span>乾いた窓をなぞっても跡は残ります。息を吹いて初めて分かります</span></div>
+    <div><b>忘れる</b><span>窓の記憶は、数分かけてゆっくり薄れます</span></div>
+  </div>
+</div></div>
+<script>
+(function(){
+'use strict';
+/* WINDOW FOG — 世界のルール: 拭いた跡は消えない。曇りが晴れると見えなくなるだけで、窓は覚えている。
+   窓はグリッドで持つ: f=いまの曇り(0〜1。時間で晴れる) / w=拭いた跡の記憶(0〜1。数分かけて薄れる) / hm=窓に残った見えない言葉(ゆっくり薄れる)。
+   息は曇りを足すが、w・hm の高い所には曇りが付きにくい。だから曇りが晴れて絵が消えても、もう一度吹くと形が浮かぶ。 */
+const cv=document.getElementById('c'), ctx=cv.getContext('2d',{alpha:false});
+const msg=document.getElementById('msg'), micBtn=document.getElementById('mic'), dbgEl=document.getElementById('dbg');
+const guide=document.getElementById('guide');
+const TAU=Math.PI*2, clamp=(v,a,b)=>v<a?a:v>b?b:v, lerp=(a,b,t)=>a+(b-a)*t;
+const DBG=/[?&]dbg=1/.test(location.search);
+function mulberry(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const smooth=(a,b,x)=>{const t=clamp((x-a)/(b-a),0,1);return t*t*(3-2*t)};
+
+/* ---------- 息(マイク) — BLOWN GLASSと同じ ----------
+   息 = なだらかな雑音。声 = 倍音の山が鋭い。そこで「スペクトルの細かい凸凹(roughness)」と周期性で声を弾き、
+   残った音量(静かな時の床からの高さ)を息の強さにする。AGC/ノイズ抑制は息を消すので切る。 */
+const Breath=(function(){
+  const S={on:false,denied:false,starting:false,level:0,voice:0,rough:0,pk:0,db:-90,floor:-90};
+  let ac=null,an=null,td=null,fd=null,pw=null,ring=new Float32Array(6),ri=0,sm=0,cal=0,calN=0,calFloor=-70,binHz=43,dsb=new Float32Array(512),acTick=0,pkS=0,roughS=0;
+  function periodicity(){
+    for(let i=0;i<512;i++)dsb[i]=(td[4*i]+td[4*i+1]+td[4*i+2]+td[4*i+3])*.25;
+    let m=0;for(let i=0;i<512;i++)m+=dsb[i];m/=512;
+    let r0=0;for(let i=0;i<512;i++){dsb[i]-=m;r0+=dsb[i]*dsb[i]}
+    if(r0<1e-9)return 0;
+    const sr4=ac.sampleRate/4, lagMin=Math.floor(sr4/400), lagMax=Math.min(300,Math.ceil(sr4/70));
+    let best=0,neg=false;
+    for(let lag=2;lag<=lagMax;lag++){
+      let sum=0;for(let i=0;i<512-lag;i++)sum+=dsb[i]*dsb[i+lag];
+      const r=sum/r0*(512/(512-lag));
+      if(r<0)neg=true;
+      if(neg&&lag>=lagMin&&r>best)best=r;
+    }
+    return clamp(best,0,1);
+  }
+  async function start(){
+    if(S.on||S.starting||S.denied)return;
+    S.starting=true;
+    try{
+      const md=navigator.mediaDevices;
+      if(!md||!md.getUserMedia)throw new Error('nomic');
+      const st=await md.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+      const AC=window.AudioContext||window.webkitAudioContext;
+      ac=new AC(); if(ac.state==='suspended')await ac.resume();
+      const src=ac.createMediaStreamSource(st);
+      an=ac.createAnalyser(); an.fftSize=2048; an.smoothingTimeConstant=0; src.connect(an);
+      td=new Float32Array(an.fftSize); fd=new Float32Array(an.frequencyBinCount); pw=new Float32Array(an.frequencyBinCount);
+      binHz=ac.sampleRate/an.fftSize; S.on=true;
+    }catch(e){S.denied=true}
+    S.starting=false;
+  }
+  function update(dt){
+    if(!S.on){S.level=0;return 0}
+    S.acs=ac.state;
+    an.getFloatTimeDomainData(td);
+    let ss=0; for(let i=0;i<td.length;i++)ss+=td[i]*td[i];
+    const db=20*Math.log10(Math.sqrt(ss/td.length)+1e-7); S.db=db;
+    if(calN<40){cal+=db;calN++;if(calN===40){calFloor=cal/40;S.floor=calFloor}}
+    else{
+      if(db<S.floor)S.floor+=(db-S.floor)*Math.min(1,dt*4); else S.floor+=1.2*dt;
+      S.floor=clamp(S.floor,calFloor-12,calFloor+14);
+    }
+    an.getFloatFrequencyData(fd);
+    const kLo=Math.max(14,Math.round(150/binHz)), kHi=Math.min(fd.length-14,Math.round(6000/binHz));
+    for(let k=0;k<fd.length;k++){const v=fd[k],p=(v>-140&&v<20)?Math.pow(10,v/10):0;pw[k]=pw[k]*.7+p*.3}
+    let sum=0,cnt=0;
+    for(let k=kLo;k<kHi;k++){
+      let m=0;for(let j=-12;j<=12;j++)m+=10*Math.log10(pw[k+j]+1e-14);
+      m/=25; sum+=Math.abs(10*Math.log10(pw[k]+1e-14)-m); cnt++;
+    }
+    roughS+=((cnt?sum/cnt:0)-roughS)*.25; const rough=roughS; S.rough=rough;
+    if((acTick++%3)===0)pkS+=(periodicity()-pkS)*.5;
+    S.pk=pkS;
+    const voice=Math.max(smooth(2.6,4.2,rough),smooth(.5,.75,pkS)); S.voice=voice;
+    const x=clamp((db-S.floor-9)/28,0,1);
+    const raw=calN<40?0:x*(1-voice);
+    ring[ri]=raw; ri=(ri+1)%ring.length; let mn=1; for(let i=0;i<ring.length;i++)mn=Math.min(mn,ring[i]);
+    sm+=(mn-sm)*(1-Math.exp(-dt/(mn>sm?.10:.22)));
+    S.level=sm; return sm;
+  }
+  return {S,start,update};
+})();
+window.APBreath=Breath;
+
+/* ---------- 画面とグリッド ---------- */
+const GW=96;
+let W=0,H=0,DPR=1,bw=0,bh=0,GH=0;
+let f=null,w=null,hm=null,nz=null,gs=null;         /* 曇り・跡の記憶・見えない言葉・曇りのむら・息の届きやすさ */
+let fogMax=0,wCount=0;
+const mk=(c)=>document.createElement(c);
+const bg=mk('canvas'), bgx=bg.getContext('2d');                    /* 窓の向こう(くっきり・動かない部分) */
+const blurS=mk('canvas'), blurSx=blurS.getContext('2d');           /* 同じ景色のぼかし(曇りの下地) */
+const noiseL=mk('canvas'), noiseLx=noiseL.getContext('2d');        /* 曇りの乳白+水滴の粒(透明地) */
+const dynS=mk('canvas'), dynSx=dynS.getContext('2d');              /* 動く景色(くっきり・毎フレーム) */
+const dynB=mk('canvas'), dynBx=dynB.getContext('2d');              /* 動く景色(ぼんやり・1/4解像度。曇りの向こうに使う) */
+const fr=mk('canvas'), frx=fr.getContext('2d');                    /* 曇りを濃さで切り抜いた作業用 */
+const mkc=mk('canvas'), mkx=mkc.getContext('2d');                  /* 曇りの濃さ(小さい) */
+const mwc=mk('canvas'), mwx=mwc.getContext('2d');                  /* 乾いた窓に残る指の跡のてかり(小さい) */
+let mki=null, mwi=null;
+
+/* ---------- 窓の向こうの景色 ---------- */
+const PALS=[
+  {top:'#070b24',mid:'#1a1f55',bot:'#5a3a78',glow:'255,150,90',b:['#1d2150','#12143a','#0a0b24'],win:['255,214,140','255,236,190','160,215,255'],road0:'#161432',road1:'#0a0818'},
+  {top:'#2a1245',mid:'#9a3a6a',bot:'#ff9a60',glow:'255,190,110',b:['#7a3560','#4a1f4a','#26112f'],win:['255,225,150','255,200,120','255,250,220'],road0:'#3a1a3c',road1:'#160a1c'},
+  {top:'#06222e',mid:'#1d5a66',bot:'#f0b88a',glow:'255,225,170',b:['#2a6670','#194650','#0c2a33'],win:['255,235,180','190,240,255','255,210,160'],road0:'#16424a',road1:'#08202a'}
+];
+let palI=0, seed=20261106, sc=null, dyn=null;
+function drawScene(g,pw_,ph_,pal,sd){
+  const R=mulberry(sd), s=pw_/390, rr=(a,b)=>a+R()*(b-a), spare=[];
+  const gr=g.createLinearGradient(0,0,0,ph_);
+  gr.addColorStop(0,pal.top);gr.addColorStop(.5,pal.mid);gr.addColorStop(.78,pal.bot);gr.addColorStop(1,pal.bot);
+  g.fillStyle=gr;g.fillRect(0,0,pw_,ph_);
+  const gx=pw_*rr(.2,.8), gy=ph_*rr(.28,.42);
+  const rg=g.createRadialGradient(gx,gy,0,gx,gy,pw_*.62);
+  rg.addColorStop(0,'rgba('+pal.glow+',.55)');rg.addColorStop(1,'rgba('+pal.glow+',0)');
+  g.fillStyle=rg;g.fillRect(0,0,pw_,ph_);
+  const base=ph_*.76, hMaxs=[ph_*.34,ph_*.46,ph_*.58];
+  for(let L=0;L<3;L++){
+    let x=-rr(0,30)*s; const hMax=hMaxs[L], hMin=hMax*.4;
+    while(x<pw_){
+      const wd=rr(26,64)*s*(1+L*.15), h=rr(hMin,hMax);
+      g.fillStyle=pal.b[L]; g.fillRect(x,base-h,wd,h+2);
+      if(R()<.4){const ph2=rr(4,14)*s;g.fillRect(x+wd*.2,base-h-ph2,wd*.25,ph2+1)}
+      const ws=(2.6+L*.7)*s, gap=ws*2.1, pr=.14+L*.10;
+      for(let wy=base-h+gap*.8;wy<base-gap*.5;wy+=gap){
+        for(let wx=x+gap*.5;wx<x+wd-ws;wx+=gap){
+          const q=R();
+          if(q<pr){
+            const c=pal.win[Math.floor(R()*pal.win.length)];
+            g.fillStyle='rgba('+c+','+rr(.55,1).toFixed(2)+')';g.fillRect(wx,wy,ws,ws*1.3);
+          }else if(q>.955&&L>0&&spare.length<70){spare.push([wx,wy,ws])}   /* 点いていない窓: あとで点いたり消えたりする */
+        }
+      }
+      x+=wd+rr(0,6)*s;
+    }
+  }
+  /* 高架(電車が走る) */
+  const railY=base-ph_*.06;
+  g.fillStyle=pal.b[2]; g.fillRect(0,railY,pw_,6*s);
+  g.fillStyle='rgba('+pal.glow+',.35)'; g.fillRect(0,railY,pw_,1.2*s);
+  g.fillStyle=pal.b[2];
+  for(let px=rr(0,40)*s;px<pw_;px+=rr(46,70)*s)g.fillRect(px,railY+6*s,5*s,base-railY-6*s);
+  /* ネオン看板 */
+  for(let i=0;i<6;i++){
+    const c=pal.win[Math.floor(R()*pal.win.length)], sx=rr(.06,.94)*pw_, sy=base-rr(.12,.5)*ph_*.5;
+    g.shadowColor='rgba('+c+',1)'; g.shadowBlur=14*s; g.fillStyle='rgba('+c+',.95)';
+    g.fillRect(sx,sy,rr(16,38)*s,3*s); if(R()<.5)g.fillRect(sx,sy+8*s,rr(10,26)*s,2.4*s);
+  }
+  g.shadowBlur=0;
+  /* 道路 */
+  const r2=g.createLinearGradient(0,base,0,ph_); r2.addColorStop(0,pal.road0); r2.addColorStop(1,pal.road1);
+  g.fillStyle=r2; g.fillRect(0,base,pw_,ph_-base);
+  for(let i=0;i<28;i++){
+    const c=R()<.5?pal.win[Math.floor(R()*pal.win.length)]:pal.glow, x=rr(0,pw_), len=rr(.05,.2)*ph_, wd=rr(2,5)*s;
+    const lg=g.createLinearGradient(0,base,0,base+len); lg.addColorStop(0,'rgba('+c+',.4)'); lg.addColorStop(1,'rgba('+c+',0)');
+    g.fillStyle=lg; g.fillRect(x,base,wd,len);
+  }
+  for(let i=0;i<14;i++){
+    const c=R()<.3?'255,70,60':(R()<.5?'255,250,230':pal.glow), x=rr(0,pw_), y=base+rr(.01,.14)*ph_, r=rr(2,8)*s;
+    const lg=g.createRadialGradient(x,y,0,x,y,r); lg.addColorStop(0,'rgba('+c+',1)'); lg.addColorStop(.45,'rgba('+c+',.7)'); lg.addColorStop(1,'rgba('+c+',0)');
+    g.fillStyle=lg; g.fillRect(x-r,y-r,r*2,r*2);
+  }
+  /* 雨は動く景色(dyn)の側で降らせる */
+  return {s,base,railY,sp:spare};
+}
+/* 動く景色: 電車・車のライト・窓の明かり。状態は dyn、描くのは drawDyn(くっきり/ぼんやりの2通り) */
+function initDyn(sc_,sd){
+  const R=mulberry(sd^0x2545f491), s=sc_.s, pal=PALS[palI], rr=(a,b)=>a+R()*(b-a);
+  const cars=[];
+  for(let i=0;i<9;i++){const dir=R()<.5?1:-1;cars.push({x:rr(0,bw),y:sc_.base+rr(.03,.13)*bh,v:dir*rr(26,80)*s,dir})}
+  const tw=sc_.sp.map(p=>{const on=R()<.35?1:0;return {x:p[0],y:p[1],s:p[2],c:pal.win[Math.floor(R()*pal.win.length)],t:rr(0,10),on,a:on}});
+  /* 雨: 奥(細く薄く遅い)・中・手前(太く濃く速い)の3層。波紋は路面に落ちた粒 */
+  const rain=RAIN.map(L=>{const a=[];for(let i=0;i<L.n;i++)a.push({x:rr(0,bw*1.15),y:rr(-.2,1)*bh,len:rr(L.len[0],L.len[1])*s,v:rr(.85,1.15)*L.v*s});return a});
+  return {R,cars,tw,rain,ripples:[],ripT:0,train:{on:false,x:0,dir:1,len:0,v:0,next:rr(4,8)}};
+}
+const RAIN=[
+  {n:45,len:[10,20],v:430,w:.7,a:.10},
+  {n:30,len:[18,32],v:700,w:1.0,a:.17},
+  {n:12,len:[30,52],v:1050,w:1.5,a:.26}
+];
+const SLANT=-.12;
+function updateDyn(dt){
+  const R=dyn.R, s=sc.s;
+  for(const L of dyn.rain)for(const r of L){
+    r.y+=r.v*dt; r.x+=r.v*dt*SLANT;
+    if(r.y>bh+r.len||r.x<-r.len){r.y=-r.len-R()*bh*.2;r.x=R()*bw*1.15}
+  }
+  dyn.ripT-=dt;                                           /* 路面に雨粒が落ちて、小さな波紋 */
+  if(dyn.ripT<=0&&dyn.ripples.length<16){dyn.ripT=.05+R()*.09;dyn.ripples.push({x:R()*bw,y:sc.base+(.03+R()*.17)*bh,t:0,life:.6+R()*.5,r:(3+R()*7)*s})}
+  for(let i=dyn.ripples.length-1;i>=0;i--){const p=dyn.ripples[i];p.t+=dt;if(p.t>=p.life)dyn.ripples.splice(i,1)}
+  for(const c of dyn.cars){
+    c.x+=c.v*dt;
+    if(c.dir>0&&c.x>bw+30){c.x=-30;c.y=sc.base+(.03+R()*.1)*bh}
+    else if(c.dir<0&&c.x<-30){c.x=bw+30;c.y=sc.base+(.03+R()*.1)*bh}
+  }
+  const k=1-Math.exp(-dt/.7);
+  for(const q of dyn.tw){q.t-=dt;if(q.t<=0){q.on=1-q.on;q.t=3+R()*11} q.a+=(q.on-q.a)*k}
+  const T=dyn.train;
+  if(!T.on){
+    T.next-=dt;
+    if(T.next<=0){T.on=true;T.dir=R()<.5?1:-1;T.len=(180+R()*130)*s;T.v=(170+R()*80)*s;T.x=T.dir>0?-T.len:bw}
+  }else{
+    T.x+=T.dir*T.v*dt;
+    if((T.dir>0&&T.x>bw)||(T.dir<0&&T.x<-T.len)){T.on=false;T.next=10+R()*14}
+  }
+}
+function drawDyn(g,soft){
+  const s=sc.s, m=soft?3:1, al=soft?.5:1;
+  g.lineCap='round';
+  for(let k=0;k<RAIN.length;k++){                          /* 雨(層ごとに1回で描く) */
+    const L=RAIN[k];
+    g.lineWidth=Math.max(1,L.w*s)*m; g.strokeStyle='rgba(215,228,255,'+(L.a*al).toFixed(3)+')';
+    g.beginPath();
+    for(const r of dyn.rain[k]){g.moveTo(r.x,r.y);g.lineTo(r.x+r.len*SLANT,r.y+r.len)}
+    g.stroke();
+  }
+  g.lineWidth=Math.max(1,.9*s)*m;
+  for(const p of dyn.ripples){                             /* 波紋(横に潰れた輪が広がって消える) */
+    const u=p.t/p.life, rx=p.r*(.35+u), a=(1-u)*(1-u)*.38*al;
+    g.strokeStyle='rgba(205,222,255,'+a.toFixed(3)+')'; g.beginPath(); g.ellipse(p.x,p.y,rx,rx*.28,0,0,TAU); g.stroke();
+  }
+  for(const q of dyn.tw){
+    if(q.a<.02)continue;
+    g.fillStyle='rgba('+q.c+','+(q.a*.95*al).toFixed(2)+')';
+    const d=(m-1)*q.s/2; g.fillRect(q.x-d,q.y-d,q.s*m,q.s*1.3*m);
+  }
+  const T=dyn.train;
+  if(T.on){
+    const ty=sc.railY-12*s;
+    if(!soft){g.fillStyle='rgba(10,10,24,.94)';g.fillRect(T.x,ty,T.len,11*s)}
+    g.fillStyle='rgba(255,238,196,'+(.95*al).toFixed(2)+')';
+    for(let wx=T.x+4*s;wx<T.x+T.len-8*s;wx+=10*s){
+      if(soft)g.fillRect(wx-3*s,ty+1*s,12*s,9*s); else g.fillRect(wx,ty+2.4*s,6*s,4.4*s);
+    }
+  }
+  for(const c of dyn.cars){
+    const col=c.dir>0?'255,244,214':'255,64,52', r=3.2*s*m;
+    for(let k=0;k<2;k++){
+      const lx=c.x+k*10*s, gr=g.createRadialGradient(lx,c.y,0,lx,c.y,r);
+      gr.addColorStop(0,'rgba('+col+','+al+')'); gr.addColorStop(1,'rgba('+col+',0)');
+      g.fillStyle=gr; g.fillRect(lx-r,c.y-r,r*2,r*2);
+    }
+    g.fillStyle='rgba('+col+','+(.14*al).toFixed(2)+')'; g.fillRect(c.x,c.y+r*.5,10*s+2*s*m,16*s*m);
+  }
+}
+function buildFrost(){
+  const a=mk('canvas'), s16=mk('canvas');
+  a.width=Math.max(8,Math.round(bw/4)); a.height=Math.max(8,Math.round(bh/4));
+  s16.width=Math.max(8,Math.round(bw/16)); s16.height=Math.max(8,Math.round(bh/16));
+  const ax=a.getContext('2d'), sx=s16.getContext('2d');
+  ax.imageSmoothingEnabled=true; sx.imageSmoothingEnabled=true;
+  ax.drawImage(bg,0,0,a.width,a.height); sx.drawImage(a,0,0,s16.width,s16.height);
+  ax.drawImage(s16,0,0,a.width,a.height);
+  blurSx.imageSmoothingEnabled=true; blurSx.imageSmoothingQuality='high';
+  blurSx.drawImage(a,0,0,bw,bh);                                    /* 景色のぼかし */
+  noiseLx.clearRect(0,0,bw,bh);
+  noiseLx.fillStyle='rgba(214,228,244,.44)'; noiseLx.fillRect(0,0,bw,bh);   /* 乳白 */
+  const lg=noiseLx.createLinearGradient(0,0,0,bh); lg.addColorStop(0,'rgba(255,255,255,.10)'); lg.addColorStop(1,'rgba(255,255,255,0)');
+  noiseLx.fillStyle=lg; noiseLx.fillRect(0,0,bw,bh);
+  /* 水滴(曇りの粒) */
+  const R=mulberry(seed^0x5bd1e995), n=Math.floor(bw*bh/2600), u=bw/390;
+  for(let i=0;i<n;i++){
+    const x=R()*bw, y=R()*bh, r=(.5+R()*R()*1.9)*u;
+    noiseLx.fillStyle='rgba(255,255,255,'+(.10+R()*.22).toFixed(2)+')'; noiseLx.beginPath(); noiseLx.arc(x,y,r,0,TAU); noiseLx.fill();
+    if(r>1.1*u){noiseLx.fillStyle='rgba(255,255,255,.45)'; noiseLx.beginPath(); noiseLx.arc(x-r*.3,y-r*.3,r*.3,0,TAU); noiseLx.fill()}
+  }
+}
+function buildScene(){
+  bgx.setTransform(1,0,0,1,0,0); bgx.clearRect(0,0,bw,bh);
+  sc=drawScene(bgx,bw,bh,PALS[palI],seed);
+  dyn=initDyn(sc,seed);
+  buildFrost();
+}
+
+/* ---------- 曇りの状態 ---------- */
+function initGrid(){
+  GH=Math.max(8,Math.round(GW*H/W));
+  f=new Float32Array(GW*GH); w=new Float32Array(GW*GH); hm=new Float32Array(GW*GH); nz=new Float32Array(GW*GH); gs=new Float32Array(GW*GH);
+  /* 曇りのむら: 乱数をぼかして0〜1に伸ばす(縞にならない雲状のむら) */
+  const R=mulberry(777), tmp=new Float32Array(GW*GH);
+  for(let i=0;i<nz.length;i++)nz[i]=R();
+  for(let pass=0;pass<3;pass++){
+    for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){let s=0,c=0;for(let k=-3;k<=3;k++){const xx=x+k;if(xx>=0&&xx<GW){s+=nz[y*GW+xx];c++}}tmp[y*GW+x]=s/c}
+    for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){let s=0,c=0;for(let k=-3;k<=3;k++){const yy=y+k;if(yy>=0&&yy<GH){s+=tmp[yy*GW+x];c++}}nz[y*GW+x]=s/c}
+  }
+  let lo=1,hi=0;for(let i=0;i<nz.length;i++){if(nz[i]<lo)lo=nz[i];if(nz[i]>hi)hi=nz[i]}
+  for(let i=0;i<nz.length;i++)nz[i]=(nz[i]-lo)/Math.max(1e-6,hi-lo);
+  for(let y=0;y<GH;y++)for(let x=0;x<GW;x++){
+    const dx=(x+.5)/GW-.5, dy=((y+.5)/GH-.5)*(H/W), d=Math.sqrt(dx*dx+dy*dy)/ (.55*Math.max(1,H/W));
+    gs[y*GW+x]=Math.exp(-d*d);
+  }
+  mkc.width=GW; mkc.height=GH; mwc.width=GW; mwc.height=GH;
+  mki=mkx.createImageData(GW,GH); mwi=mwx.createImageData(GW,GH);
+  for(let i=0;i<GW*GH;i++){mki.data[i*4]=255;mki.data[i*4+1]=255;mki.data[i*4+2]=255;mwi.data[i*4]=255;mwi.data[i*4+1]=255;mwi.data[i*4+2]=255}
+}
+/* 指(と雫)で拭く: (x0,y0)→(x,y) を細かく刻んで、曇りを消し、跡の記憶 w を残す */
+const BRUSH=2.4;
+function wipe(x,y,x0,y0,rad){
+  const R=rad||BRUSH;
+  const gx=x/W*GW, gy=y/H*GH, gx0=x0/W*GW, gy0=y0/H*GH;
+  const dist=Math.hypot(gx-gx0,gy-gy0), n=Math.max(1,Math.ceil(dist/.6));
+  for(let s=1;s<=n;s++){
+    const px=lerp(gx0,gx,s/n), py=lerp(gy0,gy,s/n);
+    const xa=Math.max(0,Math.floor(px-R)), xb=Math.min(GW-1,Math.ceil(px+R));
+    const ya=Math.max(0,Math.floor(py-R)), yb=Math.min(GH-1,Math.ceil(py+R));
+    for(let yy=ya;yy<=yb;yy++)for(let xx=xa;xx<=xb;xx++){
+      const d=Math.hypot(xx+.5-px,yy+.5-py)/R; if(d>=1)continue;
+      const k=1-d*d, i=yy*GW+xx;
+      f[i]*=(1-k); if(k>w[i])w[i]=k;
+    }
+  }
+}
+function wipePath(fn,steps){
+  let px=null,py=null;
+  for(let s=0;s<=steps;s++){const p=fn(s/steps); if(px!==null)wipe(p[0],p[1],px,py); else wipe(p[0],p[1],p[0],p[1]); px=p[0];py=p[1]}
+}
+const SHAPES=[
+  function heart(cx,cy,S){return function(t){const a=t*TAU;return [cx+S*16*Math.pow(Math.sin(a),3)/17, cy-S*(13*Math.cos(a)-5*Math.cos(2*a)-2*Math.cos(3*a)-Math.cos(4*a))/17]}},
+  function spiral(cx,cy,S){return function(t){const a=t*TAU*2.6, r=S*(.12+.88*t);return [cx+Math.cos(a)*r, cy+Math.sin(a)*r]}},
+  function star(cx,cy,S){return function(t){const order=[0,2,4,1,3,0], k=Math.min(4.999,t*5), i=Math.floor(k), f2=k-i;
+      const A=(j)=>{const a=-Math.PI/2+order[j]*TAU/5;return [cx+Math.cos(a)*S,cy+Math.sin(a)*S]};
+      const p=A(i),q=A(i+1);return [lerp(p[0],q[0],f2),lerp(p[1],q[1],f2)]}},
+  function wave(cx,cy,S){return function(t){return [cx+(t-.5)*S*2.4, cy+Math.sin(t*TAU*2.2)*S*.45]}},
+  function loop(cx,cy,S){return function(t){const a=t*TAU*2;return [cx+Math.sin(a)*S*1.1, cy+Math.sin(a*2)*S*.55]}}
+];
+function pickShape(){
+  const S=Math.min(W,H)*(.20+Math.random()*.08), cx=W*(.35+Math.random()*.3), cy=H*(.34+Math.random()*.2);
+  return SHAPES[Math.floor(Math.random()*SHAPES.length)](cx,cy,S);
+}
+/* 窓に残った見えない言葉: 文字の形を hm に書く。曇りには描かれない(=いまは見えない)。晴れた窓に息を吹くと浮かぶ */
+const MSGS=['おつかれさま','今日もえらい','ここにいるよ','ちゃんと見てるよ','また明日ね','いい夜を','だいじょうぶ','ゆっくりでいい','おいしいもの\nたべてね'];
+let msgI=-1;
+function hideMessage(){
+  hm.fill(0);
+  let i; do{i=Math.floor(Math.random()*MSGS.length)}while(i===msgI&&MSGS.length>1);
+  msgI=i;
+  const lines=MSGS[i].split('\n'), maxLen=Math.max.apply(null,lines.map(l=>l.length));
+  const fs=Math.min(15,Math.floor(GW*.86/maxLen));
+  const c=mk('canvas'); c.width=GW; c.height=GH; const g=c.getContext('2d');
+  g.fillStyle='#fff'; g.textAlign='center'; g.textBaseline='middle';
+  g.font='700 '+fs+'px "Hiragino Maru Gothic ProN","Hiragino Sans","Yu Gothic","Noto Sans CJK JP",sans-serif';
+  g.translate(GW/2,GH*.70); g.rotate(-.05);
+  lines.forEach((l,k)=>g.fillText(l,0,(k-(lines.length-1)/2)*fs*1.25));
+  const d=g.getImageData(0,0,GW,GH).data;
+  for(let j=0;j<hm.length;j++)hm[j]=d[j*4+3]/255;
+}
+function initState(){
+  /* 最初から曇っていて、誰かがハートを書いた跡がある。曇りが晴れると消え、息を吹くと戻ってくる(見えない言葉も一緒に) */
+  for(let i=0;i<f.length;i++)f[i]=.92*(.86+.14*nz[i]);
+  const S=Math.min(W,H)*.26;
+  wipePath(SHAPES[0](W/2,H*.44,S),240);
+  hideMessage();
+}
+
+function resize(){
+  DPR=Math.min(1.5,window.devicePixelRatio||1); W=window.innerWidth; H=window.innerHeight;
+  bw=Math.round(W*DPR); bh=Math.round(H*DPR);
+  for(const c of [cv,bg,blurS,noiseL,dynS,fr]){c.width=bw;c.height=bh}
+  dynB.width=Math.ceil(bw/4); dynB.height=Math.ceil(bh/4);
+  ctx.setTransform(1,0,0,1,0,0);
+  drops.length=0;
+  initGrid(); buildScene(); initState();
+}
+let rzT=0;
+window.addEventListener('resize',()=>{clearTimeout(rzT);rzT=setTimeout(resize,120)});
+
+/* ---------- 雫: 曇りが濃い所に水滴ができ、育って、垂れ落ちる。通った跡は拭けた跡になる ---------- */
+const drops=[]; let dropId=0;
+function cellAt(x,y){return clamp((y/H*GH)|0,0,GH-1)*GW+clamp((x/W*GW)|0,0,GW-1)}
+function stepDrops(dt){
+  const cellPx=W/GW;
+  if(fogMax>.7&&drops.length<40){
+    for(let k=0;k<3;k++){
+      const i=(Math.random()*f.length)|0, fi=f[i];
+      if(fi>.7&&w[i]<.3&&Math.random()<clamp((fi-.7)/.3,0,1)*1.1*dt){
+        const r0=1.5+Math.random()*1.4;
+        drops.push({id:dropId++,x:((i%GW)+.5)*cellPx,y:(((i/GW)|0)+.5)*(H/GH),m:r0*r0,hold:.8+Math.random()*2.6,vy:0,age:0,run:false});
+      }
+    }
+  }
+  for(let n=drops.length-1;n>=0;n--){
+    const d=drops[n]; d.age+=dt;
+    if(!d.run){                                          /* 粒のまま、まわりの曇りを集めて育つ */
+      const fl=f[cellAt(d.x,d.y)];
+      d.m+=fl*dt*1.0-(fl<.3?dt*1.5:0);
+      d.hold-=dt;
+      if(d.m<1||d.hold<-4||(d.hold<=0&&d.m<5.2&&fl<.3)){drops.splice(n,1);continue}
+      if(d.hold<=0&&d.m>=5.2)d.run=true;
+      continue;
+    }
+    const stick=.25+.95*Math.abs(Math.sin(d.age*2.1+d.id*1.7)*Math.sin(d.age*.9+d.id));   /* 付いては止まり、止まっては落ちる */
+    const vt=(30+d.m*12)*(.15+1.1*stick);
+    d.vy+=(vt-d.vy)*(1-Math.exp(-dt/.25));
+    const dy=d.vy*dt, nx=d.x+Math.sin(d.y*.045+d.id)*dy*.18, ny=d.y+dy;
+    const fl=f[cellAt(nx,ny)];
+    d.m+=dy*(fl*.035-.022);                               /* 曇りの上では太り、拭けた所では痩せる */
+    wipe(nx,ny,d.x,d.y,clamp(Math.sqrt(d.m)/cellPx*.9,.8,2.0));
+    d.x=nx; d.y=ny;
+    if(d.m<1.2||d.y>H+8)drops.splice(n,1);
+  }
+}
+function drawDrops(){
+  for(const d of drops){
+    const r=Math.sqrt(d.m)*DPR, x=d.x*DPR, y=d.y*DPR;
+    ctx.save(); ctx.beginPath(); ctx.arc(x,y,r,0,TAU); ctx.clip();      /* 水滴は向こうの景色を逆さに映すレンズ */
+    ctx.translate(x,y); ctx.scale(1,-1);
+    ctx.drawImage(bg,x-r*1.7,y-r*1.7,r*3.4,r*3.4,-r,-r,r*2,r*2);
+    ctx.restore();
+    ctx.lineWidth=Math.max(.8,r*.18); ctx.strokeStyle='rgba(10,20,40,.45)'; ctx.beginPath(); ctx.arc(x,y,r,0,TAU); ctx.stroke();
+    ctx.fillStyle='rgba(255,255,255,.85)'; ctx.beginPath(); ctx.arc(x-r*.35,y-r*.38,r*.24,0,TAU); ctx.fill();
+  }
+}
+resize();
+
+/* ---------- 曇りの時間発展 ---------- */
+function stepFog(b,dt){
+  const wd=Math.exp(-dt/90), hd=Math.exp(-dt/300); let mx=0, wc=0;
+  for(let i=0;i<f.length;i++){
+    let fi=f[i];
+    fi-=(.03+.045*fi)*dt;                                                   /* 晴れる */
+    const mem=w[i]>hm[i]?w[i]:hm[i];
+    if(b>.02)fi+=b*.6*dt*(.35+.65*gs[i])*(.7+.6*nz[i])*(1-.9*mem);        /* 息: 拭いた所・見えない言葉の所には付きにくい */
+    f[i]=fi<0?0:fi>1?1:fi;
+    const wi=w[i]*wd; w[i]=wi;                                              /* 跡の記憶はゆっくり薄れる */
+    hm[i]*=hd;                                                              /* 見えない言葉はもっとゆっくり薄れる */
+    if(f[i]>mx)mx=f[i]; if(wi>.5)wc++;
+  }
+  fogMax=mx; wCount=wc;
+}
+
+/* ---------- 描画 ---------- */
+function render(){
+  const md=mki.data, wdta=mwi.data;
+  for(let i=0;i<f.length;i++){
+    const a=f[i];
+    md[i*4+3]=a<=0?0:a>=.78?255:Math.round(255*a/.78);                       /* 濃さ.78で不透明: 向こうの窓の四角が曇りに透けない */
+    wdta[i*4+3]=Math.round(255*w[i]*(1-(a>1?1:a))*.10);
+  }
+  mkx.putImageData(mki,0,0); mwx.putImageData(mwi,0,0);
+  /* 動く景色: くっきり版(曇っていない所)とぼんやり版(曇りの向こう) */
+  dynSx.clearRect(0,0,bw,bh); drawDyn(dynSx,false);
+  dynBx.setTransform(1,0,0,1,0,0); dynBx.clearRect(0,0,dynB.width,dynB.height); dynBx.setTransform(dynB.width/bw,0,0,dynB.height/bh,0,0); drawDyn(dynBx,true);
+  ctx.globalCompositeOperation='source-over'; ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+  ctx.drawImage(bg,0,0,bw,bh);
+  ctx.drawImage(dynS,0,0);
+  ctx.drawImage(mwc,0,0,bw,bh);                   /* 乾いた所の指跡のてかり(ごく薄い) */
+  frx.globalCompositeOperation='source-over'; frx.imageSmoothingEnabled=true; frx.imageSmoothingQuality='high';
+  frx.clearRect(0,0,bw,bh); frx.drawImage(blurS,0,0); frx.drawImage(dynB,0,0,bw,bh); frx.drawImage(noiseL,0,0);
+  frx.globalCompositeOperation='destination-in';
+  frx.drawImage(mkc,0,0,bw,bh);
+  frx.globalCompositeOperation='source-over';
+  ctx.drawImage(fr,0,0);
+  drawDrops();
+}
+
+/* ---------- 入力 ---------- */
+let lastInput=-99, started=false, tt=0, holdB=0;
+const ptrs=new Map();
+function uiTarget(e){
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return true;
+  const t=e.target; return !!(t&&t.closest&&t.closest('#mic,#guide'));
+}
+window.addEventListener('pointerdown',e=>{
+  if(uiTarget(e))return;
+  ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY}); lastInput=tt;
+  if(!started){started=true;msg.classList.add('off')}
+  wipe(e.clientX,e.clientY,e.clientX,e.clientY);
+},{passive:true});
+window.addEventListener('pointermove',e=>{
+  const p=ptrs.get(e.pointerId); if(!p)return;
+  lastInput=tt; wipe(e.clientX,e.clientY,p.x,p.y); p.x=e.clientX; p.y=e.clientY;
+},{passive:true});
+function pup(e){ptrs.delete(e.pointerId)}
+window.addEventListener('pointerup',pup,{passive:true});window.addEventListener('pointercancel',pup,{passive:true});
+window.addEventListener('blur',()=>{ptrs.clear();holdB=0;micBtn.classList.remove('down')});
+
+let msgTimer=0;
+function say(t,sec){msg.textContent=t;msg.classList.remove('off');msgTimer=sec||0}
+let micMode='mic';
+function toHoldMode(){
+  micMode='hold'; micBtn.className='hold'; micBtn.textContent='🌫 押している間、息を吹きかける';
+}
+micBtn.addEventListener('click',async()=>{
+  if(micMode!=='mic')return;
+  micBtn.textContent='マイクの許可を聞いています…';
+  await Breath.start();
+  if(Breath.S.on){micBtn.classList.add('off');say('窓に息を吹いてみて\n(マイクに向かって、ふーっと)',6)}
+  else{toHoldMode();say('マイクが使えませんでした\n下のボタンを押している間が、息になります',7)}
+});
+micBtn.addEventListener('pointerdown',()=>{if(micMode==='hold'){holdB=1;micBtn.classList.add('down');lastInput=tt;if(!started){started=true}}});
+for(const ev of ['pointerup','pointercancel','pointerleave'])micBtn.addEventListener(ev,()=>{holdB=0;micBtn.classList.remove('down')});
+
+/* ---------- 自動デモ(誰も触らない間、ひとりで吹いて書く) ---------- */
+const demo={st:'clear',t:0,path:null,last:null};
+function demoTick(dt){
+  const d=demo; d.t+=dt; let br=0;
+  if(d.st==='clear'){ if(fogMax<.08){d.st='breath';d.t=0} }
+  else if(d.st==='breath'){
+    br=.7*Math.min(1,Math.sin(Math.PI*clamp(d.t/1.9,0,1))*2.2);
+    if(d.t>=1.9){d.st='settle';d.t=0}
+  }else if(d.st==='settle'){ if(d.t>1.0){d.st='draw';d.t=0;d.path=pickShape();d.last=null} }
+  else if(d.st==='draw'){
+    const u=clamp(d.t/2.0,0,1), p=d.path(u);
+    if(d.last)wipe(p[0],p[1],d.last[0],d.last[1]); else wipe(p[0],p[1],p[0],p[1]);
+    d.last=p; if(u>=1){d.st='clear';d.t=0}
+  }
+  return br;
+}
+
+/* ---------- ループ ---------- */
+let last=0,bNow=0,cueT=0,cueLeft=2;
+function demoActive(){return !Breath.S.on&&!ptrs.size&&!holdB&&tt-lastInput>9&&tt>3}
+function frame(t){
+  const dt=Math.min(.05,last?(t-last)/1000:.016); last=t; tt+=dt;
+  const mic=Breath.update(dt);
+  const hold=holdB?.8:0;
+  let dem=0;
+  if(demoActive())dem=demoTick(dt);
+  const target=Math.max(mic,hold,dem);
+  bNow+=(target-bNow)*(1-Math.exp(-dt/(target>bNow?.08:.18)));
+  stepFog(bNow,dt);
+  stepDrops(dt);
+  updateDyn(dt);
+  render();
+  /* 発見のきっかけ: 絵が晴れて見えなくなったら、一言だけ促す */
+  if(cueLeft>0&&wCount>24&&fogMax<.05&&!demoActive()){cueT+=dt;if(cueT>2.2){cueLeft--;cueT=0;say('指の跡は、窓が覚えてる\nもう一度、息を吹いてみて',7)}}
+  else if(fogMax>.2)cueT=0;
+  if(msgTimer>0){msgTimer-=dt;if(msgTimer<=0)msg.classList.add('off')}
+  if(DBG)dbgEl.textContent='b '+bNow.toFixed(2)+' mic '+mic.toFixed(2)+'\ndb '+Breath.S.db.toFixed(1)+' floor '+Breath.S.floor.toFixed(1)+'\nvoice '+Breath.S.voice.toFixed(2)+' rough '+Breath.S.rough.toFixed(1)+' pk '+Breath.S.pk.toFixed(2)+'\nac '+Breath.S.acs+' on '+Breath.S.on+' denied '+Breath.S.denied+'\nfogMax '+fogMax.toFixed(2)+' wCount '+wCount+' demo '+demo.st+'\ndrops '+drops.length+' train '+dyn.train.on+' msg '+MSGS[msgI].replace('\n','/');
+  requestAnimationFrame(frame);
+}
+say('曇った窓を、指でなぞる\n息を吹くと、また曇る',7);
+requestAnimationFrame(frame);
+
+/* ---------- ボタン(ap-kit) ---------- */
+function mutate(){palI=(palI+1+Math.floor(Math.random()*(PALS.length-1)))%PALS.length;seed=(Math.random()*1e9)|0;buildScene();hideMessage()}
+function resetAll(){f.fill(0);w.fill(0);hm.fill(0);drops.length=0;cueLeft=2;cueT=0;demo.st='clear';demo.t=0;lastInput=tt}
+function openGuide(){guide.classList.add('on')}
+guide.addEventListener('click',e=>{if(e.target===guide||e.target.closest('.close'))guide.classList.remove('on')});
+window.__fog={get f(){return f},get w(){return w},get hm(){return hm},get b(){return bNow},get fogMax(){return fogMax},get wCount(){return wCount},get demo(){return demo},
+  get drops(){return drops},get dyn(){return dyn},get msgText(){return MSGS[msgI]},
+  /* テスト用: 描画せずに物理だけ進める */
+  step(b,dt){stepFog(b,dt);stepDrops(dt)},wipe,GW,get GH(){return GH}};
+
+if(window.APKit)APKit.init({
+  canvas:cv,
+  gifName:'window-fog',
+  clockFormat:'spec',
+  dock:true,
+  autoHide:true,
+  fullscreenButton:false,
+  buttons:[
+    {label:'✦',name:'mutate',onClick:mutate},
+    {label:'↻',name:'reset',onClick:resetAll},
+    {label:'？',name:'guide',onClick:openGuide}
+  ]
+});
+})();
+</script>
+</body>
+</html>
