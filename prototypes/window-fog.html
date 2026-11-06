@@ -234,12 +234,7 @@ function drawScene(g,pw_,ph_,pal,sd){
     const lg=g.createRadialGradient(x,y,0,x,y,r); lg.addColorStop(0,'rgba('+c+',1)'); lg.addColorStop(.45,'rgba('+c+',.7)'); lg.addColorStop(1,'rgba('+c+',0)');
     g.fillStyle=lg; g.fillRect(x-r,y-r,r*2,r*2);
   }
-  /* 雨 */
-  g.lineWidth=Math.max(1,s*.8); g.lineCap='round';
-  for(let i=0;i<90;i++){
-    const x=rr(0,pw_), y=rr(0,ph_), len=rr(10,38)*s;
-    g.strokeStyle='rgba(255,255,255,'+rr(.05,.16).toFixed(2)+')'; g.beginPath(); g.moveTo(x,y); g.lineTo(x-len*.12,y+len); g.stroke();
-  }
+  /* 雨は動く景色(dyn)の側で降らせる */
   return {s,base,railY,sp:spare};
 }
 /* 動く景色: 電車・車のライト・窓の明かり。状態は dyn、描くのは drawDyn(くっきり/ぼんやりの2通り) */
@@ -248,10 +243,25 @@ function initDyn(sc_,sd){
   const cars=[];
   for(let i=0;i<9;i++){const dir=R()<.5?1:-1;cars.push({x:rr(0,bw),y:sc_.base+rr(.03,.13)*bh,v:dir*rr(26,80)*s,dir})}
   const tw=sc_.sp.map(p=>{const on=R()<.35?1:0;return {x:p[0],y:p[1],s:p[2],c:pal.win[Math.floor(R()*pal.win.length)],t:rr(0,10),on,a:on}});
-  return {R,cars,tw,train:{on:false,x:0,dir:1,len:0,v:0,next:rr(4,8)}};
+  /* 雨: 奥(細く薄く遅い)・中・手前(太く濃く速い)の3層。波紋は路面に落ちた粒 */
+  const rain=RAIN.map(L=>{const a=[];for(let i=0;i<L.n;i++)a.push({x:rr(0,bw*1.15),y:rr(-.2,1)*bh,len:rr(L.len[0],L.len[1])*s,v:rr(.85,1.15)*L.v*s});return a});
+  return {R,cars,tw,rain,ripples:[],ripT:0,train:{on:false,x:0,dir:1,len:0,v:0,next:rr(4,8)}};
 }
+const RAIN=[
+  {n:45,len:[10,20],v:430,w:.7,a:.10},
+  {n:30,len:[18,32],v:700,w:1.0,a:.17},
+  {n:12,len:[30,52],v:1050,w:1.5,a:.26}
+];
+const SLANT=-.12;
 function updateDyn(dt){
   const R=dyn.R, s=sc.s;
+  for(const L of dyn.rain)for(const r of L){
+    r.y+=r.v*dt; r.x+=r.v*dt*SLANT;
+    if(r.y>bh+r.len||r.x<-r.len){r.y=-r.len-R()*bh*.2;r.x=R()*bw*1.15}
+  }
+  dyn.ripT-=dt;                                           /* 路面に雨粒が落ちて、小さな波紋 */
+  if(dyn.ripT<=0&&dyn.ripples.length<16){dyn.ripT=.05+R()*.09;dyn.ripples.push({x:R()*bw,y:sc.base+(.03+R()*.17)*bh,t:0,life:.6+R()*.5,r:(3+R()*7)*s})}
+  for(let i=dyn.ripples.length-1;i>=0;i--){const p=dyn.ripples[i];p.t+=dt;if(p.t>=p.life)dyn.ripples.splice(i,1)}
   for(const c of dyn.cars){
     c.x+=c.v*dt;
     if(c.dir>0&&c.x>bw+30){c.x=-30;c.y=sc.base+(.03+R()*.1)*bh}
@@ -270,6 +280,19 @@ function updateDyn(dt){
 }
 function drawDyn(g,soft){
   const s=sc.s, m=soft?3:1, al=soft?.5:1;
+  g.lineCap='round';
+  for(let k=0;k<RAIN.length;k++){                          /* 雨(層ごとに1回で描く) */
+    const L=RAIN[k];
+    g.lineWidth=Math.max(1,L.w*s)*m; g.strokeStyle='rgba(215,228,255,'+(L.a*al).toFixed(3)+')';
+    g.beginPath();
+    for(const r of dyn.rain[k]){g.moveTo(r.x,r.y);g.lineTo(r.x+r.len*SLANT,r.y+r.len)}
+    g.stroke();
+  }
+  g.lineWidth=Math.max(1,.9*s)*m;
+  for(const p of dyn.ripples){                             /* 波紋(横に潰れた輪が広がって消える) */
+    const u=p.t/p.life, rx=p.r*(.35+u), a=(1-u)*(1-u)*.38*al;
+    g.strokeStyle='rgba(205,222,255,'+a.toFixed(3)+')'; g.beginPath(); g.ellipse(p.x,p.y,rx,rx*.28,0,0,TAU); g.stroke();
+  }
   for(const q of dyn.tw){
     if(q.a<.02)continue;
     g.fillStyle='rgba('+q.c+','+(q.a*.95*al).toFixed(2)+')';
