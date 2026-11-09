@@ -1,0 +1,158 @@
+<!-- PARALLAX ROOM — ChatGPT作。オフアクシス透視投影による視点依存の室内空間。ap-kit.js統合: ChatGPT -->
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#050912">
+<title>PARALLAX ROOM — 視点を動かすと、部屋の奥行きが変わる</title>
+<script src="../ap-kit.js"></script>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#050912;touch-action:none}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#hint{position:fixed;left:12px;right:12px;top:calc(env(safe-area-inset-top) + 17px);text-align:center;color:#d6e8f2a8;font:500 10px/1.6 ui-monospace,monospace;letter-spacing:.19em;pointer-events:none;transition:opacity 1s}
+#hint.off{opacity:0}
+#note{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 92px);text-align:center;color:#9db5c988;font:9px/1.5 ui-monospace,monospace;letter-spacing:.14em;pointer-events:none;transition:opacity 1s}
+#note.off{opacity:0}
+</style>
+</head>
+<body>
+<canvas id="art"></canvas>
+<div id="hint">DRAG TO LOOK AROUND · TILT TO MOVE YOUR VIEW</div>
+<div id="note">THE ROOM STAYS STILL. YOUR VIEWPOINT DOES NOT.</div>
+<script>
+(()=>{'use strict';
+const canvas=document.getElementById('art'),ctx=canvas.getContext('2d',{alpha:false});
+const hint=document.getElementById('hint'),note=document.getElementById('note');
+const TAU=Math.PI*2,clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+let W=1,H=1,D=1,last=0,time=0,eyeX=0,eyeY=.02,targetX=0,targetY=.02;
+let drag=null,orientationOn=false,orientationBase=null,phase=0,seed=1,paletteIndex=0;
+const palettes=[
+ {bg:'#050912',wall:'#0c1b2a',side:'#091522',floor:'#101f2b',line:'#27445a',a:'#5de4e8',b:'#e6b76b',c:'#e9f5f5',glow:'#38b9d0'},
+ {bg:'#090710',wall:'#1b1328',side:'#120d20',floor:'#1d1728',line:'#46324e',a:'#ff8caa',b:'#f4c76b',c:'#fff0df',glow:'#df648e'},
+ {bg:'#050d0b',wall:'#10201b',side:'#0a1713',floor:'#12251c',line:'#294d3c',a:'#b4e27a',b:'#e4b86c',c:'#f2f4d9',glow:'#8ecb69'},
+ {bg:'#080a17',wall:'#141d38',side:'#0d142a',floor:'#141e35',line:'#34476c',a:'#8caeff',b:'#e1a8ff',c:'#eaf0ff',glow:'#7798ff'}
+];
+let palette=palettes[0];
+function resize(){D=Math.min(devicePixelRatio||1,1.6);W=innerWidth;H=innerHeight;canvas.width=Math.round(W*D);canvas.height=Math.round(H*D);canvas.style.width=W+'px';canvas.style.height=H+'px';ctx.setTransform(D,0,0,D,0,0)}
+addEventListener('resize',resize,{passive:true});resize();
+function project(p){
+ const d=4.25, t=d/(d+p[2]);
+ const sx=eyeX+(p[0]-eyeX)*t, sy=eyeY+(p[1]-eyeY)*t;
+ const scale=Math.min(W,H)*.365;
+ return {x:W*.5+sx*scale,y:H*.515-sy*scale,z:p[2]};
+}
+function polygon(points,fill,stroke=null,width=1,alpha=1){
+ const q=points.map(project);ctx.beginPath();ctx.moveTo(q[0].x,q[0].y);
+ for(let i=1;i<q.length;i++)ctx.lineTo(q[i].x,q[i].y);
+ ctx.closePath();ctx.globalAlpha=alpha;ctx.fillStyle=fill;ctx.fill();
+ if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=width;ctx.stroke()}
+ ctx.globalAlpha=1;
+}
+function line3(a,b,color,width=1,alpha=1){
+ const A=project(a),B=project(b);ctx.beginPath();ctx.moveTo(A.x,A.y);ctx.lineTo(B.x,B.y);
+ ctx.strokeStyle=color;ctx.lineWidth=width;ctx.globalAlpha=alpha;ctx.stroke();ctx.globalAlpha=1;
+}
+function glowDot(p,color,r){
+ const q=project(p);ctx.save();ctx.globalCompositeOperation='lighter';
+ const g=ctx.createRadialGradient(q.x,q.y,0,q.x,q.y,r*3.5);g.addColorStop(0,color+'aa');g.addColorStop(.25,color+'55');g.addColorStop(1,color+'00');
+ ctx.fillStyle=g;ctx.beginPath();ctx.arc(q.x,q.y,r*3.5,0,TAU);ctx.fill();ctx.restore();
+}
+function rotate(p,a,b,c){
+ let [x,y,z]=p,ca=Math.cos(a),sa=Math.sin(a),cb=Math.cos(b),sb=Math.sin(b),cc=Math.cos(c),sc=Math.sin(c);
+ let y1=y*ca-z*sa,z1=y*sa+z*ca,x2=x*cb+z1*sb,z2=-x*sb+z1*cb;
+ return [x2*cc-y1*sc,x2*sc+y1*cc,z2];
+}
+function objectPoint(p,scale,rotY,rotX,depth){
+ const q=rotate([p[0]*scale,p[1]*scale,p[2]*scale],rotX,rotY,phase*.13);
+ return [q[0],q[1]+.05,q[2]+depth+2.35];
+}
+function drawRoom(){
+ const p=palette;
+ // Room shell: the floor and walls converge toward a fixed back plane.
+ polygon([[-2.35,1.72,.35],[2.35,1.72,.35],[2.35,1.72,5.8],[-2.35,1.72,5.8]],p.wall);
+ polygon([[-2.35,1.72,.35],[-2.35,-1.42,.35],[-2.35,-1.42,5.8],[-2.35,1.72,5.8]],p.side);
+ polygon([[2.35,1.72,.35],[2.35,-1.42,.35],[2.35,-1.42,5.8],[2.35,1.72,5.8]],p.side);
+ polygon([[-2.35,-1.42,.35],[2.35,-1.42,.35],[2.35,-1.42,5.8],[-2.35,-1.42,5.8]],p.floor);
+ // Back wall panel and architectural reveals.
+ polygon([[-1.72,-1.02,5.77],[1.72,-1.02,5.77],[1.72,1.34,5.77],[-1.72,1.34,5.77]],'#101e2a',p.line,1,.8);
+ for(let x=-1.45;x<=1.46;x+=.48)line3([x,-1.0,5.74],[x,1.32,5.74],p.line,.7,.48);
+ for(let y=-.78;y<=1.2;y+=.48)line3([-1.7,y,5.74],[1.7,y,5.74],p.line,.7,.42);
+ // Floor perspective grid; spacing compresses toward the back wall.
+ for(let x=-2.2;x<=2.21;x+=.4)line3([x,-1.405,.45],[x,-1.405,5.78],p.line,.8,.48);
+ for(let z=.65;z<=5.6;z+=.42)line3([-2.32,-1.405,z],[2.32,-1.405,z],p.line,.8,.42);
+ // Ceiling ribs and side-wall depth marks.
+ for(let z=1;z<5.7;z+=.92){
+  line3([-2.32,1.68,z],[2.32,1.68,z],p.line,.8,.34);
+  line3([-2.32,-1.4,z],[-2.32,1.7,z],p.line,.6,.22);
+  line3([2.32,-1.4,z],[2.32,1.7,z],p.line,.6,.22);
+ }
+ // A luminous rectangular portal on the rear wall.
+ const pulse=.55+.12*Math.sin(time*.8);
+ polygon([[-.82,-.94,5.69],[.82,-.94,5.69],[.82,1.18,5.69],[-.82,1.18,5.69]],'#132b38',p.a,1.4,.14);
+ line3([-.82,-.94,5.66],[.82,-.94,5.66],p.a,1.2,pulse);
+ line3([.82,-.94,5.66],[.82,1.18,5.66],p.a,1.2,pulse);
+ line3([.82,1.18,5.66],[-.82,1.18,5.66],p.a,1.2,pulse);
+ line3([-.82,1.18,5.66],[-.82,-.94,5.66],p.a,1.2,pulse);
+}
+function cubeEdges(size,depth,rotY,rotX,color,width,alpha){
+ const v=[];for(let i=0;i<8;i++)v.push(objectPoint([(i&1)?1:-1,(i&2)?1:-1,(i&4)?1:-1],size,rotY,rotX,depth));
+ const edges=[[0,1],[0,2],[0,4],[1,3],[1,5],[2,3],[2,6],[3,7],[4,5],[4,6],[5,7],[6,7]];
+ for(const [a,b] of edges)line3(v[a],v[b],color,width,alpha);
+}
+function drawSculpture(){
+ const p=palette,spin=time*.24;
+ // A nested, slowly turning cage. Each generation is a smaller copy in the same volume.
+ for(let i=0;i<4;i++){
+  const s=.78*Math.pow(.68,i),depth=2.25+(i%2)*.09;
+  cubeEdges(s,depth,spin*(i%2?-.72:1)+i*.12,spin*.48+i*.09,i%2?p.b:p.a,Math.max(.7,2.1-i*.28),.92-i*.13);
+ }
+ // The central glass solid is rendered as a set of projected faces.
+ const verts=[];for(let i=0;i<8;i++)verts.push(objectPoint([(i&1)?.28:-.28,(i&2)?.28:-.28,(i&4)?.28:-.28],1,spin*.8,spin*.55,2.25));
+ const faces=[[0,1,3,2],[4,6,7,5],[0,4,5,1],[2,3,7,6],[0,2,6,4],[1,5,7,3]];
+ for(let i=0;i<faces.length;i++)polygon(faces[i].map(k=>verts[k]),i%2?'#a8dce522':'#e9f5f511',p.c,.7,.7);
+ // A thin orbit cuts through the nested cubes, revealing motion in depth.
+ for(let j=0;j<2;j++){
+  const pts=[];for(let k=0;k<=80;k++){const a=k/80*TAU;const q=rotate([Math.cos(a)*.95,Math.sin(a)*(.22+j*.16),0],.72+j*.46,spin*(j?-.55:1),0);pts.push([q[0],q[1]+.05,q[2]+2.25])}
+  for(let k=1;k<pts.length;k++)line3(pts[k-1],pts[k],j?p.b:p.c,1.25,j?.66:.48);
+ }
+ glowDot([0,.05,2.15],p.a,8);
+ glowDot([-.72,.42,2.35],p.b,3);
+ glowDot([.66,-.38,2.05],p.a,3);
+ // A floor shadow anchors the sculpture inside the room.
+ polygon([[-.75,-1.395,1.75],[.75,-1.395,1.75],[.5,-1.395,3.05],[-.5,-1.395,3.05]],'#000000',null,1,.25);
+}
+function draw(){
+ ctx.fillStyle=palette.bg;ctx.fillRect(0,0,W,H);
+ const v=ctx.createRadialGradient(W*.5,H*.48,0,W*.5,H*.48,Math.max(W,H)*.72);
+ v.addColorStop(0,'#17283a55');v.addColorStop(1,'#02040a00');ctx.fillStyle=v;ctx.fillRect(0,0,W,H);
+ drawRoom();drawSculpture();
+ // Subtle screen-edge falloff keeps the room visually enclosed.
+ const edge=ctx.createRadialGradient(W*.5,H*.5,Math.min(W,H)*.25,W*.5,H*.5,Math.max(W,H)*.72);
+ edge.addColorStop(0,'#00000000');edge.addColorStop(1,'#00040a99');ctx.fillStyle=edge;ctx.fillRect(0,0,W,H);
+}
+function frame(ms){const dt=Math.min(.04,(ms-last)/1000||0);last=ms;time+=dt;phase+=dt;eyeX+=(targetX-eyeX)*.075;eyeY+=(targetY-eyeY)*.075;draw();requestAnimationFrame(frame)}
+function setHintOff(){hint.classList.add('off');note.classList.add('off')}
+function reset(){eyeX=targetX=0;eyeY=targetY=.02;phase=0;time=0;paletteIndex=0;palette=palettes[0];drag=null;orientationBase=null;orientationOn=false;hint.classList.remove('off');note.classList.remove('off')}
+function mutate(){paletteIndex=(paletteIndex+1+Math.floor(Math.random()*3))%palettes.length;palette=palettes[paletteIndex];phase+=Math.random()*TAU;targetX=(Math.random()-.5)*.65;targetY=(Math.random()-.5)*.35}
+function startTilt(){
+ const enable=()=>{orientationOn=true;setHintOff();if(typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function'){DeviceOrientationEvent.requestPermission().then(s=>{if(s!=='granted')orientationOn=false}).catch(()=>orientationOn=false)}};
+ enable();
+}
+canvas.addEventListener('pointerdown',e=>{if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;e.preventDefault();drag={x:e.clientX,y:e.clientY};canvas.setPointerCapture?.(e.pointerId);setHintOff()},{passive:false});
+canvas.addEventListener('pointermove',e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;drag.x=e.clientX;drag.y=e.clientY;targetX=clamp(targetX-dx/Math.min(W,H)*1.65,-1.15,1.15);targetY=clamp(targetY+dy/Math.min(W,H)*1.2,-.8,.8)},{passive:true});
+canvas.addEventListener('pointerup',()=>drag=null,{passive:true});
+canvas.addEventListener('pointercancel',()=>drag=null);
+addEventListener('deviceorientation',e=>{if(!orientationOn||e.gamma==null)return;targetX=clamp(e.gamma/42,-.9,.9);targetY=clamp((e.beta-55)/55,-.55,.55)},{passive:true});
+requestAnimationFrame(frame);
+if(window.APKit)APKit.init({canvas:canvas,gifName:'parallax-room-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,buttons:[
+ {label:'✦',name:'mutate',onClick:mutate},
+ {label:'⌁',name:'tilt',onClick:startTilt},
+ {label:'↻',name:'reset',onClick:reset},
+ {label:'？',name:'guide',onClick:function(){APKit.message('PARALLAX ROOM','画面を左右になぞると、見る位置が変わります。⌁で端末の傾きにも追従します。部屋は動かず、視点だけが移動します。')}}
+]});
+})();
+</script>
+</body>
+</html>
