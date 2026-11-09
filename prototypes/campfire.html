@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- CAMPFIRE — クロちゃん(Claude)作。ap-kit.js統合: クロちゃん。2026/11/01 試作(v2: 炭の変化・陽炎を追加 → v4.1: 序盤から焦げ・炎は序盤がピーク・約70秒 → v5: 薪を1本ずつ燃やして燃え尽きる・✦で薪が落ちて積み重なる物理 → v5.1: 約45秒で燃え尽きる・うろこ状の焦げ割れ・薪の表面を舐める炎 → v5.2: 薪の形を不揃いに・焦げた薪は途中で折れる → v5.3: 炎は燃えている薪から立つ・割れ目はぼんやり光る熱だまり・熾火が息をする)。
+<!-- CAMPFIRE — クロちゃん(Claude)作。ap-kit.js統合: クロちゃん。2026/11/01 試作(v2: 炭の変化・陽炎を追加 → v4.1: 序盤から焦げ・炎は序盤がピーク・約70秒 → v5: 薪を1本ずつ燃やして燃え尽きる・✦で薪が落ちて積み重なる物理 → v5.1: 約45秒で燃え尽きる・うろこ状の焦げ割れ・薪の表面を舐める炎 → v5.2: 薪の形を不揃いに・焦げた薪は途中で折れる → v5.3: 炎は燃えている薪から立つ・割れ目はぼんやり光る熱だまり・熾火が息をする → v6: 炎が筋のある舌に分かれて先の高さが違う・燃料が減ると息つぎ・熾火は橙〜赤のまま・燃え尽きる最後に小さな熾火が不規則に光っては消える・冷えた薪は白っぽい灰をかぶる)。
      お題: おっちゃんが選んだ「焚き火」(リアルに・音付き・炭の変化も)。10/30依頼の新作題材3候補から選択。
      世界のルール: 炎は「上」へ昇る。触った場所だけ、その「上」の向きが書き換わる。
        タップ=その場所の上が「下」になる(炎が垂れ、火の粉が雨のように落ちる) / なぞる=なぞった向きが上になる / 押し続ける=上の向きがゆっくり回り、炎が渦を巻く。
@@ -630,9 +630,9 @@ function drawLog(g,L){
     g.strokeStyle='rgba(80,52,30,'+(0.7*(1-m))+')';g.lineWidth=0.8;
     for(i=1;i<4;i++){ell(g,l/2-t*0.1,ecy,t*0.2*i/4,t*0.5*ehk*i/4,0);g.stroke()}}
   /* 冷えた薪: 全体が灰色にくすむ(v5) */
-  if(cl>0){g.fillStyle='rgba(118,114,108,'+(0.18*cl)+')';lp(g,L,l,t);g.fill()}
+  if(cl>0){g.fillStyle='rgba(124,120,114,'+(0.32*cl)+')';lp(g,L,l,t);g.fill()} /* v6: 冷えると、白っぽい灰をかぶる */
   /* 両端から先に灰になる(v5.1) */
-  var ea=sstep(0.5,1,b)*0.34+cl*0.14;
+  var ea=sstep(0.5,1,b)*0.34+cl*0.24;
   if(ea>0.01){var eg=g.createLinearGradient(-l/2,0,l/2,0),ec='rgba(168,163,155,';
     eg.addColorStop(0,ec+ea+')');eg.addColorStop(0.16,ec+ea*0.4+')');eg.addColorStop(0.32,ec+'0)');eg.addColorStop(0.68,ec+'0)');eg.addColorStop(0.84,ec+ea*0.4+')');eg.addColorStop(1,ec+ea+')');
     g.fillStyle=eg;lp(g,L,l,t);g.fill()}
@@ -790,14 +790,17 @@ var FS=[
 '  float n2=fbm(vec2(xl*1.9+7.3,h*4.6-t*2.9));',
 '  float n3=vn(vec2(h*5.0-t*3.5,xl*2.0+3.0));',
 '  float hh=clamp(h,0.0,1.4);',
+'  float st=fbm(vec2(xl*3.6+uSeed*0.7,h*0.75-t*2.6));', /* v6: 縦に伸びた筋(炎の舌の1本1本) */
+'  float pu=0.5+0.5*sin(6.2832*(h*0.85-t*1.1)+n1*4.0);', /* v6: 下から上へ立ちのぼる脈(炎のかたまりが千切れて昇る) */
 '  float taper=mix(1.0,0.16,pow(clamp(hh,0.0,1.0),0.75));',
 '  float lat=abs(xl+(n1-0.5)*2.6*hh)/taper;',
 '  float body=1.0-smoothstep(0.2,1.0,lat);',
 '  float tg=fbm(vec2(xl*2.6+uSeed*0.3,h*1.5-t*0.9));',
 '  body*=smoothstep(0.18,0.62,tg+0.35*(1.0-h)-0.1*h);',
-'  float cut=1.0-smoothstep(0.5,1.0,h+(n2-0.5)*0.7*hh);',
+'  body*=mix(1.0,mix(0.3,1.0,smoothstep(0.3,0.6,st)),smoothstep(0.1,0.5,hh));', /* 上へいくほど、筋と筋のあいだが切れて舌に分かれる */
+'  float cut=1.0-smoothstep(0.5,1.0,h+(n2-0.5)*0.7*hh+(0.5-pu)*0.2*hh+(0.5-st)*0.55*hh);', /* 舌ごとに先の高さが違う */
 '  float d=body*cut;',
-'  float e=d*(0.98-0.58*clamp(h,0.0,1.0))*(0.78+0.4*n3);',
+'  float e=d*(0.94-0.58*clamp(h,0.0,1.0))*(0.7+0.5*n3)*(0.78+0.4*st);',
 '  e*=uHeat;',
 '  float ground=1.0-smoothstep(uGround,uGround+uU*0.07,p.y);',
 '  float a=smoothstep(0.02,0.42,e)*ground*uGain*smoothstep(0.0,0.07,h);',
@@ -830,7 +833,8 @@ function glPass(g,sx,by,fk,seed,no){
   var Ww=U*0.15*(0.6+0.4*clamp(fk,0,1.1));
   GL.uniform4f(GU.uRect,x0,y0,rw,rh);GL.uniform2f(GU.uRes,pw,ph);GL.uniform1f(GU.uT,T);
   GL.uniform2f(GU.uBase,sx,by);GL.uniform1f(GU.uH,Math.max(Hh,U*0.04));GL.uniform1f(GU.uW,Ww);GL.uniform1f(GU.uU,U);GL.uniform1f(GU.uGround,FY+U*0.07);
-  GL.uniform1f(GU.uGain,clamp(fk*1.25,0.28,1.15)*flick*sstep(0.02,0.16,fuel));GL.uniform1f(GU.uHeat,0.62+0.4*clamp(fk,0,1));GL.uniform1f(GU.uSeed,seed);
+  var dyF=1-sstep(0.2,0.6,fuel),gut=1-0.62*dyF*sstep(0.45,0.7,0.5+0.5*nz(T*1.3+no,3.3,1.1)); /* v6: 燃料が減ると、炎が息つぎして、ふっと低くなる */
+  GL.uniform1f(GU.uGain,clamp(fk*1.25,0.28,1.15)*flick*sstep(0.02,0.16,fuel)*gut);GL.uniform1f(GU.uHeat,0.62+0.4*clamp(fk,0,1));GL.uniform1f(GU.uSeed,seed);
   var i,p;
   for(i=0;i<6;i++){p=patches[i];if(p){PBUF[i*4]=p.x;PBUF[i*4+1]=p.y;PBUF[i*4+2]=p.r;PBUF[i*4+3]=p.s;ABUF[i]=p.a}else{PBUF[i*4]=-9999;PBUF[i*4+1]=-9999;PBUF[i*4+2]=1;PBUF[i*4+3]=0;ABUF[i]=0}}
   GL.uniform4fv(GU.uP,PBUF);GL.uniform1fv(GU.uA,ABUF);
@@ -908,8 +912,8 @@ function render(){
   for(i=0;i<COALS.length;i++){c=COALS[i];if(c.thr>bedP)continue;
     al=0.5+0.5*Math.sin(T*c.sp+c.ph);upAt(c.x,c.y);
     var bst=1+1.3*UW,rr2=c.r*(0.8+0.5*bedG)*(1+0.3*UW);
-    g.globalAlpha=clamp((0.14+0.42*al)*flick*bedG*bst*(1-0.3*ashB),0,0.9);
-    g.drawImage(SPR[11+((clamp(al*bedG*bst,0,1)*8)|0)],c.x-rr2*2.2,c.y-rr2*2.2,rr2*4.4,rr2*4.4);
+    g.globalAlpha=clamp((0.12+0.36*al)*flick*bedG*bst*(1-0.3*ashB),0,0.8);
+    g.drawImage(SPR[11+((clamp(al*bedG*bst,0,1)*5)|0)],c.x-rr2*2.2,c.y-rr2*2.2,rr2*4.4,rr2*4.4); /* v6: 熾火は黄白に飽和させず、橙〜赤のまま息をする */
   }
   /* 薪の焦げ割れ(v5.3): 線ではなく「割れ目の奥から滲む熱」。熱だまりが薪の上をゆっくり移ろい、深い所ほど黄色く、まわりは鈍い赤 */
   g.lineCap='round';g.lineJoin='round';
@@ -939,6 +943,16 @@ function render(){
     for(ke=0;ke<4;ke++){var gu=(ke/3-0.5)*2*gl,gx=gcx+gu*gca,gy=gcy+gu*gsa,gn=0.5+0.5*nz(gx*0.03+T*0.18,gy*0.03,6.1+ke),gpx=(gx-FX)/U;
       g.globalAlpha=clamp(0.34*gh*gn*gn*(0.4+0.6*Math.exp(-gpx*gpx/0.05))*flick,0,0.6);
       g.drawImage(SPR[7+((gn*4)|0)],gx-gt*1.6,gy-gt*1.6,gt*3.2,gt*3.2)}}
+  /* v6: 燃え尽きる最後の熾火。灰の下で、小さな赤い点が不規則に光っては消え、薪ごとに時期をずらして1つずつ消えていく */
+  for(i=0;i<LOGS.length;i++){var DL=LOGS[i];if(DL.cool<0.03||DL.cool>0.97||DL.b<1)continue;
+    var dca=Math.cos(DL.a),dsa=Math.sin(DL.a),dcx=FX+DL.x*U,dcy=FY+DL.y*U,dlen=DL.l*U*lenK(DL)*0.42,dth=DL.t*U*thkK(DL),kd;
+    for(kd=0;kd<3;kd++){
+      var dph=(DL.bph||0)*3.7+kd*2.39+i*0.9,dw=Math.sin(T*(0.45+0.13*kd)+dph);dw=dw>0?Math.pow(dw,4):0;
+      var dlive=sstep(0,0.55,(1-DL.cool)+0.45*(0.5-0.5*Math.cos(dph*7.1))-0.2); /* 点ごとに、消える時期がずれる */
+      var dpa=dw*dlive*(0.45+0.55*(1-DL.cool));if(dpa<0.04)continue;
+      var du=(((Math.abs(dph)*0.37)%1)-0.5)*2*dlen;
+      g.globalAlpha=clamp(0.62*dpa*flick,0,0.7);
+      g.drawImage(SPR[8+((dpa*5)|0)],dcx+du*dca-dth*0.9,dcy+du*dsa-dth*0.9,dth*1.8,dth*1.8)}}
   /* 燃えている薪の表面を舐める小さな炎(v5.1)。炭化が進むと消えて、割れ目の赤い光だけが残る */
   for(i=0;i<LOGS.length;i++){var LL=LOGS[i],lf=LL.fl*(1-sstep(0.55,0.95,LL.b))*clamp(fuel,0,1);if(lf<0.05)continue;
     var lsx=lenK(LL),lsy=thkK(LL),lca=Math.cos(LL.a),lsa=Math.sin(LL.a),lcx=FX+LL.x*U,lcy=FY+LL.y*U,side=lca>=0?-1:1,llen=LL.l*U*lsx,lth=LL.t*U*lsy;
@@ -969,7 +983,7 @@ function render(){
     if(FL[i]<=0)continue;
     a=FA[i]/FL[i];Tn=0.8*Math.pow(1-a,1.25);
     r=FSZ[i]*(0.35+0.95*Math.pow(1-a,0.55));
-    al=(GLOK?0.034:0.062)*(0.35+0.75*Tn/0.8)*(a>0.78?(1-a)/0.22:1)*Math.min(1,a/0.06+0.25);
+    al=(GLOK?0.022:0.062)*(0.35+0.75*Tn/0.8)*(a>0.78?(1-a)/0.22:1)*Math.min(1,a/0.06+0.25);
     g.globalAlpha=al*(0.85+0.3*FSD[i])*(1-0.5*FW[i]); /* 向きを書き換えた所で炎が潰れても、粒の重なりで真っ白に飽和させない */
     g.drawImage(SPR[(Tn*(NSP-1)+0.5)|0],FPX[i]-r,FPY[i]-r,r*2,r*2);
   }
