@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- 21 SHELLS — クロちゃん作(2026/11/09 試作)。X上のluna氏(@naturaholic)の「21種類の花火玉が一斉に打ち上がる図鑑」動画をもとに、立体化+カメラ(AR)・傾き・マイク・撮影/録画に対応。ap-kit.jsは未導入(ギャラリー採用時に検討) -->
+<!-- 21 SHELLS — クロちゃん作(2026/11/09 試作)。X上のluna氏(@naturaholic)の「21種類の花火玉が一斉に打ち上がる図鑑」動画をもとに、立体化+カメラ(AR)・傾き・音・撮影/録画に対応。ap-kit.jsは未導入(ギャラリー採用時に検討) -->
 <html lang="ja">
 <head>
 <meta charset="utf-8">
@@ -32,6 +32,8 @@
     font:9px/1 -apple-system,"Hiragino Sans","Yu Gothic",sans-serif;letter-spacing:.04em;
     transition:border-color .2s,color .2s,box-shadow .2s,transform .08s}
   .b svg{width:21px;height:21px;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+  .b .x{display:none}
+  .b:not(.on) .x{display:inline}
   .b:active{transform:scale(.94)}
   .b.on{border-color:rgba(255,190,110,.95);color:#ffd9a0;box-shadow:0 0 14px rgba(255,170,80,.45)}
   .b.rec{border-color:#ff5a5a;color:#ff9a9a;box-shadow:0 0 14px rgba(255,70,70,.5)}
@@ -41,11 +43,11 @@
 <canvas id="c"></canvas>
 <video id="cam" playsinline muted autoplay></video>
 <div id="toast"></div>
-<div id="hint">タップで打ち上げ<br>ドラッグで見る向きを変える</div>
+<div id="hint">タップで打ち上げ(音あり)<br>ドラッグで見る向きを変える</div>
 <div id="bar">
   <button class="b" id="bCam" aria-label="カメラ"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>カメラ</button>
   <button class="b" id="bTilt" aria-label="傾き"><svg viewBox="0 0 24 24"><rect x="8.5" y="3" width="7" height="18" rx="2"/><path d="M4.5 9c-1 2-1 4 0 6M19.5 9c1 2 1 4 0 6"/></svg>傾き</button>
-  <button class="b" id="bMic" aria-label="マイク"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>マイク</button>
+  <button class="b on" id="bSnd" aria-label="音"><svg viewBox="0 0 24 24"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/><path class="x" d="M3.5 3.5l17 17"/></svg>音</button>
   <button class="b" id="bShot" aria-label="撮影"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg>撮影</button>
   <button class="b" id="bRec" aria-label="録画"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.6" fill="currentColor"/></svg>録画</button>
 </div>
@@ -56,7 +58,7 @@
    21 SHELLS AR — 立体の花火図鑑 + 端末の機能をフルに使う版
    ・カメラ : 背面カメラの映像を夜空に見立て、その上に花火を重ねる(AR)
    ・傾き   : 端末の向きがそのままカメラの向き。花火は空間に固定される
-   ・マイク : 拍手・声・音の大きさで打ち上げ(音は出さない)
+   ・音     : 花火の音を合成して鳴らす(打ち上げの笛・ドーン・パチパチ。遠いほど遅れて届く)
    ・撮影/録画 : 合成した画面を写真・動画で保存(共有シートへ)
    ・ドラッグ/タップ : 向きを変える/その方向へ打ち上げ
    ============================================================ */
@@ -197,6 +199,7 @@ function burstLayer(l,x,y,z,R){
   }
 }
 function miniBurst(x,y,z,R,pn){
+  sndPop(x,y,z,R);
   burstLayer({shape:'sphere',rm:1,n:30,life:1.15,drag:2.7,g:.1,tl:.05,w:1.2,pal:pn,crk:.4,hold:.55},x,y,z,R);
 }
 
@@ -229,12 +232,14 @@ const DEFS=[
 /* ---------- 打ち上げ中の玉 ---------- */
 const shells=[], flashes=[];
 function launch(di,x0,y0,z0,x1,y1,z1,R,dur,tap){
+  sndLaunch(x1,y1,z1,dur,R);
   shells.push({di,x0,y0,z0,x1,y1,z1,R,dur,tap:!!tap,t:0,x:x0,y:y0,z:z0,px:x0,py:y0,pz:z0,
     wob:rnd(-1,1)*R*.12,wob2:rnd(-1,1)*R*.12,ph:rnd(0,TAU)});
 }
 function explode(s){
   const def=DEFS[s.di], R=s.R*def.rs;
   for(const l of def.layers) burstLayer(l,s.x1,s.y1,s.z1,R);
+  sndBoom(s.x1,s.y1,s.z1,R,def);
   const first=P[Array.isArray(def.layers[0].pal)?def.layers[0].pal[0]:def.layers[0].pal][0].rgb;
   flashes.push({x:s.x1,y:s.y1,z:s.z1,r:R*.3,rgb:[255,236,214],t:0,dur:.2,a:.45});
   flashes.push({x:s.x1,y:s.y1,z:s.z1,r:R*1.25,rgb:first,t:0,dur:.45,a:.5});
@@ -295,7 +300,7 @@ function enterGrid(){
 }
 function enterSky(){ phase='sky'; phaseT=0; zoomT=zoomSky; skyNext=.2; finaleDone=false; }
 
-// 自動(夜空・マイク)の打ち上げ。ARでは「いま見ている方向」に出す
+// 自動(夜空)の打ち上げ。ARでは「いま見ている方向」に出す
 function launchAuto(big,sc){
   sc=sc||1;
   const di=rint(0,DEFS.length-1);
@@ -368,7 +373,7 @@ function poke(){
   bar.classList.remove('dim'); clearTimeout(dimTimer);
   dimTimer=setTimeout(()=>bar.classList.add('dim'),4500);
 }
-const bCam=document.getElementById('bCam'), bTilt=document.getElementById('bTilt'), bMic=document.getElementById('bMic'),
+const bCam=document.getElementById('bCam'), bTilt=document.getElementById('bTilt'), bSnd=document.getElementById('bSnd'),
       bShot=document.getElementById('bShot'), bRec=document.getElementById('bRec');
 
 /* ---------- 傾き(端末の向き) ---------- */
@@ -433,46 +438,148 @@ function disableCam(){
 }
 bCam.addEventListener('click',()=>{ poke(); if(camOn) disableCam(); else enableCam(); });
 
-/* ---------- マイク(音の大きさで打ち上げ) ---------- */
-let micOn=false, micStream=null, audioCtx=null, analyser=null, abuf=null;
-let micLv=0, micAvg=.01, lastMic=-9, loudT=0;
-async function enableMic(){
-  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){ toast('このブラウザではマイクが使えない'); return; }
+/* ---------- 音(WebAudioで花火の音を合成) ---------- */
+// 打ち上げの笛 → ドーン(低音+破裂音) → パチパチ。遠い花火は遅れて届き、こもって、小さくなる。
+// 左右は画面上の位置で振り分け。残響は小さな部屋ぶんの空気感(全体に薄くかける)。
+const SND={ctx:null,on:true,master:null,dest:null,noise:null,verb:null,bL:0,bB:0,tickBudget:0,tickT:0};
+function sndInit(){
+  if(SND.ctx) return;
   try{
-    const AC=window.AudioContext||window.webkitAudioContext;
-    audioCtx=new AC(); if(audioCtx.resume) await audioCtx.resume();
-    micStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false},video:false});
-    const src=audioCtx.createMediaStreamSource(micStream);
-    analyser=audioCtx.createAnalyser(); analyser.fftSize=1024; src.connect(analyser);   // 出力には繋がない(音は出ない)
-    abuf=new Float32Array(analyser.fftSize);
-    micOn=true; micLv=0; micAvg=.01; bMic.classList.add('on');
-    toast('拍手や声で打ち上がる');
-  }catch(e){
-    toast('マイクが使えなかった'); disableMic();
+    const AC=window.AudioContext||window.webkitAudioContext; if(!AC) return;
+    if(navigator.audioSession){ try{ navigator.audioSession.type='playback'; }catch(_){} }   // iPhoneのマナーモードでも鳴らす
+    const c=new AC({latencyHint:'interactive'}); SND.ctx=c;
+    const comp=c.createDynamicsCompressor();
+    comp.threshold.value=-16; comp.knee.value=18; comp.ratio.value=5; comp.attack.value=.004; comp.release.value=.25;
+    const m=c.createGain(); m.gain.value=SND.on?.62:0; m.connect(comp); SND.master=m;
+    comp.connect(c.destination);
+    SND.dest=c.createMediaStreamDestination(); comp.connect(SND.dest);       // 録画用
+    // 残響
+    const len=Math.floor(c.sampleRate*1.5), ir=c.createBuffer(2,len,c.sampleRate);
+    for(let ch=0;ch<2;ch++){ const d=ir.getChannelData(ch); for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,2.6); }
+    const cv2=c.createConvolver(); cv2.buffer=ir; const wet=c.createGain(); wet.gain.value=.34;
+    cv2.connect(wet); wet.connect(m); SND.verb=cv2;
+    // 白色雑音
+    const nb=c.createBuffer(1,c.sampleRate*2,c.sampleRate), nd=nb.getChannelData(0);
+    for(let i=0;i<nd.length;i++) nd[i]=Math.random()*2-1;
+    SND.noise=nb;
+  }catch(e){ SND.ctx=null; }
+}
+let silentEl=null;
+function sndUnlock(){
+  if(!SND.on) return;
+  sndInit(); const c=SND.ctx; if(!c) return;
+  if(c.state!=='running'){ try{ c.resume(); }catch(_){} }
+  if(!navigator.audioSession && !silentEl){      // 古いiOS: 無音のaudioを回してマナーモードでも鳴るようにする
+    try{
+      const wav='data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+      silentEl=new Audio(wav); silentEl.loop=true; silentEl.play().catch(()=>{});
+    }catch(_){}
   }
 }
-function disableMic(){
-  if(micStream){ micStream.getTracks().forEach(t=>t.stop()); micStream=null; }
-  if(audioCtx){ try{audioCtx.close();}catch(_){} audioCtx=null; }
-  analyser=null; micOn=false; micLv=0; bMic.classList.remove('on'); bMic.style.transform='';
+['pointerup','click','touchend'].forEach(ev=>window.addEventListener(ev,sndUnlock,{passive:true}));
+function sndSet(on){
+  SND.on=on; bSnd.classList.toggle('on',on);
+  if(on){ sndUnlock(); if(SND.master) SND.master.gain.setTargetAtTime(.62,SND.ctx.currentTime,.05); }
+  else if(SND.master) SND.master.gain.setTargetAtTime(0,SND.ctx.currentTime,.05);
 }
-bMic.addEventListener('click',()=>{ poke(); if(micOn) disableMic(); else enableMic(); });
-function updateMic(dt){
-  if(!micOn||!analyser) return;
-  analyser.getFloatTimeDomainData(abuf);
-  let s=0; for(let i=0;i<abuf.length;i++) s+=abuf[i]*abuf[i];
-  const rms=Math.sqrt(s/abuf.length);
-  micLv=Math.max(rms,micLv*Math.exp(-dt*6));
-  const thr=Math.max(.05,micAvg*2.6);
-  if(rms>thr && T-lastMic>.2){
-    lastMic=T;
-    const n=rms>.3?3:(rms>.15?2:1);
-    for(let i=0;i<n;i++) after(i*.12,()=>launchAuto(rms>.3,1+Math.min(.5,rms*1.6)));
+bSnd.addEventListener('click',()=>{ poke(); sndSet(!SND.on); toast(SND.on?'音 ON':'音 OFF'); });
+
+function sndLive(){ return SND.on && SND.ctx && SND.ctx.state==='running'; }
+// ワールド座標 → 左右(-1..1)と距離
+function spatial(x,y,z){
+  if(project(x,y,z)) return {pan:Math.max(-1,Math.min(1,(PX/W-.5)*1.7)), d:PD};
+  return {pan:0,d:D*1.5};
+}
+// 1つの音源の出口(左右+残響への送り)。lp:遠いほどこもらせる
+function sndOut(c,t,pan,gain,send){
+  const g=c.createGain(); g.gain.value=gain;
+  let node=g;
+  if(c.createStereoPanner){ const p=c.createStereoPanner(); p.pan.value=pan; g.connect(p); node=p; }
+  node.connect(SND.master);
+  if(send>0){ const sg=c.createGain(); sg.gain.value=send; node.connect(sg); sg.connect(SND.verb); }
+  return g;
+}
+function nsrc(c,t,dur){ const n=c.createBufferSource(); n.buffer=SND.noise; n.start(t,Math.random()*1.5,dur); return n; }
+function envG(c,t,peak,att,dec){
+  const g=c.createGain(); g.gain.setValueAtTime(.0001,t);
+  g.gain.exponentialRampToValueAtTime(peak,t+att); g.gain.exponentialRampToValueAtTime(.0001,t+att+dec); return g;
+}
+const distGain=d=>Math.max(.28,Math.min(1.25,1.3-(d-500)/1700));
+const distDelay=d=>.09+.3*Math.max(0,Math.min(1,(d-500)/1400));
+
+// 打ち上げ: ポンッという発射音 + 上昇する笛
+function sndLaunch(x,y,z,dur,R){
+  if(!sndLive() || SND.bL>=24) return;
+  const c=SND.ctx, t=c.currentTime+.005, sp=spatial(x,y,z), dg=distGain(sp.d);
+  const out=sndOut(c,t,sp.pan,.55*dg,.12);
+  // 発射のポフッ
+  const n=nsrc(c,t,.3), lp=c.createBiquadFilter(); lp.type='lowpass'; lp.frequency.setValueAtTime(1100,t); lp.frequency.exponentialRampToValueAtTime(140,t+.25);
+  const e=envG(c,t,.9,.006,.22); n.connect(lp); lp.connect(e); e.connect(out);
+  // 笛(のぼるほど高く、少しゆらぐ)
+  const o=c.createOscillator(); o.type='sine';
+  const f0=rnd(520,760), f1=f0*rnd(2.4,3.2);
+  o.frequency.setValueAtTime(f0,t+.03); o.frequency.exponentialRampToValueAtTime(f1,t+dur);
+  const lfo=c.createOscillator(), lg=c.createGain(); lfo.frequency.value=rnd(18,26); lg.gain.value=12; lfo.connect(lg); lg.connect(o.frequency);
+  const wg=c.createGain(); wg.gain.setValueAtTime(.0001,t); wg.gain.linearRampToValueAtTime(.075,t+.18); wg.gain.setValueAtTime(.075,t+dur*.75); wg.gain.linearRampToValueAtTime(.0001,t+dur);
+  o.connect(wg); wg.connect(out); o.start(t); lfo.start(t); o.stop(t+dur+.05); lfo.stop(t+dur+.05);
+  // 導火線のシュー
+  const n2=nsrc(c,t,dur), bp=c.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=4200; bp.Q.value=.8;
+  const g2=c.createGain(); g2.gain.setValueAtTime(.0001,t); g2.gain.linearRampToValueAtTime(.032,t+.2); g2.gain.linearRampToValueAtTime(.0001,t+dur);
+  n2.connect(bp); bp.connect(g2); g2.connect(out);
+  SND.bL++; setTimeout(()=>SND.bL--,(dur+.4)*1000);
+}
+// 炸裂: 衝撃(ドン)→ 低音のうなり → 破裂音(パァン)。大玉ほど低く長い
+function sndBoom(x,y,z,R,def){
+  if(!sndLive() || SND.bB>=12) return;
+  const c=SND.ctx, sp=spatial(x,y,z), dg=distGain(sp.d), t=c.currentTime+distDelay(sp.d);
+  const sz=Math.max(.5,Math.min(1.9,R/110));
+  const far=Math.max(0,Math.min(1,(sp.d-600)/1300));
+  const out=sndOut(c,t,sp.pan,dg*(.55+.4*sz),.3+.25*far);
+  // 低音のドン
+  const o=c.createOscillator(); o.type='sine';
+  o.frequency.setValueAtTime(150/Math.pow(sz,.35),t); o.frequency.exponentialRampToValueAtTime(40,t+.4);
+  const oe=envG(c,t,1.0,.005,.35+.35*sz); o.connect(oe); oe.connect(out); o.start(t); o.stop(t+.9+.4*sz);
+  // 空気を揺らす雑音(低域)
+  const n=nsrc(c,t,1.2), lp=c.createBiquadFilter(); lp.type='lowpass';
+  lp.frequency.setValueAtTime(1400-700*far,t); lp.frequency.exponentialRampToValueAtTime(110,t+.6+.4*sz);
+  const ne=envG(c,t,.85,.004,.45+.45*sz); n.connect(lp); lp.connect(ne); ne.connect(out);
+  // 破裂音(パァン): 遠いと小さくこもる
+  if(far<.95){
+    const n3=nsrc(c,t,.25), hp=c.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=1500+rnd(0,1200);
+    const ce=envG(c,t,.55*(1-far*.85),.002,.09+.05*sz); n3.connect(hp); hp.connect(ce); ce.connect(out);
   }
-  micAvg+=(Math.min(rms,thr)-micAvg)*Math.min(1,dt*.7);       // 周囲の音に慣らす
-  loudT=rms>.22?loudT+dt:Math.max(0,loudT-dt*2);
-  if(loudT>1.2){ loudT=0; for(let k=0;k<9;k++) after(k*.16,()=>launchAuto(true)); }
-  bMic.style.transform='scale('+(1+Math.min(.3,micLv*1.2)).toFixed(3)+')';
+  // 残り香: 余韻のザー
+  const n4=nsrc(c,t,2), bp=c.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=2600; bp.Q.value=.5;
+  const te=envG(c,t+.04,.04*sz,.05,.9+.6*sz); n4.connect(bp); bp.connect(te); te.connect(out);
+  SND.bB++; setTimeout(()=>SND.bB--,500);   // 0.5秒あたりの同時数を制限(音の濁り防止)
+  // パチパチ(crk=はぜる、glit=きらめき)
+  for(const l of def.layers){
+    const nc=Math.round((l.crk||0)*l.n*.3), ng=Math.round((l.glit||0)*l.n*.1);
+    for(let i=0;i<nc;i++) after(rnd(l.life*.55,l.life*1.05),()=>sndTick(x,y,z,.38,.7));
+    for(let i=0;i<ng;i++) after(rnd(l.life*.3,l.life*1.0),()=>sndTick(x,y,z,.13,.35));
+  }
+}
+// 小さな破裂(ガラガラ玉の子玉など)
+function sndPop(x,y,z,R){
+  if(!sndLive() || SND.bB>=12) return;
+  const c=SND.ctx, sp=spatial(x,y,z), t=c.currentTime+distDelay(sp.d);
+  const out=sndOut(c,t,sp.pan,.5*distGain(sp.d),.2);
+  const o=c.createOscillator(); o.type='sine'; o.frequency.setValueAtTime(rnd(190,260),t); o.frequency.exponentialRampToValueAtTime(70,t+.12);
+  const oe=envG(c,t,.7,.003,.14); o.connect(oe); oe.connect(out); o.start(t); o.stop(t+.25);
+  const n=nsrc(c,t,.12), hp=c.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=1800;
+  const ne=envG(c,t,.5,.002,.05); n.connect(hp); hp.connect(ne); ne.connect(out);
+  SND.bB++; setTimeout(()=>SND.bB--,250);
+}
+// パチッ(1粒ぶん)。1秒あたりの数を制限して重くならないようにする
+function sndTick(x,y,z,lv,bright){
+  if(!sndLive()) return;
+  const c=SND.ctx, now=c.currentTime;
+  if(now-SND.tickT>1){ SND.tickT=now; SND.tickBudget=0; }
+  if(++SND.tickBudget>70) return;
+  const sp=spatial(x+rnd(-60,60),y+rnd(-60,60),z), t=now+distDelay(sp.d)+rnd(0,.05);
+  const out=sndOut(c,t,sp.pan,lv*distGain(sp.d)*rnd(.5,1),.1);
+  const n=nsrc(c,t,.03), bp=c.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=rnd(2200,7500)*(.6+bright*.6); bp.Q.value=1.2;
+  const e=envG(c,t,1,.0015,rnd(.006,.018)); n.connect(bp); bp.connect(e); e.connect(out);
 }
 
 /* ---------- 撮影・録画(合成した画面を保存) ---------- */
@@ -497,11 +604,13 @@ bShot.addEventListener('click',()=>{
 });
 function startRec(){
   if(!window.MediaRecorder||!cv.captureStream){ toast('このブラウザでは録画できない'); return; }
-  const mimes=['video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'];
+  sndUnlock();
+  const withA=!!(SND.on && SND.ctx && SND.dest);
+  const mimes=(withA?['video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus']:[]).concat(['video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm']);
   const mime=mimes.find(m=>{ try{return MediaRecorder.isTypeSupported(m);}catch(_){return false;} })||'';
   try{
     const stream=cv.captureStream(30);
-    if(micStream){ micStream.getAudioTracks().forEach(t=>stream.addTrack(t)); }
+    if(withA){ SND.dest.stream.getAudioTracks().forEach(t=>stream.addTrack(t)); }
     rec=new MediaRecorder(stream, mime?{mimeType:mime,videoBitsPerSecond:6e6}:{videoBitsPerSecond:6e6});
   }catch(e){ rec=null; toast('録画を始められなかった'); return; }
   recChunks=[];
@@ -540,7 +649,6 @@ function update(dt){
     }
     if(phaseT>36) enterGrid();
   }
-  updateMic(dt);
 
   // 視点: 自動の揺れ + 端末の傾き + ドラッグ
   const sway=(!AR && !tiltOn);
@@ -713,7 +821,7 @@ function frame(now){
   }
   update(dt); render(dt);
 }
-window.addEventListener('pagehide',()=>{ disableCam(); disableMic(); if(rec) stopRec(); });
+window.addEventListener('pagehide',()=>{ disableCam(); if(rec) stopRec(); });
 
 setTimeout(()=>{ if(!hintGone) hint.classList.add('on'); },1800);
 setTimeout(hideHint,8500);
