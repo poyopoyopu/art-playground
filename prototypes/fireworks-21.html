@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- 21 SHELLS — クロちゃん作(2026/11/09 試作)。X上のluna氏(@naturaholic)の「21種類の花火玉が一斉に打ち上がる図鑑」動画をもとに、立体化+カメラ(AR)・傾き・撮影/録画に対応。ap-kit.jsは未導入(ギャラリー採用時に検討) -->
+<!-- 21 SHELLS — クロちゃん作(2026/11/09 試作)。X上のluna氏(@naturaholic)の「21種類の花火玉が一斉に打ち上がる図鑑」動画をもとに、立体化+カメラ(AR)・傾きに対応。ap-kit.jsは未導入(ギャラリー採用時に検討) -->
 <html lang="ja">
 <head>
 <meta charset="utf-8">
@@ -34,7 +34,6 @@
   .b svg{width:21px;height:21px;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
   .b:active{transform:scale(.94)}
   .b.on{border-color:rgba(255,190,110,.95);color:#ffd9a0;box-shadow:0 0 14px rgba(255,170,80,.45)}
-  .b.rec{border-color:#ff5a5a;color:#ff9a9a;box-shadow:0 0 14px rgba(255,70,70,.5)}
 </style>
 </head>
 <body>
@@ -45,8 +44,6 @@
 <div id="bar">
   <button class="b" id="bCam" aria-label="カメラ"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>カメラ</button>
   <button class="b" id="bTilt" aria-label="傾き"><svg viewBox="0 0 24 24"><rect x="8.5" y="3" width="7" height="18" rx="2"/><path d="M4.5 9c-1 2-1 4 0 6M19.5 9c1 2 1 4 0 6"/></svg>傾き</button>
-  <button class="b" id="bShot" aria-label="撮影"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg>撮影</button>
-  <button class="b" id="bRec" aria-label="録画"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.6" fill="currentColor"/></svg>録画</button>
 </div>
 <script>
 (()=>{
@@ -55,7 +52,6 @@
    21 SHELLS AR — 立体の花火図鑑 + 端末の機能をフルに使う版
    ・カメラ : 背面カメラの映像を夜空に見立て、その上に花火を重ねる(AR)
    ・傾き   : 端末の向きがそのままカメラの向き。花火は空間に固定される
-   ・撮影/録画 : 合成した画面を写真・動画で保存(共有シートへ)
    ・ドラッグ/タップ : 向きを変える/その方向へ打ち上げ
    ============================================================ */
 const cv=document.getElementById('c'), ctx=cv.getContext('2d');
@@ -373,7 +369,7 @@ function poke(){
   bar.classList.remove('dim'); clearTimeout(dimTimer);
   dimTimer=setTimeout(()=>bar.classList.add('dim'),4500);
 }
-const bCam=document.getElementById('bCam'), bTilt=document.getElementById('bTilt'), bShot=document.getElementById('bShot'), bRec=document.getElementById('bRec');
+const bCam=document.getElementById('bCam'), bTilt=document.getElementById('bTilt');
 
 /* ---------- 傾き(端末の向き) ---------- */
 let tiltOn=false, gotOri=false, calib=null, el0=0, tgtYaw=0, tgtPitch=0;
@@ -436,50 +432,6 @@ function disableCam(){
   yawUser=pitchUser=0; layout();
 }
 bCam.addEventListener('click',()=>{ poke(); if(camOn) disableCam(); else enableCam(); });
-
-/* ---------- 撮影・録画(合成した画面を保存) ---------- */
-let wmOn=false, rec=null, recChunks=[], recTimer=0;
-async function saveBlob(blob,name){
-  const file=new File([blob],name,{type:blob.type});
-  try{
-    if(navigator.canShare && navigator.canShare({files:[file]})){ await navigator.share({files:[file]}); return; }
-  }catch(e){ if(e&&e.name==='AbortError') return; }
-  try{
-    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name;
-    document.body.appendChild(a); a.click();
-    setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },5000);
-  }catch(_){ toast('保存できなかった'); }
-}
-const stamp=()=>{ const d=new Date(), p=n=>String(n).padStart(2,'0'); return d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'-'+p(d.getHours())+p(d.getMinutes())+p(d.getSeconds()); };
-bShot.addEventListener('click',()=>{
-  poke(); wmOn=true;
-  requestAnimationFrame(()=>requestAnimationFrame(()=>{
-    cv.toBlob(b=>{ wmOn=!!rec; if(b) saveBlob(b,'fireworks-'+stamp()+'.png'); else toast('撮影できなかった'); },'image/png');
-  }));
-});
-function startRec(){
-  if(!window.MediaRecorder||!cv.captureStream){ toast('このブラウザでは録画できない'); return; }
-  const mimes=['video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'];
-  const mime=mimes.find(m=>{ try{return MediaRecorder.isTypeSupported(m);}catch(_){return false;} })||'';
-  try{
-    const stream=cv.captureStream(30);
-    rec=new MediaRecorder(stream, mime?{mimeType:mime,videoBitsPerSecond:6e6}:{videoBitsPerSecond:6e6});
-  }catch(e){ rec=null; toast('録画を始められなかった'); return; }
-  recChunks=[];
-  rec.ondataavailable=e=>{ if(e.data&&e.data.size) recChunks.push(e.data); };
-  rec.onstop=()=>{
-    const type=rec.mimeType||mime||'video/webm';
-    const blob=new Blob(recChunks,{type});
-    const ext=type.indexOf('mp4')>=0?'mp4':'webm';
-    rec=null; wmOn=false; bRec.classList.remove('rec');
-    if(blob.size) saveBlob(blob,'fireworks-'+stamp()+'.'+ext); else toast('録画が空だった');
-  };
-  rec.start(500); wmOn=true; bRec.classList.add('rec');
-  clearTimeout(recTimer); recTimer=setTimeout(stopRec,60000);
-  toast('録画中(最長60秒)。もう一度押すと保存');
-}
-function stopRec(){ clearTimeout(recTimer); if(rec&&rec.state!=='inactive') rec.stop(); }
-bRec.addEventListener('click',()=>{ poke(); if(rec) stopRec(); else startRec(); });
 
 /* ---------- 更新 ---------- */
 const SPARKCOL=P.spark[0];
@@ -646,12 +598,6 @@ function render(dt){
   ctx.globalAlpha=1;
   ctx.globalCompositeOperation='source-over';
 
-  if(wmOn){                                   // 写真・動画のときだけ透かし
-    ctx.font='500 12px -apple-system,"Hiragino Sans",sans-serif';
-    ctx.textAlign='right'; ctx.fillStyle='rgba(255,236,214,.7)';
-    ctx.fillText('@artplayground.art',W-12,H-12);
-  }
-
   if(S.length===0 && shells.length===0 && flashes.length===0){
     if(++idleFrames===30) tx.clearRect(0,0,W,H);
   }else idleFrames=0;
@@ -673,7 +619,7 @@ function frame(now){
   }
   update(dt); render(dt);
 }
-window.addEventListener('pagehide',()=>{ disableCam(); if(rec) stopRec(); });
+window.addEventListener('pagehide',()=>{ disableCam(); });
 
 setTimeout(()=>{ if(!hintGone) hint.classList.add('on'); },1800);
 setTimeout(hideHint,8500);
