@@ -38,9 +38,22 @@ const LAWS=[
   {name:'SECOND',      step:1,     unit:'S', hue:196, say:'EACH STEP DEEPER · 1 SECOND EARLIER'},
   {name:'MINUTE',      step:60,    unit:'M', hue:152, say:'EACH STEP DEEPER · 1 MINUTE EARLIER'},
   {name:'HOUR',        step:3600,  unit:'H', hue:38,  say:'EACH STEP DEEPER · 1 HOUR EARLIER'},
-  {name:'FUTURE HOUR', step:-3600, unit:'H', hue:316, say:'EACH STEP DEEPER · 1 HOUR LATER'}
+  {name:'FUTURE HOUR', step:-3600, unit:'H', say:'EACH STEP DEEPER · 1 HOUR LATER'}
 ];
-let law=0, stepEff=LAWS[0].step, hueShift=0, tickStyle=0;
+let law=0, stepEff=LAWS[0].step, tickStyle=0, pal=0;
+/* 色のパターン: 虹1つ + 単色のグラデーション3つ(✦で切り替え)。単色は奥へ向かって「明るい→深い」と色相が少し寄る */
+const PALS=[
+  {name:'RAINBOW', rb:true},
+  {name:'ICE',   h:200, span:35,  l0:80, l1:50},
+  {name:'MOSS',  h:132, span:35,  l0:78, l1:46},
+  {name:'EMBER', h:22,  span:-30, l0:78, l1:50}
+];
+function pc(k,base){                               // 奥からk番目の色。acc=秒針の色相のずれ
+  const P=PALS[pal], u=k/(N-1);
+  if(P.rb)return {h:base+k*(360/N),s:90,l:66,acc:170,accL:66};
+  return {h:P.h+P.span*u,s:78+17*u,l:P.l0+(P.l1-P.l0)*u,acc:0,accL:Math.min(92,P.l0+10)};
+}
+function baseHue(){return PALS[pal].rb?(tNow*6)%360:PALS[pal].h}   // 虹は部屋ごとゆっくり色が回る
 let say='',sayT=0,ripple=-1,tNow=0;
 
 function resize(){
@@ -191,21 +204,21 @@ function drawTimeWalls(hue,tsec){
     for(let i=0;i<6;i++){
       if((i+j)%2)continue;
       const x0=-WX+i*2*WX/6, x1=x0+2*WX/6;
-      poly([m(x0,-1,z0),m(x1,-1,z0),m(x1,-1,z1),m(x0,-1,z1)],hsl(hue+j*3,50,62,.07*fade));
+      poly([m(x0,-1,z0),m(x1,-1,z0),m(x1,-1,z1),m(x0,-1,z1)],hsl(pc(Math.floor(j*N/NT),hue).h,50,62,.07*fade));
     }
   }
   g.globalCompositeOperation='lighter';
   for(let k=N-1;k>=1;k--){
-    const z=ZS[k], hk=hue+k*(360/N), major=k%4===0, fade=1-k/N*.55;
+    const z=ZS[k], c=pc(k,hue), major=k%4===0, fade=1-k/N*.55;
     const pulse=.5+.5*Math.sin(tNow*3-k*.45);
     const al=((major?.3:.12)+pulse*.4)*fade;
     const p0=m(-WX,-1,z),p1=m(WX,-1,z),p2=m(WX,1,z),p3=m(-WX,1,z);
-    g.strokeStyle=hsl(hk,85,64,al);g.lineWidth=major?2:1;
+    g.strokeStyle=hsl(c.h,c.s,c.l-2,al);g.lineWidth=major?2:1;
     g.beginPath();g.moveTo(p0[0],p0[1]);g.lineTo(p1[0],p1[1]);g.lineTo(p2[0],p2[1]);g.lineTo(p3[0],p3[1]);g.closePath();g.stroke();
   }
   for(let k=4;k<N-6;k+=4){
-    const z=ZS[k], hk=hue+k*(360/N), fade=1-k/N*.5, str=fmt(tsec-k*stepEff);
-    const col=hsl(hk,75,78,.62*fade);
+    const z=ZS[k], c=pc(k,hue), fade=1-k/N*.5, str=fmt(tsec-k*stepEff);
+    const col=hsl(c.h,75,Math.min(90,c.l+12),.62*fade);
     wallText(str,-1,z-.08,-.88,1.4,.26,col);
     wallText(str,1,z-.08,-.88,1.4,.26,col);
   }
@@ -252,7 +265,7 @@ function hand(cx,cy,ang,len,tail,w,col){
   g.beginPath();g.moveTo(cx-sx*len*tail,cy-sy*len*tail);g.lineTo(cx+sx*len,cy+sy*len);g.stroke();
 }
 function drawClock(k,tsec,hue0){
-  const hue=hue0+k*(360/N);                        // 奥へ1歩ごとに色相がずれる=全部で虹を一周する
+  const c=pc(k,hue0), hue=c.h;                     // 色は選んだパターンに従う(虹なら奥へ1歩ごとに色相がずれて一周)
   const p=proj(0,0,ZS[k]), s=p[2], r=R*s*H/2, cx=p[0], cy=p[1];
   const a=.12+.88*Math.pow(1-k/N,1.6);
   const tier=r>=40?2:r>=14?1:0;                    // 小さい時計(奥)は描きこみを減らして軽くする
@@ -266,12 +279,12 @@ function drawClock(k,tsec,hue0){
     g.fillStyle=hsl(hue,80,55,.07*a);g.beginPath();g.arc(cx,cy,r,0,TAU);g.fill();
   }
   g.globalCompositeOperation='lighter';
-  g.strokeStyle=hsl(hue,90,66,.85*a);g.lineWidth=lw*(tier?1.7:1.2);g.beginPath();g.arc(cx,cy,r,0,TAU);g.stroke();
+  g.strokeStyle=hsl(hue,c.s,c.l,.85*a);g.lineWidth=lw*(tier?1.7:1.2);g.beginPath();g.arc(cx,cy,r,0,TAU);g.stroke();
   if(tier){
     const stepI=tier===2?1:5;
     for(let i=0;i<60;i+=stepI){
       const ang=i/60*TAU, major=i%5===0, sx=Math.sin(ang), sy=-Math.cos(ang);
-      g.strokeStyle=hsl(hue,60,82,(major?.85:.4)*a);
+      g.strokeStyle=hsl(hue,60,Math.min(92,c.l+14),(major?.85:.4)*a);
       if(tickStyle===1){
         g.fillStyle=g.strokeStyle;g.beginPath();g.arc(cx+sx*r*.86,cy+sy*r*.86,r*(major?.028:.011),0,TAU);g.fill();
       }else if(tickStyle===0||major){
@@ -285,8 +298,8 @@ function drawClock(k,tsec,hue0){
   hand(cx,cy,hr/12*TAU,r*.5,.12,lw*3.4,hsl(hue,30,92,.95*a));
   hand(cx,cy,mn/60*TAU,r*.76,.12,lw*2.4,hsl(hue,30,92,.95*a));
   if(tier){
-    hand(cx,cy,sec/60*TAU,r*.88,.18,lw*1.1,hsl(hue+170,90,66,.95*a));
-    g.fillStyle=hsl(hue+170,90,66,.95*a);g.beginPath();g.arc(cx,cy,lw*2.4,0,TAU);g.fill();
+    hand(cx,cy,sec/60*TAU,r*.88,.18,lw*1.1,hsl(hue+c.acc,90,c.accL,.95*a));
+    g.fillStyle=hsl(hue+c.acc,90,c.accL,.95*a);g.beginPath();g.arc(cx,cy,lw*2.4,0,TAU);g.fill();
   }
   g.globalCompositeOperation='source-over';
   // 何歩奥か
@@ -326,7 +339,7 @@ function frame(nowMs){
   eye.x=clamp(eye.x,-WX*.9,WX*.9);eye.y=clamp(eye.y,-.9,.9);
   // 法則への移り変わり(ずれの量がなめらかに変わる。未来へ反転するときは、一度全部の時計が「今」に集まる)
   stepEff+=(LAWS[law].step-stepEff)*(1-Math.exp(-dt*3));
-  const hue=LAWS[law].hue+hueShift;
+  const hue=baseHue();
   // 時刻
   const now=new Date();
   const tsec=now.getHours()*3600+now.getMinutes()*60+now.getSeconds()+now.getMilliseconds()/1000;
@@ -362,8 +375,8 @@ function frame(nowMs){
 requestAnimationFrame(frame);
 setTimeout(()=>hintEl.classList.add('off'),7000);
 
-function mutate(){hueShift=(hueShift+40+Math.random()*280)%360;tickStyle=(tickStyle+1)%3}
-function reset(){law=0;hueShift=0;tickStyle=0;say=LAWS[0].say;sayT=2.6;ripple=0}
+function mutate(){pal=(pal+1)%PALS.length;if(pal===0)tickStyle=(tickStyle+1)%3;say='COLOR · '+PALS[pal].name;sayT=2.2}
+function reset(){law=0;pal=0;tickStyle=0;say=LAWS[0].say;sayT=2.6;ripple=0}
 
 if(window.APKit)APKit.init({   // ap-kit.jsが読めない場所(単体プレビューなど)でもエラーにしない
   canvas:cv,
