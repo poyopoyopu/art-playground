@@ -290,12 +290,12 @@ function launchCell(c){
   launch(c.di, c.x+rnd(-4,4), c.y+SP*.62, c.z, c.x, c.y, c.z, c.R, rise);
 }
 function enterGrid(){
-  phase='grid'; phaseT=0; zoomT=zoomGrid;
+  phase='grid'; phaseT=0; zoomT=zoomGrid; wells.length=0; autoSpot=null;
   for(const c of cells) c.z=rnd(-1,1)*SP*.55;
   const order=cells.map((_,i)=>i).sort(()=>Math.random()-.5);
   order.forEach((i,k)=>after(k*.055+rnd(0,.5),()=>launchCell(cells[i])));
 }
-function enterSky(){ phase='sky'; phaseT=0; zoomT=zoomSky; skyNext=.2; finaleDone=false; }
+function enterSky(){ autoSpot=null; autoT=1.5; phase='sky'; phaseT=0; zoomT=zoomSky; skyNext=.2; finaleDone=false; }
 
 // 自動(夜空)の打ち上げ。ARでは「いま見ている方向」に出す
 function launchAuto(big,sc){
@@ -316,20 +316,20 @@ function launchAuto(big,sc){
     launch(di, x+rnd(-1,1)*Wv*.03, y0, z, x, y1, z+rnd(-1,1)*20, R, rnd(1.5,2.1)*(H>W?1.1:1));
   }
 }
-function launchAt(px,py){
+function launchAt(px,py,auto){
   const di=rint(0,DEFS.length-1);
   if(AR){
     const dist=rnd(900,1400);
     const w=unproject(px,py,dist);
     const y0=Math.max(w[1]+dist*.5, dist*.25);
-    launch(di,w[0],y0,w[2],w[0],w[1],w[2],dist*rnd(.13,.19),Math.max(.8,Math.min(1.9,(y0-w[1])/dist*2.3)),true);
+    launch(di,w[0],y0,w[2],w[0],w[1],w[2],dist*rnd(.13,.19),Math.max(.8,Math.min(1.9,(y0-w[1])/dist*2.3)),!auto);
     return [w[0],w[1],w[2]];
   }else{
     const w=unproject(px,py,0);
     const y1=Math.min(w[1],Hv*.3), y0=Math.max(Hv*.55,y1+Hv*.3);
     const m=Math.min(Wv,Hv*1.15);
     launch(di,w[0],y0,w[2],w[0],y1,w[2],m*rnd(.2,.28),
-           Math.max(.8,Math.min(2,(y0-y1)/Hv*2.1)),true);
+           Math.max(.8,Math.min(2,(y0-y1)/Hv*2.1)),!auto);
     return [w[0],y1,w[2]];
   }
 }
@@ -471,6 +471,18 @@ function touchLaw(px,py,tgt){
     w.R=wellR(w); wells.push(w);
   }
 }
+// タップしなくても空が勝手に触られる: 同じ所に1〜3回重ねて触り、ときどき超新星まで育つ
+let autoT=2.5, autoSpot=null;
+function autoTouch(dt){
+  autoT-=dt; if(autoT>0) return;
+  if(!autoSpot){
+    autoSpot={px:W*rnd(.22,.78),py:H*rnd(.2,.55),left:rint(1,4)};
+    autoT=rnd(1.3,2.2);
+  }else if(autoSpot.left>0){ autoSpot.left--; autoT=rnd(1.3,2.2); }
+  else{ autoSpot=null; autoT=rnd(3,5.5); return; }
+  const tgt=launchAt(autoSpot.px,autoSpot.py,true);
+  touchLaw(autoSpot.px,autoSpot.py,tgt);
+}
 function updateLaw(dt){
   for(let i=wells.length-1;i>=0;i--){
     const w=wells[i]; w.t+=dt; w.pulse*=Math.exp(-dt*3);
@@ -508,7 +520,7 @@ function update(dt){
   if(phase==='grid'){
     if(phaseT>14.5) enterSky();
   }else{
-    skyNext-=dt;
+    skyNext-=dt; autoTouch(dt);
     if(skyNext<=0 && !finaleDone){
       launchAuto(false); if(Math.random()<.3) after(rnd(.1,.35),()=>launchAuto(false));
       skyNext=rnd(.45,1.0);
@@ -684,6 +696,7 @@ function render(dt){
 }
 
 /* ---------- ループと品質の自動調整 ---------- */
+const TS=.65;                       // 全体の流れる速さ(1=等速)。花火をゆっくり見せる
 let last=performance.now(), acc=0, nfr=0;
 function frame(now){
   requestAnimationFrame(frame);
@@ -697,7 +710,7 @@ function frame(now){
     else if(avg<.0185 && quality<1) quality=Math.min(1,quality+.03);
     acc=0; nfr=0;
   }
-  update(dt); render(dt);
+  dt*=TS; update(dt); render(dt);
 }
 window.addEventListener('pagehide',()=>{ disableCam(); });
 
