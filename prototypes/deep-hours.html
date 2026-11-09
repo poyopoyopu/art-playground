@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#06080d">
+<title>DEEP HOURS — 奥をのぞくほど、過去の時計が見える</title>
+<script src="../ap-kit.js"></script>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#06080d;color:#fff;touch-action:none}
+canvas{display:block;width:100%;height:100%;touch-action:none;outline:none}
+#hint{position:fixed;top:calc(env(safe-area-inset-top) + 16px);left:0;right:0;text-align:center;pointer-events:none;font:500 10px/1.8 ui-monospace,monospace;letter-spacing:.2em;color:rgba(222,236,255,.66);transition:opacity 1.2s;white-space:pre-line}
+#hint.off{opacity:0}
+video{position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none}
+</style>
+</head>
+<body>
+<canvas id="c" aria-label="小さな部屋の奥に、同じ大きさの時計が何枚も重なって並ぶ。のぞく角度を変えると時計がずれて見え、奥の時計ほど過去の時刻を指している。タップすると、奥へ1歩ごとにずれる時間の量が変わる"></canvas>
+<div id="hint">PEEK INTO THE ROOM<br>TAP · CHANGE THE LAW OF DEPTH</div>
+<video id="cam" playsinline muted></video>
+<script>
+/* DEEP HOURS — クロちゃん作。Doui Lab「3Duo Clock」(スマホの中に、横からのぞける部屋)に着想を得た試作。
+   世界のルール: 奥へ1歩進むごとに、時計は決まった時間だけ過去の時刻を指す(奥=過去)。タップするとその「1歩あたりの時間」が
+   秒→分→時間→(逆転して)未来へと変わる。同じ大きさの時計が入れ子に並ぶので、のぞく角度を変えるほど過去(未来)が横に開く。
+   視点は画面を窓に見立てたオフアクシス投影(頭の位置で見え方が変わる)。マウス/タッチ/インカメラ(👁)で視点を動かす。
+   カメラはボタンを押すまで起動しない。顔の追跡部分は GAZE LAW(prototypes/gaze-law.html)と同じ方式で、lib/face_mesh を使う。 */
+(()=>{
+const cv=document.getElementById('c'), g=cv.getContext('2d');
+const hintEl=document.getElementById('hint'), video=document.getElementById('cam');
+const TAU=Math.PI*2, isTouch=matchMedia('(pointer:coarse)').matches;
+let W=1,H=1,DPR=1,ASP=1,WX=1,R=.7;
+const D=5.6, N=9, EZ0=3.2, NF=14;                 // 部屋の奥行き / 時計の枚数 / 視点の標準距離(画面の高さの半分=1) / 壁の枠の数
+const ZS=[];for(let k=0;k<N;k++)ZS.push(-.3-k*(D-.9)/(N-1));
+
+/* ---------- 世界の法則: 奥へ1歩あたりのずれ ---------- */
+const LAWS=[
+  {name:'SECOND',      step:1,     unit:'S', hue:196, say:'EACH STEP DEEPER · 1 SECOND EARLIER'},
+  {name:'MINUTE',      step:60,    unit:'M', hue:152, say:'EACH STEP DEEPER · 1 MINUTE EARLIER'},
+  {name:'HOUR',        step:3600,  unit:'H', hue:38,  say:'EACH STEP DEEPER · 1 HOUR EARLIER'},
+  {name:'FUTURE HOUR', step:-3600, unit:'H', hue:316, say:'EACH STEP DEEPER · 1 HOUR LATER'}
+];
+let law=0, stepEff=LAWS[0].step, hueShift=0, tickStyle=0;
+let say='',sayT=0,ripple=-1,tNow=0;
+
+function resize(){
+  DPR=Math.min(devicePixelRatio||1,2);
+  W=Math.max(1,innerWidth);H=Math.max(1,innerHeight);
+  cv.width=Math.round(W*DPR);cv.height=Math.round(H*DPR);
+  ASP=W/H;WX=Math.max(ASP,1);R=.72*Math.min(ASP,1);   // 縦長の画面では部屋を横に広げ、窓からは中央だけが見える
+}
+addEventListener('resize',resize);resize();
+
+/* ---------- 視点(オフアクシス投影) ---------- */
+const eye={x:0,y:0,z:EZ0}, eyeT={x:0,y:0,z:EZ0};
+function proj(x,y,z){                              // 世界の点 → 画面(画面=z0の窓、視点は手前(+z)側)
+  const s=eye.z/(eye.z-z);
+  return [W/2+(eye.x+(x-eye.x)*s)*H/2, H/2-(eye.y+(y-eye.y)*s)*H/2, s];
+}
+
+/* ---------- 入力 ---------- */
+const ptr={nx:0,ny:0,has:false}; let lastInput=-99, down=null;
+function onPtr(e){ptr.nx=e.clientX/W*2-1;ptr.ny=e.clientY/H*2-1;ptr.has=true;lastInput=tNow}
+function ui(e){return window.APKit&&APKit.isUI&&APKit.isUI(e.clientX,e.clientY)}
+cv.addEventListener('pointermove',onPtr);
+cv.addEventListener('pointerdown',e=>{if(ui(e))return;onPtr(e);down={x:e.clientX,y:e.clientY,t:performance.now()}});
+addEventListener('pointerup',e=>{
+  if(!down)return;
+  const moved=Math.hypot(e.clientX-down.x,e.clientY-down.y), dur=performance.now()-down.t;
+  down=null;
+  if(moved<12&&dur<400)changeLaw();               // 動かさずに離した=タップ。ドラッグはのぞく動き
+});
+addEventListener('pointercancel',()=>{down=null});
+
+function changeLaw(){
+  law=(law+1)%LAWS.length;
+  say=LAWS[law].say;sayT=2.6;ripple=0;
+  hintEl.classList.add('off');
+}
+
+/* ---------- インカメラ(頭の位置) ---------- */
+const cam={on:false,stream:null,fm:null,busy:false,lastFace:-99,loading:false,base:null};
+class OneEuro{
+  constructor(minC,beta){this.minC=minC;this.beta=beta;this.x=null;this.dx=0}
+  alpha(c,dt){const tau=1/(2*Math.PI*c);return 1/(1+tau/dt)}
+  f(v,dt){
+    if(this.x===null){this.x=v;return v}
+    const d=(v-this.x)/dt;this.dx+=(d-this.dx)*this.alpha(1,dt);
+    const c=this.minC+this.beta*Math.abs(this.dx);this.x+=(v-this.x)*this.alpha(c,dt);return this.x;
+  }
+}
+const fx=new OneEuro(1.2,6),fy=new OneEuro(1.2,6),fz=new OneEuro(.8,3);
+const HFOV=65*Math.PI/180, EYE_SPAN_CM=8.8;
+function unitsPerCm(){return 2/((isTouch||W<820)?14:19)}   // 画面の物理サイズを端末の種類から仮置き
+function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
+function onFace(res){
+  const L=res.multiFaceLandmarks&&res.multiFaceLandmarks[0];
+  if(!L)return;
+  const vw=video.videoWidth||640, vh=video.videoHeight||480;
+  cam.lastFace=performance.now()/1000;
+  const spanPx=Math.hypot((L[263].x-L[33].x)*vw,(L[263].y-L[33].y)*vh)||1;   // 目の外側の端の距離 → 顔までの距離
+  const fpx=vw/2/Math.tan(HFOV/2), distCm=fpx*EYE_SPAN_CM/spanPx;
+  const cx=(L[33].x+L[263].x)/2, cy=(L[33].y+L[263].y)/2;
+  const xCm=(.5-cx)*vw*distCm/fpx, yCm=(.5-cy)*vh*distCm/fpx;                // 右・上がプラス
+  if(!cam.base)cam.base={x:xCm,y:yCm,d:distCm};
+  else{const k=.0015;cam.base.x+=(xCm-cam.base.x)*k;cam.base.y+=(yCm-cam.base.y)*k;cam.base.d+=(distCm-cam.base.d)*k}
+  const u=unitsPerCm();
+  eyeT.x=clamp((xCm-cam.base.x)*u*.85,-1.2,1.2);
+  eyeT.y=clamp((yCm-cam.base.y)*u*.85,-.9,.9);
+  eyeT.z=clamp(EZ0+(distCm-cam.base.d)*u,1.9,6);
+}
+function loadScript(src){return new Promise((ok,ng)=>{const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=()=>ng(Error('load '+src));document.head.appendChild(s)})}
+let camBtn=null;
+function setCamButton(on){if(camBtn)camBtn.classList.toggle('apk-on',on)}
+async function startCamera(){
+  if(cam.on||cam.loading)return;
+  cam.loading=true;
+  try{
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw Error('no getUserMedia');
+    cam.stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:640},height:{ideal:480}},audio:false});
+    video.srcObject=cam.stream;await video.play();
+    hintEl.textContent='顔の読み取りを準備中…';hintEl.classList.remove('off');
+    if(!window.FaceMesh)await loadScript('../lib/face_mesh/face_mesh.js');
+    if(!cam.fm){
+      cam.fm=new window.FaceMesh({locateFile:f=>'../lib/face_mesh/'+f});
+      cam.fm.setOptions({maxNumFaces:1,refineLandmarks:false,minDetectionConfidence:.5,minTrackingConfidence:.5});
+      cam.fm.onResults(onFace);
+      await cam.fm.initialize();
+    }
+    if(!cam.stream)return;
+    cam.on=true;cam.base=null;cam.lastFace=-99;
+    hintEl.innerHTML='CAMERA ON · MOVE YOUR HEAD<br>VIDEO STAYS ON THIS DEVICE';
+    setTimeout(()=>hintEl.classList.add('off'),4500);
+    pumpCamera();
+  }catch(err){
+    console.error(err);stopCamera();
+    const denied=err&&(err.name==='NotAllowedError'||err.name==='SecurityError');
+    if(window.APKit)APKit.toast(denied?'カメラが許可されませんでした。マウスやタッチで遊べます':'この端末ではカメラ追跡を始められませんでした');
+    setCamButton(false);
+  }finally{cam.loading=false}
+}
+function stopCamera(){
+  cam.on=false;
+  if(cam.stream){cam.stream.getTracks().forEach(t=>t.stop());cam.stream=null}
+  video.srcObject=null;lastInput=tNow-99;
+}
+async function pumpCamera(){
+  if(!cam.on)return;
+  if(!cam.busy&&video.readyState>=2){
+    cam.busy=true;
+    try{await cam.fm.send({image:video})}catch(e){console.error(e)}
+    cam.busy=false;
+  }
+  if(video.requestVideoFrameCallback)video.requestVideoFrameCallback(()=>pumpCamera());else requestAnimationFrame(pumpCamera);
+}
+
+/* ---------- 空気中のちり(奥行きの手がかり) ---------- */
+const dust=[];
+for(let i=0;i<150;i++)dust.push({x:(Math.random()*2-1)*1.6,y:(Math.random()*2-1),z:-Math.random()*D+.4,v:.01+Math.random()*.03,a:.2+Math.random()*.5});
+
+/* ---------- 描画 ---------- */
+function hsl(h,s,l,a){return 'hsla('+((h%360+360)%360).toFixed(0)+','+s+'%,'+l+'%,'+(a==null?1:a).toFixed(3)+')'}
+function poly(pts,fill){
+  g.beginPath();g.moveTo(pts[0][0],pts[0][1]);
+  for(let i=1;i<pts.length;i++)g.lineTo(pts[i][0],pts[i][1]);
+  g.closePath();g.fillStyle=fill;g.fill();
+}
+function shade(a,b,c0,c1){                         // 手前の点aから奥の点bへ向かう線形グラデーション
+  const gr=g.createLinearGradient(a[0],a[1],b[0],b[1]);gr.addColorStop(0,c0);gr.addColorStop(1,c1);return gr;
+}
+function drawRoom(hue){
+  const B=(x,y)=>proj(x,y,-D), F=(x,y)=>proj(x,y,0);
+  const bl=B(-WX,-1),br=B(WX,-1),tr=B(WX,1),tl=B(-WX,1);
+  // 奥の壁
+  const bc=proj(0,0,-D), rb=Math.hypot(tr[0]-bl[0],tr[1]-bl[1])/2;
+  const gb=g.createRadialGradient(bc[0],bc[1],0,bc[0],bc[1],rb);
+  gb.addColorStop(0,hsl(hue,40,34));gb.addColorStop(1,hsl(hue,38,13));
+  poly([bl,br,tr,tl],gb);
+  // 床・天井・左右の壁(手前=暗い → 奥=明るい)
+  const m=(x,y,z)=>proj(x,y,z);
+  poly([F(-WX,-1),F(WX,-1),br,bl],shade(m(0,-1,0),m(0,-1,-D),hsl(hue,30,8),hsl(hue,38,24)));
+  poly([F(-WX,1),F(WX,1),tr,tl],shade(m(0,1,0),m(0,1,-D),hsl(hue,30,6),hsl(hue,34,17)));
+  poly([F(-WX,-1),F(-WX,1),tl,bl],shade(m(-WX,0,0),m(-WX,0,-D),hsl(hue,30,7),hsl(hue,36,20)));
+  poly([F(WX,-1),F(WX,1),tr,br],shade(m(WX,0,0),m(WX,0,-D),hsl(hue,30,7),hsl(hue,36,20)));
+  // 壁の断面の枠と、奥へ伸びる線(遠近の手がかり)
+  g.lineWidth=1;
+  for(let j=1;j<=NF;j++){
+    const z=-j*D/NF, a=.05+.18*(1-j/NF);
+    const p0=m(-WX,-1,z),p1=m(WX,-1,z),p2=m(WX,1,z),p3=m(-WX,1,z);
+    g.strokeStyle=hsl(hue,50,70,a);
+    g.beginPath();g.moveTo(p0[0],p0[1]);g.lineTo(p1[0],p1[1]);g.lineTo(p2[0],p2[1]);g.lineTo(p3[0],p3[1]);g.closePath();g.stroke();
+  }
+  g.strokeStyle=hsl(hue,50,70,.1);g.beginPath();
+  for(let i=-3;i<=3;i++){
+    const x=WX*i/4;
+    let a=F(x,-1),b=B(x,-1);g.moveTo(a[0],a[1]);g.lineTo(b[0],b[1]);
+    a=F(x,1);b=B(x,1);g.moveTo(a[0],a[1]);g.lineTo(b[0],b[1]);
+  }
+  for(let i=-3;i<=3;i++){
+    const y=i/4;
+    let a=F(-WX,y),b=B(-WX,y);g.moveTo(a[0],a[1]);g.lineTo(b[0],b[1]);
+    a=F(WX,y);b=B(WX,y);g.moveTo(a[0],a[1]);g.lineTo(b[0],b[1]);
+  }
+  g.stroke();
+  // 奥の光
+  const gl=g.createRadialGradient(bc[0],bc[1],0,bc[0],bc[1],rb*.9);
+  gl.addColorStop(0,hsl(hue,60,60,.22));gl.addColorStop(1,hsl(hue,60,60,0));
+  g.fillStyle=gl;g.fillRect(0,0,W,H);
+}
+
+function hand(cx,cy,ang,len,tail,w,col){
+  const sx=Math.sin(ang),sy=-Math.cos(ang);
+  g.strokeStyle=col;g.lineWidth=w;g.lineCap='round';
+  g.beginPath();g.moveTo(cx-sx*len*tail,cy-sy*len*tail);g.lineTo(cx+sx*len,cy+sy*len);g.stroke();
+}
+function drawClock(k,tsec,hue){
+  const p=proj(0,0,ZS[k]), s=p[2], r=R*s*H/2, cx=p[0], cy=p[1];
+  const a=1-.8*k/N;
+  const lw=Math.max(.7,r*.013);
+  const t=tsec-k*stepEff;
+  const face=g.createRadialGradient(cx,cy,r*.05,cx,cy,r);
+  face.addColorStop(0,hsl(hue,60,60,.02*a));face.addColorStop(1,hsl(hue,70,55,.11*a));
+  g.fillStyle=face;g.beginPath();g.arc(cx,cy,r,0,TAU);g.fill();
+  g.globalCompositeOperation='lighter';
+  g.strokeStyle=hsl(hue,70,72,.8*a);g.lineWidth=lw*1.7;g.beginPath();g.arc(cx,cy,r,0,TAU);g.stroke();
+  for(let i=0;i<60;i++){
+    const ang=i/60*TAU, major=i%5===0, sx=Math.sin(ang), sy=-Math.cos(ang);
+    g.strokeStyle=hsl(hue,60,82,(major?.85:.4)*a);
+    if(tickStyle===1){
+      g.fillStyle=g.strokeStyle;g.beginPath();g.arc(cx+sx*r*.86,cy+sy*r*.86,r*(major?.028:.011),0,TAU);g.fill();
+    }else if(tickStyle===0||major){
+      const len=tickStyle===0?(major?.13:.055):.1;
+      g.lineWidth=lw*(major?1.6:.8);g.lineCap='butt';
+      g.beginPath();g.moveTo(cx+sx*r*(.94-len),cy+sy*r*(.94-len));g.lineTo(cx+sx*r*.94,cy+sy*r*.94);g.stroke();
+    }
+  }
+  const sec=(t%60+60)%60, mn=((t/60)%60+60)%60, hr=((t/3600)%12+12)%12;
+  hand(cx,cy,hr/12*TAU,r*.5,.12,lw*3.4,hsl(hue,30,92,.95*a));
+  hand(cx,cy,mn/60*TAU,r*.76,.12,lw*2.4,hsl(hue,30,92,.95*a));
+  hand(cx,cy,sec/60*TAU,r*.88,.18,lw*1.1,hsl(hue+170,90,66,.95*a));
+  g.fillStyle=hsl(hue+170,90,66,.95*a);g.beginPath();g.arc(cx,cy,lw*2.4,0,TAU);g.fill();
+  g.globalCompositeOperation='source-over';
+  // 何歩奥か
+  if(r>34&&k<=3){
+    const lb=k===0?'NOW':(LAWS[law].step>0?'−':'+')+k+LAWS[law].unit;
+    g.font='500 '+Math.max(8,r*.1).toFixed(0)+'px ui-monospace,monospace';g.textAlign='center';g.textBaseline='middle';
+    g.fillStyle=hsl(hue,40,88,.7*a);g.fillText(lb,cx,cy+r*.58);
+  }
+}
+function drawDust(hue,front){
+  g.fillStyle=hsl(hue,40,90,1);
+  for(const d of dust){
+    if((d.z>=-2.5)!==front)continue;
+    const p=proj(d.x,d.y,d.z), sz=1.7*p[2]*Math.min(1.4,H/700);
+    g.globalAlpha=d.a*(front?.8:.6);
+    g.beginPath();g.arc(p[0],p[1],Math.max(.5,sz),0,TAU);g.fill();
+  }
+  g.globalAlpha=1;
+}
+
+let last=performance.now();
+function frame(nowMs){
+  const dt=Math.min(.05,Math.max(.001,(nowMs-last)/1000));last=nowMs;tNow+=dt;
+  // 視点
+  const camLive=cam.on&&(performance.now()/1000-cam.lastFace)<1;
+  const ex=Math.min(WX,1.2)*.88;
+  if(camLive){
+    eye.x=fx.f(eyeT.x,dt);eye.y=fy.f(eyeT.y,dt);eye.z=fz.f(eyeT.z,dt);
+  }else{
+    if(ptr.has&&(tNow-lastInput)<4){eyeT.x=ptr.nx*ex;eyeT.y=-ptr.ny*.7;}
+    else{eyeT.x=.7*ex*Math.sin(tNow*.37);eyeT.y=.35*Math.sin(tNow*.29+1)}
+    eyeT.z=EZ0;
+    const k=1-Math.exp(-dt*(ptr.has&&(tNow-lastInput)<4?7:2));
+    eye.x+=(eyeT.x-eye.x)*k;eye.y+=(eyeT.y-eye.y)*k;eye.z+=(eyeT.z-eye.z)*k;
+    if(cam.on){fx.x=eye.x;fy.x=eye.y;fz.x=eye.z}     // 顔を見失ったあと、戻ってきても視点が跳ばない
+  }
+  eye.x=clamp(eye.x,-WX*.9,WX*.9);eye.y=clamp(eye.y,-.9,.9);
+  // 法則への移り変わり(ずれの量がなめらかに変わる。未来へ反転するときは、一度全部の時計が「今」に集まる)
+  stepEff+=(LAWS[law].step-stepEff)*(1-Math.exp(-dt*3));
+  const hue=LAWS[law].hue+hueShift;
+  // 時刻
+  const now=new Date();
+  const tsec=now.getHours()*3600+now.getMinutes()*60+now.getSeconds()+now.getMilliseconds()/1000;
+
+  g.setTransform(DPR,0,0,DPR,0,0);
+  g.fillStyle='#06080d';g.fillRect(0,0,W,H);
+  drawRoom(hue);
+  drawDust(hue,false);
+  for(let k=N-1;k>=0;k--)drawClock(k,tsec,hue);   // 奥から手前へ
+  drawDust(hue,true);
+
+  // タップの波紋と、法則の一言(canvas内に描くので録画にも映る)
+  if(ripple>=0){
+    ripple+=dt;
+    const p=proj(0,0,ZS[0]), u=ripple/1.1;
+    if(u<1){
+      g.strokeStyle=hsl(hue,80,75,.7*(1-u));g.lineWidth=2;
+      g.beginPath();g.arc(p[0],p[1],R*p[2]*H/2*(1+u*.9),0,TAU);g.stroke();
+    }else ripple=-1;
+  }
+  if(sayT>0){
+    sayT-=dt;
+    g.font='500 '+(W<600?11:13)+'px ui-monospace,monospace';g.textAlign='center';g.textBaseline='middle';
+    g.fillStyle=hsl(hue,40,92,Math.min(1,sayT*1.5));
+    g.fillText(say,W/2,H-(isTouch?150:96));
+  }
+  // 周辺減光
+  const vg=g.createRadialGradient(W/2,H/2,Math.min(W,H)*.35,W/2,H/2,Math.hypot(W,H)*.6);
+  vg.addColorStop(0,'rgba(0,0,0,0)');vg.addColorStop(1,'rgba(0,0,0,.55)');
+  g.fillStyle=vg;g.fillRect(0,0,W,H);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+setTimeout(()=>hintEl.classList.add('off'),7000);
+
+function mutate(){hueShift=(hueShift+40+Math.random()*280)%360;tickStyle=(tickStyle+1)%3}
+function reset(){law=0;hueShift=0;tickStyle=0;say=LAWS[0].say;sayT=2.6;ripple=0}
+
+if(window.APKit)APKit.init({   // ap-kit.jsが読めない場所(単体プレビューなど)でもエラーにしない
+  canvas:cv,
+  gifName:'deep-hours-loop',
+  clockFormat:'spec',
+  dock:true,
+  autoHide:true,
+  fullscreenButton:false,
+  buttons:[
+    {label:'✦',name:'mutate',onClick:mutate},
+    {label:'↻',name:'reset',onClick:reset},
+    {label:'👁',name:'camera',toggle:true,onClick:(b)=>{
+      camBtn=b;
+      // toggleはクリック処理の後にクラスが反転するので、いまの状態から判断する
+      if(cam.on||cam.loading){stopCamera();setTimeout(()=>setCamButton(false),0)}
+      else startCamera();
+    }}
+  ]
+});
+})();
+</script>
+</body>
+</html>
