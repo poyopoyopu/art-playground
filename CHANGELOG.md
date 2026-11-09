@@ -1,3 +1,4 @@
+- 2026-11-09 クロちゃん: DEEP HOURSを採用・art-v120として昇格し、CURRENTに設定、録画の対象にも追加(おっちゃん「OK 採用してカレントへ 録画もつけてね」)。それまでのCURRENTだったWINDOW FOG(v119)はLOG先頭へ移動、Published works先頭にDEEP HOURSを追加、META(ヒント)も追加。`ap-kit.js`と`lib/face_mesh/`の相対パスをルート用に直し、sitemap・`tools/poster-config.json`(#hintを隠す)・ポスター(posters/)・共有カード(og/)も一式作成(`--check`は両方OK)。録画はギャラリーの録画ボタン経由でヘッドレス確認済み(mp4・作品と透かしが映り、最初と最後で絵が変わる)。実機iPhoneでの動作の重さ・カメラの顔追跡は未確認。(art-v120-deep-hours.html / index.html / sitemap.xml / tools/poster-config.json / posters/ / og/ / prototypes/deep-hours.html / CHANGELOG.md)
 - 2026-11-09 クロちゃん: DEEP HOURSのちりを削除し、奥行きをさらに伸ばした(おっちゃん「ちりも要らない」「もっと奥行きが欲しい」)。①ちり(dust配列・drawDust・呼び出し)を削除。②部屋の奥行きを60→120に、時計を118→230枚に(間隔は約0.5のまま)。視点の標準距離を3.2→2.6にして遠近を強め(手前と奥の大きさの差・のぞいたときのずれが増える。インカメラ時の最小距離も1.9→1.5)、虹の色のずれは1枚8°(廊下で約5周)に調整。小さすぎて(半径2px未満)見えない奥の時計は描かないようにして負荷を抑えた。構文チェックOK・ヘッドレスChrome(GPUなし)でスマホ幅/PC幅ともエラー無し・約26〜27fps。**未確認**: 実機の負荷・インカメラ追跡(prototypes/deep-hours.html, CHANGELOG.md)
 - 2026-11-09 クロちゃん: DEEP HOURSの床の市松タイルを削除(おっちゃん「床も要らないね」)。床・壁・天井の面そのもの(奥ほど明るい単色のグラデーション)は残した。使わなくなった床タイル用の区間数(NT)も片付け。構文チェックOK・ヘッドレスChromeでエラー無しと見た目を確認(prototypes/deep-hours.html, CHANGELOG.md)
 - 2026-11-09 クロちゃん: DEEP HOURSの余計な装飾を削除し、奥行きをさらに伸ばした(おっちゃん「余計な装飾は要らん」→どれを消すか聞いて、星のきらめき・輪の宝石と光のにじみ・壁/床の虹色の光と奥の光の門・壁の時刻の文字の4つを全部消し、「後はもっと奥行きを」)。①上の4つのコードを削除(使わなくなったfmt/wallText等も片付け)。残したもの=虹色が回る輪・奥へ流れる色の輪(肋骨)・床の市松・ちり・単色3パターン。②部屋の奥行きを30→60に、時計を64→118枚に(間隔は約0.5のまま)、床タイル区間を60→90、ちりを300→420。虹の色のずれは1枚13°(廊下で約4周)に調整。構文チェックOK・ヘッドレスChrome(GPUなし)でスマホ幅/PC幅ともエラー無し・約24〜26fps。**未確認**: 実機の負荷・インカメラ追跡(prototypes/deep-hours.html, CHANGELOG.md)
@@ -625,9 +626,9 @@
 
 ## 現在の状態(変わったら書き換える)
 
-- CURRENT: FOIL LAW(`art-v116-foil-law.html`。index.htmlの実際のCURRENT枠に合わせて直した。以前はここがSILVER TURNのまま古かった)
+- CURRENT: DEEP HOURS(`art-v120-deep-hours.html`。カメラ作品。録画対象。2026/11/09採用。試作版`prototypes/deep-hours.html`も残す)
 - 試作の整理(2026/11/09): クロちゃん作の止まっていた試作は、CAMPFIRE・RESONANCEだけ残し、他はボツ(ファイルは`prototypes/`に残す)。チャッピー作の試作(CUBE COSMOS・GRAFT LAW・HINGE LAW・PARADOX ENGINE・INSIDE OUT)は、この整理の対象外で未判断のまま
-- LOG先頭(2026/11/06〜): BLINK LAW(`art-v118-blink-law.html`。カメラ作品。録画対象)、その下にGAZE LAW(`art-v117-gaze-law.html`。カメラ作品。録画対象)、その下にKOMOREBI(`art-v115-komorebi.html`。録画対象。隠しメニューあり)、RING DIAL(`art-v113-ring-dial.html`。録画対象)、
+- LOG先頭(2026/11/09〜): WINDOW FOG(`art-v119-window-fog.html`。録画対象)、その下にBLINK LAW(`art-v118-blink-law.html`。カメラ作品。録画対象)、その下にGAZE LAW(`art-v117-gaze-law.html`。カメラ作品。録画対象)、その下にKOMOREBI(`art-v115-komorebi.html`。録画対象。隠しメニューあり)、RING DIAL(`art-v113-ring-dial.html`。録画対象)、
 - (旧)LOG先頭(2026/10/30〜): RING DIAL(`art-v113-ring-dial.html`。録画対象)、その下にSEA SPARKLE(`art-v111-sea-sparkle.html`)。試作版`prototypes/ring-dial.html`も残す
 - 試作: GRAFT LAW(`prototypes/graft-law.html`)を追加。ギャラリー未登録・採用待ち
 - 試作: CUBE COSMOS(`prototypes/cube-cosmos.html`)を追加。ギャラリー未登録・採用待ち
