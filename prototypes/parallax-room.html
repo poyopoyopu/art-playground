@@ -11,6 +11,7 @@
 *{box-sizing:border-box}
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#050912;touch-action:none}
 canvas{display:block;width:100%;height:100%;touch-action:none}
+video{position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none}
 #hint{position:fixed;left:12px;right:12px;top:calc(env(safe-area-inset-top) + 17px);text-align:center;color:#d6e8f2a8;font:500 10px/1.6 ui-monospace,monospace;letter-spacing:.19em;pointer-events:none;transition:opacity 1s}
 #hint.off{opacity:0}
 #note{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 92px);text-align:center;color:#9db5c988;font:9px/1.5 ui-monospace,monospace;letter-spacing:.14em;pointer-events:none;transition:opacity 1s}
@@ -21,13 +22,17 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 <canvas id="art"></canvas>
 <div id="hint">DRAG TO LOOK AROUND · TILT TO MOVE YOUR VIEW</div>
 <div id="note">THE ROOM STAYS STILL. YOUR VIEWPOINT DOES NOT.</div>
+<video id="cam" playsinline muted></video>
 <script>
 (()=>{'use strict';
-const canvas=document.getElementById('art'),ctx=canvas.getContext('2d',{alpha:false});
+const canvas=document.getElementById('art'),ctx=canvas.getContext('2d',{alpha:false}),video=document.getElementById('cam');
 const hint=document.getElementById('hint'),note=document.getElementById('note');
 const TAU=Math.PI*2,clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
-let W=1,H=1,D=1,last=0,time=0,eyeX=0,eyeY=.02,targetX=0,targetY=.02;
-let drag=null,orientationOn=false,orientationBase=null,phase=0,seed=1,paletteIndex=0;
+let W=1,H=1,D=1,last=0,time=0,eyeX=0,eyeY=.02,targetX=0,targetY=.02,eyeDistance=4.25,targetDistance=4.25;
+let drag=null,orientationOn=false,phase=0,paletteIndex=0;
+const isTouch=matchMedia('(pointer:coarse)').matches;
+const cam={on:false,loading:false,stream:null,fm:null,busy:false,lastFace:-99,lastTick:0,base:null};
+let camBtn=null;
 const palettes=[
  {bg:'#050912',wall:'#0c1b2a',side:'#091522',floor:'#101f2b',line:'#27445a',a:'#5de4e8',b:'#e6b76b',c:'#e9f5f5',glow:'#38b9d0'},
  {bg:'#090710',wall:'#1b1328',side:'#120d20',floor:'#1d1728',line:'#46324e',a:'#ff8caa',b:'#f4c76b',c:'#fff0df',glow:'#df648e'},
@@ -38,7 +43,7 @@ let palette=palettes[0];
 function resize(){D=Math.min(devicePixelRatio||1,1.6);W=innerWidth;H=innerHeight;canvas.width=Math.round(W*D);canvas.height=Math.round(H*D);canvas.style.width=W+'px';canvas.style.height=H+'px';ctx.setTransform(D,0,0,D,0,0)}
 addEventListener('resize',resize,{passive:true});resize();
 function project(p){
- const d=4.25, t=d/(d+p[2]);
+ const d=eyeDistance, t=d/(d+p[2]);
  const sx=eyeX+(p[0]-eyeX)*t, sy=eyeY+(p[1]-eyeY)*t;
  const scale=Math.min(W,H)*.365;
  return {x:W*.5+sx*scale,y:H*.515-sy*scale,z:p[2]};
@@ -132,16 +137,94 @@ function draw(){
  const edge=ctx.createRadialGradient(W*.5,H*.5,Math.min(W,H)*.25,W*.5,H*.5,Math.max(W,H)*.72);
  edge.addColorStop(0,'#00000000');edge.addColorStop(1,'#00040a99');ctx.fillStyle=edge;ctx.fillRect(0,0,W,H);
 }
-function frame(ms){const dt=Math.min(.04,(ms-last)/1000||0);last=ms;time+=dt;phase+=dt;eyeX+=(targetX-eyeX)*.075;eyeY+=(targetY-eyeY)*.075;draw();requestAnimationFrame(frame)}
+function frame(ms){const dt=Math.min(.04,(ms-last)/1000||0);last=ms;time+=dt;phase+=dt;eyeX+=(targetX-eyeX)*.075;eyeY+=(targetY-eyeY)*.075;eyeDistance+=(targetDistance-eyeDistance)*.075;draw();requestAnimationFrame(frame)}
 function setHintOff(){hint.classList.add('off');note.classList.add('off')}
-function reset(){eyeX=targetX=0;eyeY=targetY=.02;phase=0;time=0;paletteIndex=0;palette=palettes[0];drag=null;orientationBase=null;orientationOn=false;hint.classList.remove('off');note.classList.remove('off')}
+function reset(){eyeX=targetX=0;eyeY=targetY=.02;eyeDistance=targetDistance=4.25;phase=0;time=0;paletteIndex=0;palette=palettes[0];drag=null;orientationOn=false;if(cam.on)cam.base=null;hint.classList.remove('off');note.classList.remove('off')}
 function mutate(){paletteIndex=(paletteIndex+1+Math.floor(Math.random()*3))%palettes.length;palette=palettes[paletteIndex];phase+=Math.random()*TAU;targetX=(Math.random()-.5)*.65;targetY=(Math.random()-.5)*.35}
 function startTilt(){
+ if(cam.on||cam.loading)stopCamera();
  const enable=()=>{orientationOn=true;setHintOff();if(typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function'){DeviceOrientationEvent.requestPermission().then(s=>{if(s!=='granted')orientationOn=false}).catch(()=>orientationOn=false)}};
  enable();
 }
-canvas.addEventListener('pointerdown',e=>{if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;e.preventDefault();drag={x:e.clientX,y:e.clientY};canvas.setPointerCapture?.(e.pointerId);setHintOff()},{passive:false});
-canvas.addEventListener('pointermove',e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;drag.x=e.clientX;drag.y=e.clientY;targetX=clamp(targetX-dx/Math.min(W,H)*1.65,-1.15,1.15);targetY=clamp(targetY+dy/Math.min(W,H)*1.2,-.8,.8)},{passive:true});
+class OneEuro{
+ constructor(minC,beta){this.minC=minC;this.beta=beta;this.x=null;this.dx=0}
+ alpha(c,dt){const tau=1/(2*Math.PI*c);return 1/(1+tau/dt)}
+ reset(){this.x=null;this.dx=0}
+ f(v,dt){
+  if(this.x===null){this.x=v;return v}
+  const d=(v-this.x)/dt;this.dx+=(d-this.dx)*this.alpha(1,dt);
+  const c=this.minC+this.beta*Math.abs(this.dx);this.x+=(v-this.x)*this.alpha(c,dt);return this.x;
+ }
+}
+const fx=new OneEuro(1.2,6),fy=new OneEuro(1.2,6),fz=new OneEuro(.8,3);
+const HFOV=65*Math.PI/180,EYE_SPAN_CM=8.8;
+function unitsPerCm(){return 2/((isTouch||W<820)?14:19)}
+function onFace(res){
+ const L=res.multiFaceLandmarks&&res.multiFaceLandmarks[0];
+ if(!L)return;
+ const now=performance.now()/1000,vw=video.videoWidth||640,vh=video.videoHeight||480;
+ cam.lastFace=now;
+ const spanPx=Math.hypot((L[263].x-L[33].x)*vw,(L[263].y-L[33].y)*vh)||1;
+ const fpx=vw/2/Math.tan(HFOV/2),distCm=fpx*EYE_SPAN_CM/spanPx;
+ const cx=(L[33].x+L[263].x)/2,cy=(L[33].y+L[263].y)/2;
+ const xCm=(.5-cx)*vw*distCm/fpx,yCm=(.5-cy)*vh*distCm/fpx;
+ if(!cam.base)cam.base={x:xCm,y:yCm,d:distCm};
+ else{const k=.0015;cam.base.x+=(xCm-cam.base.x)*k;cam.base.y+=(yCm-cam.base.y)*k;cam.base.d+=(distCm-cam.base.d)*k}
+ const dt=clamp(cam.lastTick?now-cam.lastTick:1/30,.008,.12);cam.lastTick=now;
+ const u=unitsPerCm();
+ targetX=clamp(fx.f((xCm-cam.base.x)*u*.85,dt),-1.15,1.15);
+ targetY=clamp(fy.f((yCm-cam.base.y)*u*.85,dt),-.8,.8);
+ targetDistance=clamp(4.25+(distCm-cam.base.d)*u,2.9,6.2);
+}
+function loadScript(src){return new Promise((ok,ng)=>{const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=()=>ng(Error('load '+src));document.head.appendChild(s)})}
+function setCamButton(on){if(camBtn)camBtn.classList.toggle('apk-on',on)}
+async function startCamera(){
+ if(cam.on||cam.loading)return;
+ cam.loading=true;
+ try{
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw Error('no getUserMedia');
+  cam.stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:640},height:{ideal:480}},audio:false});
+  video.srcObject=cam.stream;await video.play();
+  hint.textContent='顔を中央に映してください · 顔の位置を基準にします';hint.classList.remove('off');note.classList.remove('off');
+  if(!window.FaceMesh)await loadScript('../lib/face_mesh/face_mesh.js');
+  if(!cam.fm){
+   cam.fm=new window.FaceMesh({locateFile:f=>'../lib/face_mesh/'+f});
+   cam.fm.setOptions({maxNumFaces:1,refineLandmarks:false,minDetectionConfidence:.5,minTrackingConfidence:.5});
+   cam.fm.onResults(onFace);
+   await cam.fm.initialize();
+  }
+  if(!cam.stream)return;
+  cam.on=true;cam.base=null;cam.lastFace=-99;cam.lastTick=0;fx.reset();fy.reset();fz.reset();orientationOn=false;
+  hint.textContent='HEAD TRACKING ON · MOVE YOUR HEAD';note.textContent='FACE POSITION ONLY · PROCESSED ON THIS DEVICE';
+  setTimeout(()=>{if(cam.on)hint.classList.add('off')},4500);
+  pumpCamera();
+  if(window.APKit)APKit.toast('顔の位置と距離を追跡中。視線の向きは読み取りません。映像は端末内で処理します。',5000);
+ }catch(err){
+  console.error(err);stopCamera();
+  const denied=err&&(err.name==='NotAllowedError'||err.name==='SecurityError');
+  if(window.APKit)APKit.toast(denied?'カメラが許可されませんでした。設定からカメラを許可してください':'この端末では顔追跡を開始できませんでした');
+  setCamButton(false);
+ }finally{cam.loading=false}
+}
+function stopCamera(){
+ cam.on=false;
+ if(cam.stream){cam.stream.getTracks().forEach(t=>t.stop());cam.stream=null}
+ video.srcObject=null;
+ setCamButton(false);
+ hint.textContent='DRAG TO LOOK AROUND · TAP 👁 FOR FACE TRACKING';
+ note.textContent='THE ROOM STAYS STILL. YOUR VIEWPOINT DOES NOT.';
+}
+async function pumpCamera(){
+ if(!cam.on)return;
+ if(!cam.busy&&video.readyState>=2){
+  cam.busy=true;
+  try{await cam.fm.send({image:video})}catch(e){console.error(e)}
+  cam.busy=false;
+ }
+ if(video.requestVideoFrameCallback)video.requestVideoFrameCallback(()=>pumpCamera());else requestAnimationFrame(pumpCamera);
+}
+canvas.addEventListener('pointerdown',e=>{if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;if(cam.on)return;e.preventDefault();drag={x:e.clientX,y:e.clientY};canvas.setPointerCapture?.(e.pointerId);setHintOff()},{passive:false});
+canvas.addEventListener('pointermove',e=>{if(!drag||cam.on)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;drag.x=e.clientX;drag.y=e.clientY;targetX=clamp(targetX-dx/Math.min(W,H)*1.65,-1.15,1.15);targetY=clamp(targetY+dy/Math.min(W,H)*1.2,-.8,.8)},{passive:true});
 canvas.addEventListener('pointerup',()=>drag=null,{passive:true});
 canvas.addEventListener('pointercancel',()=>drag=null);
 addEventListener('deviceorientation',e=>{if(!orientationOn||e.gamma==null)return;targetX=clamp(e.gamma/42,-.9,.9);targetY=clamp((e.beta-55)/55,-.55,.55)},{passive:true});
@@ -149,8 +232,9 @@ requestAnimationFrame(frame);
 if(window.APKit)APKit.init({canvas:canvas,gifName:'parallax-room-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,buttons:[
  {label:'✦',name:'mutate',onClick:mutate},
  {label:'⌁',name:'tilt',onClick:startTilt},
+ {label:'👁',name:'camera',toggle:true,onClick:(b)=>{camBtn=b;if(cam.on||cam.loading){stopCamera();setTimeout(()=>setCamButton(false),0)}else startCamera()}},
  {label:'↻',name:'reset',onClick:reset},
- {label:'？',name:'guide',onClick:function(){APKit.toast('画面を左右になぞると視点が移動します。⌁で端末の傾きにも追従します。部屋は動かず、視点だけが移動します。',6000)}}
+ {label:'？',name:'guide',onClick:function(){APKit.toast('👁でインカメラ顔追跡。頭を左右・上下に動かすと視点が変わり、近づく/離れると奥行きも変わります。⌁は端末傾き操作です。',6500)}}
 ]});
 })();
 </script>
