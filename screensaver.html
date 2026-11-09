@@ -11,28 +11,11 @@
   iframe.stage{position:fixed;inset:0;width:100%;height:100%;border:0;display:block;
     background:#000;opacity:0;transition:opacity 2.4s ease}
   iframe.stage.on{opacity:1}
-  /* Clock overlay — owner-requested exception to the no-resident-text rule.
-     Big enough to read from across the room, soft enough not to fight the art.
-     Its position drifts a few px every few minutes (pixel shift) so the same
-     pixels are never lit statically for hours. */
-  #clock{position:fixed;right:4.2vw;bottom:4.6vh;z-index:10;pointer-events:none;
-    color:#fff;text-align:right;opacity:.92;
-    font-family:"Helvetica Neue",Helvetica,Arial,"Hiragino Sans","Noto Sans JP",sans-serif;
-    font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;
-    text-shadow:0 0 5px rgba(0,0,0,.9),0 0 18px rgba(0,0,0,.8),0 0 42px rgba(0,0,0,.75),0 2px 26px rgba(0,0,0,.85);
-    transition:transform 3.5s ease-in-out;will-change:transform}
-  #clock .d{font-size:clamp(15px,2.1vw,34px);font-weight:500;letter-spacing:.3em;opacity:.85}
-  #clock .t{font-size:clamp(64px,10.5vw,176px);font-weight:600;line-height:1.04;letter-spacing:.015em}
-  #clock .t .s{font-size:.45em;font-weight:500;opacity:.78;margin-left:.05em}
 </style>
 </head>
 <body>
 <iframe class="stage" id="stageA" title=""></iframe>
 <iframe class="stage" id="stageB" title=""></iframe>
-<div id="clock" aria-hidden="true">
-  <div class="d" id="clockDate"></div>
-  <div class="t"><span id="clockHM"></span><span class="s" id="clockS"></span></div>
-</div>
 <script>
 (function(){
 "use strict";
@@ -172,26 +155,6 @@ function ghostStop(){
   ghost.active=false; clearTimeout(ghost.timer); cancelAnimationFrame(ghost.raf);
 }
 
-/* ------------------------------------------------------------------ clock */
-var WD=['SUN','MON','TUE','WED','THU','FRI','SAT'];
-var elHM=document.getElementById('clockHM'), elS=document.getElementById('clockS'),
-    elD=document.getElementById('clockDate'), clockEl=document.getElementById('clock');
-function pad(n){ return (n<10?'0':'')+n; }
-function tickClock(){
-  var n=new Date(), hm=pad(n.getHours())+':'+pad(n.getMinutes()), s=':'+pad(n.getSeconds());
-  if(elHM.textContent!==hm) elHM.textContent=hm;
-  if(elS.textContent!==s) elS.textContent=s;
-  var d=n.getFullYear()+' '+pad(n.getMonth()+1)+' '+pad(n.getDate())+' '+WD[n.getDay()];
-  if(elD.textContent!==d) elD.textContent=d;
-}
-tickClock(); setInterval(tickClock,250);
-/* pixel shift: nudge the clock a little every 4 minutes, drifting slowly */
-function shiftClock(){
-  var dx=Math.round((Math.random()*32-16)), dy=Math.round((Math.random()*20-10));
-  clockEl.style.transform='translate('+dx+'px,'+dy+'px)';
-}
-setInterval(shiftClock,240000); setTimeout(shiftClock,30000);
-
 /* ------------------------------------------------------------------ misc */
 try{ if(navigator.wakeLock&&navigator.wakeLock.request){
   var wl=null;
@@ -206,9 +169,8 @@ document.addEventListener('pointerdown',function(){
     document.documentElement.requestFullscreen().catch(function(){});
 },{once:true});
 
-/* debug/test handle (invisible): SSV.next(), SSV.shiftClock(), SSV.state() */
+/* debug/test handle (invisible): SSV.next(), SSV.state() */
 window.SSV={ next:function(){ clearTimeout(rotTimer); return show(workIdx+1).then(scheduleNext); },
-  shiftClock:shiftClock,
   state:function(){ return {work:WORKS[workIdx],hold:HOLD}; } };
 
 /* ------------------------------------------------------------------ go */
