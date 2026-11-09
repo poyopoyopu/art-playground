@@ -30,8 +30,8 @@ const cv=document.getElementById('c'), g=cv.getContext('2d');
 const hintEl=document.getElementById('hint'), video=document.getElementById('cam');
 const TAU=Math.PI*2, isTouch=matchMedia('(pointer:coarse)').matches;
 let W=1,H=1,DPR=1,ASP=1,WX=1,R=.7;
-const D=12.5, N=14, EZ0=3.2, NF=30;                 // 部屋の奥行き / 時計の枚数 / 視点の標準距離(画面の高さの半分=1) / 壁の枠の数
-const ZS=[];for(let k=0;k<N;k++)ZS.push(-.3-k*(D-.9)/(N-1));
+const D=30, N=64, EZ0=3.2, NT=60;                 // 部屋の奥行き / 時計の枚数(間隔 約0.46) / 視点の標準距離(画面の高さの半分=1) / 床のタイルの区間数
+const ZS=[];for(let k=0;k<N;k++)ZS.push(-.3-k*(D-1.2)/(N-1));
 
 /* ---------- 世界の法則: 奥へ1歩あたりのずれ ---------- */
 const LAWS=[
@@ -156,7 +156,7 @@ async function pumpCamera(){
 
 /* ---------- 空気中のちり(奥行きの手がかり) ---------- */
 const dust=[];
-for(let i=0;i<260;i++)dust.push({x:(Math.random()*2-1)*1.6,y:(Math.random()*2-1),z:-Math.random()*D+.4,v:.01+Math.random()*.03,a:.2+Math.random()*.5});
+for(let i=0;i<300;i++)dust.push({x:(Math.random()*2-1)*1.6,y:(Math.random()*2-1),z:-Math.random()*D+.4,v:.01+Math.random()*.03,a:.2+Math.random()*.5});
 
 /* ---------- 描画 ---------- */
 function hsl(h,s,l,a){return 'hsla('+((h%360+360)%360).toFixed(0)+','+s+'%,'+l+'%,'+(a==null?1:a).toFixed(3)+')'}
@@ -169,41 +169,49 @@ function shade(a,b,c0,c1){                         // 手前の点aから奥の�
   const gr=g.createLinearGradient(a[0],a[1],b[0],b[1]);gr.addColorStop(0,c0);gr.addColorStop(1,c1);return gr;
 }
 
-function hash(a,b){const v=Math.sin(a*127.1+b*311.7)*43758.5453;return v-Math.floor(v)}
-/* 壁・床・天井の変化: 奥行きを区間(長さL)に区切り、区間ごとに窓・柱・凹み・光の帯・床のタイルを変える。
-   色相は奥へ向かって虹のように変わり、光は奥へ向かって流れる */
-function drawDeco(hue){
-  const L=D/NF, m=proj;
-  for(let j=NF-1;j>=0;j--){
-    const z0=-j*L, z1=-(j+1)*L, hj=hue+j*(360/NF)*.6, fade=1-j/NF*.5;
-    const pulse=.5+.5*Math.sin(tNow*2.4-j*.6);
-    for(let i=0;i<6;i++){                            // 床のタイル(市松)
+function fmt(t){t=((t%86400)+86400)%86400;const h=Math.floor(t/3600),mi=Math.floor(t%3600/60),sc=Math.floor(t%60);return (h<10?'0':'')+h+':'+(mi<10?'0':'')+mi+':'+(sc<10?'0':'')+sc}
+/* 壁に斜めの遠近で文字を貼る(区間が短いので、3点を合わせるアフィン変換で十分きれいに見える) */
+let tw100=0;
+function wallText(str,side,z,y,len,h,col){
+  g.font='600 100px ui-monospace,Menlo,monospace';
+  if(!tw100)tw100=g.measureText('00:00:00').width||480;
+  const x=side*WX, za=side<0?z:z-len, zb=side<0?z-len:z;   // 右の壁は鏡文字にならないよう、奥→手前の向きに貼る
+  const T=proj(x,y+h,za), X=proj(x,y+h,zb), Y=proj(x,y,za);
+  g.save();
+  g.setTransform(DPR*(X[0]-T[0])/tw100,DPR*(X[1]-T[1])/tw100,DPR*(Y[0]-T[0])/100,DPR*(Y[1]-T[1])/100,DPR*T[0],DPR*T[1]);
+  g.fillStyle=col;g.textBaseline='top';g.textAlign='left';g.fillText(str,0,0);
+  g.restore();
+}
+/* 壁のアイデア「時間の目盛り」: 時計と同じ位置に、時計と同じ色の輪(肋骨)が廊下に並び、光が奥へ流れる。
+   4つおきの輪には、その奥行きの時刻が壁に刻まれる(奥の時計が指している時刻と同じ)。床は市松のレーン */
+function drawTimeWalls(hue,tsec){
+  const m=proj, TL=D/NT;
+  for(let j=NT-1;j>=0;j--){
+    const z0=-j*TL, z1=-(j+1)*TL, fade=1-j/NT*.6;
+    for(let i=0;i<6;i++){
       if((i+j)%2)continue;
       const x0=-WX+i*2*WX/6, x1=x0+2*WX/6;
-      poly([m(x0,-1,z0),m(x1,-1,z0),m(x1,-1,z1),m(x0,-1,z1)],hsl(hj,50,62,.075*fade));
-    }
-    if(j%4===1){                                     // 天井の光の帯(奥へ流れる)
-      poly([m(-WX*.8,1,z0),m(WX*.8,1,z0),m(WX*.8,1,z1),m(-WX*.8,1,z1)],hsl(hj,80,72,(.18+.5*pulse)*fade));
-    }
-    for(const side of [-1,1]){
-      const x=side*WX, type=Math.floor(hash(j,side)*7);
-      const q=(y0,y1,za,zb,fill)=>poly([m(x,y0,za),m(x,y1,za),m(x,y1,zb),m(x,y0,zb)],fill);
-      if(type===2||type===3){                        // 窓
-        q(-.38,.5,z0-.07,z1+.07,hsl(hj,75,62,(.14+.32*pulse)*fade));
-        g.strokeStyle=hsl(hj,70,82,.5*fade);g.lineWidth=1;
-        const a=m(x,-.38,z0-.07),b=m(x,.5,z0-.07),c=m(x,.5,z1+.07),d=m(x,-.38,z1+.07);
-        g.beginPath();g.moveTo(a[0],a[1]);g.lineTo(b[0],b[1]);g.lineTo(c[0],c[1]);g.lineTo(d[0],d[1]);g.closePath();g.stroke();
-      }else if(type===4){                            // 柱
-        q(-1,1,z0,z0-.09,hsl(hj,55,78,.4*fade));
-      }else if(type===5){                            // 凹み(暗い)
-        q(-.82,.82,z0,z1,'rgba(0,0,0,.3)');
-      }else if(type===6){                            // 光のレール
-        q(.52,.6,z0,z1,hsl(hj,85,74,(.25+.55*pulse)*fade));
-      }
+      poly([m(x0,-1,z0),m(x1,-1,z0),m(x1,-1,z1),m(x0,-1,z1)],hsl(hue+j*3,50,62,.07*fade));
     }
   }
+  g.globalCompositeOperation='lighter';
+  for(let k=N-1;k>=1;k--){
+    const z=ZS[k], hk=hue+k*(360/N), major=k%4===0, fade=1-k/N*.55;
+    const pulse=.5+.5*Math.sin(tNow*3-k*.45);
+    const al=((major?.3:.12)+pulse*.4)*fade;
+    const p0=m(-WX,-1,z),p1=m(WX,-1,z),p2=m(WX,1,z),p3=m(-WX,1,z);
+    g.strokeStyle=hsl(hk,85,64,al);g.lineWidth=major?2:1;
+    g.beginPath();g.moveTo(p0[0],p0[1]);g.lineTo(p1[0],p1[1]);g.lineTo(p2[0],p2[1]);g.lineTo(p3[0],p3[1]);g.closePath();g.stroke();
+  }
+  for(let k=4;k<N-6;k+=4){
+    const z=ZS[k], hk=hue+k*(360/N), fade=1-k/N*.5, str=fmt(tsec-k*stepEff);
+    const col=hsl(hk,75,78,.62*fade);
+    wallText(str,-1,z-.08,-.88,1.4,.26,col);
+    wallText(str,1,z-.08,-.88,1.4,.26,col);
+  }
+  g.globalCompositeOperation='source-over';
 }
-function drawRoom(hue){
+function drawRoom(hue,tsec){
   const B=(x,y)=>proj(x,y,-D), F=(x,y)=>proj(x,y,0);
   const bl=B(-WX,-1),br=B(WX,-1),tr=B(WX,1),tl=B(-WX,1);
   // 奥の壁
@@ -217,15 +225,9 @@ function drawRoom(hue){
   poly([F(-WX,1),F(WX,1),tr,tl],shade(m(0,1,0),m(0,1,-D),hsl(hue,30,6),hsl(hue,34,17)));
   poly([F(-WX,-1),F(-WX,1),tl,bl],shade(m(-WX,0,0),m(-WX,0,-D),hsl(hue,30,7),hsl(hue,36,20)));
   poly([F(WX,-1),F(WX,1),tr,br],shade(m(WX,0,0),m(WX,0,-D),hsl(hue,30,7),hsl(hue,36,20)));
-  drawDeco(hue);
-  // 壁の断面の枠と、奥へ伸びる線(遠近の手がかり)
+  drawTimeWalls(hue,tsec);
+  // 奥へ伸びる線(遠近の手がかり)
   g.lineWidth=1;
-  for(let j=2;j<=NF;j+=2){
-    const z=-j*D/NF, a=.05+.18*(1-j/NF);
-    const p0=m(-WX,-1,z),p1=m(WX,-1,z),p2=m(WX,1,z),p3=m(-WX,1,z);
-    g.strokeStyle=hsl(hue,50,70,a);
-    g.beginPath();g.moveTo(p0[0],p0[1]);g.lineTo(p1[0],p1[1]);g.lineTo(p2[0],p2[1]);g.lineTo(p3[0],p3[1]);g.closePath();g.stroke();
-  }
   g.strokeStyle=hsl(hue,50,70,.1);g.beginPath();
   for(let i=-3;i<=3;i++){
     const x=WX*i/4;
@@ -252,30 +254,40 @@ function hand(cx,cy,ang,len,tail,w,col){
 function drawClock(k,tsec,hue0){
   const hue=hue0+k*(360/N);                        // 奥へ1歩ごとに色相がずれる=全部で虹を一周する
   const p=proj(0,0,ZS[k]), s=p[2], r=R*s*H/2, cx=p[0], cy=p[1];
-  const a=1-.8*k/N;
+  const a=.12+.88*Math.pow(1-k/N,1.6);
+  const tier=r>=40?2:r>=14?1:0;                    // 小さい時計(奥)は描きこみを減らして軽くする
   const lw=Math.max(.7,r*.013);
   const t=tsec-k*stepEff;
-  const face=g.createRadialGradient(cx,cy,r*.05,cx,cy,r);
-  face.addColorStop(0,hsl(hue,60,60,.02*a));face.addColorStop(1,hsl(hue,80,55,.13*a));
-  g.fillStyle=face;g.beginPath();g.arc(cx,cy,r,0,TAU);g.fill();
+  if(tier===2){
+    const face=g.createRadialGradient(cx,cy,r*.05,cx,cy,r);
+    face.addColorStop(0,hsl(hue,60,60,.02*a));face.addColorStop(1,hsl(hue,80,55,.13*a));
+    g.fillStyle=face;g.beginPath();g.arc(cx,cy,r,0,TAU);g.fill();
+  }else if(tier===1){
+    g.fillStyle=hsl(hue,80,55,.07*a);g.beginPath();g.arc(cx,cy,r,0,TAU);g.fill();
+  }
   g.globalCompositeOperation='lighter';
-  g.strokeStyle=hsl(hue,90,66,.85*a);g.lineWidth=lw*1.7;g.beginPath();g.arc(cx,cy,r,0,TAU);g.stroke();
-  for(let i=0;i<60;i++){
-    const ang=i/60*TAU, major=i%5===0, sx=Math.sin(ang), sy=-Math.cos(ang);
-    g.strokeStyle=hsl(hue,60,82,(major?.85:.4)*a);
-    if(tickStyle===1){
-      g.fillStyle=g.strokeStyle;g.beginPath();g.arc(cx+sx*r*.86,cy+sy*r*.86,r*(major?.028:.011),0,TAU);g.fill();
-    }else if(tickStyle===0||major){
-      const len=tickStyle===0?(major?.13:.055):.1;
-      g.lineWidth=lw*(major?1.6:.8);g.lineCap='butt';
-      g.beginPath();g.moveTo(cx+sx*r*(.94-len),cy+sy*r*(.94-len));g.lineTo(cx+sx*r*.94,cy+sy*r*.94);g.stroke();
+  g.strokeStyle=hsl(hue,90,66,.85*a);g.lineWidth=lw*(tier?1.7:1.2);g.beginPath();g.arc(cx,cy,r,0,TAU);g.stroke();
+  if(tier){
+    const stepI=tier===2?1:5;
+    for(let i=0;i<60;i+=stepI){
+      const ang=i/60*TAU, major=i%5===0, sx=Math.sin(ang), sy=-Math.cos(ang);
+      g.strokeStyle=hsl(hue,60,82,(major?.85:.4)*a);
+      if(tickStyle===1){
+        g.fillStyle=g.strokeStyle;g.beginPath();g.arc(cx+sx*r*.86,cy+sy*r*.86,r*(major?.028:.011),0,TAU);g.fill();
+      }else if(tickStyle===0||major){
+        const len=tickStyle===0?(major?.13:.055):.1;
+        g.lineWidth=lw*(major?1.6:.8);g.lineCap='butt';
+        g.beginPath();g.moveTo(cx+sx*r*(.94-len),cy+sy*r*(.94-len));g.lineTo(cx+sx*r*.94,cy+sy*r*.94);g.stroke();
+      }
     }
   }
   const sec=(t%60+60)%60, mn=((t/60)%60+60)%60, hr=((t/3600)%12+12)%12;
   hand(cx,cy,hr/12*TAU,r*.5,.12,lw*3.4,hsl(hue,30,92,.95*a));
   hand(cx,cy,mn/60*TAU,r*.76,.12,lw*2.4,hsl(hue,30,92,.95*a));
-  hand(cx,cy,sec/60*TAU,r*.88,.18,lw*1.1,hsl(hue+170,90,66,.95*a));
-  g.fillStyle=hsl(hue+170,90,66,.95*a);g.beginPath();g.arc(cx,cy,lw*2.4,0,TAU);g.fill();
+  if(tier){
+    hand(cx,cy,sec/60*TAU,r*.88,.18,lw*1.1,hsl(hue+170,90,66,.95*a));
+    g.fillStyle=hsl(hue+170,90,66,.95*a);g.beginPath();g.arc(cx,cy,lw*2.4,0,TAU);g.fill();
+  }
   g.globalCompositeOperation='source-over';
   // 何歩奥か
   if(r>34&&k<=3){
@@ -321,7 +333,7 @@ function frame(nowMs){
 
   g.setTransform(DPR,0,0,DPR,0,0);
   g.fillStyle='#06080d';g.fillRect(0,0,W,H);
-  drawRoom(hue);
+  drawRoom(hue,tsec);
   drawDust(hue,false);
   for(let k=N-1;k>=0;k--)drawClock(k,tsec,hue);   // 奥から手前へ
   drawDust(hue,true);
