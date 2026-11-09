@@ -5,13 +5,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
 <meta name="theme-color" content="#07040b">
-<title>21 SHELLS — 二十一種の花火玉が夜空に咲く</title>
+<title>21 SHELLS — 触れた空に重力の穴が開き、花火が流れ込む</title>
+<script src="../ap-kit.js"></script>
 <style>
   html,body{margin:0;height:100%;background:#07040b;overflow:hidden;touch-action:none;
     -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
   canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
   #cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none}
-  #hint{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 94px);
+  #hint{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 96px);
     text-align:center;color:rgba(255,236,214,.62);pointer-events:none;
     font:13px/1.8 -apple-system,"Hiragino Sans","Yu Gothic",sans-serif;letter-spacing:.16em;
     transition:opacity 1.6s ease;opacity:0}
@@ -22,12 +23,12 @@
     font:13px/1.4 -apple-system,"Hiragino Sans","Yu Gothic",sans-serif;letter-spacing:.06em;
     opacity:0;transition:opacity .35s ease;text-align:center}
   #toast.on{opacity:1}
-  #bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 16px);
-    display:flex;justify-content:center;gap:10px;transition:opacity .7s ease}
+  #bar{position:fixed;right:12px;top:calc(env(safe-area-inset-top,0px) + 12px);
+    display:flex;flex-direction:column;gap:8px;transition:opacity .7s ease}
   #bar.dim{opacity:.4}
   .b{appearance:none;-webkit-appearance:none;border:1px solid rgba(255,230,200,.28);
     background:rgba(20,12,28,.55);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);
-    color:rgba(255,236,214,.86);width:56px;height:56px;border-radius:50%;padding:0;cursor:pointer;
+    color:rgba(255,236,214,.86);width:50px;height:50px;border-radius:50%;padding:0;cursor:pointer;
     display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
     font:9px/1 -apple-system,"Hiragino Sans","Yu Gothic",sans-serif;letter-spacing:.04em;
     transition:border-color .2s,color .2s,box-shadow .2s,transform .08s}
@@ -40,7 +41,7 @@
 <canvas id="c"></canvas>
 <video id="cam" playsinline muted autoplay></video>
 <div id="toast"></div>
-<div id="hint">タップで打ち上げ<br>ドラッグで見る向きを変える</div>
+<div id="hint">タップで花火が上がり、空に重力の穴ができる<br>同じ所を重ねて触ると…　ドラッグで見る向き</div>
 <div id="bar">
   <button class="b" id="bCam" aria-label="カメラ"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>カメラ</button>
   <button class="b" id="bTilt" aria-label="傾き"><svg viewBox="0 0 24 24"><rect x="8.5" y="3" width="7" height="18" rx="2"/><path d="M4.5 9c-1 2-1 4 0 6M19.5 9c1 2 1 4 0 6"/></svg>傾き</button>
@@ -322,18 +323,21 @@ function launchAt(px,py){
     const w=unproject(px,py,dist);
     const y0=Math.max(w[1]+dist*.5, dist*.25);
     launch(di,w[0],y0,w[2],w[0],w[1],w[2],dist*rnd(.13,.19),Math.max(.8,Math.min(1.9,(y0-w[1])/dist*2.3)),true);
+    return [w[0],w[1],w[2]];
   }else{
     const w=unproject(px,py,0);
     const y1=Math.min(w[1],Hv*.3), y0=Math.max(Hv*.55,y1+Hv*.3);
     const m=Math.min(Wv,Hv*1.15);
     launch(di,w[0],y0,w[2],w[0],y1,w[2],m*rnd(.2,.28),
            Math.max(.8,Math.min(2,(y0-y1)/Hv*2.1)),true);
+    return [w[0],y1,w[2]];
   }
 }
 
 /* ---------- 入力: ドラッグ/タップ ---------- */
 let drag=null, lastTouch=-99;
 cv.addEventListener('pointerdown',e=>{
+  if(window.APKit && APKit.isUI(e.clientX,e.clientY)) return;
   e.preventDefault();
   drag={x:e.clientX,y:e.clientY,sx:e.clientX,sy:e.clientY,moved:false};
   try{cv.setPointerCapture(e.pointerId);}catch(_){}
@@ -351,7 +355,7 @@ cv.addEventListener('pointermove',e=>{
 });
 cv.addEventListener('pointerup',()=>{
   if(!drag) return;
-  if(!drag.moved) launchAt(drag.sx,drag.sy);
+  if(!drag.moved){ const tgt=launchAt(drag.sx,drag.sy); touchLaw(drag.sx,drag.sy,tgt); }
   lastTouch=T; drag=null;
 });
 cv.addEventListener('pointercancel',()=>{drag=null;});
@@ -433,11 +437,123 @@ function disableCam(){
 }
 bCam.addEventListener('click',()=>{ poke(); if(camOn) disableCam(); else enableCam(); });
 
+/* ---------- 世界のルール: 触った所で空の法則が変わる ----------
+   ✦で法則を切り替えて比べられる(試作中。1つに決まったら残りは外す)。
+   ・gravity 重力の穴: 触った所に穴。粒が流れ込んで渦になる。同じ所を重ねて触ると育ち、4回目で崩壊して超新星
+   ・time    時間の泡: 触った所の時間が止まる(咲いた形のまま空中で固まる)。重ねて触ると泡が広がり、4回目で一斉に解凍
+   ・wind    風    : 触るたび風が吹く。触るほど強く、粒が流される */
+const LAWS=['gravity','time','wind'];
+const LAW_INFO={gravity:['重力の穴','触った所に重力の穴。重ねて触ると育つ'],time:['時間の泡','触った所の時間が止まる。重ねて触ると広がる'],wind:['風','触るたび風が吹く。触るほど強くなる']};
+let law='gravity';
+const LAW={G:1,swirl:.5,life:16};
+const wells=[];
+let wvx=0,wvy=0,wvz=0;
+const motes=[]; for(let i=0;i<70;i++) motes.push({x:Math.random(),y:Math.random()});
+function wellR(w){ return law==='time'?110+55*w.m:46+16*w.m; }
+function releaseWell(w,big){
+  const i=wells.indexOf(w); if(i>=0) wells.splice(i,1);
+  const R0=law==='time'?w.R:(big?420:260), amp=big?760:(law==='time'?300:240);
+  for(const st of S){
+    const dx=st.x-w.x, dy=st.y-w.y, dz=st.z-w.z, r=Math.sqrt(dx*dx+dy*dy+dz*dz);
+    if(r<R0){ const f=amp*(1-r/R0)/(r+1); st.vx+=dx*f; st.vy+=dy*f; st.vz+=dz*f; }
+  }
+  flashes.push({x:w.x,y:w.y,z:w.z,r:R0*.8,rgb:big?[255,236,214]:[190,170,255],t:0,dur:big?.6:.35,a:big?.8:.3});
+  if(big && law==='gravity'){                 // 超新星: 吸い込んだ粒をはじき飛ばし、大きな花火を咲かせる
+    const R=230;
+    burstLayer(L('sphere',{n:420,life:3.4,drag:1.5,pal:['gold','white'],tl:.14,w:1.3,hold:.55,glit:.5}),w.x,w.y,w.z,R);
+    burstLayer(L('ring',{n:200,rm:1.2,pal:'pink',tl:.05,life:2.6}),w.x,w.y,w.z,R);
+    burstLayer(L('sphere',{n:160,rm:.55,pal:'cyan',tl:.04,life:2}),w.x,w.y,w.z,R);
+  }
+  if(big && navigator.vibrate){ try{ navigator.vibrate([20,40,60]); }catch(_){} }
+}
+function gust(px,py){
+  // 触った側から反対側へ吹く(いまの画面の向きでの右・下をワールドへ直す)
+  let dx=cx0-px, dy=cy0-py; const l=Math.hypot(dx,dy)||1; dx/=l; dy/=l;
+  const rx=cY, rz=-sY, dxw=-sP*sY, dyw=cP, dzw=-sP*cY;
+  wvx+=(rx*dx+dxw*dy)*.7; wvy+=(dyw*dy)*.7; wvz+=(rz*dx+dzw*dy)*.7;
+  const m=Math.hypot(wvx,wvy,wvz); if(m>2.2){ const k=2.2/m; wvx*=k; wvy*=k; wvz*=k; }
+}
+function touchLaw(px,py,tgt){
+  if(law==='wind'){ gust(px,py); return; }
+  let near=null, bd=70;
+  for(const w of wells){ if(project(w.x,w.y,w.z)){ const d=Math.hypot(PX-px,PY-py); if(d<bd){ bd=d; near=w; } } }
+  if(near){
+    near.m++; near.pulse=1; near.t=0;
+    if(near.m>=4) releaseWell(near,true); else near.R=wellR(near);
+  }else{
+    if(wells.length>=3) releaseWell(wells[0],false);
+    const w={x:tgt[0],y:tgt[1],z:tgt[2],m:1,t:0,life:LAW.life,pulse:1,R:0};
+    w.R=wellR(w); wells.push(w);
+  }
+}
+function updateLaw(dt){
+  for(let i=wells.length-1;i>=0;i--){
+    const w=wells[i]; w.t+=dt; w.pulse*=Math.exp(-dt*3);
+    if(w.t>w.life) releaseWell(w,false);
+  }
+  const d=Math.exp(-dt/10); wvx*=d; wvy*=d; wvz*=d;
+}
+function drawLaw(dt){
+  if(law==='wind'){
+    const rx=cY, rz=-sY, dxw=-sP*sY, dyw=cP, dzw=-sP*cY;
+    const sx=(wvx*rx+wvz*rz)*320, sy=(wvx*dxw+wvy*dyw+wvz*dzw)*320, mag=Math.hypot(wvx,wvy,wvz);
+    ctx.globalCompositeOperation='lighter'; ctx.lineWidth=1.1; ctx.lineCap='round';
+    for(const m of motes){
+      m.x+=(sx/W+.004)*dt; m.y+=(sy/H-.003)*dt;
+      if(m.x<0)m.x+=1; if(m.x>1)m.x-=1; if(m.y<0)m.y+=1; if(m.y>1)m.y-=1;
+      const px=m.x*W, py=m.y*H, a=.12+.5*Math.min(1,mag);
+      ctx.strokeStyle='rgba(200,220,255,'+a.toFixed(3)+')';
+      ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(px-sx*.05,py-sy*.05); ctx.stroke();
+    }
+    ctx.globalCompositeOperation='source-over';
+    return;
+  }
+  for(const w of wells){
+    if(!project(w.x,w.y,w.z)) continue;
+    const px=PX, py=PY, ps=PS;
+    const fade=Math.min(1,(w.life-w.t)/2)*Math.min(1,w.t/.25+.2);
+    if(law==='gravity'){
+      const r=(46+16*w.m)*ps*(1+.3*w.pulse);
+      const g=ctx.createRadialGradient(px,py,0,px,py,r*1.3);
+      g.addColorStop(0,'rgba(2,0,8,'+(.78*fade).toFixed(3)+')'); g.addColorStop(.7,'rgba(2,0,8,'+(.35*fade).toFixed(3)+')'); g.addColorStop(1,'rgba(2,0,8,0)');
+      ctx.fillStyle=g; ctx.beginPath(); ctx.arc(px,py,r*1.3,0,TAU); ctx.fill();
+      ctx.globalCompositeOperation='lighter'; ctx.lineWidth=1.4;
+      ctx.strokeStyle='rgba(190,160,255,'+((.35+.12*w.m)*fade).toFixed(3)+')';
+      ctx.setLineDash([r*.5,r*.35]); ctx.lineDashOffset=-T*40; ctx.beginPath(); ctx.arc(px,py,r,0,TAU); ctx.stroke();
+      ctx.setLineDash([r*.2,r*.25]); ctx.lineDashOffset=T*50; ctx.beginPath(); ctx.arc(px,py,r*.62,0,TAU); ctx.stroke();
+      ctx.setLineDash([]); ctx.globalCompositeOperation='source-over';
+    }else{
+      const r=w.R*ps*(1+.1*w.pulse);
+      ctx.globalCompositeOperation='lighter';
+      const g=ctx.createRadialGradient(px,py,r*.6,px,py,r);
+      g.addColorStop(0,'rgba(120,200,255,0)'); g.addColorStop(1,'rgba(120,200,255,'+(.1*fade).toFixed(3)+')');
+      ctx.fillStyle=g; ctx.beginPath(); ctx.arc(px,py,r,0,TAU); ctx.fill();
+      ctx.lineWidth=1.2; ctx.strokeStyle='rgba(170,225,255,'+((.4+.08*w.m)*fade).toFixed(3)+')';
+      ctx.beginPath(); ctx.arc(px,py,r,0,TAU); ctx.stroke();
+      for(let k=0;k<12;k++){ const a=k/12*TAU; ctx.beginPath(); ctx.moveTo(px+Math.cos(a)*r*.9,py+Math.sin(a)*r*.9); ctx.lineTo(px+Math.cos(a)*r,py+Math.sin(a)*r); ctx.stroke(); }
+      ctx.lineWidth=1.4;                       // 止まった時計の針
+      ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(px+Math.cos(w.m*1.7-1.2)*r*.5,py+Math.sin(w.m*1.7-1.2)*r*.5); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(px+Math.cos(w.m*.9+.4)*r*.78,py+Math.sin(w.m*.9+.4)*r*.78); ctx.stroke();
+      ctx.globalCompositeOperation='source-over';
+    }
+  }
+}
+function setLaw(n){
+  law=n; wells.length=0; wvx=wvy=wvz=0;
+  LAW.G=rnd(.7,1.6); LAW.swirl=rnd(-.8,.8); LAW.life=rnd(12,22);
+}
+function mutate(){
+  setLaw(LAWS[(LAWS.indexOf(law)+1)%LAWS.length]);
+  toast('法則: '+LAW_INFO[law][0]+'。'+LAW_INFO[law][1]);
+}
+function resetWorld(){ wells.length=0; wvx=wvy=wvz=0; enterGrid(); toast('もとの空にもどした'); }
+
 /* ---------- 更新 ---------- */
 const SPARKCOL=P.spark[0];
 function update(dt){
   T+=dt; phaseT+=dt;
   for(let i=sched.length-1;i>=0;i--) if(sched[i].t<=T){ const f=sched[i].fn; sched.splice(i,1); f(); }
+  updateLaw(dt);
 
   if(phase==='grid'){
     if(phaseT>14.5) enterSky();
@@ -520,9 +636,20 @@ function render(dt){
     tx.beginPath(); tx.moveTo(ax,ay); tx.lineTo(PX,PY); tx.stroke();
   }
 
+  const nW=wells.length, GK=2.5e7*LAW.G;
+  const fx=sY*cP, fy=sP, fz=cY*cP;                     // カメラの向き(渦の回転軸)
   for(let i=S.length-1;i>=0;i--){
     const s=S[i];
-    s.age+=dt;
+    let sdt=dt;
+    if(law==='time' && nW){                            // 泡の中は時間がほとんど止まる
+      let f=1;
+      for(let j=0;j<nW;j++){
+        const w=wells[j], dx=s.x-w.x, dy=s.y-w.y, dz=s.z-w.z, r=Math.sqrt(dx*dx+dy*dy+dz*dz);
+        if(r<w.R){ const q=Math.max(0,(r-w.R*.55)/(w.R*.45)); const ff=.012+.988*q*q*(3-2*q); if(ff<f) f=ff; }
+      }
+      sdt=dt*f;
+    }
+    s.age+=sdt;
     const u=s.age/s.life;
     if(u>=1){
       if(s.crk && Math.random()<s.crk){
@@ -532,9 +659,21 @@ function render(dt){
       FREE.push(s); S[i]=S[S.length-1]; S.pop();
       continue;
     }
-    const k=Math.exp(-s.drag*dt);
-    s.vx*=k; s.vy=s.vy*k+s.g*dt; s.vz*=k;
-    s.x+=s.vx*dt; s.y+=s.vy*dt; s.z+=s.vz*dt;
+    const k=Math.exp(-s.drag*sdt);
+    s.vx*=k; s.vy=s.vy*k+s.g*sdt; s.vz*=k;
+    if(law==='gravity' && nW){                         // 重力の穴: 吸い込み+渦
+      for(let j=0;j<nW;j++){
+        const w=wells[j], dx=w.x-s.x, dy=w.y-s.y, dz=w.z-s.z, r2=dx*dx+dy*dy+dz*dz+2025, r=Math.sqrt(r2);
+        const a=Math.min(9000,GK*w.m/r2), ar=a/r;
+        s.vx+=dx*ar*sdt; s.vy+=dy*ar*sdt; s.vz+=dz*ar*sdt;
+        const tx=fy*dz-fz*dy, ty=fz*dx-fx*dz, tz=fx*dy-fy*dx, tl=Math.sqrt(tx*tx+ty*ty+tz*tz)+1e-3, ta=a*LAW.swirl/tl;
+        s.vx+=tx*ta*sdt; s.vy+=ty*ta*sdt; s.vz+=tz*ta*sdt;
+      }
+    }else if(law==='wind'){                            // 風: 場所ごとに少し揺らして、花弁をねじる
+      const sh=1+.5*Math.sin(s.y*.011+T*1.1+s.ph);
+      s.vx+=wvx*520*sh*sdt; s.vy+=wvy*520*sh*sdt; s.vz+=wvz*520*sh*sdt;
+    }
+    s.x+=s.vx*sdt; s.y+=s.vy*sdt; s.z+=s.vz*sdt;
 
     let a;
     if(u<.06) a=u/.06;
@@ -597,6 +736,7 @@ function render(dt){
   }
   ctx.globalAlpha=1;
   ctx.globalCompositeOperation='source-over';
+  drawLaw(dt);
 
   if(S.length===0 && shells.length===0 && flashes.length===0){
     if(++idleFrames===30) tx.clearRect(0,0,W,H);
@@ -621,6 +761,10 @@ function frame(now){
 }
 window.addEventListener('pagehide',()=>{ disableCam(); });
 
+APKit.init({canvas:cv,gifName:'fireworks-21-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,buttons:[
+  {label:'✦',name:'mutate',onClick:mutate},
+  {label:'↻',name:'reset',onClick:resetWorld}
+]});
 setTimeout(()=>{ if(!hintGone) hint.classList.add('on'); },1800);
 setTimeout(hideHint,8500);
 poke();
