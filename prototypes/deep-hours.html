@@ -30,7 +30,7 @@ const cv=document.getElementById('c'), g=cv.getContext('2d');
 const hintEl=document.getElementById('hint'), video=document.getElementById('cam');
 const TAU=Math.PI*2, isTouch=matchMedia('(pointer:coarse)').matches;
 let W=1,H=1,DPR=1,ASP=1,WX=1,R=.7;
-const D=30, N=64, EZ0=3.2, NT=60;                 // 部屋の奥行き / 時計の枚数(間隔 約0.46) / 視点の標準距離(画面の高さの半分=1) / 床のタイルの区間数
+const D=60, N=118, EZ0=3.2, NT=90;                // 部屋の奥行き / 時計の枚数(間隔 約0.5) / 視点の標準距離(画面の高さの半分=1) / 床のタイルの区間数
 const ZS=[];for(let k=0;k<N;k++)ZS.push(-.3-k*(D-1.2)/(N-1));
 
 /* ---------- 世界の法則: 奥へ1歩あたりのずれ ---------- */
@@ -50,7 +50,7 @@ const PALS=[
 ];
 function pc(k,base){                               // 奥からk番目の色。acc=秒針の色相のずれ
   const P=PALS[pal], u=k/(N-1);
-  if(P.rb)return {h:-tNow*24+k*20,s:100,l:68,acc:170,accL:72,rb:true};   // 虹は奥へ向かって流れる
+  if(P.rb)return {h:-tNow*24+k*13,s:100,l:68,acc:170,accL:72,rb:true};   // 虹は奥へ向かって流れる
   return {h:P.h+P.span*u,s:78+17*u,l:P.l0+(P.l1-P.l0)*u,acc:0,accL:Math.min(92,P.l0+10),rb:false};
 }
 function baseHue(){return PALS[pal].rb?(tNow*8)%360:PALS[pal].h}   // 虹は部屋の色もゆっくり回る
@@ -169,7 +169,7 @@ async function pumpCamera(){
 
 /* ---------- 空気中のちり(奥行きの手がかり) ---------- */
 const dust=[];
-for(let i=0;i<300;i++)dust.push({x:(Math.random()*2-1)*1.6,y:(Math.random()*2-1),z:-Math.random()*D+.4,v:.01+Math.random()*.03,a:.2+Math.random()*.5});
+for(let i=0;i<420;i++)dust.push({x:(Math.random()*2-1)*1.6,y:(Math.random()*2-1),z:-Math.random()*D+.4,v:.01+Math.random()*.03,a:.2+Math.random()*.5});
 
 /* ---------- 描画 ---------- */
 function hsl(h,s,l,a){return 'hsla('+((h%360+360)%360).toFixed(0)+','+s+'%,'+l+'%,'+(a==null?1:a).toFixed(3)+')'}
@@ -182,21 +182,8 @@ function shade(a,b,c0,c1){                         // 手前の点aから奥の�
   const gr=g.createLinearGradient(a[0],a[1],b[0],b[1]);gr.addColorStop(0,c0);gr.addColorStop(1,c1);return gr;
 }
 
-function fmt(t){t=((t%86400)+86400)%86400;const h=Math.floor(t/3600),mi=Math.floor(t%3600/60),sc=Math.floor(t%60);return (h<10?'0':'')+h+':'+(mi<10?'0':'')+mi+':'+(sc<10?'0':'')+sc}
-/* 壁に斜めの遠近で文字を貼る(区間が短いので、3点を合わせるアフィン変換で十分きれいに見える) */
-let tw100=0;
-function wallText(str,side,z,y,len,h,col){
-  g.font='600 100px ui-monospace,Menlo,monospace';
-  if(!tw100)tw100=g.measureText('00:00:00').width||480;
-  const x=side*WX, za=side<0?z:z-len, zb=side<0?z-len:z;   // 右の壁は鏡文字にならないよう、奥→手前の向きに貼る
-  const T=proj(x,y+h,za), X=proj(x,y+h,zb), Y=proj(x,y,za);
-  g.save();
-  g.setTransform(DPR*(X[0]-T[0])/tw100,DPR*(X[1]-T[1])/tw100,DPR*(Y[0]-T[0])/100,DPR*(Y[1]-T[1])/100,DPR*T[0],DPR*T[1]);
-  g.fillStyle=col;g.textBaseline='top';g.textAlign='left';g.fillText(str,0,0);
-  g.restore();
-}
 /* 壁のアイデア「時間の目盛り」: 時計と同じ位置に、時計と同じ色の輪(肋骨)が廊下に並び、光が奥へ流れる。
-   4つおきの輪には、その奥行きの時刻が壁に刻まれる(奥の時計が指している時刻と同じ)。床は市松のレーン */
+   床は市松のレーン */
 function drawTimeWalls(hue,tsec){
   const m=proj, TL=D/NT;
   for(let j=NT-1;j>=0;j--){
@@ -208,24 +195,6 @@ function drawTimeWalls(hue,tsec){
     }
   }
   g.globalCompositeOperation='lighter';
-  if(PALS[pal].rb){                                  // 虹: 壁・床・天井が奥行きごとに違う色に光る
-    for(let k=N-1;k>=2;k-=2){                        // 2区間ずつ(描く量を半分に)
-      const za=ZS[k-2], zb=ZS[k], c=pc(k,hue), f=hsl(c.h,95,55,.16*(1-k/N*.5));
-      poly([m(-WX,-1,za),m(-WX,1,za),m(-WX,1,zb),m(-WX,-1,zb)],f);
-      poly([m(WX,-1,za),m(WX,1,za),m(WX,1,zb),m(WX,-1,zb)],f);
-      poly([m(-WX,-1,za),m(WX,-1,za),m(WX,-1,zb),m(-WX,-1,zb)],f);
-      poly([m(-WX,1,za),m(WX,1,za),m(WX,1,zb),m(-WX,1,zb)],f);
-    }
-    const bc=m(0,0,-D);                              // 廊下の奥の光の門
-    if(g.createConicGradient){
-      const cg=g.createConicGradient(tNow*.8,bc[0],bc[1]);
-      for(let i=0;i<=6;i++)cg.addColorStop(i/6,hsl(-tNow*24+i*60,100,62,.55));
-      g.fillStyle=cg;g.beginPath();g.arc(bc[0],bc[1],H*.05,0,TAU);g.fill();
-    }
-    const gw=g.createRadialGradient(bc[0],bc[1],0,bc[0],bc[1],H*.1);
-    gw.addColorStop(0,'rgba(255,255,255,.6)');gw.addColorStop(1,'rgba(255,255,255,0)');
-    g.fillStyle=gw;g.beginPath();g.arc(bc[0],bc[1],H*.1,0,TAU);g.fill();
-  }
   for(let k=N-1;k>=1;k--){
     const z=ZS[k], c=pc(k,hue), major=k%4===0, fade=1-k/N*.55;
     const pulse=.5+.5*Math.sin(tNow*3-k*.45);
@@ -233,12 +202,6 @@ function drawTimeWalls(hue,tsec){
     const p0=m(-WX,-1,z),p1=m(WX,-1,z),p2=m(WX,1,z),p3=m(-WX,1,z);
     g.strokeStyle=hsl(c.h,c.s,c.l-2,al);g.lineWidth=major?2:1;
     g.beginPath();g.moveTo(p0[0],p0[1]);g.lineTo(p1[0],p1[1]);g.lineTo(p2[0],p2[1]);g.lineTo(p3[0],p3[1]);g.closePath();g.stroke();
-  }
-  for(let k=4;k<N-6;k+=4){
-    const z=ZS[k], c=pc(k,hue), fade=1-k/N*.5, str=fmt(tsec-k*stepEff);
-    const col=hsl(c.h,75,Math.min(90,c.l+12),.62*fade);
-    wallText(str,-1,z-.08,-.88,1.4,.26,col);
-    wallText(str,1,z-.08,-.88,1.4,.26,col);
   }
   g.globalCompositeOperation='source-over';
 }
@@ -297,7 +260,6 @@ function drawClock(k,tsec,hue0){
     g.fillStyle=hsl(hue,80,55,.07*a);g.beginPath();g.arc(cx,cy,r,0,TAU);g.fill();
   }
   g.globalCompositeOperation='lighter';
-  if(tier){g.strokeStyle=hsl(hue,c.s,c.l,.16*a);g.lineWidth=lw*6;g.beginPath();g.arc(cx,cy,r,0,TAU);g.stroke()}   // 光のにじみ
   let rs=hsl(hue,c.s,c.l,.85*a);
   if(c.rb&&tier===2&&g.createConicGradient){         // 手前の輪は、虹色がぐるぐる回る
     const cg=g.createConicGradient(tNow*.6+k*.4,cx,cy);
@@ -305,13 +267,6 @@ function drawClock(k,tsec,hue0){
     rs=cg;
   }
   g.strokeStyle=rs;g.lineWidth=lw*(tier?1.7:1.2);g.beginPath();g.arc(cx,cy,r,0,TAU);g.stroke();
-  if(tier===2){                                      // 時の位置に宝石
-    for(let i=0;i<12;i++){
-      const ang=i/12*TAU, jx=cx+Math.sin(ang)*r, jy=cy-Math.cos(ang)*r, jh=c.rb?c.h+i*30:c.h;
-      g.fillStyle=hsl(jh,100,60,.2*a);g.beginPath();g.arc(jx,jy,lw*6,0,TAU);g.fill();
-      g.fillStyle=hsl(jh,100,84,.95*a);g.beginPath();g.arc(jx,jy,lw*2.6,0,TAU);g.fill();
-    }
-  }
   if(tier){
     const stepI=tier===2?1:5;
     for(let i=0;i<60;i+=stepI){
@@ -342,24 +297,6 @@ function drawClock(k,tsec,hue0){
   }
 }
 
-/* きらめき: 部屋のあちこちで星が瞬く。色は居る奥行きの色(虹ならいろいろ、単色なら同系色) */
-const spk=[];
-for(let i=0;i<110;i++)spk.push({x:(Math.random()*2-1)*1.5,y:Math.random()*2-1,z:-Math.random()*(D-1)+.2,ph:Math.random()*TAU,sp:1.2+Math.random()*3});
-function drawSparkles(){
-  g.globalCompositeOperation='lighter';
-  const rb=PALS[pal].rb, sc=Math.min(1.4,H/700);
-  for(const q of spk){
-    const tw=Math.sin(tNow*q.sp+q.ph);
-    if(tw<.1)continue;
-    const p=proj(q.x,q.y,q.z), c=pc(Math.min(N-1,Math.round(-q.z/D*(N-1))),0);
-    const z=(5+10*tw)*p[2]*sc*(rb?1.15:.9), al=tw*(rb?.95:.7)*(.35+.65*Math.min(1,p[2]*1.4));
-    g.fillStyle=hsl(c.h,100,65,.16*al);g.beginPath();g.arc(p[0],p[1],z*1.1,0,TAU);g.fill();
-    g.fillStyle=hsl(c.h,100,88,al);g.beginPath();
-    g.moveTo(p[0],p[1]-z);g.lineTo(p[0]+z*.16,p[1]-z*.16);g.lineTo(p[0]+z,p[1]);g.lineTo(p[0]+z*.16,p[1]+z*.16);
-    g.lineTo(p[0],p[1]+z);g.lineTo(p[0]-z*.16,p[1]+z*.16);g.lineTo(p[0]-z,p[1]);g.lineTo(p[0]-z*.16,p[1]-z*.16);g.closePath();g.fill();
-  }
-  g.globalCompositeOperation='source-over';
-}
 function drawDust(hue,front){
   g.fillStyle=hsl(hue,40,90,1);
   for(const d of dust){
@@ -401,7 +338,6 @@ function frame(nowMs){
   drawDust(hue,false);
   for(let k=N-1;k>=0;k--)drawClock(k,tsec,hue);   // 奥から手前へ
   drawDust(hue,true);
-  drawSparkles();
 
   // タップの波紋と、法則の一言(canvas内に描くので録画にも映る)
   if(ripple>=0){
