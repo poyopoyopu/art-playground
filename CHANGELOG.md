@@ -1,3 +1,4 @@
+- 2026-11-09 クロちゃん: CAMPFIREを録画の対象(REC_WORKS)に追加(おっちゃん「録画もね」)。Android Chrome UA・390×844のヘッドレスChromiumで、ギャラリーから開き、本物の録画ボタン→タップ3回→停止を通し、mp4(720×1558・12秒)に炎・薪・左上の透かし2行が映ることを確認。メインのcanvasが2Dで、WebGLの炎はそこへ描き込まれているので映る。**スマホ実機での重さは未確認**(CAMPFIREはWebGLの炎+WebAudio+自前物理で重めなので、実機で重ければCAMPFIREだけREC_WORKSから外す)
 - 2026-11-09 クロちゃん: CAMPFIREを採用・art-v121として昇格し、ギャラリーLOG先頭とPublished works(CURRENTの次)に追加(おっちゃん「採用で」。CURRENTはDEEP HOURSのまま・録画対象には追加していない)。art-v121-campfire.html(ap-kit.jsのパスを相対に修正)、sitemap、poster-config(#hint非表示・delay 3000)、posters、ogを追加。試作版は残し、冒頭に昇格済みの印を入れた
 - 2026-11-09 クロちゃん: CAMPFIRE v6.3 薪の木目(おっちゃん申し送り「木目が平たい」)。薪の長さ方向に走る長い明暗の筋(18本・薪のゆるい反りに沿う)と節(0〜2個)を追加。炭になると明るい筋は消え、暗い筋は繊維として残る。折れた薪にも引き継ぐ。既存の薪の形・配置は変えていない(独立の乱数)。node --check OK・ヘッドレスChromiumで描画とエラーなしを確認。実機の見た目はおっちゃん待ち(prototypes/campfire.html)
 - 2026-11-09 クロちゃん: DEEP HOURSを採用・art-v120として昇格し、CURRENTに設定、録画の対象にも追加(おっちゃん「OK 採用してカレントへ 録画もつけてね」)。それまでのCURRENTだったWINDOW FOG(v119)はLOG先頭へ移動、Published works先頭にDEEP HOURSを追加、META(ヒント)も追加。`ap-kit.js`と`lib/face_mesh/`の相対パスをルート用に直し、sitemap・`tools/poster-config.json`(#hintを隠す)・ポスター(posters/)・共有カード(og/)も一式作成(`--check`は両方OK)。録画はギャラリーの録画ボタン経由でヘッドレス確認済み(mp4・作品と透かしが映り、最初と最後で絵が変わる)。実機iPhoneでの動作の重さ・カメラの顔追跡は未確認。(art-v120-deep-hours.html / index.html / sitemap.xml / tools/poster-config.json / posters/ / og/ / prototypes/deep-hours.html / CHANGELOG.md)
@@ -630,7 +631,7 @@
 
 - CURRENT: DEEP HOURS(`art-v120-deep-hours.html`。カメラ作品。録画対象。2026/11/09採用。試作版`prototypes/deep-hours.html`も残す)
 - 試作の整理(2026/11/09): クロちゃん作の止まっていた試作は、CAMPFIRE・RESONANCEだけ残し、他はボツ(ファイルは`prototypes/`に残す)。チャッピー作の試作(CUBE COSMOS・GRAFT LAW・HINGE LAW・PARADOX ENGINE・INSIDE OUT)は、この整理の対象外で未判断のまま
-- LOG先頭(2026/11/09〜): CAMPFIRE(`art-v121-campfire.html`。録画対象外。試作版`prototypes/campfire.html`も残す)、その下にWINDOW FOG(`art-v119-window-fog.html`。録画対象)、その下にBLINK LAW(`art-v118-blink-law.html`。カメラ作品。録画対象)、その下にGAZE LAW(`art-v117-gaze-law.html`。カメラ作品。録画対象)、その下にKOMOREBI(`art-v115-komorebi.html`。録画対象。隠しメニューあり)、RING DIAL(`art-v113-ring-dial.html`。録画対象)、
+- LOG先頭(2026/11/09〜): CAMPFIRE(`art-v121-campfire.html`。録画対象。試作版`prototypes/campfire.html`も残す)、その下にWINDOW FOG(`art-v119-window-fog.html`。録画対象)、その下にBLINK LAW(`art-v118-blink-law.html`。カメラ作品。録画対象)、その下にGAZE LAW(`art-v117-gaze-law.html`。カメラ作品。録画対象)、その下にKOMOREBI(`art-v115-komorebi.html`。録画対象。隠しメニューあり)、RING DIAL(`art-v113-ring-dial.html`。録画対象)、
 - (旧)LOG先頭(2026/10/30〜): RING DIAL(`art-v113-ring-dial.html`。録画対象)、その下にSEA SPARKLE(`art-v111-sea-sparkle.html`)。試作版`prototypes/ring-dial.html`も残す
 - 試作: GRAFT LAW(`prototypes/graft-law.html`)を追加。ギャラリー未登録・採用待ち
 - 試作: CUBE COSMOS(`prototypes/cube-cosmos.html`)を追加。ギャラリー未登録・採用待ち
