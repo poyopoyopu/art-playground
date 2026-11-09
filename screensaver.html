@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>SCREENSAVER — ART PLAYGROUND</title>
+<style>
+  html,body{margin:0;padding:0;width:100%;height:100%;background:#000;overflow:hidden;
+    cursor:none;overscroll-behavior:none}
+  iframe.stage{position:fixed;inset:0;width:100%;height:100%;border:0;display:block;
+    background:#000;opacity:0;transition:opacity 2.4s ease}
+  iframe.stage.on{opacity:1}
+  /* Clock overlay — owner-requested exception to the no-resident-text rule.
+     Big enough to read from across the room, soft enough not to fight the art.
+     Its position drifts a few px every few minutes (pixel shift) so the same
+     pixels are never lit statically for hours. */
+  #clock{position:fixed;right:4.2vw;bottom:4.6vh;z-index:10;pointer-events:none;
+    color:#fff;text-align:right;opacity:.92;
+    font-family:"Helvetica Neue",Helvetica,Arial,"Hiragino Sans","Noto Sans JP",sans-serif;
+    font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;
+    text-shadow:0 0 5px rgba(0,0,0,.9),0 0 18px rgba(0,0,0,.8),0 0 42px rgba(0,0,0,.75),0 2px 26px rgba(0,0,0,.85);
+    transition:transform 3.5s ease-in-out;will-change:transform}
+  #clock .d{font-size:clamp(15px,2.1vw,34px);font-weight:500;letter-spacing:.3em;opacity:.85}
+  #clock .t{font-size:clamp(64px,10.5vw,176px);font-weight:600;line-height:1.04;letter-spacing:.015em}
+  #clock .t .s{font-size:.45em;font-weight:500;opacity:.78;margin-left:.05em}
+</style>
+</head>
+<body>
+<iframe class="stage" id="stageA" title=""></iframe>
+<iframe class="stage" id="stageB" title=""></iframe>
+<div id="clock" aria-hidden="true">
+  <div class="d" id="clockDate"></div>
+  <div class="t"><span id="clockHM"></span><span class="s" id="clockS"></span></div>
+</div>
+<script>
+(function(){
+"use strict";
+/* ------------------------------------------------------------------ works
+   Rotation pool: slow, ambient pieces that keep living on their own.
+   CAMPFIRE (art-v121) is deliberately NOT in the pool: its first
+   pointerdown/pointerup calls unlockAudio() and turns its crackle sound ON,
+   which a living-room screensaver must never do unasked. */
+var WORKS=[
+  'art-v120-deep-hours.html',   /* DEEP HOURS  */
+  'art-v119-window-fog.html',   /* WINDOW FOG  */
+  'art-v112-silver-turn.html',  /* SILVER TURN */
+  'art-v115-komorebi.html',     /* KOMOREBI    */
+  'art-v111-sea-sparkle.html'   /* SEA SPARKLE */
+];
+var qs=new URLSearchParams(location.search);
+var HOLD=parseInt(qs.get('hold'),10); if(!(HOLD>=10&&HOLD<=3600))HOLD=180; /* sec per work */
+var FADE_MS=2400;
+
+/* ------------------------------------------------------------------ stages */
+var stages=[document.getElementById('stageA'),document.getElementById('stageB')];
+var cur=0;          /* index into stages of the visible iframe */
+var workIdx=0;      /* index into WORKS of the visible piece */
+var switching=false;
+
+function frameWin(f){ try{ return f.contentWindow; }catch(e){ return null; } }
+
+function loadInto(f,src){
+  f.dataset.work=src;
+  f.src=src;
+}
+function waitLoaded(f){
+  return new Promise(function(res){
+    var w=frameWin(f), done=false;
+    function fin(){ if(!done){done=true;res();} }
+    if(w&&w.document&&w.document.readyState==='complete'&&f.dataset.work&&f.src.indexOf(f.dataset.work)>-1){ fin(); return; }
+    f.addEventListener('load',function h(){ f.removeEventListener('load',h); setTimeout(fin,500); });
+    setTimeout(fin,6000); /* never let a slow piece stall the rotation */
+  });
+}
+function show(i){
+  workIdx=((i%WORKS.length)+WORKS.length)%WORKS.length;
+  var next=stages[1-cur], prev=stages[cur];
+  switching=true;
+  ghostStop(); /* end any gesture cleanly on the outgoing piece */
+  loadInto(next,WORKS[workIdx]);
+  return waitLoaded(next).then(function(){
+    next.style.zIndex=2; prev.style.zIndex=1;
+    next.classList.add('on'); prev.classList.remove('on');
+    cur=1-cur; switching=false;
+    ghostAttach(stages[cur]);
+    setTimeout(function(){ if(prev!==stages[cur]){ prev.src='about:blank'; prev.dataset.work=''; } },FADE_MS+400);
+  });
+}
+var rotTimer=null;
+function scheduleNext(){ clearTimeout(rotTimer); rotTimer=setTimeout(function(){ show(workIdx+1).then(scheduleNext); },HOLD*1000); }
+
+/* ------------------------------------------------------- ghost touch
+   The pieces are built for fingers. With no one touching, a "ghost" hand
+   drifts, drags, taps and holds inside the visible iframe (same origin),
+   so each piece's law keeps changing the way it does under a real finger.
+   Events are dispatched on the piece's canvas so window-level and
+   canvas-level listeners both receive them (they bubble to window). */
+var ghost={win:null,timer:null,raf:0,pid:9173,active:false};
+function gTarget(){
+  var w=ghost.win; if(!w) return null;
+  var d=w.document; if(!d) return null;
+  return d.querySelector('canvas')||d.documentElement;
+}
+function gEvent(type,x,y,buttons){
+  var w=ghost.win, t=gTarget(); if(!w||!t) return;
+  var ev;
+  try{
+    ev=new w.PointerEvent(type,{pointerId:ghost.pid,pointerType:'touch',isPrimary:true,
+      clientX:x,clientY:y,button:buttons?0:-1,buttons:buttons?1:0,bubbles:true,cancelable:true});
+  }catch(e){
+    ev=w.document.createEvent('Event'); ev.initEvent(type,true,true);
+    ev.clientX=x; ev.clientY=y; ev.pointerId=ghost.pid; ev.pointerType='touch';
+  }
+  t.dispatchEvent(ev);
+}
+function ease(t){ return t<.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2; }
+function path(x0,y0,x1,y1,bend){
+  var mx=(x0+x1)/2+(Math.random()-.5)*bend, my=(y0+y1)/2+(Math.random()-.5)*bend;
+  return function(t){
+    var u=1-t;
+    return [u*u*x0+2*u*t*mx+t*t*x1, u*u*y0+2*u*t*my+t*t*y1];
+  };
+}
+function runGesture(done){
+  var w=ghost.win; if(!w){ done(); return; }
+  var W=w.innerWidth||1280, H=w.innerHeight||720;
+  var kind=Math.random();
+  var x0=W*(0.15+Math.random()*0.7), y0=H*(0.15+Math.random()*0.7);
+  var x1=W*(0.15+Math.random()*0.7), y1=H*(0.15+Math.random()*0.7);
+  var start=performance.now(), dur, mode;
+  if(kind<0.45){ mode='drift'; dur=3500+Math.random()*3500; }        /* hover drift */
+  else if(kind<0.75){ mode='drag'; dur=1800+Math.random()*2600; }    /* wipe / look */
+  else if(kind<0.9){ mode='tap'; dur=140+Math.random()*160; x1=x0; y1=y0; }
+  else { mode='hold'; dur=1300+Math.random()*1800; x1=x0; y1=y0; }   /* long press */
+  var p=path(x0,y0,x1,y1,Math.min(W,H)*0.35), pressed=(mode!=='drift');
+  if(pressed) gEvent('pointerdown',x0,y0,true);
+  function step(now){
+    if(!ghost.active){ return; }
+    var t=(now-start)/dur;
+    if(t>=1){
+      var e=p(1);
+      if(pressed){ gEvent('pointermove',e[0],e[1],true); gEvent('pointerup',e[0],e[1],false); }
+      else gEvent('pointermove',e[0],e[1],false);
+      done(); return;
+    }
+    var e=p(ease(t));
+    gEvent('pointermove',e[0],e[1],pressed);
+    ghost.raf=requestAnimationFrame(step);
+  }
+  ghost.raf=requestAnimationFrame(step);
+}
+function ghostLoop(){
+  if(!ghost.active) return;
+  runGesture(function(){
+    if(!ghost.active) return;
+    ghost.timer=setTimeout(ghostLoop,2500+Math.random()*6000);
+  });
+}
+function ghostAttach(f){
+  var w=frameWin(f); if(!w) return;
+  ghost.win=w; ghost.active=true;
+  clearTimeout(ghost.timer); cancelAnimationFrame(ghost.raf);
+  ghost.timer=setTimeout(ghostLoop,1800);
+}
+function ghostStop(){
+  if(ghost.active&&ghost.win){
+    try{ var t=gTarget(); if(t){ var w=ghost.win;
+      var ev=new w.PointerEvent('pointercancel',{pointerId:ghost.pid,bubbles:true,cancelable:true});
+      t.dispatchEvent(ev); } }catch(e){}
+  }
+  ghost.active=false; clearTimeout(ghost.timer); cancelAnimationFrame(ghost.raf);
+}
+
+/* ------------------------------------------------------------------ clock */
+var WD=['SUN','MON','TUE','WED','THU','FRI','SAT'];
+var elHM=document.getElementById('clockHM'), elS=document.getElementById('clockS'),
+    elD=document.getElementById('clockDate'), clockEl=document.getElementById('clock');
+function pad(n){ return (n<10?'0':'')+n; }
+function tickClock(){
+  var n=new Date(), hm=pad(n.getHours())+':'+pad(n.getMinutes()), s=':'+pad(n.getSeconds());
+  if(elHM.textContent!==hm) elHM.textContent=hm;
+  if(elS.textContent!==s) elS.textContent=s;
+  var d=n.getFullYear()+' '+pad(n.getMonth()+1)+' '+pad(n.getDate())+' '+WD[n.getDay()];
+  if(elD.textContent!==d) elD.textContent=d;
+}
+tickClock(); setInterval(tickClock,250);
+/* pixel shift: nudge the clock a little every 4 minutes, drifting slowly */
+function shiftClock(){
+  var dx=Math.round((Math.random()*32-16)), dy=Math.round((Math.random()*20-10));
+  clockEl.style.transform='translate('+dx+'px,'+dy+'px)';
+}
+setInterval(shiftClock,240000); setTimeout(shiftClock,30000);
+
+/* ------------------------------------------------------------------ misc */
+try{ if(navigator.wakeLock&&navigator.wakeLock.request){
+  var wl=null;
+  navigator.wakeLock.request('screen').then(function(l){ wl=l; }).catch(function(){});
+  document.addEventListener('visibilitychange',function(){
+    if(document.visibilityState==='visible'&&navigator.wakeLock)
+      navigator.wakeLock.request('screen').then(function(l){ wl=l; }).catch(function(){});
+  });
+} }catch(e){}
+document.addEventListener('pointerdown',function(){
+  if(!document.fullscreenElement&&document.documentElement.requestFullscreen)
+    document.documentElement.requestFullscreen().catch(function(){});
+},{once:true});
+
+/* debug/test handle (invisible): SSV.next(), SSV.shiftClock(), SSV.state() */
+window.SSV={ next:function(){ clearTimeout(rotTimer); return show(workIdx+1).then(scheduleNext); },
+  shiftClock:shiftClock,
+  state:function(){ return {work:WORKS[workIdx],hold:HOLD}; } };
+
+/* ------------------------------------------------------------------ go */
+loadInto(stages[0],WORKS[0]);
+waitLoaded(stages[0]).then(function(){
+  stages[0].style.zIndex=2; stages[0].classList.add('on');
+  ghostAttach(stages[0]); scheduleNext();
+});
+})();
+</script>
+</body>
+</html>
