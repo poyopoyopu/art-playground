@@ -30,7 +30,7 @@ const cv=document.getElementById('c'), g=cv.getContext('2d');
 const hintEl=document.getElementById('hint'), video=document.getElementById('cam');
 const TAU=Math.PI*2, isTouch=matchMedia('(pointer:coarse)').matches;
 let W=1,H=1,DPR=1,ASP=1,WX=1,R=.7;
-const D=60, N=118, EZ0=3.2;                       // 部屋の奥行き / 時計の枚数(間隔 約0.5) / 視点の標準距離(画面の高さの半分=1)
+const D=120, N=230, EZ0=2.6;                      // 部屋の奥行き / 時計の枚数(間隔 約0.5) / 視点の標準距離(画面の高さの半分=1。小さいほど遠近が強い)
 const ZS=[];for(let k=0;k<N;k++)ZS.push(-.3-k*(D-1.2)/(N-1));
 
 /* ---------- 世界の法則: 奥へ1歩あたりのずれ ---------- */
@@ -50,7 +50,7 @@ const PALS=[
 ];
 function pc(k,base){                               // 奥からk番目の色。acc=秒針の色相のずれ
   const P=PALS[pal], u=k/(N-1);
-  if(P.rb)return {h:-tNow*24+k*13,s:100,l:68,acc:170,accL:72,rb:true};   // 虹は奥へ向かって流れる
+  if(P.rb)return {h:-tNow*24+k*8,s:100,l:68,acc:170,accL:72,rb:true};   // 虹は奥へ向かって流れる
   return {h:P.h+P.span*u,s:78+17*u,l:P.l0+(P.l1-P.l0)*u,acc:0,accL:Math.min(92,P.l0+10),rb:false};
 }
 function baseHue(){return PALS[pal].rb?(tNow*8)%360:PALS[pal].h}   // 虹は部屋の色もゆっくり回る
@@ -120,7 +120,7 @@ function onFace(res){
   const u=unitsPerCm();
   eyeT.x=clamp((xCm-cam.base.x)*u*.85,-1.2,1.2);
   eyeT.y=clamp((yCm-cam.base.y)*u*.85,-.9,.9);
-  eyeT.z=clamp(EZ0+(distCm-cam.base.d)*u,1.9,6);
+  eyeT.z=clamp(EZ0+(distCm-cam.base.d)*u,1.5,6);
 }
 function loadScript(src){return new Promise((ok,ng)=>{const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=()=>ng(Error('load '+src));document.head.appendChild(s)})}
 let camBtn=null;
@@ -167,9 +167,6 @@ async function pumpCamera(){
   if(video.requestVideoFrameCallback)video.requestVideoFrameCallback(()=>pumpCamera());else requestAnimationFrame(pumpCamera);
 }
 
-/* ---------- 空気中のちり(奥行きの手がかり) ---------- */
-const dust=[];
-for(let i=0;i<420;i++)dust.push({x:(Math.random()*2-1)*1.6,y:(Math.random()*2-1),z:-Math.random()*D+.4,v:.01+Math.random()*.03,a:.2+Math.random()*.5});
 
 /* ---------- 描画 ---------- */
 function hsl(h,s,l,a){return 'hsla('+((h%360+360)%360).toFixed(0)+','+s+'%,'+l+'%,'+(a==null?1:a).toFixed(3)+')'}
@@ -240,6 +237,7 @@ function drawClock(k,tsec,hue0){
   const c=pc(k,hue0), hue=c.h;                     // 色は選んだパターンに従う(虹なら奥へ1歩ごとに色相がずれて一周)
   const p=proj(0,0,ZS[k]), s=p[2], r=R*s*H/2, cx=p[0], cy=p[1];
   const a=.12+.88*Math.pow(1-k/N,1.6);
+  if(r<2)return;                                   // 小さすぎて見えない奥の時計は描かない
   const tier=r>=40?2:r>=14?1:0;                    // 小さい時計(奥)は描きこみを減らして軽くする
   const lw=Math.max(.7,r*.013);
   const t=tsec-k*stepEff;
@@ -288,17 +286,6 @@ function drawClock(k,tsec,hue0){
   }
 }
 
-function drawDust(hue,front){
-  g.fillStyle=hsl(hue,40,90,1);
-  for(const d of dust){
-    if((d.z>=-2.5)!==front)continue;
-    const p=proj(d.x,d.y,d.z), sz=1.7*p[2]*Math.min(1.4,H/700);
-    g.globalAlpha=d.a*(front?.8:.6);
-    g.beginPath();g.arc(p[0],p[1],Math.max(.5,sz),0,TAU);g.fill();
-  }
-  g.globalAlpha=1;
-}
-
 let last=performance.now();
 function frame(nowMs){
   const dt=Math.min(.05,Math.max(.001,(nowMs-last)/1000));last=nowMs;tNow+=dt;
@@ -326,9 +313,7 @@ function frame(nowMs){
   g.setTransform(DPR,0,0,DPR,0,0);
   g.fillStyle='#06080d';g.fillRect(0,0,W,H);
   drawRoom(hue,tsec);
-  drawDust(hue,false);
   for(let k=N-1;k>=0;k--)drawClock(k,tsec,hue);   // 奥から手前へ
-  drawDust(hue,true);
 
   // タップの波紋と、法則の一言(canvas内に描くので録画にも映る)
   if(ripple>=0){
