@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<!-- 21 SHELLS — クロちゃん作(2026/11/09 試作)。X上のluna氏(@naturaholic)の「21種類の花火玉が一斉に打ち上がる図鑑」動画をもとに、立体化+カメラ(AR)・傾きに対応。ap-kit.jsは未導入(ギャラリー採用時に検討) -->
+<!-- 28 SHELLS — クロちゃん作(2026/11/09 試作)。X上のluna氏(@naturaholic)の「21種類の花火玉が一斉に打ち上がる図鑑」動画をもとに、立体化+カメラ(AR)・傾き・世界のルール(重力の穴=吸う/散らす)に対応。縁起のよい7の倍数(28種)に増やした。ファイル名はfireworks-21.htmlのまま -->
 <html lang="ja">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
 <meta name="theme-color" content="#07040b">
-<title>21 SHELLS — 触れた空に重力の穴が開き、花火が流れ込む</title>
+<title>28 SHELLS — 触れた空が花火を吸い、ときに散らす</title>
 <script src="../ap-kit.js"></script>
 <style>
   html,body{margin:0;height:100%;background:#07040b;overflow:hidden;touch-action:none;
@@ -41,7 +41,7 @@
 <canvas id="c"></canvas>
 <video id="cam" playsinline muted autoplay></video>
 <div id="toast"></div>
-<div id="hint">タップで花火が上がり、空に重力の穴ができる<br>同じ所を重ねて触ると…　ドラッグで見る向き</div>
+<div id="hint">タップで花火が上がり、空が吸ったり散らしたりする<br>同じ所を重ねて触ると…　ドラッグで見る向き</div>
 <div id="bar">
   <button class="b" id="bCam" aria-label="カメラ"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>カメラ</button>
   <button class="b" id="bTilt" aria-label="傾き"><svg viewBox="0 0 24 24"><rect x="8.5" y="3" width="7" height="18" rx="2"/><path d="M4.5 9c-1 2-1 4 0 6M19.5 9c1 2 1 4 0 6"/></svg>傾き</button>
@@ -50,7 +50,7 @@
 (()=>{
 'use strict';
 /* ============================================================
-   21 SHELLS AR — 立体の花火図鑑 + 端末の機能をフルに使う版
+   28 SHELLS AR — 立体の花火図鑑 + 端末の機能をフルに使う版
    ・カメラ : 背面カメラの映像を夜空に見立て、その上に花火を重ねる(AR)
    ・傾き   : 端末の向きがそのままカメラの向き。花火は空間に固定される
    ・ドラッグ/タップ : 向きを変える/その方向へ打ち上げ
@@ -148,6 +148,28 @@ function dirRing(o){
   const y1=y*Math.cos(o.tx)-z*Math.sin(o.tx), z1=y*Math.sin(o.tx)+z*Math.cos(o.tx);
   return [x*Math.cos(o.ry)+z1*Math.sin(o.ry), y1, -x*Math.sin(o.ry)+z1*Math.cos(o.ry), 1];
 }
+function flat(o,hx,hy){                       // 平らな形を向きhyで回して3Dへ
+  const nz=rnd(-.05,.05);
+  return [hx*Math.cos(o.hy)+nz*Math.sin(o.hy), hy, hx*Math.sin(o.hy)-nz*Math.cos(o.hy), 1];
+}
+function dirButterfly(o){                      // 蝶(バタフライ曲線)
+  const t=rnd(0,12*Math.PI)/1, r=Math.exp(Math.sin(t))-2*Math.cos(4*t)+Math.pow(Math.sin((2*t-Math.PI)/24),5);
+  return flat(o,Math.sin(t)*r/4.4+rnd(-.02,.02),-Math.cos(t)*r/4.4+rnd(-.02,.02));
+}
+function dirStar(o){                           // 五芒星の輪郭
+  const i=rint(0,9), t=Math.random(), a0=-Math.PI/2+i*Math.PI/5, a1=a0+Math.PI/5;
+  const r0=i%2?.42:1, r1=i%2?1:.42;
+  const x0=Math.cos(a0)*r0, y0=Math.sin(a0)*r0, x1=Math.cos(a1)*r1, y1=Math.sin(a1)*r1;
+  return flat(o,x0+(x1-x0)*t,y0+(y1-y0)*t);
+}
+function dirSpiral(o){                         // 二重の渦巻き
+  const t=Math.random()*3.2*Math.PI, r=.1+.9*t/(3.2*Math.PI), a=t+(Math.random()<.5?0:Math.PI);
+  return flat(o,Math.cos(a)*r+rnd(-.02,.02),Math.sin(a)*r+rnd(-.02,.02));
+}
+function dirClover(o){                         // 四つ葉
+  const t=rnd(0,TAU), r=Math.abs(Math.cos(2*t))*.95+.05;
+  return flat(o,Math.cos(t)*r,Math.sin(t)*r);
+}
 function dirCone(){
   const a=Math.pow(Math.random(),.7)*.62, p=rnd(0,TAU), sg=Math.random()<.5?1:-1;
   return [Math.sin(a)*Math.cos(p), sg*Math.cos(a), Math.sin(a)*Math.sin(p), rnd(.55,1)];
@@ -172,6 +194,10 @@ function burstLayer(l,x,y,z,R,sc){
     switch(l.shape){
       case 'heart': d=dirHeart(orient); break;
       case 'ring': d=dirRing(orient); break;
+      case 'butterfly': d=dirButterfly(orient); break;
+      case 'star': d=dirStar(orient); break;
+      case 'spiral': d=dirSpiral(orient); break;
+      case 'clover': d=dirClover(orient); break;
       case 'cone': d=dirCone(); break;
       case 'palm':{
         const b=pick(armDirs);
@@ -195,7 +221,7 @@ function miniBurst(x,y,z,R,pn){
   burstLayer({shape:'sphere',rm:1,n:30,life:1.15,drag:2.7,g:.1,tl:.05,w:1.2,pal:pn,crk:.4,hold:.55},x,y,z,R);
 }
 
-/* ---------- 花火玉の図鑑(21種) ---------- */
+/* ---------- 花火玉の図鑑(28種) ---------- */
 const L=(shape,o)=>Object.assign({shape,rm:1,n:220,life:2.2,drag:2.0,g:.07,tl:.05,w:1.3,pal:'gold',hold:.5},o);
 const DEFS=[
  /* 1 */ {rs:1.0, layers:[L('sphere',{n:240,life:2.3,pal:'blue',pal2:'green',cc:.5,glit:.5,tl:.05})]},
@@ -218,7 +244,14 @@ const DEFS=[
  /*18 */ {rs:1.0, layers:[L('sphere',{n:170,pal:'cyan',tl:.04}),L('ring',{n:130,rm:1.12,pal:'pink',tl:.05,life:2.2})]},
  /*19 */ {rs:1.02,layers:[L('sphere',{n:110,life:2.5,drag:1.8,pal:'orange',tl:.16,w:1.9,hold:.6})]},
  /*20 */ {rs:1.12,layers:[L('sphere',{n:280,life:2.4,pal:['cyan','green'],tl:.05}),L('sphere',{n:60,rm:.42,pal:'white',tl:.03,life:1.8})]},
- /*21 */ {rs:.95, layers:[L('heart',{n:150,rm:1.05,life:2.2,drag:2.2,g:.04,pal:'pink',tl:.04,w:1.5}),L('sphere',{n:70,rm:.45,pal:'white',tl:.02,life:1.6,glit:.8})]}
+ /*21 */ {rs:.95, layers:[L('heart',{n:150,rm:1.05,life:2.2,drag:2.2,g:.04,pal:'pink',tl:.04,w:1.5}),L('sphere',{n:70,rm:.45,pal:'white',tl:.02,life:1.6,glit:.8})]},
+ /*22 蝶 */ {rs:1.0, layers:[L('butterfly',{n:260,rm:1.05,life:2.3,drag:2.2,g:.03,pal:['violet','pink'],tl:.04,w:1.4}),L('sphere',{n:50,rm:.3,pal:'white',tl:.02,life:1.5,glit:.7})]},
+ /*23 五芒星 */ {rs:1.0, layers:[L('star',{n:240,rm:1.05,life:2.2,drag:2.2,g:.03,pal:'gold',tl:.04,w:1.5}),L('sphere',{n:60,rm:.4,pal:'white',tl:.02,life:1.6,glit:.8})]},
+ /*24 四つ葉 */ {rs:1.0, layers:[L('clover',{n:240,rm:1.08,life:2.3,drag:2.2,g:.03,pal:'green',tl:.04,w:1.5}),L('sphere',{n:50,rm:.3,pal:'lime',tl:.03,life:1.6,glit:.6})]},
+ /*25 土星 */ {rs:1.02,layers:[L('sphere',{n:180,rm:.55,pal:'pink',tl:.03,life:2.1,glit:.3}),L('ring',{n:200,rm:1.15,pal:'gold',tl:.05,life:2.3})]},
+ /*26 二重の輪 */ {rs:1.05,layers:[L('ring',{n:190,rm:1.1,pal:'cyan',tl:.05,life:2.2}),L('ring',{n:140,rm:.72,pal:'amber',tl:.05,life:2.0}),L('sphere',{n:40,rm:.2,pal:'white',tl:.02,life:1.5,glit:.6})]},
+ /*27 渦 */ {rs:1.0, layers:[L('spiral',{n:260,rm:1.08,life:2.3,drag:2.2,g:.03,pal:['blue','cyan'],tl:.04,w:1.4})]},
+ /*28 しだれ桜 */ {rs:1.1, layers:[L('sphere',{n:300,life:4.2,drag:1.4,g:.12,pal:['pink','white'],tl:.15,w:1.3,hold:.5,glit:.45})]}
 ];
 
 /* ---------- 打ち上げ中の玉 ---------- */
@@ -250,7 +283,7 @@ let cells=[], cols=7, rows=3, zoomGrid=1, zoomSky=1, Wv=1000, Hv=600;
 let phase='grid';
 function layout(){
   const land=W>=H*1.05;
-  cols=land?7:3; rows=land?3:7;
+  cols=land?7:4; rows=land?4:7;
   if(AR){
     zoomGrid=zoomSky=.866*H/D;                 // 縦画角およそ60°
   }else{
@@ -355,7 +388,7 @@ cv.addEventListener('pointermove',e=>{
 });
 cv.addEventListener('pointerup',()=>{
   if(!drag) return;
-  if(!drag.moved){ const tgt=launchAt(drag.sx,drag.sy); touchLaw(drag.sx,drag.sy,tgt); }
+  if(!drag.moved){ const tgt=launchAt(drag.sx,drag.sy); touchLaw(drag.sx,drag.sy,tgt,pickSgn()); }
   lastTouch=T; drag=null;
 });
 cv.addEventListener('pointercancel',()=>{drag=null;});
@@ -440,7 +473,7 @@ bCam.addEventListener('click',()=>{ poke(); if(camOn) disableCam(); else enableC
 /* ---------- 世界のルール: 触れた空に重力の穴が開く ----------
    タップした所に重力の穴。粒が渦を巻いて流れ込む。同じ所を重ねて触ると育ち、4回目で崩壊して超新星。
    ✦で強さ・渦の向き・寿命を振り直す、↻で元の空へ */
-const LAW={G:1,swirl:.5,life:16};
+const LAW={G:1,swirl:.5,life:16,mode:'mix'};   // mode: pull=吸う / push=散らす / mix=まぜる
 const wells=[];
 function wellR(w){ return 30+10*w.m; }
 function releaseWell(w,big){
@@ -450,8 +483,8 @@ function releaseWell(w,big){
     const dx=st.x-w.x, dy=st.y-w.y, dz=st.z-w.z, r=Math.sqrt(dx*dx+dy*dy+dz*dz);
     if(r<R0){ const f=amp*(1-r/R0)/(r+1); st.vx+=dx*f; st.vy+=dy*f; st.vz+=dz*f; }
   }
-  flashes.push({x:w.x,y:w.y,z:w.z,r:R0*.8,rgb:big?[255,236,214]:[190,170,255],t:0,dur:big?.6:.35,a:big?.8:.3});
-  if(big){                                    // 超新星: 吸い込んだ粒をはじき飛ばし、大きな花火を咲かせる
+  flashes.push({x:w.x,y:w.y,z:w.z,r:R0*.8,rgb:w.sgn<0?[255,196,150]:(big?[255,236,214]:[190,170,255]),t:0,dur:big?.6:.35,a:big?.8:.3});
+  if(big && w.sgn>0){                         // 超新星: 吸い込んだ粒をはじき飛ばし、大きな花火を咲かせる
     const R=230;
     burstLayer(L('sphere',{n:420,life:3.4,drag:1.5,pal:['gold','white'],tl:.14,w:1.3,hold:.55,glit:.5}),w.x,w.y,w.z,R);
     burstLayer(L('ring',{n:200,rm:1.2,pal:'pink',tl:.05,life:2.6}),w.x,w.y,w.z,R);
@@ -459,15 +492,17 @@ function releaseWell(w,big){
   }
   if(big && navigator.vibrate){ try{ navigator.vibrate([20,40,60]); }catch(_){} }
 }
-function touchLaw(px,py,tgt){
+function pickSgn(){ return LAW.mode==='pull'?1:(LAW.mode==='push'?-1:(Math.random()<.65?1:-1)); }
+function touchLaw(px,py,tgt,sgn){
+  sgn=sgn||1;
   let near=null, bd=70;
-  for(const w of wells){ if(project(w.x,w.y,w.z)){ const d=Math.hypot(PX-px,PY-py); if(d<bd){ bd=d; near=w; } } }
+  for(const w of wells){ if(w.sgn===sgn && project(w.x,w.y,w.z)){ const d=Math.hypot(PX-px,PY-py); if(d<bd){ bd=d; near=w; } } }
   if(near){
     near.m++; near.pulse=1; near.t=0;
     if(near.m>=4) releaseWell(near,true); else near.R=wellR(near);
   }else{
     if(wells.length>=3) releaseWell(wells[0],false);
-    const w={x:tgt[0],y:tgt[1],z:tgt[2],m:1,t:0,life:LAW.life,pulse:1,R:0};
+    const w={x:tgt[0],y:tgt[1],z:tgt[2],m:1,t:0,life:LAW.life,pulse:1,R:0,sgn};
     w.R=wellR(w); wells.push(w);
   }
 }
@@ -480,8 +515,9 @@ function autoTouch(dt){
     autoT=rnd(2.4,3.6);
   }else if(autoSpot.left>0){ autoSpot.left--; autoT=rnd(2.4,3.6); }
   else{ autoSpot=null; autoT=rnd(4,7); return; }
+  if(!autoSpot.sgn) autoSpot.sgn=pickSgn();
   const tgt=launchAt(autoSpot.px,autoSpot.py,true);
-  touchLaw(autoSpot.px,autoSpot.py,tgt);
+  touchLaw(autoSpot.px,autoSpot.py,tgt,autoSpot.sgn);
 }
 function updateLaw(dt){
   for(let i=wells.length-1;i>=0;i--){
@@ -495,6 +531,15 @@ function drawLaw(dt){
     const px=PX, py=PY, ps=PS;
     const fade=Math.min(1,(w.life-w.t)/2)*Math.min(1,w.t/.25+.2);
       const r=(30+10*w.m)*ps*(1+.15*w.pulse);
+      if(w.sgn<0){                                       // 散らす: 外へひろがる淡い輪
+        ctx.globalCompositeOperation='lighter'; ctx.lineWidth=1;
+        for(let k=0;k<2;k++){
+          const q=((T*.35+k*.5)%1), rr=r*(.5+1.6*q);
+          ctx.strokeStyle='rgba(255,205,160,'+((.16+.04*w.m)*(1-q)*fade).toFixed(3)+')';
+          ctx.beginPath(); ctx.arc(px,py,rr,0,TAU); ctx.stroke();
+        }
+        ctx.globalCompositeOperation='source-over'; continue;
+      }
       const g=ctx.createRadialGradient(px,py,0,px,py,r*1.3);
       g.addColorStop(0,'rgba(2,0,8,'+(.22*fade).toFixed(3)+')'); g.addColorStop(.7,'rgba(2,0,8,'+(.08*fade).toFixed(3)+')'); g.addColorStop(1,'rgba(2,0,8,0)');
       ctx.fillStyle=g; ctx.beginPath(); ctx.arc(px,py,r*1.3,0,TAU); ctx.fill();
@@ -505,8 +550,10 @@ function drawLaw(dt){
   }
 }
 function mutate(){
-  LAW.G=rnd(.7,1.4); LAW.swirl=rnd(-.4,.4); LAW.life=rnd(14,24); wells.length=0;
-  toast(LAW.swirl>0?'重力が変わった(右まわりの渦)':'重力が変わった(左まわりの渦)');
+  const modes=['mix','pull','push'], names={mix:'吸ったり散らしたり',pull:'吸う',push:'散らす'};
+  LAW.mode=modes[(modes.indexOf(LAW.mode)+1)%3];
+  LAW.G=rnd(.7,1.4); LAW.swirl=rnd(-.4,.4); LAW.life=rnd(14,24); wells.length=0; autoSpot=null;
+  toast('空のルール: '+names[LAW.mode]);
 }
 function resetWorld(){ wells.length=0; enterGrid(); toast('もとの空にもどした'); }
 
@@ -619,10 +666,15 @@ function render(dt){
       for(let j=0;j<nW;j++){
         const w=wells[j], dx=w.x-s.x, dy=w.y-s.y, dz=w.z-s.z, r2=dx*dx+dy*dy+dz*dz+9000, r=Math.sqrt(r2);
         const a=Math.min(650,GK*w.m/r2), ar=a/r;
-        s.vx+=dx*ar*sdt; s.vy+=dy*ar*sdt; s.vz+=dz*ar*sdt;
-        const tx=fy*dz-fz*dy, ty=fz*dx-fx*dz, tz=fx*dy-fy*dx, tl=Math.sqrt(tx*tx+ty*ty+tz*tz)+1e-3, ta=a*LAW.swirl/tl;
-        s.vx+=tx*ta*sdt; s.vy+=ty*ta*sdt; s.vz+=tz*ta*sdt;
-        if(r<w.R*2.6){ const kd=Math.exp(-2*sdt); s.vx*=kd; s.vy*=kd; s.vz*=kd; }
+        if(w.sgn>0){                                    // 吸う: 渦を巻いて流れ込む
+          s.vx+=dx*ar*sdt; s.vy+=dy*ar*sdt; s.vz+=dz*ar*sdt;
+          const tx=fy*dz-fz*dy, ty=fz*dx-fx*dz, tz=fx*dy-fy*dx, tl=Math.sqrt(tx*tx+ty*ty+tz*tz)+1e-3, ta=a*LAW.swirl/tl;
+          s.vx+=tx*ta*sdt; s.vy+=ty*ta*sdt; s.vz+=tz*ta*sdt;
+          if(r<w.R*2.6){ const kd=Math.exp(-2*sdt); s.vx*=kd; s.vy*=kd; s.vz*=kd; }
+        }else{                                          // 散らす: ふわっと外へ押し出す
+          const pa=a*.8/r;
+          s.vx-=dx*pa*sdt; s.vy-=dy*pa*sdt; s.vz-=dz*pa*sdt;
+        }
       }
     }
     s.x+=s.vx*sdt; s.y+=s.vy*sdt; s.z+=s.vz*sdt;
