@@ -161,8 +161,8 @@ function dirCone(){
 }
 
 /* ---------- 1層ぶんの炸裂 ---------- */
-function burstLayer(l,x,y,z,R){
-  const n=Math.max(8,Math.round(l.n*quality));
+function burstLayer(l,x,y,z,R,sc){
+  const n=Math.max(8,Math.round(l.n*quality*Math.max(.6,Math.min(1.6,Math.pow(sc||1,1.1)))));   // 大きい玉は粒も多く
   const k=l.drag, T=l.life*.8, g=l.g*R;
   const v0=R*l.rm*k/(1-Math.exp(-k*T));
   const pn=Array.isArray(l.pal)?pick(l.pal):l.pal;
@@ -231,14 +231,21 @@ const DEFS=[
 
 /* ---------- 打ち上げ中の玉 ---------- */
 const shells=[], flashes=[];
+// 玉の大きさをランダムに(中くらいが多く、ときどき小さい/大きい)。図鑑の壁(phase=grid)は重ならない程度に控えめ
+function sizeRand(){
+  const r=Math.random();
+  if(phase==='grid') return rnd(.78,1.25);
+  return r<.22? rnd(.55,.78) : (r>.86? rnd(1.2,1.5) : rnd(.8,1.12));
+}
 function launch(di,x0,y0,z0,x1,y1,z1,R,dur,tap){
+  const sc=sizeRand(); R*=sc;
   sndLaunch(x1,y1,z1,dur,R);
-  shells.push({di,x0,y0,z0,x1,y1,z1,R,dur,tap:!!tap,t:0,x:x0,y:y0,z:z0,px:x0,py:y0,pz:z0,
+  shells.push({di,x0,y0,z0,x1,y1,z1,R,sc,dur,tap:!!tap,t:0,x:x0,y:y0,z:z0,px:x0,py:y0,pz:z0,
     wob:rnd(-1,1)*R*.12,wob2:rnd(-1,1)*R*.12,ph:rnd(0,TAU)});
 }
 function explode(s){
   const def=DEFS[s.di], R=s.R*def.rs;
-  for(const l of def.layers) burstLayer(l,s.x1,s.y1,s.z1,R);
+  for(const l of def.layers) burstLayer(l,s.x1,s.y1,s.z1,R,s.sc);
   sndBoom(s.x1,s.y1,s.z1,R,def);
   const first=P[Array.isArray(def.layers[0].pal)?def.layers[0].pal[0]:def.layers[0].pal][0].rgb;
   flashes.push({x:s.x1,y:s.y1,z:s.z1,r:R*.3,rgb:[255,236,214],t:0,dur:.2,a:.45});
