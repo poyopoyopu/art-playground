@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<!-- FALLEN MINUTES — クロちゃん(Claude)作。2026/11/10 採用・art-v123として昇格(元: prototypes/fallen-minutes.html。ap-kit.jsのパスをルート用に変更)。
+     時計が主役。今の時刻(HH:MM)の数字に砂が降り積もる。
+     世界のルール: 「過ぎた一分は崩れて、砂の地層になる」。分が変わると、変わった数字だけ崩れ落ちて
+     下の砂丘に積もり、新しい数字がまた積もる。砂の色は時間でゆっくり変わるので、数字にも砂丘にも縞(地層)が残る。
+     なぞる=砂を払う(払った所はまた積もる)。傾ける=砂が数字から流れ落ちる(戻すとまた積もる)。振る=砂が舞い上がる。
+     秒は数字では出さない。砂の色は時間でなめらかに変わり続ける(10秒ごとの色の切り替えは「つまらない」で廃止)。
+     分の下の5つの粒が、10秒・20秒・30秒・40秒・50秒で1つずつ灯る(0〜9秒は何も灯らない。分が変わると全部消える)。
+     毎分50秒に流れ星が1本、空を斜めに横切って砂丘に落ちる(もうすぐ分が変わる合図)。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>FALLEN MINUTES — 過ぎた一分は崩れて、砂の地層になる</title>
+<script src="ap-kit.js"></script>
+<style>
+html,body{margin:0;height:100%;background:#07060a;overflow:hidden;touch-action:none}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+#hint{position:fixed;left:0;right:0;bottom:calc(96px + env(safe-area-inset-bottom));text-align:center;
+  color:#fff;font:600 15px/1.5 system-ui,-apple-system,"Hiragino Sans",sans-serif;letter-spacing:.06em;
+  text-shadow:0 0 8px #000,0 0 8px #000;pointer-events:none;opacity:0;transition:opacity .8s}
+#hint.on{opacity:.85}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">なぞる・傾ける・振ると砂が動く</div>
+<script>
+(function(){
+var cv=document.getElementById('c'), ctx=cv.getContext('2d');
+var hint=document.getElementById('hint');
+var small=document.createElement('canvas'), sctx=small.getContext('2d');
+var gcv=document.createElement('canvas'), gctx=gcv.getContext('2d');
+var mcv=document.createElement('canvas'), mctx=mcv.getContext('2d',{willReadFrequently:true});
+
+var CS, GW, GH, N;                 // 1粒の大きさ(px)・格子の幅/高さ
+var set, col, mask, bg, img, px32; // set: 0=空 1=数字の砂 2=砂丘
+var groundTop, groundCount=0;
+var MAXP=24000, np=0;
+var PX=new Float32Array(MAXP), PY=new Float32Array(MAXP), VX=new Float32Array(MAXP), VY=new Float32Array(MAXP);
+var PC=new Uint32Array(MAXP), PF=new Uint8Array(MAXP), PT=new Uint8Array(MAXP);
+var needCols=[], totalEmpty=0, curKey=-1, frameNo=0, t=0;
+var curDec=-1, tiltRaw=0, tiltX=0, shake=0, star=null;
+var PALS=['RAINBOW','GOLD','ICE'], pal=0;
+
+function hsl(h,s,l){h=((h%1)+1)%1;var a=s*Math.min(l,1-l);
+  function f(n){var k=(n+h*12)%12;return l-a*Math.max(-1,Math.min(k-3,9-k,1));}
+  return (255<<24)|((f(4)*255)<<16)|((f(8)*255)<<8)|(f(0)*255);}
+function grainColor(){             // 砂の色は時間でなめらかに変わり続ける(数字にも砂丘にも、ゆるやかな虹の地層が残る)
+  var j=Math.random();
+  if(pal===0)return hsl(t*0.03+j*0.025,.8,.56+j*.1);
+  if(pal===1)return hsl(.09+Math.sin(t*.11)*.03+j*.02,.75,.42+j*.26+.08*Math.sin(t*.9));
+  return hsl(.55+Math.sin(t*.11)*.05+j*.03,.7,.48+j*.24+.08*Math.sin(t*.9));
+}
+function dotColor(d){return pal===0?hsl(d/5,.8,.62):(pal===1?hsl(.1,.75,.5+d*.05):hsl(.55,.7,.5+d*.05));}
+
+function setup(){
+  var dpr=Math.min(window.devicePixelRatio||1,3),W=Math.round(innerWidth*dpr),H=Math.round(innerHeight*dpr);
+  CS=Math.max(2,Math.round(Math.min(W,H)/240));
+  GW=Math.ceil(W/CS);GH=Math.ceil(H/CS);N=GW*GH;
+  cv.width=GW*CS;cv.height=GH*CS;small.width=GW;small.height=GH;mcv.width=GW;mcv.height=GH;gcv.width=Math.ceil(GW/5);gcv.height=Math.ceil(GH/5);
+  set=new Uint8Array(N);col=new Uint32Array(N);mask=new Uint8Array(N);curDec=-1;bg=new Uint32Array(GH);
+  for(var y=0;y<GH;y++){var k=y/GH;bg[y]=(255<<24)|((22+k*20)<<16)|((9+k*7)<<8)|(7+k*13);}
+  img=sctx.createImageData(GW,GH);px32=new Uint32Array(img.data.buffer);
+  groundTop=GH-Math.floor(GH*.2);groundCount=0;np=0;curKey=-1;
+}
+
+function drawMask(hh,mm){
+  mctx.clearRect(0,0,GW,GH);mctx.fillStyle='#fff';mctx.textAlign='center';mctx.textBaseline='middle';
+  var fam='"Arial Black","Helvetica Neue",Arial,sans-serif';
+  function fit(txt,maxW,maxH){var fs=maxH*1.3;mctx.font='900 '+fs+'px '+fam;
+    var w=mctx.measureText(txt).width;if(w>maxW)fs*=maxW/w;mctx.font='900 '+fs+'px '+fam;return fs;}
+  if(GH>GW*1.15){
+    var rowH=GH*.27;fit('00',GW*.9,rowH);
+    mctx.fillText(hh,GW/2,GH*.22);mctx.fillText(mm,GW/2,GH*.53);
+  }else{
+    fit('00:00',GW*.9,GH*.5);mctx.fillText(hh+':'+mm,GW/2,GH*.4);
+  }
+  var d=mctx.getImageData(0,0,GW,GH).data,m=new Uint8Array(N);
+  for(var i=0;i<N;i++)m[i]=d[i*4+3]>128?1:0;
+  for(var y=groundTop;y<GH;y++)for(var x=0;x<GW;x++)m[y*GW+x]=0;
+  return m;
+}
+
+function release(i,kick,vx0){          // 積もった1粒を、落ちる粒に戻す
+  if(!set[i])return;
+  if(set[i]===2)groundCount--;
+  set[i]=0;
+  if(np>=MAXP)return;
+  PX[np]=(i%GW)+.5;PY[np]=((i/GW)|0)+.5;VX[np]=(vx0||0)+(Math.random()-.5)*(kick?1.6:.5);
+  VY[np]=kick?-Math.random()*kick:Math.random()*.3;PC[np]=col[i];PF[np]=kick?(kick>2?55:28):0;PT[np]=0;np++;
+}
+
+function applyTime(){
+  var d=new Date(),key=d.getHours()*60+d.getMinutes();
+  if(key===curKey)return;curKey=key;
+  var hh=('0'+d.getHours()).slice(-2),mm=('0'+d.getMinutes()).slice(-2);
+  var nm=drawMask(hh,mm);
+  // 形から外れた砂は崩れる。下から見て、支えを失った砂も崩れる
+  for(var y=groundTop-1;y>=0;y--)for(var x=0;x<GW;x++){
+    var i=y*GW+x;if(set[i]!==1)continue;
+    var b=i+GW;
+    if(!nm[i]||(nm[b]&&set[b]!==1))release(i,false);
+  }
+  mask=nm;
+}
+
+function applyDec(){               // 10秒の区切りを見て、50秒なら流れ星を出す
+  var dec=Math.floor(Date.now()/10000);if(dec===curDec)return;
+  var first=curDec<0;curDec=dec;
+  if(!first&&Math.floor(Date.now()%60000/10000)===5){   // 50秒: 流れ星
+    var sd=Math.random()<.5?1:-1;
+    star={x:sd>0?GW*.05:GW*.95,y:-2,vx:sd*GW*.8/100,vy:GH/100,tr:[]};
+  }
+}
+function addP(x,y,vx,vy,c,pf){if(np>=MAXP)return;PX[np]=x;PY[np]=y;VX[np]=vx;VY[np]=vy;PC[np]=c;PF[np]=pf;PT[np]=0;np++;}
+function stepStar(){
+  if(!star)return;
+  for(var q=0;q<4;q++){star.tr.push(star.x,star.y);star.x+=star.vx/4;star.y+=star.vy/4;}   // 尾がつながるよう細かく刻む
+  if(star.tr.length>520)star.tr.splice(0,8);
+  var xi=star.x|0,yi=star.y|0;
+  if(Math.random()<.35)addP(star.x,star.y,(Math.random()-.5)*.4,.2,hsl(.13,.9,.78),20);
+  if(yi>=GH-2||(yi>=groundTop&&xi>=0&&xi<GW&&set[yi*GW+xi]===2)){   // 砂丘に落ちて、光る砂が散る
+    for(var k=0;k<110;k++)addP(star.x,star.y-1,(Math.random()-.5)*3,-Math.random()*2.8,hsl(.1+Math.random()*.08,.9,.7+Math.random()*.2),12);
+    star=null;
+  }
+}
+
+function scanNeed(){
+  needCols.length=0;totalEmpty=0;
+  for(var x=0;x<GW;x++){var c=0;for(var y=0;y<groundTop;y++){var i=y*GW+x;if(mask[i]&&!set[i])c++;}
+    if(c){needCols.push(x);totalEmpty+=c;}}
+}
+
+function spawn(x,targeted){
+  if(np>=MAXP)return;
+  PX[np]=x+Math.random();PY[np]=-Math.random()*6;VX[np]=targeted?0:(Math.random()-.5)*.3;
+  VY[np]=.6+Math.random()*.9;PC[np]=grainColor();PF[np]=0;PT[np]=targeted?1:0;np++;
+}
+
+function sink(){                   // 砂丘が育ったら、地層ごとゆっくり沈める(新しい層が上に積もり続ける)
+  for(var y=GH-1;y>groundTop;y--){var r=y*GW,s=r-GW;
+    for(var x=0;x<GW;x++){
+      if(y===GH-1&&set[r+x]===2)groundCount--;
+      set[r+x]=set[s+x];col[r+x]=col[s+x];}}
+  var r0=groundTop*GW;for(var x2=0;x2<GW;x2++){set[r0+x2]=0;}
+}
+
+function step(){
+  t+=1/60;frameNo++;
+  applyDec();applyTime();stepStar();
+  if(frameNo%8===1)scanNeed();
+  // 傾き: 傾けた側へ砂が数字から流れ落ちる。戻すとまた積もる
+  tiltX+=(tiltRaw-tiltX)*.15;
+  var tl=Math.abs(tiltX)>.3?(Math.abs(tiltX)-.3)/.7:0,td=tiltX>0?1:-1,lim=groundTop*GW;
+  if(tl>0)for(var a=0,na=6000*tl;a<na;a++){var ti=(Math.random()*lim)|0;
+    if(set[ti]===1&&(!set[ti-GW*2]||!set[ti+td*2]))release(ti,false,td*(.5+Math.random()*.8));}
+  // 振る: 砂が舞い上がる(数字も砂丘も)
+  if(shake>.02){for(var b2=0,nb=5000*shake;b2<nb;b2++){var si=(Math.random()*N)|0;if(set[si])release(si,3.6);}shake*=.88;}
+  var nT=tl>0?0:Math.min(120,Math.max(totalEmpty?6:0,Math.ceil(totalEmpty/350)));
+  for(var k=0;k<nT&&needCols.length;k++)spawn(needCols[(Math.random()*needCols.length)|0],true);
+  spawn(Math.random()*GW,false);        // いつも少しだけ降っている砂
+  var wind=Math.sin(t*.13)*.18;
+  for(var p=0;p<np;p++){
+    VY[p]=Math.min(VY[p]+.09,3.2);if(PF[p])PF[p]--; else if(!PT[p]||tl>0)VX[p]+=(wind*.3+tiltX*1.7-VX[p])*.04;
+    var n=Math.max(1,Math.ceil(Math.abs(VY[p]))),dx=VX[p]/n,dy=VY[p]/n,dead=false;
+    for(var s=0;s<n&&!dead;s++){
+      PX[p]+=dx;PY[p]+=dy;
+      if(PX[p]<0)PX[p]+=GW;else if(PX[p]>=GW)PX[p]-=GW;
+      var yi=PY[p]|0;if(yi<0)continue;var xi=PX[p]|0,i=yi*GW+xi;
+      if(yi<groundTop){
+        if(!tl&&!PF[p]&&mask[i]&&!set[i]&&(!mask[i+GW]||set[i+GW]===1)){
+          var sd=Math.random()<.5?-1:1;
+          for(var h=0;h<6;h++){              // 斜面をすべり落ちる。高さがそろい、色の縞が水平な地層になる
+            var j=i+GW+sd;
+            if(!(mask[j]&&!set[j]&&mask[i+sd]&&!set[i+sd])){sd=-sd;j=i+GW+sd;
+              if(!(mask[j]&&!set[j]&&mask[i+sd]&&!set[i+sd]))break;}
+            while(mask[j+GW]&&!set[j+GW])j+=GW;
+            i=j;
+          }
+          set[i]=1;col[i]=PC[p];dead=true;}
+      }else{
+        if(yi>=GH-1||set[i+GW]===2){
+          if(yi>GH-1){yi=GH-1;i=yi*GW+xi;}
+          if(set[i]){dead=true;break;}
+          var dir=Math.random()<.5?-1:1,moved=false;
+          if(yi<GH-1)for(var q=0;q<2;q++){var nx=xi+dir;
+            if(nx>=0&&nx<GW&&!set[i+GW+dir]&&!set[i+dir]){PX[p]=nx+.5;PY[p]=yi+1.2;VY[p]=.6;moved=true;break;}dir=-dir;}
+          if(!moved){set[i]=2;col[i]=PC[p];groundCount++;dead=true;}
+        }
+      }
+    }
+    if(dead){np--;PX[p]=PX[np];PY[p]=PY[np];VX[p]=VX[np];VY[p]=VY[np];PC[p]=PC[np];PF[p]=PF[np];PT[p]=PT[np];p--;}
+  }
+  if(frameNo%6===0&&groundCount>GW*(GH-groundTop)*.5)sink();
+}
+
+function draw(){
+  for(var y=0,i=0;y<GH;y++){var b=bg[y],g=b+0x000e0e0e;
+    for(var x=0;x<GW;x++,i++){
+      if(!set[i]){px32[i]=mask[i]?g:b;continue;}
+      var c=col[i];
+      if(i>=GW&&!set[i-GW]){                 // 積もった面のいちばん上は、光を受けて明るい
+        var r=c&255,gg=(c>>8)&255,bb=(c>>16)&255;
+        c=(255<<24)|((bb+(255-bb)*.45)<<16)|((gg+(255-gg)*.45)<<8)|(r+(255-r)*.45);}
+      px32[i]=c;}}
+  for(var p=0;p<np;p++){var yy=PY[p]|0;if(yy>=0&&yy<GH){var k=yy*GW+(PX[p]|0);if(!set[k])px32[k]=PC[p];}}
+  if(star){var tr=star.tr,L=tr.length;
+    for(var k2=0;k2<=L;k2+=2){var sx=(k2<L?tr[k2]:star.x)|0,sy=(k2<L?tr[k2+1]:star.y)|0,al=k2<L?Math.pow(k2/L,1.5)*.9:1,w=k2<L?0:1;
+      for(var wy=-w;wy<=w;wy++)for(var wx=-w;wx<=w;wx++){var X=sx+wx,Y=sy+wy;if(X<0||X>=GW||Y<0||Y>=GH)continue;
+        var o=px32[Y*GW+X],r0=o&255,g0=(o>>8)&255,b0=(o>>16)&255;
+        px32[Y*GW+X]=(255<<24)|((b0+(225-b0)*al)<<16)|((g0+(245-g0)*al)<<8)|(r0+(255-r0)*al);}}}
+  // 5つの粒: 10・20・30・40・50秒で1つずつ灯る(0〜9秒は何も灯らない)
+  var ms=Date.now()%60000,cur=Math.floor(ms/10000),fr=Math.min(1,(ms%10000)/600);
+  var rr=Math.max(1,Math.round(GW*.007)),sp=GW*.05,cy=Math.round(GH*.715);
+  for(var d=0;d<5;d++){var cx=Math.round(GW/2+(d-2)*sp),lit=d<cur-1?1:(d===cur-1?fr:0);
+    for(var oy=-rr;oy<=rr;oy++)for(var ox=-rr;ox<=rr;ox++){if(ox*ox+oy*oy>rr*rr+1)continue;
+      var qi=(cy+oy)*GW+cx+ox,base=bg[cy+oy]+0x00141414;
+      if(!lit){px32[qi]=base;continue;}
+      var c2=dotColor(d),br=base&255,bgc=(base>>8)&255,bb2=(base>>16)&255;
+      px32[qi]=(255<<24)|((bb2+(((c2>>16)&255)-bb2)*lit)<<16)|((bgc+(((c2>>8)&255)-bgc)*lit)<<8)|(br+((c2&255)-br)*lit);}}
+  sctx.putImageData(img,0,0);
+  ctx.globalCompositeOperation='source-over';ctx.globalAlpha=1;ctx.imageSmoothingEnabled=false;
+  ctx.drawImage(small,0,0,cv.width,cv.height);
+  gctx.drawImage(small,0,0,gcv.width,gcv.height);      // ぼかした写しを重ねて、砂をほんのり光らせる
+  ctx.globalCompositeOperation='lighter';ctx.globalAlpha=.36;ctx.imageSmoothingEnabled=true;
+  ctx.drawImage(gcv,0,0,cv.width,cv.height);
+}
+function loop(){step();draw();requestAnimationFrame(loop);}
+
+function brush(e){
+  var r=cv.getBoundingClientRect(),gx=((e.clientX-r.left)/r.width*GW)|0,gy=((e.clientY-r.top)/r.height*GH)|0,R=Math.round(GW*.055);
+  for(var y=Math.max(0,gy-R);y<=Math.min(GH-1,gy+R);y++)for(var x=Math.max(0,gx-R);x<=Math.min(GW-1,gx+R);x++)
+    if((x-gx)*(x-gx)+(y-gy)*(y-gy)<=R*R)release(y*GW+x,1.6);
+  hint.classList.remove('on');
+}
+var down=false;
+cv.addEventListener('pointerdown',function(e){if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;down=true;brush(e);});
+cv.addEventListener('pointermove',function(e){if(down)brush(e);});
+addEventListener('pointerup',function(){down=false;});addEventListener('pointercancel',function(){down=false;});
+addEventListener('resize',setup);
+
+// 傾き・振り(iPhoneは最初のタップで許可を求める)
+function onOri(e){if(e.gamma==null)return;var a=(screen.orientation&&screen.orientation.angle)||0;
+  var g=a===90?e.beta:(a===270?-e.beta:e.gamma);tiltRaw=Math.max(-1,Math.min(1,g/40));}
+function onMot(e){var a=e.acceleration;if(!a||a.x==null)return;
+  var m=Math.sqrt(a.x*a.x+a.y*a.y+a.z*a.z);if(m>9)shake=Math.min(1,shake+(m-9)/25);}
+function listenMotion(){addEventListener('deviceorientation',onOri);addEventListener('devicemotion',onMot);}
+var needAsk=window.DeviceOrientationEvent&&typeof DeviceOrientationEvent.requestPermission==='function';
+if(needAsk){
+  addEventListener('pointerup',function ask(){removeEventListener('pointerup',ask);
+    DeviceOrientationEvent.requestPermission().then(function(r){if(r==='granted')listenMotion();}).catch(listenMotion);
+    if(window.DeviceMotionEvent&&DeviceMotionEvent.requestPermission)DeviceMotionEvent.requestPermission().catch(function(){});
+  });
+  hint.innerHTML='なぞる・傾ける・振ると砂が動く<br>(傾き・振りは、一度画面に触れてから)';
+}
+listenMotion();   // 先に付けておく(許可が要らない端末はこれだけで動く。iPhoneは許可後に届きはじめる)
+
+function collapseAll(){for(var i=0;i<groundTop*GW;i++)if(set[i]===1)release(i,false);}
+
+setup();loop();
+hint.classList.add('on');setTimeout(function(){hint.classList.remove('on');},8000);
+
+APKit.init({
+  canvas:cv, gifName:'fallen-minutes-loop', clockFormat:'spec',
+  dock:true, autoHide:true, fullscreenButton:false,
+  buttons:[
+    {label:'✦',name:'mutate',onClick:function(){pal=(pal+1)%PALS.length;collapseAll();}},   // 砂の色を替えて積もり直す
+    {label:'↻',name:'reset',onClick:function(){pal=0;setup();}}
+  ]
+});
+})();
+</script>
+</body>
+</html>
