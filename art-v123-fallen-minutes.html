@@ -7,7 +7,9 @@
      傾き・振りは、下のボタン(スマホの絵)を押してONにしたときだけ働く(2026/11/10 おっちゃん「センサー付きはボタンで示してね」)。
      秒は数字では出さない。砂の色は時間でなめらかに変わり続ける(10秒ごとの色の切り替えは「つまらない」で廃止)。
      分の下の5つの粒が、10秒・20秒・30秒・40秒・50秒で1つずつ灯る(0〜9秒は何も灯らない。分が変わると全部消える)。
-     毎分50秒に流れ星が1本、空を斜めに横切って砂丘に落ちる(もうすぐ分が変わる合図)。 -->
+     毎分50秒に流れ星が1本、空を斜めに横切って砂丘に落ちる(もうすぐ分が変わる合図)。
+     流れ星の通り道が数字に触れた所は、そこだけ崩れて砂丘に積もる(傷は分が変わるまで残り、次の数字はいつも通り積もる)。
+     眺めている間、4〜8秒おきに小さな出来事が1つだけ起きる(小さな星の瞬き/細い流星/数字の縁から砂が数粒こぼれる/砂丘の表面のきらめき)。 -->
 <html lang="ja">
 <head>
 <meta charset="utf-8">
@@ -43,6 +45,7 @@ var PC=new Uint32Array(MAXP), PF=new Uint8Array(MAXP), PT=new Uint8Array(MAXP);
 var needCols=[], totalEmpty=0, curKey=-1, frameNo=0, t=0;
 var curDec=-1, tiltRaw=0, tiltX=0, shake=0, star=null;
 var PALS=['RAINBOW','GOLD','ICE'], pal=0;
+var evAt=5, sparks=[], mini=null;  // 小さな出来事: 次に起こす時刻・瞬き/きらめきの点・細い流星
 
 function hsl(h,s,l){h=((h%1)+1)%1;var a=s*Math.min(l,1-l);
   function f(n){var k=(n+h*12)%12;return l-a*Math.max(-1,Math.min(k-3,9-k,1));}
@@ -64,6 +67,7 @@ function setup(){
   for(var y=0;y<GH;y++){var k=y/GH;bg[y]=(255<<24)|((22+k*20)<<16)|((9+k*7)<<8)|(7+k*13);}
   img=sctx.createImageData(GW,GH);px32=new Uint32Array(img.data.buffer);
   groundTop=GH-Math.floor(GH*.2);groundCount=0;np=0;curKey=-1;
+  sparks.length=0;mini=null;
 }
 
 function drawMask(hh,mm){
@@ -111,13 +115,19 @@ function applyDec(){               // 10秒の区切りを見て、50秒なら�
   var first=curDec<0;curDec=dec;
   if(!first&&Math.floor(Date.now()%60000/10000)===5){   // 50秒: 流れ星
     var sd=Math.random()<.5?1:-1;
-    star={x:sd>0?GW*.05:GW*.95,y:-2,vx:sd*GW*.8/100,vy:GH/100,tr:[]};
+    star={x:sd>0?GW*.05:GW*.95,y:-2,vx:sd*GW*.8/100,vy:GH/100,tr:[],r:Math.max(2,Math.round(GW*.011))};
   }
 }
 function addP(x,y,vx,vy,c,pf){if(np>=MAXP)return;PX[np]=x;PY[np]=y;VX[np]=vx;VY[np]=vy;PC[np]=c;PF[np]=pf;PT[np]=0;np++;}
 function stepStar(){
   if(!star)return;
-  for(var q=0;q<4;q++){star.tr.push(star.x,star.y);star.x+=star.vx/4;star.y+=star.vy/4;}   // 尾がつながるよう細かく刻む
+  for(var q=0;q<4;q++){star.tr.push(star.x,star.y);star.x+=star.vx/4;star.y+=star.vy/4;   // 尾がつながるよう細かく刻む
+    // 通り道が数字に触れた所だけ崩す(分が変わるときと同じ崩れ方で砂丘に積もる)。型からも外すので、分が変わるまで積もり直さない
+    var cx=star.x|0,cy=star.y|0,R=star.r;
+    for(var sy=Math.max(0,cy-R);sy<=cy+R&&sy<groundTop;sy++)for(var sx=Math.max(0,cx-R);sx<=cx+R&&sx<GW;sx++){
+      var ci=sy*GW+sx;if(!mask[ci]||(sx-cx)*(sx-cx)+(sy-cy)*(sy-cy)>R*R+1)continue;
+      mask[ci]=0;if(set[ci]===1)release(ci,false,star.vx*.25);}
+  }
   if(star.tr.length>520)star.tr.splice(0,8);
   var xi=star.x|0,yi=star.y|0;
   if(Math.random()<.35)addP(star.x,star.y,(Math.random()-.5)*.4,.2,hsl(.13,.9,.78),20);
@@ -125,6 +135,31 @@ function stepStar(){
     for(var k=0;k<110;k++)addP(star.x,star.y-1,(Math.random()-.5)*3,-Math.random()*2.8,hsl(.1+Math.random()*.08,.9,.7+Math.random()*.2),12);
     star=null;
   }
+}
+
+// 小さな出来事: 4〜8秒おきに1つだけ。どれも小さく短く、数字の型(mask)は変えない
+function spark(x,y,dur,delay,sky){if(sparks.length<16)sparks.push({x:x,y:y,a:-delay,d:dur,sky:sky});}
+function smallEvent(){
+  var r=Math.random(),k,x,y,i,n;
+  if(r<.3){                        // 小さな星の瞬き(砂の無い空に1つ)
+    for(k=0;k<20;k++){x=1+((Math.random()*(GW-2))|0);y=1+((Math.random()*groundTop*.92)|0);i=y*GW+x;
+      if(!mask[i]&&!set[i]){spark(x,y,70+Math.random()*40,0,1);break;}}
+  }else if(r<.45){                 // 細い流星(短く、数字のうしろを通る。数字は崩さない)
+    var sd=Math.random()<.5?1:-1;
+    mini={x:GW*(.15+Math.random()*.7),y:groundTop*(.03+Math.random()*.4),vx:sd*GW*.006,vy:GW*.0035,a:0,d:34};
+  }else if(r<.72){                 // 数字の縁から砂が数粒こぼれ落ちる(こぼれた所はまた積もる)
+    for(k=0;k<300;k++){i=GW+((Math.random()*(groundTop-1)*GW)|0);
+      if(set[i]===1&&(!set[i-1]||!set[i+1])){for(n=3+((Math.random()*4)|0);n>0&&i>=GW&&set[i]===1;n--,i-=GW)release(i,false);break;}}
+  }else{                           // 砂丘の表面のきらめき(近くで3〜5粒、少しずつずれて光る)
+    x=(Math.random()*GW)|0;n=3+((Math.random()*3)|0);
+    for(k=0;k<n;k++){var gx=x+(((Math.random()-.5)*GW*.16)|0);if(gx<0||gx>=GW)continue;
+      for(y=groundTop;y<GH;y++)if(set[y*GW+gx]===2){spark(gx,y,36+Math.random()*24,k*9,0);break;}}
+  }
+}
+function stepEvents(){
+  if(t>=evAt){evAt=t+4+Math.random()*4;if(!star)smallEvent();}   // 50秒の流れ星が飛んでいる間は起こさない
+  for(var k=0;k<sparks.length;k++)if(++sparks[k].a>=sparks[k].d){sparks.splice(k,1);k--;}
+  if(mini){mini.x+=mini.vx;mini.y+=mini.vy;if(++mini.a>=mini.d)mini=null;}
 }
 
 function scanNeed(){
@@ -149,7 +184,7 @@ function sink(){                   // 砂丘が育ったら、地層ごとゆっ
 
 function step(){
   t+=1/60;frameNo++;
-  applyDec();applyTime();stepStar();
+  applyDec();applyTime();stepStar();stepEvents();
   if(frameNo%8===1)scanNeed();
   // 傾き: 傾けた側へ砂が数字から流れ落ちる。戻すとまた積もる
   tiltX+=(tiltRaw-tiltX)*.15;
@@ -196,6 +231,8 @@ function step(){
   if(frameNo%6===0&&groundCount>GW*(GH-groundTop)*.5)sink();
 }
 
+function glow(i,a){var o=px32[i],r=o&255,g=(o>>8)&255,b=(o>>16)&255;   // 1マスを白っぽい光へ寄せる
+  px32[i]=(255<<24)|((b+(235-b)*a)<<16)|((g+(248-g)*a)<<8)|(r+(255-r)*a);}
 function draw(){
   for(var y=0,i=0;y<GH;y++){var b=bg[y],g=b+0x000e0e0e;
     for(var x=0;x<GW;x++,i++){
@@ -211,6 +248,16 @@ function draw(){
       for(var wy=-w;wy<=w;wy++)for(var wx=-w;wx<=w;wx++){var X=sx+wx,Y=sy+wy;if(X<0||X>=GW||Y<0||Y>=GH)continue;
         var o=px32[Y*GW+X],r0=o&255,g0=(o>>8)&255,b0=(o>>16)&255;
         px32[Y*GW+X]=(255<<24)|((b0+(225-b0)*al)<<16)|((g0+(245-g0)*al)<<8)|(r0+(255-r0)*al);}}}
+  // 小さな出来事の光: 星の瞬き・砂丘のきらめき・細い流星
+  for(var s=0;s<sparks.length;s++){var S=sparks[s];if(S.a<0)continue;
+    var e=Math.sin(Math.PI*S.a/S.d);e*=e;var si=S.y*GW+S.x;
+    if(!S.sky){glow(si,e*.8);continue;}
+    if(set[si])continue;
+    glow(si,e*.9);if(!set[si-1])glow(si-1,e*.28);if(!set[si+1])glow(si+1,e*.28);if(!set[si-GW])glow(si-GW,e*.28);if(!set[si+GW])glow(si+GW,e*.28);}
+  if(mini){var mf=Math.sin(Math.PI*mini.a/mini.d)*.7,ml=Math.round(GW*.06),mv=Math.sqrt(mini.vx*mini.vx+mini.vy*mini.vy);
+    for(var m=0;m<ml;m++){var mx=(mini.x-mini.vx/mv*m)|0,my=(mini.y-mini.vy/mv*m)|0;
+      if(mx<0||mx>=GW||my<0||my>=groundTop||set[my*GW+mx])continue;
+      glow(my*GW+mx,mf*Math.pow(1-m/ml,1.5));}}
   // 5つの粒: 10・20・30・40・50秒で1つずつ灯る(0〜9秒は何も灯らない)
   var ms=Date.now()%60000,cur=Math.floor(ms/10000),fr=Math.min(1,(ms%10000)/600);
   var rr=Math.max(1,Math.round(GW*.007)),sp=GW*.05,cy=Math.round(GH*.715);
