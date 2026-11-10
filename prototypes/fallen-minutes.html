@@ -4,7 +4,8 @@
      世界のルール: 「過ぎた一分は崩れて、砂の地層になる」。分が変わると、変わった数字だけ崩れ落ちて
      下の砂丘に積もり、新しい数字がまた積もる。砂の色は時間でゆっくり変わるので、数字にも砂丘にも縞(地層)が残る。
      なぞる=砂を払う(払った所はまた積もる)。傾ける=砂が数字から流れ落ちる(戻すとまた積もる)。振る=砂が舞い上がる。
-     秒は分の下に小さく出る(砂ではなく光の点)。 -->
+     秒は数字では出さない。10秒ごとに砂の色が次の層へ切り替わり(数字と砂丘の縞1本=10秒)、
+     分の下の6つの粒が10秒に1つずつ灯る(6つ揃うと分が変わって数字が崩れる)。 -->
 <html lang="ja">
 <head>
 <meta charset="utf-8">
@@ -32,31 +33,31 @@ var gcv=document.createElement('canvas'), gctx=gcv.getContext('2d');
 var mcv=document.createElement('canvas'), mctx=mcv.getContext('2d',{willReadFrequently:true});
 
 var CS, GW, GH, N;                 // 1粒の大きさ(px)・格子の幅/高さ
-var set, col, mask, smask, bg, img, px32; // set: 0=空 1=数字の砂 2=砂丘
+var set, col, mask, bg, img, px32; // set: 0=空 1=数字の砂 2=砂丘
 var groundTop, groundCount=0;
 var MAXP=24000, np=0;
 var PX=new Float32Array(MAXP), PY=new Float32Array(MAXP), VX=new Float32Array(MAXP), VY=new Float32Array(MAXP);
 var PC=new Uint32Array(MAXP), PF=new Uint8Array(MAXP);
 var needCols=[], totalEmpty=0, curKey=-1, frameNo=0, t=0;
-var curSec=-1, tiltRaw=0, tiltX=0, shake=0;
+var curDec=-1, tiltRaw=0, tiltX=0, shake=0;
 var PALS=['RAINBOW','GOLD','ICE'], pal=0;
 
 function hsl(h,s,l){h=((h%1)+1)%1;var a=s*Math.min(l,1-l);
   function f(n){var k=(n+h*12)%12;return l-a*Math.max(-1,Math.min(k-3,9-k,1));}
   return (255<<24)|((f(4)*255)<<16)|((f(8)*255)<<8)|(f(0)*255);}
-function grainColor(){
-  var j=Math.random();
-  if(pal===0)return hsl(t*0.03+j*0.025,.8,.56+j*.1);
-  if(pal===1)return hsl(.09+Math.sin(t*.11)*.03+j*.02,.75,.42+j*.26+.08*Math.sin(t*.9));
-  return hsl(.55+Math.sin(t*.11)*.05+j*.03,.7,.48+j*.24+.08*Math.sin(t*.9));
+function decColor(dec,j){          // 10秒(dec)ごとに決まる層の色。jは粒ごとのばらつき
+  if(pal===0)return hsl(dec*.1+j*.02,.8,.56+j*.1);
+  if(pal===1)return hsl(.09+(dec%3)*.018+j*.02,.75,(dec%2?.4:.6)+j*.14);
+  return hsl(.55+(dec%3)*.03+j*.03,.7,(dec%2?.42:.64)+j*.14);
 }
+function grainColor(){return decColor(curDec,Math.random());}
 
 function setup(){
   var dpr=Math.min(window.devicePixelRatio||1,3),W=Math.round(innerWidth*dpr),H=Math.round(innerHeight*dpr);
   CS=Math.max(2,Math.round(Math.min(W,H)/240));
   GW=Math.ceil(W/CS);GH=Math.ceil(H/CS);N=GW*GH;
   cv.width=GW*CS;cv.height=GH*CS;small.width=GW;small.height=GH;mcv.width=GW;mcv.height=GH;gcv.width=Math.ceil(GW/5);gcv.height=Math.ceil(GH/5);
-  set=new Uint8Array(N);col=new Uint32Array(N);mask=new Uint8Array(N);smask=new Uint8Array(N);curSec=-1;bg=new Uint32Array(GH);
+  set=new Uint8Array(N);col=new Uint32Array(N);mask=new Uint8Array(N);curDec=-1;bg=new Uint32Array(GH);
   for(var y=0;y<GH;y++){var k=y/GH;bg[y]=(255<<24)|((22+k*20)<<16)|((9+k*7)<<8)|(7+k*13);}
   img=sctx.createImageData(GW,GH);px32=new Uint32Array(img.data.buffer);
   groundTop=GH-Math.floor(GH*.2);groundCount=0;np=0;curKey=-1;
@@ -102,14 +103,10 @@ function applyTime(){
   mask=nm;
 }
 
-function applySec(){               // 秒は小さな光の点で出す(砂にすると毎秒崩れて読めないため)
-  var d=new Date(),sc=d.getSeconds();if(sc===curSec)return;curSec=sc;
-  var land=!(GH>GW*1.15),fs=Math.round(GH*(land?.09:.05));
-  mctx.clearRect(0,0,GW,GH);mctx.fillStyle='#fff';mctx.textAlign='center';mctx.textBaseline='middle';
-  mctx.font='700 '+fs+'px "Helvetica Neue",Arial,sans-serif';
-  mctx.fillText(('0'+sc).slice(-2),GW/2,GH*(land?.71:.715));
-  var y0=Math.max(0,Math.floor(GH*.715-fs)),hh=Math.min(GH-y0,fs*2),d2=mctx.getImageData(0,y0,GW,hh).data;
-  smask.fill(0);for(var i=0,n=GW*hh;i<n;i++)if(d2[i*4+3]>110)smask[y0*GW+i]=1;
+function applyDec(){               // 10秒ごと: 砂の色が次の層へ。新しい色の砂がひと幕降る
+  var dec=Math.floor(Date.now()/10000);if(dec===curDec)return;
+  var first=curDec<0;curDec=dec;
+  if(!first)for(var k=0;k<170;k++)spawn(Math.random()*GW,false);
 }
 
 function scanNeed(){
@@ -134,7 +131,7 @@ function sink(){                   // 砂丘が育ったら、地層ごとゆっ
 
 function step(){
   t+=1/60;frameNo++;
-  applyTime();applySec();
+  applyDec();applyTime();
   if(frameNo%8===1)scanNeed();
   // 傾き: 傾けた側へ砂が数字から流れ落ちる。戻すとまた積もる
   tiltX+=(tiltRaw-tiltX)*.15;
@@ -191,8 +188,15 @@ function draw(){
         c=(255<<24)|((bb+(255-bb)*.45)<<16)|((gg+(255-gg)*.45)<<8)|(r+(255-r)*.45);}
       px32[i]=c;}}
   for(var p=0;p<np;p++){var yy=PY[p]|0;if(yy>=0&&yy<GH){var k=yy*GW+(PX[p]|0);if(!set[k])px32[k]=PC[p];}}
-  var y1=Math.floor(GH*.6),sc32=hsl(pal===0?t*.03:(pal===1?.11:.55),.55,.84);
-  for(var q=y1*GW;q<N;q++)if(smask[q])px32[q]=sc32;
+  // 6つの粒: 10秒に1つずつ灯る(今の10秒ぶんは、だんだん明るくなる)
+  var ms=Date.now()%60000,cur=Math.floor(ms/10000),fr=(ms%10000)/10000,dec0=curDec-cur;
+  var rr=Math.max(2,Math.round(GW*.013)),sp=GW*.075,cy=Math.round(GH*.715);
+  for(var d=0;d<6;d++){var cx=Math.round(GW/2+(d-2.5)*sp),lit=d<cur?1:(d===cur?.25+.75*fr:0);
+    for(var oy=-rr;oy<=rr;oy++)for(var ox=-rr;ox<=rr;ox++){if(ox*ox+oy*oy>rr*rr+1)continue;
+      var qi=(cy+oy)*GW+cx+ox,base=bg[cy+oy]+0x00141414;
+      if(!lit){px32[qi]=base;continue;}
+      var c2=decColor(dec0+d,.5),br=base&255,bgc=(base>>8)&255,bb2=(base>>16)&255;
+      px32[qi]=(255<<24)|((bb2+(((c2>>16)&255)-bb2)*lit)<<16)|((bgc+(((c2>>8)&255)-bgc)*lit)<<8)|(br+((c2&255)-br)*lit);}}
   sctx.putImageData(img,0,0);
   ctx.globalCompositeOperation='source-over';ctx.globalAlpha=1;ctx.imageSmoothingEnabled=false;
   ctx.drawImage(small,0,0,cv.width,cv.height);
