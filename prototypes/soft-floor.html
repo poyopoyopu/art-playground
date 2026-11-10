@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<!-- SOFT FLOOR — クロちゃん(Claude)作。2026/11/10 試作。トリック作品(別枠。ギャラリー本体には入れない)。
+     世界のルール: 「曲げるのは線ではない。角の小さな四角が決める」。
+     まっすぐな線だけでできた市松模様。マスの角に置いた小さな四角のせいで、床がふくらんで(へこんで)見える。
+     指を置く=そのまわりの小さな四角が消える(まっすぐな床に戻る)。タップ=ゆがみの中心がその場所へ移る。
+     左上の「傾き」ボタン=ONで、傾けた側へゆがみの中心が転がる。
+     技術: WebGL2(広色域 display-p3)/ 画面を消さないWake Lock / 傾きセンサー。共通部品は trick-kit.js。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>SOFT FLOOR — まっすぐな床が、ゆがんで見える</title>
+<script src="../ap-kit.js"></script>
+<script src="trick-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(function(){
+var cv=document.getElementById('c'), say=TK.say;
+var FS=[
+'uniform vec2 C,LENS;uniform float LR,GS,BUL;uniform vec3 A,B;',
+'void main(){float m=min(R.x,R.y);vec2 p=gl_FragCoord.xy;',
+' vec2 cp=(p-C)/GS+.5;vec2 id=floor(cp);vec2 f=cp-id-.5;',
+' float par=mod(id.x+id.y,2.);vec3 base=par<.5?A:B,opp=par<.5?B:A;vec3 col=base;',
+' vec2 cc=C+id*GS;',                                                    // このマスの中心
+' float amp=1.-smoothstep(.30,.47,length(id)*GS/m);',                    // ゆがみの範囲
+' amp*=smoothstep(LR*.8,LR,distance(cc,LENS));',                         // 指のまわりは小さな四角を消す
+' if(id.x==0.||id.y==0.)amp=0.;',
+' float sd=sign(id.x*id.y)*BUL;',                                        // どちらの対角の角に置くか(中心から見た向きで決まる)
+' float hs=.15*amp;vec2 c1=vec2(.5-.17,(.5-.17)*sd);',
+' if(hs>.01&&(max(abs(f.x-c1.x),abs(f.y-c1.y))<hs||max(abs(f.x+c1.x),abs(f.y+c1.y))<hs))col=opp;',
+' o=vec4(col,1.);}'].join('\n');
+var G=TK.gl(cv,FS,['C','LENS','LR','GS','BUL','A','B'],function(){ctr=[innerWidth/2,innerHeight*.45];});
+if(!G)return;
+var gl=G.gl,U=G.U;
+var PALS=[[[.06,.06,.08],[.96,.96,.94]],[[.1,.06,.36],[.98,.9,.5]],[[.02,.3,.3],[.9,1,.92]],[[.4,.02,.2],[1,.86,.9]]];
+var pal=0,bul=1,ctr=[innerWidth/2,innerHeight*.45],lens=0,lp=[-9999,-9999],stage=0,last=performance.now();
+var tilt=TK.tilt('傾けた側へ、ゆがみが転がる');
+function frame(){
+  var now=performance.now(),dt=Math.min((now-last)/1000,.1);last=now;
+  var m=Math.min(cv.width,cv.height),gs=m/11;
+  if(tilt.on){var sp=innerWidth*.9;
+    ctr[0]=Math.max(0,Math.min(innerWidth,ctr[0]+Math.max(-1,Math.min(1,tilt.x/25))*sp*dt));
+    ctr[1]=Math.max(0,Math.min(innerHeight,ctr[1]+Math.max(-1,Math.min(1,tilt.y/25))*sp*dt));}
+  var d=TK.down;if(d){lp=[d.cx,d.cy];}
+  lens+=((d&&(d.moved||TK.holding())?1:0)-lens)*.25;
+  // 中心はマスの中心にそろえる(床の模様そのものは動かさない)
+  var gx=TK.gx(ctr[0]),gy=TK.gy(cv,ctr[1]);
+  gl.uniform2f(U.C,(Math.round(gx/gs-.5)+.5)*gs,(Math.round(gy/gs-.5)+.5)*gs);
+  gl.uniform2f(U.LENS,TK.gx(lp[0]),TK.gy(cv,lp[1]));gl.uniform1f(U.LR,lens*m*.3);
+  gl.uniform1f(U.GS,gs);gl.uniform1f(U.BUL,bul);
+  gl.uniform3fv(U.A,PALS[pal][0]);gl.uniform3fv(U.B,PALS[pal][1]);
+  G.draw();requestAnimationFrame(frame);
+}
+TK.press(cv,{
+  down:function(){setTimeout(function(){if(TK.holding())say('小さな四角を消した。線はぜんぶ、まっすぐ',0);},280);},
+  up:function(x,y,tap){
+    if(tap){ctr=[x,y];say('ゆがみの中心が、触れた場所へ移った',3500);}
+    else say('小さな四角が戻ると、またゆがむ',3500);
+    if(stage<1)stage=1;}
+});
+function intro(){say('床がふくらんで見える？ 線はぜんぶ、まっすぐ',5500);
+  setTimeout(function(){if(stage<1&&!TK.down)say('指を置くと、そのまわりが平らに戻る。タップで中心が移る',7000);},7000);}
+TK.wake();intro();requestAnimationFrame(frame);
+TK.kit(cv,'soft-floor',function(){pal=(pal+1)%PALS.length;bul=-bul;say(bul>0?'ふくらむ床':'へこむ床',3000);},
+  function(){pal=0;bul=1;ctr=[innerWidth/2,innerHeight*.45];stage=0;intro();});
+})();
+</script>
+</body>
+</html>

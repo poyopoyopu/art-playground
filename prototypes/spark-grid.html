@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<!-- SPARK GRID — クロちゃん(Claude)作。2026/11/10 試作。トリック作品(別枠。ギャラリー本体には入れない)。
+     世界のルール: 「点を黒くするのは点ではない。まわりの線が決める」。
+     黒い地に灰色の線、交わる所に白い点。白い点の中に、どこにも描いていない黒い点がチカチカまたたいて見える(見つめた点だけは白いまま)。
+     指を置く=そのまわりの線が消える(そこは、またたかなくなる)。タップ=格子が斜めになる/戻る。
+     左上の「傾き」ボタン=ONで、傾けた側へ格子が流れる。
+     技術: WebGL2(広色域 display-p3)/ 画面を消さないWake Lock / 傾きセンサー。共通部品は trick-kit.js。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>SPARK GRID — 無い黒い点が、またたく</title>
+<script src="../ap-kit.js"></script>
+<script src="trick-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(function(){
+var cv=document.getElementById('c'), say=TK.say;
+var FS=[
+'uniform vec2 LENS,OFF;uniform float LR,ROT;uniform vec3 LINE;',
+'void main(){float m=min(R.x,R.y);vec2 p=gl_FragCoord.xy-.5*R;float c=cos(ROT),s=sin(ROT);p=mat2(c,-s,s,c)*p+OFF;',
+' float g=m/8.5;vec2 f=(fract(p/g+.5)-.5)*g;float hw=g*.095;',
+' float line=1.-smoothstep(hw-1.,hw+1.,min(abs(f.x),abs(f.y)));',
+' line*=smoothstep(LR*.8,LR,distance(gl_FragCoord.xy,LENS));',           // 指のまわりは線を消す
+' vec3 col=LINE*line;',
+' col=mix(col,vec3(1.),1.-smoothstep(hw*1.45-1.,hw*1.45+1.,length(f)));', // 交点の白い点(黒い点は描いていない)
+' o=vec4(col,1.);}'].join('\n');
+var G=TK.gl(cv,FS,['LENS','OFF','LR','ROT','LINE']);
+if(!G)return;
+var gl=G.gl,U=G.U;
+var COLS=[[.5,.5,.5],[.2,.5,.62],[.62,.3,.5],[.42,.56,.25],[.62,.46,.2]];
+var ci=0,rot=0,rotT=0,off=[0,0],lens=0,lp=[-9999,-9999],stage=0,last=performance.now();
+var tilt=TK.tilt('傾けた側へ格子が流れる。またたきが強くなる');
+function frame(){
+  var now=performance.now(),dt=Math.min((now-last)/1000,.1);last=now;
+  var m=Math.min(cv.width,cv.height);
+  if(tilt.on){off[0]-=Math.max(-1,Math.min(1,tilt.x/25))*m*.5*dt;off[1]+=Math.max(-1,Math.min(1,tilt.y/25))*m*.5*dt;}
+  var d=TK.down;if(d)lp=[d.cx,d.cy];
+  lens+=((d&&(d.moved||TK.holding())?1:0)-lens)*.25;rot+=(rotT-rot)*.12;
+  gl.uniform2f(U.LENS,TK.gx(lp[0]),TK.gy(cv,lp[1]));gl.uniform2f(U.OFF,off[0],off[1]);
+  gl.uniform1f(U.LR,lens*m*.3);gl.uniform1f(U.ROT,rot);gl.uniform3fv(U.LINE,COLS[ci]);
+  G.draw();requestAnimationFrame(frame);
+}
+TK.press(cv,{
+  down:function(){setTimeout(function(){if(TK.holding())say('線を消した。ここの白い点は、もう黒くまたたかない',0);},280);},
+  up:function(x,y,tap){
+    if(tap){rotT=rotT?0:Math.PI/4;say('格子を回した。黒い点は、どこにも描いていない',4000);}
+    else say('線が戻ると、またまたたく',3500);
+    if(stage<1)stage=1;}
+});
+function intro(){say('白い点の中に、黒い点がチカチカ見える？',5500);
+  setTimeout(function(){if(stage<1&&!TK.down)say('見つめた点だけは白いまま。指を置くと、まわりの線が消える',7500);},7000);}
+TK.wake();intro();requestAnimationFrame(frame);
+TK.kit(cv,'spark-grid',function(){ci=(ci+1)%COLS.length;say('線の色を変えた',2500);},
+  function(){ci=0;rotT=0;off=[0,0];stage=0;intro();});
+})();
+</script>
+</body>
+</html>

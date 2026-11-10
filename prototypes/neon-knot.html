@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<!-- NEON KNOT — クロちゃん(Claude)作。2026/11/10 試作。トリック作品(別枠。ギャラリー本体には入れない)。
+     世界のルール: 「光らせるのは円ではない。線の色が決める」。
+     細い線の格子。交わる所の線を少しだけ色に変えると、そこに淡く光る色の円が見える(円はどこにも描いていない。色が付いているのは線だけ)。
+     交点をタップ=その交点の線の色が変わる(色→次の色→…→消える)。なぞる=通った交点に、同じ色をともす。
+     技術: WebGL2(広色域 display-p3)/ 画面を消さないWake Lock。共通部品は trick-kit.js。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>NEON KNOT — 描いていない光の円が、ともる</title>
+<script src="../ap-kit.js"></script>
+<script src="trick-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(function(){
+var cv=document.getElementById('c'), say=TK.say;
+var FS=[
+'uniform sampler2D T;uniform vec2 GN;uniform float GS,DARK;uniform vec3 P1,P2,P3,P4;',
+'void main(){vec2 p=gl_FragCoord.xy;vec2 ij=floor(p/GS+.5);vec2 d=p-ij*GS;',
+' float lw=max(1.,GS*.03);float line=1.-smoothstep(lw-.7,lw+.7,min(abs(d.x),abs(d.y)));',
+' float id=0.;if(ij.x>=0.&&ij.y>=0.&&ij.x<GN.x&&ij.y<GN.y)id=texelFetch(T,ivec2(ij),0).r*255.;',
+' vec3 bg=mix(vec3(1.),vec3(0.),DARK),lc=mix(vec3(0.),vec3(.9),DARK);',
+' if(id>.5&&length(d)<GS*.37)lc=id<1.5?P1:(id<2.5?P2:(id<3.5?P3:P4));',   // 交点の近くの「線」だけ色にする
+' o=vec4(mix(bg,lc,line),1.);}'].join('\n');
+var gn=[1,1],cells=new Uint8Array(1),gs=40,tex=null,dirty=true;
+function build(kind){
+  var m=Math.min(cv.width,cv.height);gs=m/10;gn=[Math.floor(cv.width/gs)+2,Math.floor(cv.height/gs)+2];
+  cells=new Uint8Array(gn[0]*gn[1]);
+  var cx=Math.round(cv.width/2/gs),cy=Math.round(cv.height*.54/gs);
+  for(var j=0;j<gn[1];j++)for(var i=0;i<gn[0];i++){var dx=i-cx,dy=j-cy,r=Math.hypot(dx,dy),v=0;
+    if(kind===0){if(Math.abs(r-3)<.6)v=1+Math.floor(((Math.atan2(dy,dx)/6.2832+1)%1)*4)%4;else if(r<.5)v=2;}   // 輪
+    else if(kind===1){if(Math.random()<.2)v=1+Math.floor(Math.random()*4);}                                        // ちらばり
+    else{if((i+j)%3===0)v=1+((i+2*j)%4+4)%4;}                                                                      // 斜めの帯
+    cells[i+j*gn[0]]=v;}
+  dirty=true;
+}
+var G=TK.gl(cv,FS,['T','GN','GS','DARK','P1','P2','P3','P4'],function(){build(0);});
+if(!G)return;
+var gl=G.gl,U=G.U;
+tex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,tex);gl.pixelStorei(gl.UNPACK_ALIGNMENT,1);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+var PALS=[[[1,.1,.2],[.1,.35,1],[.05,.75,.3],[.95,.55,0]],[[1,0,.7],[0,.75,.95],[.6,.3,1],[.3,.85,.1]]];
+var pal=0,dark=0,cur=1,kind=0,stage=0;
+function frame(){
+  if(dirty){gl.texImage2D(gl.TEXTURE_2D,0,gl.R8,gn[0],gn[1],0,gl.RED,gl.UNSIGNED_BYTE,cells);dirty=false;}
+  gl.uniform1i(U.T,0);gl.uniform2f(U.GN,gn[0],gn[1]);gl.uniform1f(U.GS,gs);gl.uniform1f(U.DARK,dark);
+  var P=PALS[pal];gl.uniform3fv(U.P1,P[0]);gl.uniform3fv(U.P2,P[1]);gl.uniform3fv(U.P3,P[2]);gl.uniform3fv(U.P4,P[3]);
+  G.draw();requestAnimationFrame(frame);
+}
+function at(x,y){var i=Math.round(TK.gx(x)/gs),j=Math.round(TK.gy(cv,y)/gs);return (i<0||j<0||i>=gn[0]||j>=gn[1])?-1:i+j*gn[0];}
+TK.press(cv,{
+  move:function(x,y,d){if(!d.moved)return;var k=at(x,y);if(k>=0&&cells[k]!==cur){cells[k]=cur;dirty=true;}},
+  up:function(x,y,tap,d){
+    if(tap){var k=at(x,y);if(k>=0){cells[k]=(cells[k]+1)%5;if(cells[k])cur=cells[k];dirty=true;
+      say(cells[k]?'線の色を変えただけ。光の円は、どこにも描いていない':'色を消した。光の円も消える',4000);}}
+    else if(d.moved)say('なぞった交点に、光がともった',3000);
+    if(stage<1)stage=1;}
+});
+function intro(){say('交わる所に、淡く光る色の円が見える？',5500);
+  setTimeout(function(){if(stage<1&&!TK.down)say('色が付いているのは線だけ。交点をタップ、またはなぞって、光をともして',7500);},7000);}
+TK.wake();intro();requestAnimationFrame(frame);
+TK.kit(cv,'neon-knot',function(){kind=(kind+1)%3;if(kind===0){pal=(pal+1)%PALS.length;dark=dark?0:1;}build(kind);say('並びを変えた。円は今度も、どこにも描いていない',3500);},
+  function(){kind=0;pal=0;dark=0;cur=1;build(0);stage=0;intro();});
+})();
+</script>
+</body>
+</html>

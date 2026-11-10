@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<!-- LEANING LINES — クロちゃん(Claude)作。2026/11/10 試作。トリック作品(別枠。ギャラリー本体には入れない)。
+     世界のルール: 「傾けるのは線ではない。タイルのずれが決める」。
+     白と黒のタイルの段。段の境目の線はぜんぶ水平で平行なのに、タイルを横にずらすと、線が互い違いに傾いて見える。
+     ずれはゆっくり行き来するので、線がシーソーのように揺れて見える。
+     横になぞる=自分の手でタイルをずらす。押さえる=タイルが薄くなる(線が平行だと分かる)。
+     左上の「傾き」ボタン=ONで、左右に傾けるとタイルがずれる。
+     技術: WebGL2(広色域 display-p3)/ 画面を消さないWake Lock / 傾きセンサー。共通部品は trick-kit.js。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>LEANING LINES — 平行な線が、かたむいて見える</title>
+<script src="../ap-kit.js"></script>
+<script src="trick-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(function(){
+var cv=document.getElementById('c'), say=TK.say;
+var FS=[
+'uniform float S,FADE,H;uniform vec3 A,B,MO;',
+'void main(){vec2 p=gl_FragCoord.xy;float row=floor(p.y/H),fy=fract(p.y/H);',
+' float k=mod(row,4.);float tri=k<.5?0.:(k<1.5?1.:(k<2.5?2.:1.));',     // 段ごとのずれ: 0,1,2,1 のくり返し
+' float tw=H*1.7;float x=p.x+tri*S*tw;float par=mod(floor(x/tw),2.);',
+' vec3 col=mix(par<.5?A:B,vec3(.88),FADE);',
+' float lw=max(1.5/H,.075);col=mix(col,MO,step(fy,lw));',                 // 段の境目の線(いつも水平)
+' o=vec4(col,1.);}'].join('\n');
+var G=TK.gl(cv,FS,['S','FADE','H','A','B','MO']);
+if(!G)return;
+var gl=G.gl,U=G.U;
+var PALS=[[[0,0,0],[1,1,1],[.5,.5,.5]],[[.05,.08,.4],[1,.95,.75],[.5,.5,.56]],[[.3,.02,.1],[.85,1,.95],[.52,.5,.5]],[[0,.22,.2],[1,.88,.8],[.5,.52,.5]]];
+var pal=0,s=.25,manual=0,fade=0,stage=0,t0=performance.now()/1000,s0=0;
+var tilt=TK.tilt('左右に傾けると、タイルがずれて線が傾く');
+function frame(){
+  var now=performance.now()/1000;
+  var st=s;
+  if(tilt.on)st=Math.max(-.5,Math.min(.5,tilt.x/40));
+  else if(TK.down&&TK.down.moved){}                                        // なぞっている間は手で決める
+  else if(now>manual)st=.25*Math.sin((now-t0)*.55);
+  s+=(st-s)*.15;fade+=((TK.holding()?1:0)-fade)*.2;
+  gl.uniform1f(U.S,s);gl.uniform1f(U.FADE,fade);gl.uniform1f(U.H,Math.min(cv.width,cv.height)/9.5);
+  gl.uniform3fv(U.A,PALS[pal][0]);gl.uniform3fv(U.B,PALS[pal][1]);gl.uniform3fv(U.MO,PALS[pal][2]);
+  G.draw();requestAnimationFrame(frame);
+}
+TK.press(cv,{
+  down:function(){s0=s;setTimeout(function(){if(TK.holding())say('タイルを薄くした。線はぜんぶ水平で、平行',0);},280);},
+  move:function(x,y,d){if(d.moved){s=Math.max(-.5,Math.min(.5,s0+(x-d.x)/innerWidth*1.2));manual=performance.now()/1000+4;}},
+  up:function(x,y,tap,d){
+    if(d.moved)say('ずらすほど傾いて見える。そろえると、まっすぐに戻る',4500);
+    else if(!tap)say('タイルが戻ると、また傾いて見える',3500);
+    else TK.hush();
+    if(stage<1)stage=1;}
+});
+function intro(){say('線が互い違いに傾いて、揺れて見える？',5500);
+  setTimeout(function(){if(stage<1&&!TK.down)say('線はぜんぶ平行。押さえると確かめられる。横になぞるとタイルがずれる',7500);},7000);}
+TK.wake();intro();requestAnimationFrame(frame);
+TK.kit(cv,'leaning-lines',function(){pal=(pal+1)%PALS.length;say('色を変えた。線は今度も平行',3000);},
+  function(){pal=0;manual=0;stage=0;intro();});
+})();
+</script>
+</body>
+</html>

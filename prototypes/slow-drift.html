@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<!-- SLOW DRIFT — クロちゃん(Claude)作。2026/11/10 試作。トリック作品(別枠。ギャラリー本体には入れない)。
+     世界のルール: 「回すのは輪ではない。色の並ぶ順番が決める」。
+     動いていない絵。暗い→濃い色→明るい→淡い色の順に並んだ模様は、目を動かすたびに、その順の向きへじわりと回って見える。
+     輪をタップ=その輪の色の順番が逆になる(回る向きが逆に)。押さえる=色の順番を白黒だけにそろえる(回って見えなくなる)。
+     技術: WebGL2(広色域 display-p3)/ 画面を消さないWake Lock。共通部品は trick-kit.js。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>SLOW DRIFT — 止まった輪が、じわりと回る</title>
+<script src="../ap-kit.js"></script>
+<script src="trick-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(function(){
+var cv=document.getElementById('c'), say=TK.say;
+var MAXC=40;
+var FS=[
+'uniform float SYM;uniform vec2 GRID;uniform float D['+MAXC+'];uniform vec3 C1,C2,BG;',
+'void main(){vec2 p=gl_FragCoord.xy;vec2 cs=R/GRID;vec2 id=floor(p/cs);vec2 f=(fract(p/cs)-.5)*cs;',
+' float r=length(f)/(min(cs.x,cs.y)*.5),a=atan(f.y,f.x);vec3 col=BG;',
+' if(r<.97&&r>.07){float ri=floor(r*7.);float n=4.+ri*3.;float ph=a/6.2832*n+ri*.37;',
+'  int ix=int(id.x+id.y*GRID.x);float d=D[min(ix,'+(MAXC-1)+')];float t=fract(ph*d);',
+'  vec3 c=t<.22?vec3(0.):(t<.5?C1:(t<.72?vec3(1.):C2));',              // 黒→濃い色→白→淡い色(この順の向きへ回って見える)
+'  vec3 sy=t<.5?vec3(0.):vec3(1.);',                                   // 白黒だけ(向きが無いので回らない)
+'  col=mix(c,sy,SYM);}',
+' o=vec4(col,1.);}'].join('\n');
+var cols=3,rows=5,dirs=[];
+function grid(){var w=innerWidth,h=innerHeight;cols=w<h?3:Math.max(3,Math.round(w/(h/3)));rows=Math.max(1,Math.round(h/(w/cols)));
+  if(cols*rows>MAXC)rows=Math.floor(MAXC/cols);
+  dirs=[];for(var j=0;j<rows;j++)for(var i=0;i<cols;i++)dirs.push((i+j)%2?-1:1);}
+var G=TK.gl(cv,FS,['SYM','GRID','D','C1','C2','BG'],grid);
+if(!G)return;
+var gl=G.gl,U=G.U;
+var PALS=[[[.1,.15,.85],[.98,.92,.2],[.45,.5,.45]],[[.6,.05,.5],[.55,1,.6],[.5,.48,.52]],[[.0,.42,.36],[1,.72,.55],[.5,.5,.5]],[[.75,.1,.1],[.6,.9,1],[.5,.5,.5]]];
+var pal=0,sym=0,stage=0;
+function frame(){
+  sym+=((TK.holding()?1:0)-sym)*.2;
+  var D=new Float32Array(MAXC);dirs.forEach(function(v,i){D[i]=v;});
+  gl.uniform1f(U.SYM,sym);gl.uniform2f(U.GRID,cols,rows);gl.uniform1fv(U.D,D);
+  gl.uniform3fv(U.C1,PALS[pal][0]);gl.uniform3fv(U.C2,PALS[pal][1]);gl.uniform3fv(U.BG,PALS[pal][2]);
+  G.draw();requestAnimationFrame(frame);
+}
+TK.press(cv,{
+  down:function(){setTimeout(function(){if(TK.holding())say('色の順番を白黒だけにした。もう回って見えない',0);},280);},
+  up:function(x,y,tap){
+    if(tap){var i=Math.min(cols-1,Math.floor(x/innerWidth*cols)),j=Math.min(rows-1,Math.floor((innerHeight-y)/innerHeight*rows));
+      dirs[i+j*cols]=-dirs[i+j*cols];say('触れた輪の色の順番を逆にした。回る向きが逆になる',4000);}
+    else say('色の順番が戻ると、また回りだす',3500);
+    if(stage<1)stage=1;}
+});
+function intro(){say('動いていない絵。目をあちこち動かすと、輪がじわりと回る？',6000);
+  setTimeout(function(){if(stage<1&&!TK.down)say('見ていない輪ほどよく回る。押さえると止まる。輪をタップで逆回り',7500);},7500);}
+TK.wake();intro();requestAnimationFrame(frame);
+TK.kit(cv,'slow-drift',function(){pal=(pal+1)%PALS.length;for(var i=0;i<dirs.length;i++)dirs[i]=Math.random()<.5?1:-1;say('色と向きを変えた。これも動いていない絵',3500);},
+  function(){pal=0;grid();stage=0;intro();});
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<!-- DARK PULL — クロちゃん(Claude)作。2026/11/10 試作。トリック作品(別枠。ギャラリー本体には入れない)。
+     世界のルール: 「触れた場所が、新しい穴になる」。
+     動いていない絵。ふちのぼけた暗い穴が、じわじわ広がって吸い込まれるように見える。
+     タップ=その場所へ穴が移る。押さえる=穴のふちがくっきりする(広がって見えなくなる)。
+     技術: WebGL2(広色域 display-p3)/ 画面を消さないWake Lock。共通部品は trick-kit.js。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>DARK PULL — 止まった穴が、ひろがって迫ってくる</title>
+<script src="../ap-kit.js"></script>
+<script src="trick-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(function(){
+var cv=document.getElementById('c'), say=TK.say;
+var FS=[
+'uniform vec2 C;uniform float SHARP;uniform vec3 BG,INK;',
+'void main(){float m=min(R.x,R.y);vec2 p=gl_FragCoord.xy;',
+' float g=m*.062;vec2 gp=p/g;gp.x+=mod(floor(gp.y),2.)*.5;vec2 f=fract(gp)-.5;',
+' float dt=smoothstep(.27,.22,length(f*vec2(.8,1.5)));',          // まわりの小さな粒
+' vec2 q=(p-C)/m;float r=length(q*vec2(1.,.72));',
+' float soft=1.-smoothstep(.09,.47,r);soft=pow(soft,1.3);',       // ぼけたふち(広がって見える元)
+' float hard=1.-smoothstep(.215,.225,r);',                        // くっきりしたふち(種明かし)
+' vec3 col=mix(BG,INK,dt);col=mix(col,INK,mix(soft,hard,SHARP));o=vec4(col,1.);}'].join('\n');
+var G=TK.gl(cv,FS,['C','SHARP','BG','INK'],function(){c=[innerWidth/2,innerHeight*.46];t=c.slice();});
+if(!G)return;
+var gl=G.gl,U=G.U;
+var PALS=[[[1,1,1],[0,0,0]],[[1,.42,.66],[.02,0,.05]],[[.35,.92,.9],[.01,.02,.16]],[[.99,.86,.3],[.1,.02,.0]],[[.03,.03,.06],[1,1,1]]];
+var pal=0,c,t,sharp=0,stage=0;
+c=[innerWidth/2,innerHeight*.46];t=c.slice();
+function frame(){
+  c[0]+=(t[0]-c[0])*.12;c[1]+=(t[1]-c[1])*.12;
+  sharp+=((TK.holding()?1:0)-sharp)*.2;
+  gl.uniform2f(U.C,TK.gx(c[0]),TK.gy(cv,c[1]));gl.uniform1f(U.SHARP,sharp);
+  gl.uniform3fv(U.BG,PALS[pal][0]);gl.uniform3fv(U.INK,PALS[pal][1]);
+  G.draw();requestAnimationFrame(frame);
+}
+TK.press(cv,{
+  down:function(){setTimeout(function(){if(TK.holding())say('ふちをくっきりさせた。もう広がって見えない',0);},280);},
+  up:function(x,y,tap){
+    if(tap){t=[x,y];say('触れた場所が、新しい穴になる',3500);}
+    else{say('ふちがぼけると、また広がってくる',3500);}
+    if(stage<1)stage=1;}
+});
+function intro(){say('動いていない絵。穴がひろがって迫ってくる？',5500);
+  setTimeout(function(){if(stage<1&&!TK.down)say('押さえると、ふちがくっきりして止まる。タップで穴が移る',7000);},7000);}
+TK.wake();intro();requestAnimationFrame(frame);
+TK.kit(cv,'dark-pull',function(){pal=(pal+1)%PALS.length;say(pal===4?'光の穴。まぶしく、ふくらんでくる？':'色を変えた。これも動いていない絵',4000);},
+  function(){pal=0;t=[innerWidth/2,innerHeight*.46];stage=0;intro();});
+})();
+</script>
+</body>
+</html>

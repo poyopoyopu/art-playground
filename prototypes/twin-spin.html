@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<!-- TWIN SPIN — クロちゃん(Claude)作。2026/11/10 試作。トリック作品(別枠。ギャラリー本体には入れない)。
+     世界のルール: 「回すのは輪ではない。四角の向きが決める」。
+     斜めを向いた小さな四角の輪。絵はゆっくり大きく・小さくなっているだけなのに、輪がたがい違いに回って見える。
+     押さえる=四角がまっすぐ向く(回って見えなくなる)。輪をタップ=その輪の四角の向きが逆になる(回る向きが逆に)。
+     左上の「傾き」ボタン=ONで、前後に傾けると大きさが変わる(自分の手で回せる)。
+     技術: WebGL2(広色域 display-p3)/ 画面を消さないWake Lock / 傾きセンサー。共通部品は trick-kit.js。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>TWIN SPIN — 近づくと、輪がたがい違いに回る</title>
+<script src="../ap-kit.js"></script>
+<script src="trick-kit.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(function(){
+var cv=document.getElementById('c'), say=TK.say;
+var FS=[
+'uniform float Z,TILT;uniform float DIR[5];uniform vec3 LIGHT,DARK,BG;',
+'void main(){float m=min(R.x,R.y);vec2 q=(gl_FragCoord.xy-.5*R)/m/Z;float a=atan(q.y,q.x);',
+' vec3 col=BG;',
+' for(int k=0;k<5;k++){float rk=.105+.082*float(k);float n=floor(6.2832*rk/.058+.5);float da=6.2832/n;',
+'  float ai=(floor(a/da)+.5)*da;vec2 er=vec2(cos(ai),sin(ai)),et=vec2(-er.y,er.x);vec2 l=q-rk*er;',
+'  float x=dot(l,et),y=dot(l,er),th=DIR[k]*TILT*.55,cs=cos(th),sn=sin(th);',
+'  vec2 v=vec2(x*cs-y*sn,x*sn+y*cs);float s=.021,w=.0064,mx=max(abs(v.x),abs(v.y));',
+'  if(mx<s&&mx>s-w){float e=abs(v.x)>abs(v.y)?v.x:v.y;col=e>0.?LIGHT:DARK;}',   // 四角のふち: 2辺は明るく、2辺は暗い
+' }',
+' o=vec4(col,1.);}'].join('\n');
+var G=TK.gl(cv,FS,['Z','TILT','DIR','LIGHT','DARK','BG']);
+if(!G)return;
+var gl=G.gl,U=G.U;
+var PALS=[[[1,1,1],[0,0,0],[.5,.5,.5]],[[1,.95,.55],[.08,.05,.4],[.55,.45,.62]],[[.75,1,.95],[.3,0,.12],[.5,.55,.5]],[[1,.8,.86],[0,.16,.2],[.56,.5,.5]]];
+var pal=0,dir=[1,-1,1,-1,1],tl=1,z=1,stage=0,t0=performance.now()/1000;
+var tilt=TK.tilt('前や後ろへ傾けると大きさが変わって、輪が回る');
+function frame(){
+  var now=performance.now()/1000-t0;
+  var zt=tilt.on?(.95+Math.max(-1,Math.min(1,tilt.y/22))*.15):(.95+.13*Math.sin(now*1.7));
+  z+=(zt-z)*.2;tl+=((TK.holding()?0:1)-tl)*.2;
+  gl.uniform1f(U.Z,z);gl.uniform1f(U.TILT,tl);gl.uniform1fv(U.DIR,new Float32Array(dir));
+  gl.uniform3fv(U.LIGHT,PALS[pal][0]);gl.uniform3fv(U.DARK,PALS[pal][1]);gl.uniform3fv(U.BG,PALS[pal][2]);
+  G.draw();requestAnimationFrame(frame);
+}
+TK.press(cv,{
+  down:function(){setTimeout(function(){if(TK.holding())say('四角をまっすぐにした。大きさが変わるだけで、もう回らない',0);},280);},
+  up:function(x,y,tap){
+    if(tap){var m=Math.min(innerWidth,innerHeight),r=Math.hypot(x-innerWidth/2,y-innerHeight/2)/m/z,best=0,bd=9;
+      for(var k=0;k<5;k++){var d=Math.abs(.105+.082*k-r);if(d<bd){bd=d;best=k;}}
+      dir[best]=-dir[best];say('触れた輪の四角を逆向きにした。回る向きが逆になる',4000);}
+    else say('四角が斜めを向くと、また回りだす',3500);
+    if(stage<1)stage=1;}
+});
+function intro(){say('まんなかを見て。輪がたがい違いに回る？',5500);
+  setTimeout(function(){if(stage<1&&!TK.down)say('本当は大きさが変わっているだけ。押さえると確かめられる',7000);},7000);}
+TK.wake();intro();requestAnimationFrame(frame);
+TK.kit(cv,'twin-spin',function(){pal=(pal+1)%PALS.length;for(var k=0;k<5;k++)dir[k]=Math.random()<.5?1:-1;say('色と向きを変えた',3000);},
+  function(){pal=0;dir=[1,-1,1,-1,1];stage=0;intro();});
+})();
+</script>
+</body>
+</html>
