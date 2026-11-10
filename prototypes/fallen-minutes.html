@@ -5,7 +5,8 @@
      下の砂丘に積もり、新しい数字がまた積もる。砂の色は時間でゆっくり変わるので、数字にも砂丘にも縞(地層)が残る。
      なぞる=砂を払う(払った所はまた積もる)。傾ける=砂が数字から流れ落ちる(戻すとまた積もる)。振る=砂が舞い上がる。
      秒は数字では出さない。10秒ごとに砂の色が次の層へ切り替わり(数字と砂丘の縞1本=10秒)、
-     分の下の6つの粒が10秒に1つずつ灯る(6つ揃うと分が変わって数字が崩れる)。 -->
+     分の下の6つの粒が10秒に1つずつ灯る(6つ揃うと分が変わって数字が崩れる)。
+     毎分50秒に流れ星が1本、空を斜めに横切って砂丘に落ちる(もうすぐ分が変わる合図)。 -->
 <html lang="ja">
 <head>
 <meta charset="utf-8">
@@ -23,7 +24,7 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hint">なぞる=払う　傾ける=流れ落ちる　振る=舞う</div>
+<div id="hint">なぞる・傾ける・振ると砂が動く</div>
 <script>
 (function(){
 var cv=document.getElementById('c'), ctx=cv.getContext('2d');
@@ -39,7 +40,7 @@ var MAXP=24000, np=0;
 var PX=new Float32Array(MAXP), PY=new Float32Array(MAXP), VX=new Float32Array(MAXP), VY=new Float32Array(MAXP);
 var PC=new Uint32Array(MAXP), PF=new Uint8Array(MAXP);
 var needCols=[], totalEmpty=0, curKey=-1, frameNo=0, t=0;
-var curDec=-1, tiltRaw=0, tiltX=0, shake=0;
+var curDec=-1, tiltRaw=0, tiltX=0, shake=0, star=null;
 var PALS=['RAINBOW','GOLD','ICE'], pal=0;
 
 function hsl(h,s,l){h=((h%1)+1)%1;var a=s*Math.min(l,1-l);
@@ -107,6 +108,22 @@ function applyDec(){               // 10秒ごと: 砂の色が次の層へ。�
   var dec=Math.floor(Date.now()/10000);if(dec===curDec)return;
   var first=curDec<0;curDec=dec;
   if(!first)for(var k=0;k<170;k++)spawn(Math.random()*GW,false);
+  if(!first&&Math.floor(Date.now()%60000/10000)===5){   // 50秒: 流れ星
+    var sd=Math.random()<.5?1:-1;
+    star={x:sd>0?GW*.05:GW*.95,y:-2,vx:sd*GW*.8/100,vy:GH/100,tr:[]};
+  }
+}
+function addP(x,y,vx,vy,c,pf){if(np>=MAXP)return;PX[np]=x;PY[np]=y;VX[np]=vx;VY[np]=vy;PC[np]=c;PF[np]=pf;np++;}
+function stepStar(){
+  if(!star)return;
+  for(var q=0;q<4;q++){star.tr.push(star.x,star.y);star.x+=star.vx/4;star.y+=star.vy/4;}   // 尾がつながるよう細かく刻む
+  if(star.tr.length>520)star.tr.splice(0,8);
+  var xi=star.x|0,yi=star.y|0;
+  if(Math.random()<.35)addP(star.x,star.y,(Math.random()-.5)*.4,.2,hsl(.13,.9,.78),20);
+  if(yi>=GH-2||(yi>=groundTop&&xi>=0&&xi<GW&&set[yi*GW+xi]===2)){   // 砂丘に落ちて、光る砂が散る
+    for(var k=0;k<110;k++)addP(star.x,star.y-1,(Math.random()-.5)*3,-Math.random()*2.8,hsl(.1+Math.random()*.08,.9,.7+Math.random()*.2),12);
+    star=null;
+  }
 }
 
 function scanNeed(){
@@ -131,7 +148,7 @@ function sink(){                   // 砂丘が育ったら、地層ごとゆっ
 
 function step(){
   t+=1/60;frameNo++;
-  applyDec();applyTime();
+  applyDec();applyTime();stepStar();
   if(frameNo%8===1)scanNeed();
   // 傾き: 傾けた側へ砂が数字から流れ落ちる。戻すとまた積もる
   tiltX+=(tiltRaw-tiltX)*.15;
@@ -140,7 +157,7 @@ function step(){
     if(set[ti]===1&&(!set[ti-GW*2]||!set[ti+td*2]))release(ti,false,td*(.5+Math.random()*.8));}
   // 振る: 砂が舞い上がる(数字も砂丘も)
   if(shake>.02){for(var b2=0,nb=5000*shake;b2<nb;b2++){var si=(Math.random()*N)|0;if(set[si])release(si,3.6);}shake*=.88;}
-  var nT=tl>0?0:Math.min(80,Math.max(totalEmpty?6:0,Math.ceil(totalEmpty/800)));
+  var nT=tl>0?0:Math.min(120,Math.max(totalEmpty?6:0,Math.ceil(totalEmpty/350)));
   for(var k=0;k<nT&&needCols.length;k++)spawn(needCols[(Math.random()*needCols.length)|0],true);
   spawn(Math.random()*GW,false);        // いつも少しだけ降っている砂
   var wind=Math.sin(t*.13)*.18;
@@ -188,6 +205,11 @@ function draw(){
         c=(255<<24)|((bb+(255-bb)*.45)<<16)|((gg+(255-gg)*.45)<<8)|(r+(255-r)*.45);}
       px32[i]=c;}}
   for(var p=0;p<np;p++){var yy=PY[p]|0;if(yy>=0&&yy<GH){var k=yy*GW+(PX[p]|0);if(!set[k])px32[k]=PC[p];}}
+  if(star){var tr=star.tr,L=tr.length;
+    for(var k2=0;k2<=L;k2+=2){var sx=(k2<L?tr[k2]:star.x)|0,sy=(k2<L?tr[k2+1]:star.y)|0,al=k2<L?Math.pow(k2/L,1.5)*.9:1,w=k2<L?0:1;
+      for(var wy=-w;wy<=w;wy++)for(var wx=-w;wx<=w;wx++){var X=sx+wx,Y=sy+wy;if(X<0||X>=GW||Y<0||Y>=GH)continue;
+        var o=px32[Y*GW+X],r0=o&255,g0=(o>>8)&255,b0=(o>>16)&255;
+        px32[Y*GW+X]=(255<<24)|((b0+(225-b0)*al)<<16)|((g0+(245-g0)*al)<<8)|(r0+(255-r0)*al);}}}
   // 6つの粒: 10秒に1つずつ灯る(今の10秒ぶんは、だんだん明るくなる)
   var ms=Date.now()%60000,cur=Math.floor(ms/10000),fr=(ms%10000)/10000,dec0=curDec-cur;
   var rr=Math.max(2,Math.round(GW*.013)),sp=GW*.075,cy=Math.round(GH*.715);
@@ -230,7 +252,7 @@ if(needAsk){
     DeviceOrientationEvent.requestPermission().then(function(r){if(r==='granted')listenMotion();}).catch(listenMotion);
     if(window.DeviceMotionEvent&&DeviceMotionEvent.requestPermission)DeviceMotionEvent.requestPermission().catch(function(){});
   });
-  hint.textContent='なぞる=払う　傾ける=流れ落ちる　振る=舞う(一度触れると傾きが使える)';
+  hint.innerHTML='なぞる・傾ける・振ると砂が動く<br>(傾き・振りは、一度画面に触れてから)';
 }
 listenMotion();   // 先に付けておく(許可が要らない端末はこれだけで動く。iPhoneは許可後に届きはじめる)
 
