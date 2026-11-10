@@ -94,6 +94,8 @@
   @media (prefers-reduced-motion:reduce){.follow-link{transition:none}}
   /* 共有・録画(全画面の右上。✕の左に並べる) */
   .modal .mtools{position:fixed;top:calc(env(safe-area-inset-top) + 20px);right:62px;z-index:51;display:flex;gap:8px}
+.modal .mtools,.modal .close{transition:opacity .45s ease}
+.modal.ui-hide .mtools,.modal.ui-hide .close{opacity:0;pointer-events:none}
   .mbtn{position:relative;min-width:38px;height:38px;padding:0;border-radius:19px;display:flex;align-items:center;justify-content:center;gap:6px;color:#fff;border:1px solid rgba(255,255,255,.16);background:rgba(10,10,16,.55);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:0 6px 20px rgba(0,0,0,.4);font-size:12px;font-weight:700;font-variant-numeric:tabular-nums;-webkit-appearance:none;appearance:none;cursor:pointer}.mbtn::before{content:"";position:absolute;inset:-6px}.mbtn[hidden]{display:none}.mbtn svg{width:18px;height:18px;display:block}
   .mbtn.rec .dot{display:block;width:12px;height:12px;border-radius:50%;background:#ff453a}.mbtn.rec.on{padding:0 12px 0 11px;background:rgba(255,69,58,.88);border-color:rgba(255,255,255,.3)}.mbtn.rec.on .dot{width:10px;height:10px;border-radius:2px;background:#fff}
   .recsheet{position:fixed;inset:0;z-index:60;display:none;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:calc(env(safe-area-inset-top) + 20px) 20px calc(env(safe-area-inset-bottom) + 20px);background:rgba(5,5,7,.9);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px)}.recsheet.open{display:flex}
@@ -176,13 +178,19 @@
 <div class="aphint" id="aphint" role="status" aria-live="polite"></div>
 <div class="aptoast" id="aptoast" role="status" aria-live="polite"></div>
 <script>
-function openArt(url,title){document.documentElement.classList.remove('standalone-launch');var f=document.getElementById('modalFrame');f.src=url;document.getElementById('modal').classList.add('open');if(title)try{history.replaceState(null,'',location.pathname);document.title=title+' — Art Playground'}catch(e){}try{apOnOpen(url,title)}catch(e){}try{apHint(url)}catch(e){}schedule()}
+function openArt(url,title){document.documentElement.classList.remove('standalone-launch');var f=document.getElementById('modalFrame');f.src=url;document.getElementById('modal').classList.add('open');apUiShow();if(title)try{history.replaceState(null,'',location.pathname);document.title=title+' — Art Playground'}catch(e){}try{apOnOpen(url,title)}catch(e){}try{apHint(url)}catch(e){}schedule()}
 function apFsToast(){
   if(window.navigator.standalone)return;
   var el=apHintEl();if(!el)return;apHintHide();
   el.textContent='iPhoneのSafariは全画面表示に対応していません。共有ボタン \u2192 「ホーム画面に追加」で開くと、フチなしの全画面で使えます';
   el.classList.add('on');apHintTimer=setTimeout(function(){el.classList.remove('on')},6000);
 }
+var apUiTimer=null;
+function apUiShow(){var m=document.getElementById('modal');if(!m||!m.classList.contains('open'))return;m.classList.remove('ui-hide');clearTimeout(apUiTimer);apUiTimer=setTimeout(function(){m.classList.add('ui-hide')},3500);}
+document.addEventListener('pointerdown',function(){apUiShow();},true);
+document.addEventListener('pointermove',function(e){if(e.pointerType==='mouse')apUiShow();},true);
+var apFrameEl=document.getElementById('modalFrame');
+if(apFrameEl)apFrameEl.addEventListener('load',function(){try{apFrameEl.contentWindow.addEventListener('pointerdown',function(e){var m=document.getElementById('modal');if(m&&m.classList.contains('ui-hide')){e.stopPropagation();e.preventDefault();}apUiShow();},true);}catch(err){}});
 function apFullscreen(){
   var m=document.getElementById('modal');
   if(document.fullscreenElement||document.webkitFullscreenElement){(document.exitFullscreen||document.webkitExitFullscreen).call(document);return;}
@@ -190,7 +198,7 @@ function apFullscreen(){
   if(req){try{var p=req.call(m);if(p&&p.catch)p.catch(function(){apFsToast()});}catch(e){apFsToast()}return;}
   apFsToast();
 }
-function closeArt(){try{apOnClose()}catch(e){}try{apHintHide()}catch(e){}document.getElementById('modal').classList.remove('open');setTimeout(function(){document.getElementById('modalFrame').src='';document.title='ART PLAYGROUND'},300);schedule()}
+function closeArt(){try{apOnClose()}catch(e){}try{apHintHide()}catch(e){}document.getElementById('modal').classList.remove('open');clearTimeout(apUiTimer);document.getElementById('modal').classList.remove('ui-hide');setTimeout(function(){document.getElementById('modalFrame').src='';document.title='ART PLAYGROUND'},300);schedule()}
 /* ---- 初回ヒント: 作品を開いた直後、その作品の1行ヒントを薄く出す。最初のタッチか6秒で消える。作品ごと端末ごとに1回だけ(2026/10 しゅん承認・AGENTS.md 17章) ---- */
 var apHintTimer=null,apHintOff=null;
 function apHintEl(){return document.getElementById('aphint')}
