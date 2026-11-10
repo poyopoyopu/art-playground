@@ -4,7 +4,7 @@
      世界のルール: 「過ぎた一分は崩れて、砂の地層になる」。分が変わると、変わった数字だけ崩れ落ちて
      下の砂丘に積もり、新しい数字がまた積もる。砂の色は時間でゆっくり変わるので、数字にも砂丘にも縞(地層)が残る。
      なぞる=砂を払う(払った所はまた積もる)。傾ける=砂が数字から流れ落ちる(戻すとまた積もる)。振る=砂が舞い上がる。
-     秒は数字では出さない。10秒ごとに砂の色が次の層へ切り替わり(数字と砂丘の縞1本=10秒)、
+     秒は数字では出さない。砂の色は時間でなめらかに変わり続ける(10秒ごとの色の切り替えは「つまらない」で廃止)。
      分の下の6つの粒が10秒に1つずつ灯る(6つ揃うと分が変わって数字が崩れる)。
      毎分50秒に流れ星が1本、空を斜めに横切って砂丘に落ちる(もうすぐ分が変わる合図)。 -->
 <html lang="ja">
@@ -38,7 +38,7 @@ var set, col, mask, bg, img, px32; // set: 0=空 1=数字の砂 2=砂丘
 var groundTop, groundCount=0;
 var MAXP=24000, np=0;
 var PX=new Float32Array(MAXP), PY=new Float32Array(MAXP), VX=new Float32Array(MAXP), VY=new Float32Array(MAXP);
-var PC=new Uint32Array(MAXP), PF=new Uint8Array(MAXP);
+var PC=new Uint32Array(MAXP), PF=new Uint8Array(MAXP), PT=new Uint8Array(MAXP);
 var needCols=[], totalEmpty=0, curKey=-1, frameNo=0, t=0;
 var curDec=-1, tiltRaw=0, tiltX=0, shake=0, star=null;
 var PALS=['RAINBOW','GOLD','ICE'], pal=0;
@@ -46,12 +46,13 @@ var PALS=['RAINBOW','GOLD','ICE'], pal=0;
 function hsl(h,s,l){h=((h%1)+1)%1;var a=s*Math.min(l,1-l);
   function f(n){var k=(n+h*12)%12;return l-a*Math.max(-1,Math.min(k-3,9-k,1));}
   return (255<<24)|((f(4)*255)<<16)|((f(8)*255)<<8)|(f(0)*255);}
-function decColor(dec,j){          // 10秒(dec)ごとに決まる層の色。jは粒ごとのばらつき
-  if(pal===0)return hsl(dec*.1+j*.02,.8,.56+j*.1);
-  if(pal===1)return hsl(.09+(dec%3)*.018+j*.02,.75,(dec%2?.4:.6)+j*.14);
-  return hsl(.55+(dec%3)*.03+j*.03,.7,(dec%2?.42:.64)+j*.14);
+function grainColor(){             // 砂の色は時間でなめらかに変わり続ける(数字にも砂丘にも、ゆるやかな虹の地層が残る)
+  var j=Math.random();
+  if(pal===0)return hsl(t*0.03+j*0.025,.8,.56+j*.1);
+  if(pal===1)return hsl(.09+Math.sin(t*.11)*.03+j*.02,.75,.42+j*.26+.08*Math.sin(t*.9));
+  return hsl(.55+Math.sin(t*.11)*.05+j*.03,.7,.48+j*.24+.08*Math.sin(t*.9));
 }
-function grainColor(){return decColor(curDec,Math.random());}
+function dotColor(d){return pal===0?hsl(d/6,.8,.62):(pal===1?hsl(.1,.75,.5+d*.05):hsl(.55,.7,.5+d*.05));}
 
 function setup(){
   var dpr=Math.min(window.devicePixelRatio||1,3),W=Math.round(innerWidth*dpr),H=Math.round(innerHeight*dpr);
@@ -87,7 +88,7 @@ function release(i,kick,vx0){          // 積もった1粒を、落ちる粒に�
   set[i]=0;
   if(np>=MAXP)return;
   PX[np]=(i%GW)+.5;PY[np]=((i/GW)|0)+.5;VX[np]=(vx0||0)+(Math.random()-.5)*(kick?1.6:.5);
-  VY[np]=kick?-Math.random()*kick:Math.random()*.3;PC[np]=col[i];PF[np]=kick?(kick>2?55:28):0;np++;
+  VY[np]=kick?-Math.random()*kick:Math.random()*.3;PC[np]=col[i];PF[np]=kick?(kick>2?55:28):0;PT[np]=0;np++;
 }
 
 function applyTime(){
@@ -104,16 +105,15 @@ function applyTime(){
   mask=nm;
 }
 
-function applyDec(){               // 10秒ごと: 砂の色が次の層へ。新しい色の砂がひと幕降る
+function applyDec(){               // 10秒の区切りを見て、50秒なら流れ星を出す
   var dec=Math.floor(Date.now()/10000);if(dec===curDec)return;
   var first=curDec<0;curDec=dec;
-  if(!first)for(var k=0;k<170;k++)spawn(Math.random()*GW,false);
   if(!first&&Math.floor(Date.now()%60000/10000)===5){   // 50秒: 流れ星
     var sd=Math.random()<.5?1:-1;
     star={x:sd>0?GW*.05:GW*.95,y:-2,vx:sd*GW*.8/100,vy:GH/100,tr:[]};
   }
 }
-function addP(x,y,vx,vy,c,pf){if(np>=MAXP)return;PX[np]=x;PY[np]=y;VX[np]=vx;VY[np]=vy;PC[np]=c;PF[np]=pf;np++;}
+function addP(x,y,vx,vy,c,pf){if(np>=MAXP)return;PX[np]=x;PY[np]=y;VX[np]=vx;VY[np]=vy;PC[np]=c;PF[np]=pf;PT[np]=0;np++;}
 function stepStar(){
   if(!star)return;
   for(var q=0;q<4;q++){star.tr.push(star.x,star.y);star.x+=star.vx/4;star.y+=star.vy/4;}   // 尾がつながるよう細かく刻む
@@ -135,7 +135,7 @@ function scanNeed(){
 function spawn(x,targeted){
   if(np>=MAXP)return;
   PX[np]=x+Math.random();PY[np]=-Math.random()*6;VX[np]=targeted?0:(Math.random()-.5)*.3;
-  VY[np]=.6+Math.random()*.9;PC[np]=grainColor();PF[np]=0;np++;
+  VY[np]=.6+Math.random()*.9;PC[np]=grainColor();PF[np]=0;PT[np]=targeted?1:0;np++;
 }
 
 function sink(){                   // 砂丘が育ったら、地層ごとゆっくり沈める(新しい層が上に積もり続ける)
@@ -162,7 +162,7 @@ function step(){
   spawn(Math.random()*GW,false);        // いつも少しだけ降っている砂
   var wind=Math.sin(t*.13)*.18;
   for(var p=0;p<np;p++){
-    VY[p]=Math.min(VY[p]+.09,3.2);if(PF[p])PF[p]--; else VX[p]+=(wind*.3+tiltX*1.7-VX[p])*.04;
+    VY[p]=Math.min(VY[p]+.09,3.2);if(PF[p])PF[p]--; else if(!PT[p]||tl>0)VX[p]+=(wind*.3+tiltX*1.7-VX[p])*.04;
     var n=Math.max(1,Math.ceil(Math.abs(VY[p]))),dx=VX[p]/n,dy=VY[p]/n,dead=false;
     for(var s=0;s<n&&!dead;s++){
       PX[p]+=dx;PY[p]+=dy;
@@ -190,7 +190,7 @@ function step(){
         }
       }
     }
-    if(dead){np--;PX[p]=PX[np];PY[p]=PY[np];VX[p]=VX[np];VY[p]=VY[np];PC[p]=PC[np];PF[p]=PF[np];p--;}
+    if(dead){np--;PX[p]=PX[np];PY[p]=PY[np];VX[p]=VX[np];VY[p]=VY[np];PC[p]=PC[np];PF[p]=PF[np];PT[p]=PT[np];p--;}
   }
   if(frameNo%6===0&&groundCount>GW*(GH-groundTop)*.5)sink();
 }
@@ -211,13 +211,13 @@ function draw(){
         var o=px32[Y*GW+X],r0=o&255,g0=(o>>8)&255,b0=(o>>16)&255;
         px32[Y*GW+X]=(255<<24)|((b0+(225-b0)*al)<<16)|((g0+(245-g0)*al)<<8)|(r0+(255-r0)*al);}}}
   // 6つの粒: 10秒に1つずつ灯る(今の10秒ぶんは、だんだん明るくなる)
-  var ms=Date.now()%60000,cur=Math.floor(ms/10000),fr=(ms%10000)/10000,dec0=curDec-cur;
+  var ms=Date.now()%60000,cur=Math.floor(ms/10000),fr=(ms%10000)/10000;
   var rr=Math.max(2,Math.round(GW*.013)),sp=GW*.075,cy=Math.round(GH*.715);
   for(var d=0;d<6;d++){var cx=Math.round(GW/2+(d-2.5)*sp),lit=d<cur?1:(d===cur?.25+.75*fr:0);
     for(var oy=-rr;oy<=rr;oy++)for(var ox=-rr;ox<=rr;ox++){if(ox*ox+oy*oy>rr*rr+1)continue;
       var qi=(cy+oy)*GW+cx+ox,base=bg[cy+oy]+0x00141414;
       if(!lit){px32[qi]=base;continue;}
-      var c2=decColor(dec0+d,.5),br=base&255,bgc=(base>>8)&255,bb2=(base>>16)&255;
+      var c2=dotColor(d),br=base&255,bgc=(base>>8)&255,bb2=(base>>16)&255;
       px32[qi]=(255<<24)|((bb2+(((c2>>16)&255)-bb2)*lit)<<16)|((bgc+(((c2>>8)&255)-bgc)*lit)<<8)|(br+((c2&255)-br)*lit);}}
   sctx.putImageData(img,0,0);
   ctx.globalCompositeOperation='source-over';ctx.globalAlpha=1;ctx.imageSmoothingEnabled=false;
