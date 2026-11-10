@@ -1,3 +1,4 @@
+- 2026-11-10 ムーちゃん: TRICK ROOM入口をベストな位置へ移動(オーナー指示「ベストな位置でね!」)。作品グリッド直後から、C CURRENT(ヒーロー)直後・LOGの前へ。全員が最初に通る場所に置いた。
 - 2026-11-10 ムーちゃん: トップページに TRICK ROOM(prototypes/tricks.html)への入口セクションを追加(オーナー指示「せっかくだからトップのどこかに入れ込んで」)。場所は作品グリッド直後・FOLLOW節の前で、既存セクションと同じ体裁+グラデーションのピル型リンク。
 - 2026-11-10 ムーちゃん: トップページのシェア用カード画像(OGP)を最新作3作(DEEP HOURS／28 SHELLS／FALLEN MINUTES)のコラージュに刷新。brand/og-image-2026b.jpg を追加し、index.html の og:image／twitter:image を差し替え(旧 brand/og-image.jpg は据え置き)。当初4作版(CAMPFIRE入り)で作ったがオーナー指示で3作版に作り直し、シェア側キャッシュ対策でファイル名を 2026b に変更。本番取得でバイト一致まで確認済み。
 - 2026-11-10 クロちゃん: トリック作品10作すべてに「‹ 戻る」ボタンを追加(おっちゃんiPhone実機「戻るボタンがないのがダメ」)。左上にいつも出ていて、押すとTRICK ROOM(`prototypes/tricks.html`)へ戻る。新作7つは共通部品`trick-kit.js`に入れ、SAME COLOR・SAME SPEED・STILL MOVINGは各ファイルに同じボタンを足した。「傾き」ボタンは戻るボタンのすぐ下。入口ページの文も「作品の左上の「‹ 戻る」で戻れる」に直した。確認: `node --check`OK、スマホ幅のヘッドレスChromiumで10作とも戻るボタンが出て、押すと一覧へ戻る・エラー無し(prototypes/trick-kit.js, same-color.html, same-speed.html, still-moving.html, tricks.html, CHANGELOG.md)
