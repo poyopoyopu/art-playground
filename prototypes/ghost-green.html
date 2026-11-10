@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<!-- GHOST GREEN — クロちゃん(Claude)作。2026/11/10 試作。トリック作品(別枠。ギャラリー本体には入れない)。
+     世界のルール: 「消えた場所に、無い色の玉が生まれる」。
+     輪に並んだ色の玉が1つずつ順番に消える。まんなかの＋を見つめると、消えた場所に反対色の玉が見えて走りだし、
+     そのまま見つめ続けると、もとの玉のほうが全部消える(残像と、動かない物が消える目の性質)。
+     押さえる=止まる(種明かし。反対色の玉は画面のどこにも無い)。タップ=玉の色を変える(見える玉の色も変わる)。
+     技術: WebGL2 / 広色域(display-p3)の描画 / 明るさをそろえたOKLCHの色 / 画面を消さないWake Lock。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>GHOST GREEN — 消えた場所に、無い色の玉が走る</title>
+<script src="../ap-kit.js"></script>
+<style>
+html,body{margin:0;height:100%;background:#9a9a9a;overflow:hidden;touch-action:none}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+#hint{position:fixed;left:0;right:0;bottom:calc(96px + env(safe-area-inset-bottom));text-align:center;
+  color:#fff;font:600 15px/1.5 system-ui,-apple-system,"Hiragino Sans",sans-serif;letter-spacing:.06em;
+  text-shadow:0 0 8px #000,0 0 8px #000,0 1px 2px #000;pointer-events:none;opacity:0;transition:opacity .6s;padding:0 20px}
+#hint.on{opacity:.92}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint"></div>
+<script>
+(function(){
+var cv=document.getElementById('c'), hint=document.getElementById('hint');
+function say(s,ms){hint.textContent=s;hint.classList.add('on');
+  clearTimeout(say.t);if(ms)say.t=setTimeout(function(){hint.classList.remove('on');},ms);}
+var gl=cv.getContext('webgl2',{antialias:false,preserveDrawingBuffer:true});
+if(!gl){say('このブラウザでは表示できないみたい(WebGL2が必要)',0);return;}
+if('drawingBufferColorSpace' in gl){try{gl.drawingBufferColorSpace='display-p3';}catch(e){}}
+
+var VS='#version 300 es\nin vec2 p;void main(){gl_Position=vec4(p,0.,1.);}';
+var FS=[
+'#version 300 es',
+'precision highp float;',
+'uniform vec2 R;uniform float N,GAP,RING,SIG;uniform vec3 DOT,BG;',
+'out vec4 o;',
+'void main(){',
+' float m=min(R.x,R.y);',
+' vec2 q=(gl_FragCoord.xy-.5*R)/m;',
+' float al=0.;',
+' for(int i=0;i<16;i++){',
+'  float fi=float(i); if(fi>=N)break;',
+'  if(abs(fi-GAP)<.5)continue;',               // 今「消えている」玉
+'  float a=6.2831853*fi/N+1.5707963;',
+'  vec2 c=RING*vec2(cos(a),sin(a));',
+'  float d=length(q-c);',
+'  al=max(al,exp(-d*d/(2.*SIG*SIG)));',
+' }',
+' vec3 col=mix(BG,DOT,al*.92);',
+// まんなかの＋(見つめる点)
+' vec2 aq=abs(q);',
+' float cr=step(max(aq.x,aq.y),.022)*step(min(aq.x,aq.y),.0035);',
+' col=mix(col,vec3(0.),cr);',
+' o=vec4(col,1.);',
+'}'].join('\n');
+
+function sh(t,src){var s=gl.createShader(t);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))console.error(gl.getShaderInfoLog(s));return s;}
+var pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,VS));gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,FS));
+gl.linkProgram(pr);gl.useProgram(pr);
+var b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+var loc=gl.getAttribLocation(pr,'p');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+var U={};['R','N','GAP','RING','SIG','DOT','BG'].forEach(function(n){U[n]=gl.getUniformLocation(pr,n);});
+
+function resize(){var d=Math.min(window.devicePixelRatio||1,2);
+  cv.width=Math.round(innerWidth*d);cv.height=Math.round(innerHeight*d);gl.viewport(0,0,cv.width,cv.height);}
+addEventListener('resize',resize);resize();
+
+// OKLCH → sRGB(明るさLを背景の灰色とそろえると、玉が消えやすい)
+function oklch(L,C,h){
+  var a=C*Math.cos(h),bb=C*Math.sin(h);
+  var l=L+.3963377774*a+.2158037573*bb, m=L-.1055613458*a-.0638541728*bb, s=L-.0894841775*a-1.291485548*bb;
+  l=l*l*l;m=m*m*m;s=s*s*s;
+  var rgb=[4.0767416621*l-3.3077115913*m+.2309699292*s,-1.2684380046*l+2.6097574011*m-.3413193965*s,-.0041960863*l-.7034186147*m+1.707614701*s];
+  return rgb.map(function(v){v=Math.max(0,Math.min(1,v));return v<=.0031308?12.92*v:1.055*Math.pow(v,1/2.4)-.055;});
+}
+var LUM=.70;
+var D0={n:12,hue:5.76,dir:1,step:.11};   // 5.76rad ≒ 330° = ピンク(見える玉は緑)
+var law={n:D0.n,hue:D0.hue,dir:D0.dir,step:D0.step};
+var gap=0, acc=0, held=false, last=performance.now()/1000, t0=last, told=0;
+
+function intro(){t0=performance.now()/1000;told=0;say('まんなかの＋を、じっと見つめ続けて',6000);}
+function mutate(){law.n=8+Math.floor(Math.random()*7);law.hue=Math.random()*6.2832;
+  law.dir=Math.random()<.5?1:-1;law.step=.09+Math.random()*.05;gap=0;}
+
+function frame(){
+  var now=performance.now()/1000, dt=Math.min(now-last,.1);last=now;
+  if(!held){acc+=dt;while(acc>=law.step){acc-=law.step;gap=(gap+law.dir+law.n)%law.n;}}
+  var el=now-t0;
+  if(told===0&&el>11){told=1;say('無いはずの色の玉が、走って見える？',5000);}
+  if(told===1&&el>20){told=2;say('見つめ続けると、もとの玉のほうが消えていく',5500);}
+  if(told===2&&el>32){told=3;say('押さえると止まる。走る玉は、画面のどこにも無い',6000);}
+  var bg=oklch(LUM,0,0), dc=oklch(LUM,.2,law.hue);
+  gl.uniform2f(U.R,cv.width,cv.height);gl.uniform1f(U.N,law.n);gl.uniform1f(U.GAP,gap);
+  gl.uniform1f(U.RING,.34);gl.uniform1f(U.SIG,.034);
+  gl.uniform3f(U.DOT,dc[0],dc[1],dc[2]);gl.uniform3f(U.BG,bg[0],bg[1],bg[2]);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  requestAnimationFrame(frame);
+}
+
+// 画面を消さない(見つめている間に暗くならないように)
+var wl=null;
+function wake(){if(navigator.wakeLock&&!wl)navigator.wakeLock.request('screen').then(function(l){wl=l;
+  l.addEventListener('release',function(){wl=null;});}).catch(function(){});}
+document.addEventListener('visibilitychange',function(){if(!document.hidden)wake();});
+
+var downAt=0;
+cv.addEventListener('pointerdown',function(e){
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  wake();held=true;downAt=performance.now();
+  say('止めた。欠けた場所があるだけで、走る玉はどこにも無い',0);
+});
+function up(){
+  if(!held)return;held=false;
+  if(performance.now()-downAt<300){law.hue=(law.hue+2.4)%6.2832;   // 短いタップ=玉の色を変える
+    say('玉の色を変えた。見える玉の色も変わる',3500);}
+  else say('また走りだす。＋を見つめて',3500);
+}
+cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
+
+wake();intro();requestAnimationFrame(frame);
+
+APKit.init({
+  canvas:cv, gifName:'ghost-green-loop', clockFormat:'spec',
+  dock:true, autoHide:true, fullscreenButton:false,
+  buttons:[
+    {label:'✦',name:'mutate',onClick:function(){mutate();intro();}},
+    {label:'↻',name:'reset',onClick:function(){law.n=D0.n;law.hue=D0.hue;law.dir=D0.dir;law.step=D0.step;gap=0;intro();}}
+  ]
+});
+})();
+</script>
+</body>
+</html>

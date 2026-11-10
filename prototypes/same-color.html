@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<!-- SAME COLOR — クロちゃん(Claude)作。2026/11/10 試作。トリック作品(別枠。ギャラリー本体には入れない)。
+     世界のルール: 「玉の色は玉のものではない。前を通る縞が決める」。
+     玉は全部まったく同じ色。3色の細い縞のうち、どの色の縞が玉の前を通るかで、赤っぽく・緑っぽく・青っぽく見える。
+     指を置く=その周りだけ縞が消える(同じ色だと分かる)。玉をタップ=前を通る縞が変わる(目の前で玉の色が変わって見える)。
+     傾ける=傾けた側から縞が落ちていく。
+     技術: WebGL2 / 広色域(display-p3)の描画 / 傾きセンサー / 画面を消さないWake Lock。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>SAME COLOR — 玉の色は、前を通る縞が決める</title>
+<script src="../ap-kit.js"></script>
+<style>
+html,body{margin:0;height:100%;background:#000;overflow:hidden;touch-action:none}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+#hint{position:fixed;left:0;right:0;bottom:calc(96px + env(safe-area-inset-bottom));text-align:center;
+  color:#fff;font:600 15px/1.5 system-ui,-apple-system,"Hiragino Sans",sans-serif;letter-spacing:.06em;
+  text-shadow:0 0 8px #000,0 0 8px #000,0 1px 2px #000;pointer-events:none;opacity:0;transition:opacity .6s;padding:0 20px}
+#hint.on{opacity:.95}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint"></div>
+<script>
+(function(){
+var cv=document.getElementById('c'), hint=document.getElementById('hint');
+function say(s,ms){hint.textContent=s;hint.classList.add('on');
+  clearTimeout(say.t);if(ms)say.t=setTimeout(function(){hint.classList.remove('on');},ms);}
+var gl=cv.getContext('webgl2',{antialias:false,preserveDrawingBuffer:true});
+if(!gl){say('このブラウザでは表示できないみたい(WebGL2が必要)',0);return;}
+if('drawingBufferColorSpace' in gl){try{gl.drawingBufferColorSpace='display-p3';}catch(e){}}
+
+var MAXB=14;
+var VS='#version 300 es\nin vec2 p;void main(){gl_Position=vec4(p,0.,1.);}';
+var FS=[
+'#version 300 es',
+'precision highp float;',
+'uniform vec2 R;uniform float SW,VERT,LR,TS;uniform vec2 LENS,TDIR;',
+'uniform vec3 B['+MAXB+'];uniform float G['+MAXB+'];uniform int NB;',
+'uniform vec3 C0,C1,C2,BALL;',
+'out vec4 o;',
+'void main(){',
+' vec2 p=gl_FragCoord.xy;',
+' float sc=VERT>.5?p.x:p.y;',
+' float idx=mod(floor(sc/SW),3.);',
+' vec3 st=idx<.5?C0:(idx<1.5?C1:C2);',
+// 縞が消えている度合い(指のまわり / 傾けた側)
+' float rev=1.-smoothstep(LR*.82,LR,distance(p,LENS));',
+' vec2 uv=(p-.5*R)/R;',
+' rev=max(rev,smoothstep(-.03,.03,dot(uv,TDIR)-(.78-TS*1.56)));',
+' vec3 col=mix(st,vec3(.40),rev);',
+' for(int i=0;i<'+MAXB+';i++){',
+'  if(i>=NB)break;',
+'  vec2 d=p-B[i].xy; float r=B[i].z, l=length(d);',
+'  if(l>r+2.)continue;',
+'  vec2 n=d/r; float z=sqrt(max(0.,1.-dot(n,n)));',
+'  float lit=.80+.20*z+.10*pow(max(0.,dot(normalize(vec3(n,z)),normalize(vec3(-.45,.55,.7)))),8.);',
+'  vec3 bc=BALL*lit;',
+'  float front=step(abs(idx-G[i]),.5)*(1.-rev);',   // この玉の前を通る縞か
+'  float a=smoothstep(r,r-1.5,l);',
+'  col=mix(col,mix(bc,st,front),a);',
+' }',
+' o=vec4(col,1.);',
+'}'].join('\n');
+
+function sh(t,src){var s=gl.createShader(t);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))console.error(gl.getShaderInfoLog(s));return s;}
+var pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,VS));gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,FS));
+gl.linkProgram(pr);gl.useProgram(pr);
+var b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+var loc=gl.getAttribLocation(pr,'p');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+var U={};['R','SW','VERT','LR','TS','LENS','TDIR','B','G','NB','C0','C1','C2','BALL'].forEach(function(n){U[n]=gl.getUniformLocation(pr,n);});
+
+var dpr=1;
+// 玉は画面の割合(0〜1)で持ち、画面の大きさが変わっても同じ配置にする
+var balls=[], law={vert:0,ball:[.98,.86,.66],cols:[[.93,.20,.42],[.15,.72,.32],[.20,.36,.95]]};
+var PALS=[
+  {ball:[.98,.86,.66],cols:[[.93,.20,.42],[.15,.72,.32],[.20,.36,.95]]},
+  {ball:[.80,.80,.80],cols:[[.95,.35,.10],[.10,.70,.70],[.62,.22,.90]]},
+  {ball:[.70,.92,.86],cols:[[.95,.18,.55],[.95,.75,.10],[.18,.30,.90]]},
+  {ball:[.96,.72,.76],cols:[[.90,.15,.20],[.20,.75,.25],[.15,.45,.95]]}
+];
+function layout(){
+  balls=[];var n=10+Math.floor(Math.random()*3), tries=0, asp=innerHeight/innerWidth;
+  var m=Math.min(innerWidth,innerHeight);
+  while(balls.length<n&&tries<4000){tries++;
+    var r=(.085+Math.random()*.04)*m;
+    var x=r+8+Math.random()*(innerWidth-2*r-16), y=r+70+Math.random()*(innerHeight-2*r-200);
+    var ok=y>r&&y<innerHeight-r;
+    for(var i=0;i<balls.length&&ok;i++){var o=balls[i];if(Math.hypot(o.x-x,o.y-y)<o.r+r+10)ok=false;}
+    if(ok)balls.push({x:x,y:y,r:r,g:balls.length%3});
+  }
+}
+function resize(){dpr=Math.min(window.devicePixelRatio||1,2);
+  cv.width=Math.round(innerWidth*dpr);cv.height=Math.round(innerHeight*dpr);gl.viewport(0,0,cv.width,cv.height);layout();}
+addEventListener('resize',resize);resize();
+
+var lens={x:-9999,y:-9999,on:false,r:0}, tilt={x:0,y:0,s:0,base:null}, stage=0;
+
+function frame(){
+  lens.r+=((lens.on?1:0)-lens.r)*.25;
+  var m=Math.min(cv.width,cv.height);
+  gl.uniform2f(U.R,cv.width,cv.height);
+  gl.uniform1f(U.SW,Math.max(2,Math.round(2.6*dpr)));
+  gl.uniform1f(U.VERT,law.vert);
+  gl.uniform1f(U.LR,lens.r*.24*m);
+  gl.uniform2f(U.LENS,lens.x*dpr,cv.height-lens.y*dpr);
+  gl.uniform2f(U.TDIR,tilt.x,tilt.y);gl.uniform1f(U.TS,tilt.s);
+  var B=new Float32Array(MAXB*3), G=new Float32Array(MAXB);
+  balls.forEach(function(o,i){B[i*3]=o.x*dpr;B[i*3+1]=cv.height-o.y*dpr;B[i*3+2]=o.r*dpr;G[i]=o.g;});
+  gl.uniform3fv(U.B,B);gl.uniform1fv(U.G,G);gl.uniform1i(U.NB,balls.length);
+  gl.uniform3fv(U.C0,law.cols[0]);gl.uniform3fv(U.C1,law.cols[1]);gl.uniform3fv(U.C2,law.cols[2]);
+  gl.uniform3fv(U.BALL,law.ball);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  requestAnimationFrame(frame);
+}
+
+// 傾き: 最初の向きを基準に、8°を超えた分だけ、傾けた側から縞が落ちる
+function onTilt(e){
+  if(e.beta==null||e.gamma==null)return;
+  if(!tilt.base)tilt.base={b:e.beta,g:e.gamma};
+  var gx=e.gamma-tilt.base.g, gy=-(e.beta-tilt.base.b), mag=Math.hypot(gx,gy);
+  var s=Math.max(0,Math.min(1,(mag-8)/22));
+  tilt.s+=(s-tilt.s)*.2;
+  if(mag>1){tilt.x=gx/mag;tilt.y=gy/mag;}
+}
+var asked=false;
+function askTilt(){
+  if(asked)return;asked=true;
+  var D=window.DeviceOrientationEvent;
+  if(D&&typeof D.requestPermission==='function'){
+    D.requestPermission().then(function(r){if(r==='granted')addEventListener('deviceorientation',onTilt);}).catch(function(){});
+  }else addEventListener('deviceorientation',onTilt);
+}
+var wl=null;
+function wake(){if(navigator.wakeLock&&!wl)navigator.wakeLock.request('screen').then(function(l){wl=l;
+  l.addEventListener('release',function(){wl=null;});}).catch(function(){});}
+document.addEventListener('visibilitychange',function(){if(!document.hidden)wake();});
+
+var down=null;
+cv.addEventListener('pointerdown',function(e){
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  askTilt();wake();
+  down={x:e.clientX,y:e.clientY,t:performance.now(),moved:false};
+  lens.x=e.clientX;lens.y=e.clientY;lens.on=true;
+  if(stage<1){stage=1;say('縞が消えた所の玉を見て。ぜんぶ同じ色',4500);}
+});
+cv.addEventListener('pointermove',function(e){
+  if(!down)return;
+  if(Math.hypot(e.clientX-down.x,e.clientY-down.y)>10)down.moved=true;
+  lens.x=e.clientX;lens.y=e.clientY;
+});
+function up(e){
+  if(!down)return;
+  if(!down.moved&&performance.now()-down.t<300){   // 短いタップが玉の上なら、前を通る縞を替える
+    for(var i=0;i<balls.length;i++){var o=balls[i];
+      if(Math.hypot(o.x-down.x,o.y-down.y)<o.r){o.g=(o.g+1)%3;
+        say('玉は何も変えていない。前を通る縞を替えただけ',4000);break;}}
+  }else if(stage<2){stage=2;say('玉をタップすると色が変わって見える。傾けても縞が落ちる',6000);}
+  down=null;lens.on=false;
+}
+cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
+
+function mutate(){var p=PALS[Math.floor(Math.random()*PALS.length)];
+  law.ball=p.ball;law.cols=p.cols.slice().sort(function(){return Math.random()-.5;});
+  law.vert=Math.random()<.5?1:0;layout();}
+
+wake();say('玉は何色ある？ じつは、ぜんぶ同じ色。指を置いて確かめて',0);
+requestAnimationFrame(frame);
+
+APKit.init({
+  canvas:cv, gifName:'same-color-loop', clockFormat:'spec',
+  dock:true, autoHide:true, fullscreenButton:false,
+  buttons:[
+    {label:'✦',name:'mutate',onClick:function(){mutate();say('色と縞を変えた。玉は今度もぜんぶ同じ色',4000);}},
+    {label:'↻',name:'reset',onClick:function(){law.vert=0;law.ball=PALS[0].ball;law.cols=PALS[0].cols;tilt.base=null;stage=0;layout();
+      say('玉は何色ある？ じつは、ぜんぶ同じ色。指を置いて確かめて',0);}}
+  ]
+});
+})();
+</script>
+</body>
+</html>
