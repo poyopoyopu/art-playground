@@ -4,6 +4,7 @@
      世界のルール: 「過ぎた一分は崩れて、砂の地層になる」。分が変わると、変わった数字だけ崩れ落ちて
      下の砂丘に積もり、新しい数字がまた積もる。砂の色は時間でゆっくり変わるので、数字にも砂丘にも縞(地層)が残る。
      なぞる=砂を払う(払った所はまた積もる)。傾ける=砂が数字から流れ落ちる(戻すとまた積もる)。振る=砂が舞い上がる。
+     傾き・振りは、下のボタン(スマホの絵)を押してONにしたときだけ働く(2026/11/10 おっちゃん「センサー付きはボタンで示してね」)。
      秒は数字では出さない。砂の色は時間でなめらかに変わり続ける(10秒ごとの色の切り替えは「つまらない」で廃止)。
      分の下の5つの粒が、10秒・20秒・30秒・40秒・50秒で1つずつ灯る(0〜9秒は何も灯らない。分が変わると全部消える)。
      毎分50秒に流れ星が1本、空を斜めに横切って砂丘に落ちる(もうすぐ分が変わる合図)。 -->
@@ -24,7 +25,7 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hint">なぞる・傾ける・振ると砂が動く</div>
+<div id="hint">なぞると砂が動く<br>下のスマホの絵のボタンで、傾き・振り</div>
 <script>
 (function(){
 var cv=document.getElementById('c'), ctx=cv.getContext('2d');
@@ -240,21 +241,30 @@ cv.addEventListener('pointermove',function(e){if(down)brush(e);});
 addEventListener('pointerup',function(){down=false;});addEventListener('pointercancel',function(){down=false;});
 addEventListener('resize',setup);
 
-// 傾き・振り(iPhoneは最初のタップで許可を求める)
+// 傾き・振りの値の読み取り
 function onOri(e){if(e.gamma==null)return;var a=(screen.orientation&&screen.orientation.angle)||0;
   var g=a===90?e.beta:(a===270?-e.beta:e.gamma);tiltRaw=Math.max(-1,Math.min(1,g/40));}
 function onMot(e){var a=e.acceleration;if(!a||a.x==null)return;
   var m=Math.sqrt(a.x*a.x+a.y*a.y+a.z*a.z);if(m>9)shake=Math.min(1,shake+(m-9)/25);}
-function listenMotion(){addEventListener('deviceorientation',onOri);addEventListener('devicemotion',onMot);}
-var needAsk=window.DeviceOrientationEvent&&typeof DeviceOrientationEvent.requestPermission==='function';
-if(needAsk){
-  addEventListener('pointerup',function ask(){removeEventListener('pointerup',ask);
-    DeviceOrientationEvent.requestPermission().then(function(r){if(r==='granted')listenMotion();}).catch(listenMotion);
-    if(window.DeviceMotionEvent&&DeviceMotionEvent.requestPermission)DeviceMotionEvent.requestPermission().catch(function(){});
-  });
-  hint.innerHTML='なぞる・傾ける・振ると砂が動く<br>(傾き・振りは、一度画面に触れてから)';
+// 傾き・振りは、下のボタン(スマホの絵)で入れる(センサーを使う作品はボタンで示す。iPhoneはここで許可が出る)
+var motionOn=false, gotOri=false, motBtn=null, hintT=0;
+function showHint(html,ms){hint.innerHTML=html;hint.classList.add('on');clearTimeout(hintT);hintT=setTimeout(function(){hint.classList.remove('on');},ms);}
+function onOri2(e){if(e.gamma!=null)gotOri=true;onOri(e);}
+function setMotion(on){motionOn=on;if(motBtn)motBtn.style.opacity=on?'1':'.4';
+  if(on){gotOri=false;addEventListener('deviceorientation',onOri2);addEventListener('devicemotion',onMot);
+    showHint('傾き・振り ON<br>傾けると砂が落ちる。振ると砂が舞う',5000);
+    setTimeout(function(){if(motionOn&&!gotOri){setMotion(false);showHint('この端末では傾きセンサーが使えないみたい',4500);}},2000);}
+  else{removeEventListener('deviceorientation',onOri2);removeEventListener('devicemotion',onMot);tiltRaw=0;shake=0;}}
+function toggleMotion(){
+  if(motionOn){setMotion(false);showHint('傾き・振り OFF',2000);return;}
+  var D=window.DeviceOrientationEvent, M=window.DeviceMotionEvent;
+  if(!D){showHint('この端末では傾きセンサーが使えないみたい',4500);return;}
+  if(typeof D.requestPermission==='function'){
+    var no=function(){showHint('傾きが許可されなかった<br>設定で許可すると使える',5000);};
+    D.requestPermission().then(function(r){if(r==='granted')setMotion(true);else no();}).catch(no);
+    if(M&&M.requestPermission)M.requestPermission().catch(function(){});
+  }else setMotion(true);
 }
-listenMotion();   // 先に付けておく(許可が要らない端末はこれだけで動く。iPhoneは許可後に届きはじめる)
 
 function collapseAll(){for(var i=0;i<groundTop*GW;i++)if(set[i]===1)release(i,false);}
 
@@ -266,9 +276,11 @@ APKit.init({
   dock:true, autoHide:true, fullscreenButton:false,
   buttons:[
     {label:'✦',name:'mutate',onClick:function(){pal=(pal+1)%PALS.length;collapseAll();}},   // 砂の色を替えて積もり直す
-    {label:'↻',name:'reset',onClick:function(){pal=0;setup();}}
+    {label:'↻',name:'reset',onClick:function(){pal=0;setup();}},
+    {label:'<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="8.5" y="3" width="7" height="18" rx="2"/><path d="M4.5 9c-1 2-1 4 0 6M19.5 9c1 2 1 4 0 6"/></svg>',name:'tilt',onClick:function(){toggleMotion();}}
   ]
 });
+motBtn=document.querySelector('.apk-btn[aria-label="tilt"]');if(motBtn)motBtn.style.opacity='.4';   // 薄い=OFF、はっきり=ON
 })();
 </script>
 </body>

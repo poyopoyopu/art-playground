@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<!-- SAME SPEED — クロちゃん(Claude)作。2026/11/10 試作。トリック作品(別枠。ギャラリー本体には入れない)。
+     世界のルール: 「速さは物のものではない。下の縞が決める」。
+     明るい色と暗い色のバーが、白黒の縞の上をまったく同じ速さで並んで進む。なのに、交互に一歩ずつ歩いて見える
+     (バーの端と縞の明るさの差が小さい瞬間は遅く、大きい瞬間は速く見えるため)。
+     押さえる=縞が消える(2本がずっと並んで同じ速さだと分かる)。バーをタップ=明るい/暗いが入れ替わる(歩く順番が逆になる)。
+     左上の「傾き」ボタン=傾きセンサーを入れる(iPhoneはここで許可)。入れると、傾けた側へバーがすべる。
+     技術: Canvas 2D(広色域 display-p3)/ 傾きセンサー / 画面を消さないWake Lock。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>SAME SPEED — 同じ速さなのに、交互に歩く</title>
+<script src="../ap-kit.js"></script>
+<style>
+html,body{margin:0;height:100%;background:#808080;overflow:hidden;touch-action:none}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+#hint{position:fixed;left:0;right:0;bottom:calc(96px + env(safe-area-inset-bottom));text-align:center;
+  color:#fff;font:600 15px/1.5 system-ui,-apple-system,"Hiragino Sans",sans-serif;letter-spacing:.06em;
+  text-shadow:0 0 8px #000,0 0 8px #000,0 1px 2px #000,0 0 3px #000;pointer-events:none;opacity:0;transition:opacity .6s;padding:0 20px}
+#hint.on{opacity:1}
+/* 傾きセンサーのボタン(センサーを使う作品は、ボタンで示す) */
+#tiltBtn{position:fixed;left:14px;top:calc(64px + env(safe-area-inset-top));z-index:5;display:flex;align-items:center;gap:7px;
+  height:44px;padding:0 15px 0 12px;border-radius:22px;border:1.5px solid rgba(255,255,255,.75);background:rgba(20,20,24,.82);
+  color:#fff;font:700 14px/1 system-ui,-apple-system,"Hiragino Sans",sans-serif;letter-spacing:.04em;-webkit-tap-highlight-color:transparent}
+#tiltBtn svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round}
+#tiltBtn.on{background:#fff;color:#111;border-color:#fff}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint"></div>
+<button id="tiltBtn" type="button" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="8.5" y="3" width="7" height="18" rx="2"/><path d="M4.5 9c-1 2-1 4 0 6M19.5 9c1 2 1 4 0 6"/></svg><span>傾き OFF</span></button>
+<script>
+(function(){
+var cv=document.getElementById('c'), hint=document.getElementById('hint'), ctx;
+try{ctx=cv.getContext('2d',{colorSpace:'display-p3'});}catch(e){}
+if(!ctx)ctx=cv.getContext('2d');
+function say(s,ms){hint.textContent=s;hint.classList.add('on');
+  clearTimeout(say.t);if(ms)say.t=setTimeout(function(){hint.classList.remove('on');},ms);}
+
+var PALS=[['#f7e95c','#17257f'],['#ffd3e2','#5c0f3d'],['#c9f78c','#0e4a3b'],['#ffe1a8','#3a1d6e']];
+var D0={div:24,pal:0,speed:1.6};
+var law={div:D0.div,pal:D0.pal,speed:D0.speed};
+var W=0,H=0,dpr=1,sw=16,bars=[],con=1,conT=1,stage=0,last=performance.now()/1000;
+var tilt={v:0,on:false,got:false};
+
+function setup(){
+  dpr=Math.min(window.devicePixelRatio||1,2);W=innerWidth;H=innerHeight;
+  cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);
+  sw=Math.max(8,Math.round(W/law.div));               // 縞1本の幅
+  var bh=Math.round(sw*.95), gap=Math.round(sw*.55), pairGap=Math.round(sw*2.4);
+  var top=130, bottom=H-190, pairH=bh*2+gap, n=Math.max(1,Math.floor((bottom-top+pairGap)/(pairH+pairGap)));
+  var y0=top+((bottom-top)-(n*pairH+(n-1)*pairGap))/2;
+  bars=[];
+  for(var i=0;i<n;i++){var x=Math.random()*W, dir=i%2?-1:1, y=y0+i*(pairH+pairGap);
+    // 1組=明るいバーと暗いバー。同じ位置・同じ速さで並んで進む
+    bars.push({x:x,y:y,h:bh,dir:dir,c:0,pair:i});
+    bars.push({x:x,y:y+bh+gap,h:bh,dir:dir,c:1,pair:i});
+  }
+}
+addEventListener('resize',setup);setup();
+
+function g(v){v=Math.round(v);return 'rgb('+v+','+v+','+v+')';}
+function frame(){
+  var now=performance.now()/1000, dt=Math.min(now-last,.1);last=now;
+  con+=(conT-con)*.18;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.fillStyle=g(128);ctx.fillRect(0,0,W,H);
+  var wh=g(128+127*con), bk=g(128-128*con);
+  for(var x=0,i=0;x<W;x+=sw,i++){ctx.fillStyle=i%2?bk:wh;ctx.fillRect(x,0,sw,H);}
+  var L=sw*2, pal=PALS[law.pal];                      // バーの長さ=縞2本ぶん(両端がいつも同じ色の縞に乗る)
+  var tv=tilt.on&&Math.abs(tilt.v)>.12?tilt.v:null;
+  for(var k=0;k<bars.length;k++){var b=bars[k];
+    var v=tv!==null?tv*sw*4.5:b.dir*sw*law.speed;      // 傾きONのときは、傾けた側へすべる(組の2本は同じ速さ)
+    b.x+=v*dt;if(b.x>W+L)b.x-=W+L*2;if(b.x<-L)b.x+=W+L*2;
+    ctx.fillStyle=pal[b.c];ctx.fillRect(b.x-L/2,b.y,L,b.h);
+  }
+  requestAnimationFrame(frame);
+}
+
+// 傾き(ボタンで入れる)
+function onTilt(e){if(e.gamma==null)return;tilt.got=true;
+  var a=(screen.orientation&&screen.orientation.angle)||0, gm=a===90?e.beta:(a===270?-e.beta:e.gamma);
+  tilt.v+=(Math.max(-1,Math.min(1,gm/30))-tilt.v)*.2;}
+var tiltBtn=document.getElementById('tiltBtn');
+function setTilt(on){tilt.on=on;tiltBtn.classList.toggle('on',on);tiltBtn.setAttribute('aria-pressed',on?'true':'false');
+  tiltBtn.querySelector('span').textContent=on?'傾き ON':'傾き OFF';
+  if(on){tilt.got=false;addEventListener('deviceorientation',onTilt);
+    say('傾き ON。傾けた側へバーがすべる。それでも交互に歩く',5000);
+    setTimeout(function(){if(tilt.on&&!tilt.got){setTilt(false);say('この端末では傾きセンサーが使えないみたい',4500);}},2000);}
+  else{removeEventListener('deviceorientation',onTilt);tilt.v=0;}}
+tiltBtn.addEventListener('click',function(){
+  wake();
+  if(tilt.on){setTilt(false);say('傾き OFF',2000);return;}
+  var D=window.DeviceOrientationEvent;
+  if(!D){say('この端末では傾きセンサーが使えないみたい',4500);return;}
+  if(typeof D.requestPermission==='function'){
+    D.requestPermission().then(function(r){if(r==='granted')setTilt(true);else say('傾きが許可されなかった。設定で許可すると使える',5000);})
+      .catch(function(){say('傾きが許可されなかった。設定で許可すると使える',5000);});
+  }else setTilt(true);
+});
+
+var wl=null;
+function wake(){if(navigator.wakeLock&&!wl)navigator.wakeLock.request('screen').then(function(l){wl=l;
+  l.addEventListener('release',function(){wl=null;});}).catch(function(){});}
+document.addEventListener('visibilitychange',function(){if(!document.hidden)wake();});
+
+var down=null;
+cv.addEventListener('pointerdown',function(e){
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  wake();down={x:e.clientX,y:e.clientY,t:performance.now()};conT=0;
+  say('縞を消した。2本はずっと並んで、同じ速さ',0);
+});
+function up(){
+  if(!down)return;conT=1;
+  var hit=null, L=sw*2;
+  if(performance.now()-down.t<300){
+    for(var k=0;k<bars.length;k++){var b=bars[k];
+      if(Math.abs(down.x-b.x)<L/2+14&&down.y>b.y-10&&down.y<b.y+b.h+10){hit=b;break;}}
+  }
+  if(hit){bars.forEach(function(b){if(b.pair===hit.pair)b.c=1-b.c;});   // 組の明るい/暗いを入れ替える
+    say('明るいバーと暗いバーを入れ替えた。歩く順番が逆になる',4500);}
+  else if(stage<1){stage=1;say('縞が戻ると、また交互に歩く。バーをタップすると色が入れ替わる',6000);}
+  else hint.classList.remove('on');
+  down=null;
+}
+cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
+
+function mutate(){law.div=18+Math.floor(Math.random()*13);law.pal=(law.pal+1+Math.floor(Math.random()*(PALS.length-1)))%PALS.length;
+  law.speed=1.2+Math.random()*1.2;setup();}
+function intro(){say('2本は交互に、一歩ずつ歩いて見える？',5000);
+  setTimeout(function(){if(stage<1&&!down)say('画面を押さえて。縞が消えると、本当の動きが見える',0);},6500);}
+
+wake();intro();requestAnimationFrame(frame);
+
+APKit.init({
+  canvas:cv, gifName:'same-speed-loop', clockFormat:'spec',
+  dock:true, autoHide:true, fullscreenButton:false,
+  buttons:[
+    {label:'✦',name:'mutate',onClick:function(){mutate();say('縞の細かさと色を変えた。2本は今度も同じ速さ',4000);}},
+    {label:'↻',name:'reset',onClick:function(){law.div=D0.div;law.pal=D0.pal;law.speed=D0.speed;stage=0;setup();intro();}}
+  ]
+});
+})();
+</script>
+</body>
+</html>

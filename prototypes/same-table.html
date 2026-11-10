@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<!-- SAME TABLE — クロちゃん(Claude)作。2026/11/10 試作。トリック作品(別枠。ギャラリー本体には入れない)。
+     世界のルール: 「形は天板のものではない。脚と奥行きが決める」。
+     細長い机と、幅の広い机。天板はまったく同じ形(向きを回しただけ)。脚が付いて奥行きがあるように見えるせいで、違う形に見える。
+     天板をつかんで運ぶ=天板の写しが指についてきて、もう一方の机に近づくほど回り、最後にぴったり重なる。
+     何もない所を押さえる=脚が消える(脚が無いと、同じ形に見えてくる)。
+     技術: Canvas 2D(広色域 display-p3)/ 画面を消さないWake Lock。センサーは使っていない。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>SAME TABLE — 同じ形なのに、ちがう机</title>
+<script src="../ap-kit.js"></script>
+<style>
+html,body{margin:0;height:100%;background:#e9e2d6;overflow:hidden;touch-action:none}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+#hint{position:fixed;left:0;right:0;bottom:calc(96px + env(safe-area-inset-bottom));text-align:center;
+  color:#fff;font:600 15px/1.5 system-ui,-apple-system,"Hiragino Sans",sans-serif;letter-spacing:.06em;
+  text-shadow:0 0 8px #000,0 0 8px #000,0 1px 2px #000,0 0 3px #000;pointer-events:none;opacity:0;transition:opacity .6s;padding:0 20px}
+#hint.on{opacity:1}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint"></div>
+<script>
+(function(){
+var cv=document.getElementById('c'), hint=document.getElementById('hint'), ctx;
+try{ctx=cv.getContext('2d',{colorSpace:'display-p3'});}catch(e){}
+if(!ctx)ctx=cv.getContext('2d');
+function say(s,ms){hint.textContent=s;hint.classList.add('on');
+  clearTimeout(say.t);if(ms)say.t=setTimeout(function(){hint.classList.remove('on');},ms);}
+
+var RAD=Math.PI/180;
+var D0={ratio:.52,ang:54.5,hue:28};
+var law={ratio:D0.ratio,ang:D0.ang,hue:D0.hue};
+var W=0,H=0,dpr=1,L=180,P=[],T=[],legA=1,legT=1,ghost=null,stage=0;
+
+// 天板の形(中心を原点にした平行四辺形。y は上向き)
+function shape(){
+  var u=[L,0], v=[L*law.ratio*Math.cos(law.ang*RAD),L*law.ratio*Math.sin(law.ang*RAD)];
+  var cx=(u[0]+v[0])/2, cy=(u[1]+v[1])/2;
+  P=[[-cx,-cy],[u[0]-cx,-cy],[u[0]+v[0]-cx,v[1]-cy],[v[0]-cx,v[1]-cy]];
+}
+// 中心c・角度aで置いたときの画面上の4点(同じ形を回すだけ。拡大も変形もしない)
+function poly(c,a){var s=Math.sin(a),k=Math.cos(a);
+  return P.map(function(p){return [c[0]+p[0]*k-p[1]*s,c[1]-(p[0]*s+p[1]*k)];});}
+function inside(pt,q){var sg=0;for(var i=0;i<4;i++){var a=q[i],b=q[(i+1)%4];
+  var cr=(b[0]-a[0])*(pt[1]-a[1])-(b[1]-a[1])*(pt[0]-a[0]);if(cr!==0){if(sg===0)sg=cr>0?1:-1;else if((cr>0?1:-1)!==sg)return false;}}return true;}
+
+function setup(){
+  dpr=Math.min(window.devicePixelRatio||1,2);W=innerWidth;H=innerHeight;
+  cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);
+  var land=W>H;
+  L=land?Math.min(W*.27,H*.5):Math.min(W*.5,H*.26);
+  shape();
+  var aA=(180-law.ang)*RAD;      // 細長く見える机: 短い辺が真横、長い辺が奥へ
+  T=land?[{c:[W*.29,H*.42],a:aA},{c:[W*.70,H*.47],a:0}]
+        :[{c:[W*.50,H*.30],a:aA},{c:[W*.51,H*.62],a:0}];
+  ghost=null;
+}
+addEventListener('resize',setup);setup();
+
+function hsl(h,s,l,a){return 'hsla('+h+','+s+'%,'+l+'%,'+(a==null?1:a)+')';}
+function path(q){ctx.beginPath();ctx.moveTo(q[0][0],q[0][1]);for(var i=1;i<q.length;i++)ctx.lineTo(q[i][0],q[i][1]);ctx.closePath();}
+function drawTable(t){
+  var q=poly(t.c,t.a), th=L*.055, leg=L*.42, lw=L*.05, h=law.hue;
+  // 床の影と脚(押さえている間は消える)
+  if(legA>.01){
+    ctx.globalAlpha=legA;
+    ctx.fillStyle='rgba(60,40,20,.13)';
+    path(q.map(function(p){return [p[0]+L*.05,p[1]+leg+th];}));ctx.fill();
+    q.forEach(function(p){
+      ctx.fillStyle=hsl(h,38,24);ctx.fillRect(p[0]-lw/2,p[1]+th-1,lw,leg);
+      ctx.fillStyle=hsl(h,38,33);ctx.fillRect(p[0]-lw/2,p[1]+th-1,lw*.45,leg);
+    });
+    // 天板の厚み
+    ctx.fillStyle=hsl(h,42,30);
+    for(var i=0;i<4;i++){var a=q[i],b=q[(i+1)%4];path([a,b,[b[0],b[1]+th],[a[0],a[1]+th]]);ctx.fill();}
+    ctx.globalAlpha=1;
+  }
+  path(q);ctx.fillStyle=hsl(h,48,52);ctx.fill();
+  ctx.lineWidth=1.5;ctx.strokeStyle=hsl(h,45,28);ctx.stroke();
+}
+function frame(){
+  legA+=(legT-legA)*.16;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  var gr=ctx.createLinearGradient(0,0,0,H);gr.addColorStop(0,'#efe9df');gr.addColorStop(1,'#d9cfbf');
+  ctx.fillStyle=gr;ctx.fillRect(0,0,W,H);
+  drawTable(T[0]);drawTable(T[1]);
+  if(ghost){
+    var gst=ghost;
+    if(gst.anim){     // 離したあと: ぴったり重なる位置へ / 元の位置へ
+      gst.c[0]+=(gst.tc[0]-gst.c[0])*.2;gst.c[1]+=(gst.tc[1]-gst.c[1])*.2;gst.a+=(gst.ta-gst.a)*.2;
+      if(performance.now()>gst.until){gst.al-=.04;if(gst.al<=0)ghost=null;}
+    }
+    if(ghost){var q=poly(gst.c,gst.a);
+      path(q);ctx.fillStyle='rgba(60,200,255,'+(.34*gst.al)+')';ctx.fill();
+      ctx.lineWidth=3;ctx.strokeStyle='rgba(0,120,220,'+gst.al+')';ctx.stroke();
+      ctx.lineWidth=1.2;ctx.strokeStyle='rgba(255,255,255,'+gst.al+')';ctx.stroke();}
+  }
+  requestAnimationFrame(frame);
+}
+
+var wl=null;
+function wake(){if(navigator.wakeLock&&!wl)navigator.wakeLock.request('screen').then(function(l){wl=l;
+  l.addEventListener('release',function(){wl=null;});}).catch(function(){});}
+document.addEventListener('visibilitychange',function(){if(!document.hidden)wake();});
+
+var drag=null, holding=false;
+function prog(c,f,t){var dx=t.c[0]-f.c[0],dy=t.c[1]-f.c[1];
+  var s=((c[0]-f.c[0])*dx+(c[1]-f.c[1])*dy)/(dx*dx+dy*dy);s=Math.max(0,Math.min(1,s));return s*s*(3-2*s);}
+cv.addEventListener('pointerdown',function(e){
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  wake();var pt=[e.clientX,e.clientY], from=-1;
+  for(var i=0;i<2;i++)if(inside(pt,poly(T[i].c,T[i].a))){from=i;break;}
+  if(from<0){holding=true;legT=0;say('脚を消した。脚が無いと、同じ形に見えてくる',0);return;}
+  drag={from:from,to:1-from,off:[pt[0]-T[from].c[0],pt[1]-T[from].c[1]]};
+  ghost={c:T[from].c.slice(),a:T[from].a,al:1,anim:false};
+  say('そのまま、もう一方の机まで運んで',0);
+});
+cv.addEventListener('pointermove',function(e){
+  if(!drag||!ghost)return;
+  var f=T[drag.from],t=T[drag.to];
+  ghost.c=[e.clientX-drag.off[0],e.clientY-drag.off[1]];
+  ghost.a=f.a+(t.a-f.a)*prog(ghost.c,f,t);          // 運ぶほど回る。形は1ミリも変えていない
+});
+function up(){
+  if(holding){holding=false;legT=1;hint.classList.remove('on');return;}
+  if(!drag||!ghost)return;
+  var f=T[drag.from],t=T[drag.to],s=prog(ghost.c,f,t);
+  if(s>.7){ghost.tc=t.c.slice();ghost.ta=t.a;ghost.until=performance.now()+3200;
+    say('ぴったり重なった。2つの天板は、まったく同じ形',4500);
+    if(stage<1){stage=1;setTimeout(function(){say('何もない所を押さえると、脚が消える',5000);},5200);}}
+  else{ghost.tc=f.c.slice();ghost.ta=f.a;ghost.until=performance.now()+300;say('もう一方の机の上まで運んで',3000);}
+  ghost.anim=true;drag=null;
+}
+cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
+
+function mutate(){law.ratio=.42+Math.random()*.2;law.ang=46+Math.random()*18;law.hue=[28,18,40,200,340,150][Math.floor(Math.random()*6)];setup();}
+function intro(){say('細長い机と、幅の広い机。じつは天板はまったく同じ形',5500);
+  setTimeout(function(){if(stage<1&&!drag&&!holding)say('天板を指でつかんで、もう一方の机まで運んで',0);},6500);}
+
+wake();intro();requestAnimationFrame(frame);
+
+APKit.init({
+  canvas:cv, gifName:'same-table-loop', clockFormat:'spec',
+  dock:true, autoHide:true, fullscreenButton:false,
+  buttons:[
+    {label:'✦',name:'mutate',onClick:function(){mutate();say('机の形と色を変えた。今度も天板は同じ形',4000);}},
+    {label:'↻',name:'reset',onClick:function(){law.ratio=D0.ratio;law.ang=D0.ang;law.hue=D0.hue;stage=0;setup();intro();}}
+  ]
+});
+})();
+</script>
+</body>
+</html>
