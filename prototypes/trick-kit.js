@@ -11,15 +11,24 @@ st.textContent=[
 ' text-shadow:0 0 8px #000,0 0 8px #000,0 1px 2px #000,0 0 3px #000;pointer-events:none;opacity:0;transition:opacity .6s;padding:0 20px}',
 '#hint.on{opacity:1}',
 /* 傾きセンサーのボタン(センサーを使う作品は、ボタンで示す) */
-'#tiltBtn{position:fixed;left:14px;top:calc(64px + env(safe-area-inset-top));z-index:5;display:flex;align-items:center;gap:7px;',
+'#tiltBtn{position:fixed;left:14px;top:calc(66px + env(safe-area-inset-top));z-index:5;display:flex;align-items:center;gap:7px;',
 ' height:44px;padding:0 15px 0 12px;border-radius:22px;border:1.5px solid rgba(255,255,255,.75);background:rgba(20,20,24,.82);',
 ' color:#fff;font:700 14px/1 system-ui,-apple-system,"Hiragino Sans",sans-serif;letter-spacing:.04em;-webkit-tap-highlight-color:transparent}',
 '#tiltBtn svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round}',
-'#tiltBtn.on{background:#fff;color:#111;border-color:#fff}'
+'#tiltBtn.on{background:#fff;color:#111;border-color:#fff}',
+/* 戻るボタン(いつも左上。TRICK ROOM の一覧へ戻る) */
+'#backBtn{position:fixed;left:14px;top:calc(12px + env(safe-area-inset-top));z-index:6;display:flex;align-items:center;gap:4px;height:44px;padding:0 16px 0 11px;',
+' border-radius:22px;border:1.5px solid rgba(255,255,255,.75);background:rgba(20,20,24,.82);color:#fff;text-decoration:none;',
+' font:700 14px/1 system-ui,-apple-system,"Hiragino Sans",sans-serif;letter-spacing:.06em;-webkit-tap-highlight-color:transparent}',
+'#backBtn:active{background:#fff;color:#111}'
 ].join('\n');
 document.head.appendChild(st);
 
 var TK={dpr:1}, hint=null, hintT=0;
+// 戻るボタン: どの作品にも左上に出す(おっちゃん「戻るボタンがないのがダメ」)
+function addBack(){if(document.getElementById('backBtn'))return;var b=document.createElement('a');b.id='backBtn';b.href='tricks.html';
+  b.setAttribute('aria-label','TRICK ROOM へ戻る');b.textContent='‹ 戻る';document.body.appendChild(b);}
+if(document.body)addBack();else document.addEventListener('DOMContentLoaded',addBack);
 function hintEl(){if(!hint){hint=document.getElementById('hint');
   if(!hint){hint=document.createElement('div');hint.id='hint';document.body.appendChild(hint);}}return hint;}
 TK.say=function(s,ms){var h=hintEl();h.textContent=s;h.classList.add('on');clearTimeout(hintT);
