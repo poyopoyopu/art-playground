@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<!-- STILL MOVING — クロちゃん(Claude)作。2026/11/10 試作。
+     世界のルール: 「見つめた動きの逆向きに、止まった絵が動きだす」(運動残効=目の錯覚)。
+     渦を約20秒見つめると、止まった模様が目の中でふくらむ/しぼむ。画面の外(手のひら)まで歪んで見える。
+     タップ=渦の向きを反転(止まった後の動き方が逆になる)。静止中のタップ=すぐ次の渦へ。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>STILL MOVING — 止まった絵が、目の中で動きだす</title>
+<script src="../ap-kit.js"></script>
+<style>
+html,body{margin:0;height:100%;background:#000;overflow:hidden;touch-action:none}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+#hint{position:fixed;left:0;right:0;bottom:calc(96px + env(safe-area-inset-bottom));text-align:center;
+  color:#fff;font:600 15px/1.5 system-ui,-apple-system,"Hiragino Sans",sans-serif;letter-spacing:.06em;
+  text-shadow:0 0 8px #000,0 0 8px #000,0 1px 2px #000;pointer-events:none;opacity:0;transition:opacity .6s;padding:0 20px}
+#hint.on{opacity:.92}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint"></div>
+<script>
+(function(){
+var cv=document.getElementById('c'), hint=document.getElementById('hint');
+var gl=cv.getContext('webgl',{antialias:false,preserveDrawingBuffer:true});
+
+var VS='attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}';
+var FS=[
+'precision highp float;',
+'uniform vec2 R;uniform float T,PH,STILL,ARMS,PITCH,TW,HUE,PROG,SEED;',
+'vec3 hsv(float h,float s,float v){vec3 k=abs(fract(h+vec3(0.,.6667,.3333))*6.-3.)-1.;return v*mix(vec3(1.),clamp(k,0.,1.),s);}',
+'void main(){',
+' vec2 q=(gl_FragCoord.xy-.5*R)/min(R.x,R.y);',
+' float r=length(q)+1e-5, a=atan(q.y,q.x), lr=log(r);',
+// 動く渦(対数らせん。PHが進むと 収縮/拡大 して見える)
+' float s=sin(PITCH*lr+ARMS*a+PH);',
+' float st=smoothstep(-.35,.35,s);',
+' vec3 mv=hsv(HUE+lr*.22+a*TW/6.2832,.78,1.)*st;',
+// 止まった模様(対数極座標の点の曼荼羅。どの大きさでも同じ形=自己相似)
+' float N=26.;',
+' float u=lr*N/6.2832+SEED, v=a*N/6.2832;',
+' float row=floor(u);',
+' v+=mod(row,2.)*.5;',
+' vec2 f=vec2(fract(u),fract(v))-.5;',
+' float d=length(f);',
+' float h2=fract(sin(row*12.9898+mod(floor(v),N)*78.233+floor(SEED))*43758.5453);',
+' float dot_=smoothstep(.34,.26,d)*(.55+.45*h2);',
+' float ring=smoothstep(.06,.0,abs(d-.42))*.35;',
+' vec3 sv=hsv(HUE+row*.045+h2*.08,.7,1.)*(dot_+ring);',
+' vec3 col=mix(mv,sv,STILL);',
+// まんなか: 見つめる点と進み具合の輪
+' col*=smoothstep(.035,.06,r);',
+' float pa=fract(.25-a/6.2832);',
+' float arc=smoothstep(.006,.002,abs(r-.045))*step(pa,PROG)*(1.-STILL);',
+' col+=vec3(arc)*.9;',
+' col+=vec3(smoothstep(.012,.008,r));',
+' gl_FragColor=vec4(col,1.);',
+'}'].join('\n');
+
+function sh(t,src){var s=gl.createShader(t);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))console.error(gl.getShaderInfoLog(s));return s;}
+var pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,VS));gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,FS));
+gl.linkProgram(pr);gl.useProgram(pr);
+var b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+var loc=gl.getAttribLocation(pr,'p');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+var U={};['R','T','PH','STILL','ARMS','PITCH','TW','HUE','PROG','SEED'].forEach(function(n){U[n]=gl.getUniformLocation(pr,n);});
+
+function resize(){var d=Math.min(window.devicePixelRatio||1,2);
+  cv.width=Math.round(innerWidth*d);cv.height=Math.round(innerHeight*d);gl.viewport(0,0,cv.width,cv.height);}
+addEventListener('resize',resize);resize();
+
+// 状態
+var ADAPT=20, REST=10;          // 見つめる秒数 / 止まっている秒数
+var law={dir:1,arms:6,pitch:14,tw:1,hue:Math.random(),seed:Math.random()*10,speed:5.2};
+var mode='adapt', t0=performance.now()/1000, phase=0, still=0, last=t0, cycles=0;
+
+function say(s,ms){hint.textContent=s;hint.classList.add('on');
+  clearTimeout(say.t);if(ms)say.t=setTimeout(function(){hint.classList.remove('on');},ms);}
+function startAdapt(){mode='adapt';t0=performance.now()/1000;
+  say(cycles?'もう一度、まんなかの点を見つめて':'白い点を、輪がひと回りするまで見つめて',6000);}
+function startRest(){mode='rest';t0=performance.now()/1000;cycles++;
+  say('止まったよ。動いて見える？ 手のひらも見て',0);}
+function mutate(){law.arms=[3,4,5,6,8,10][Math.floor(Math.random()*6)];
+  law.pitch=10+Math.random()*10;law.tw=Math.random()<.5?1:-1;law.hue=Math.random();
+  law.seed=Math.random()*10;law.speed=4.2+Math.random()*2.4;}
+
+function frame(){
+  var now=performance.now()/1000, dt=Math.min(now-last,.1);last=now;
+  var el=now-t0;
+  if(mode==='adapt'){
+    phase+=law.dir*law.speed*dt;
+    still=Math.max(0,still-dt*3);
+    if(el>=ADAPT)startRest();
+  }else{
+    still=Math.min(1,still+dt*12);   // ぱっと止める(ゆっくり切り替えると錯覚が弱まる)
+    if(el>=REST){law.dir=-law.dir;law.hue+=.13;law.seed+=1.7;startAdapt();} // 次は逆向き=逆の錯覚
+  }
+  gl.uniform2f(U.R,cv.width,cv.height);gl.uniform1f(U.T,now);gl.uniform1f(U.PH,phase);
+  gl.uniform1f(U.STILL,still);gl.uniform1f(U.ARMS,law.arms*law.tw);gl.uniform1f(U.PITCH,law.pitch);
+  gl.uniform1f(U.TW,law.tw);gl.uniform1f(U.HUE,law.hue);gl.uniform1f(U.SEED,law.seed);
+  gl.uniform1f(U.PROG,mode==='adapt'?Math.min(1,el/ADAPT):0);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  requestAnimationFrame(frame);
+}
+
+cv.addEventListener('pointerdown',function(e){
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  if(mode==='adapt'){law.dir=-law.dir;t0=performance.now()/1000;   // 向きを反転。見つめ直し
+    say(law.dir>0?'向きを変えた: 吸いこむ渦 → 止まるとふくらむ':'向きを変えた: 湧きでる渦 → 止まるとしぼむ',3500);}
+  else{law.dir=-law.dir;law.hue+=.13;law.seed+=1.7;startAdapt();}
+});
+
+startAdapt();requestAnimationFrame(frame);
+
+APKit.init({
+  canvas:cv, gifName:'still-moving-loop', clockFormat:'spec',
+  dock:true, autoHide:true, fullscreenButton:false,
+  buttons:[
+    {label:'✦',name:'mutate',onClick:function(){mutate();startAdapt();}},
+    {label:'↻',name:'reset',onClick:function(){law.dir=1;law.arms=6;law.pitch=14;law.tw=1;law.speed=5.2;cycles=0;phase=0;startAdapt();}}
+  ]
+});
+})();
+</script>
+</body>
+</html>
