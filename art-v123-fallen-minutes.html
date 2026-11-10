@@ -60,14 +60,18 @@ function dotColor(d){return pal===0?hsl(d/5,.8,.62):(pal===1?hsl(.1,.75,.5+d*.05
 
 function setup(){
   var dpr=Math.min(window.devicePixelRatio||1,3),W=Math.round(innerWidth*dpr),H=Math.round(innerHeight*dpr);
-  CS=Math.max(2,Math.round(Math.min(W,H)/240));
-  GW=Math.ceil(W/CS);GH=Math.ceil(H/CS);N=GW*GH;
+  var nCS=Math.max(2,Math.round(Math.min(W,H)/240)),nGW=Math.ceil(W/nCS),nGH=Math.ceil(H/nCS);
+  if(set&&nGW===GW&&nGH===GH&&nCS===CS)return;   // 実質同じ大きさのresizeでは状態を消さない(写真シートの開閉やブラウザUIの出入り、全画面の切替で小さいresizeが来ても、積もった砂と地層を守る)
+  var oSet=set,oCol=col,oGW=GW,oGH=GH,oGT=groundTop;   // 本当に大きさが変わる回転などでは、地層だけでも引き継ぐために退避
+  CS=nCS;GW=nGW;GH=nGH;N=GW*GH;
   cv.width=GW*CS;cv.height=GH*CS;small.width=GW;small.height=GH;mcv.width=GW;mcv.height=GH;gcv.width=Math.ceil(GW/5);gcv.height=Math.ceil(GH/5);
   set=new Uint8Array(N);col=new Uint32Array(N);mask=new Uint8Array(N);curDec=-1;bg=new Uint32Array(GH);
   for(var y=0;y<GH;y++){var k=y/GH;bg[y]=(255<<24)|((22+k*20)<<16)|((9+k*7)<<8)|(7+k*13);}
   img=sctx.createImageData(GW,GH);px32=new Uint32Array(img.data.buffer);
   groundTop=GH-Math.floor(GH*.2);groundCount=0;np=0;curKey=-1;
   sparks.length=0;mini=null;
+  if(oSet){for(var oy=oGT;oy<oGH;oy++)for(var ox=0;ox<oGW;ox++){var oi=oy*oGW+ox;if(oSet[oi]!==2)continue;
+    var ny=oy+(GH-oGH);if(ox>=GW||ny<groundTop||ny>=GH)continue;var ni=ny*GW+ox;set[ni]=2;col[ni]=oCol[oi];groundCount++;}}
 }
 
 function drawMask(hh,mm){
