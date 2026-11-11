@@ -9,6 +9,7 @@
      分の下の5つの粒が、1秒ごとに1段ずつ明るくなって10秒で1つ灯りきる(10・20・30・40・50秒で順に灯りきる。分が変わると全部消える。2026/11/10 ムーちゃん改修: おっちゃん「10秒カウントを1秒カウントに、あまり目立たせたくない」)。
      毎分50秒に流れ星が1本、空を斜めに横切って砂丘に落ちる(もうすぐ分が変わる合図)。
      流れ星の通り道が数字に触れた所は、そこだけ崩れて砂丘に積もる(傷は分が変わるまで残り、次の数字はいつも通り積もる)。
+     開いている間は画面を消さない(Wake Lock。2026/11/11 おっちゃん「放置しても画面ロックされないように」)。
      眺めている間、4〜8秒おきに小さな出来事が1つだけ起きる(小さな星の瞬き/細い流星/数字の縁から砂が数粒こぼれる/砂丘の表面のきらめき)。 -->
 <html lang="ja">
 <head>
@@ -320,6 +321,11 @@ function toggleMotion(){
 function collapseAll(){for(var i=0;i<groundTop*GW;i++)if(set[i]===1)release(i,false);}
 
 setup();loop();
+// 眺める時計なので、開いている間は画面を消さない(Wake Lock)。別のアプリから戻ったときと、最初に触れたときにも取り直す
+var wl=null;
+function wake(){if(navigator.wakeLock&&!wl&&document.visibilityState==='visible')navigator.wakeLock.request('screen').then(function(l){wl=l;
+  l.addEventListener('release',function(){wl=null;});}).catch(function(){});}
+wake();document.addEventListener('visibilitychange',wake);addEventListener('pointerdown',wake);
 hint.classList.add('on');setTimeout(function(){hint.classList.remove('on');},8000);
 
 APKit.init({
