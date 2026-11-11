@@ -9,6 +9,8 @@
      分の下の5つの粒が、1秒ごとに1段ずつ明るくなって10秒で1つ灯りきる(10・20・30・40・50秒で順に灯りきる。分が変わると全部消える。2026/11/10 ムーちゃん改修: おっちゃん「10秒カウントを1秒カウントに、あまり目立たせたくない」)。
      毎分50秒に流れ星が1本、空を斜めに横切って砂丘に落ちる(もうすぐ分が変わる合図)。
      流れ星の通り道が数字に触れた所は、そこだけ崩れて砂丘に積もる(傷は分が変わるまで残り、次の数字はいつも通り積もる)。
+     5分に1回(毎時2・7・12…分の10秒から約20秒かけて)、時の数字だけが上の段から順に流れ落ち、今の色の砂で積もり直す
+     (時の数字は1時間変わらないので、色の地層を入れ替える。2026/11/11 おっちゃん「分数だけしか変化ないから、何か変化を追加したい」→「時の数字も入れ替わる」)。
      開いている間は画面を消さない(Wake Lock。2026/11/11 おっちゃん「放置しても画面ロックされないように」)。
      眺めている間、4〜8秒おきに小さな出来事が1つだけ起きる(小さな星の瞬き/細い流星/数字の縁から砂が数粒こぼれる/砂丘の表面のきらめき)。 -->
 <html lang="ja">
@@ -46,6 +48,7 @@ var PC=new Uint32Array(MAXP), PF=new Uint8Array(MAXP), PT=new Uint8Array(MAXP);
 var needCols=[], totalEmpty=0, curKey=-1, frameNo=0, t=0;
 var curDec=-1, tiltRaw=0, tiltX=0, shake=0, star=null;
 var PALS=['RAINBOW','GOLD','ICE'], pal=0;
+var hrX=0, hrY=0, flow=null;       // 時の数字の範囲(左からhrX列・上からhrY段まで)と、流れ落ちの進み具合
 var evAt=5, sparks=[], mini=null;  // 小さな出来事: 次に起こす時刻・瞬き/きらめきの点・細い流星
 
 function hsl(h,s,l){h=((h%1)+1)%1;var a=s*Math.min(l,1-l);
@@ -70,7 +73,7 @@ function setup(){
   for(var y=0;y<GH;y++){var k=y/GH;bg[y]=(255<<24)|((22+k*20)<<16)|((9+k*7)<<8)|(7+k*13);}
   img=sctx.createImageData(GW,GH);px32=new Uint32Array(img.data.buffer);
   groundTop=GH-Math.floor(GH*.2);groundCount=0;np=0;curKey=-1;
-  sparks.length=0;mini=null;
+  sparks.length=0;mini=null;flow=null;
   if(oSet){for(var oy=oGT;oy<oGH;oy++)for(var ox=0;ox<oGW;ox++){var oi=oy*oGW+ox;if(oSet[oi]!==2)continue;
     var ny=oy+(GH-oGH);if(ox>=GW||ny<groundTop||ny>=GH)continue;var ni=ny*GW+ox;set[ni]=2;col[ni]=oCol[oi];groundCount++;}}
 }
@@ -82,9 +85,10 @@ function drawMask(hh,mm){
     var w=mctx.measureText(txt).width;if(w>maxW)fs*=maxW/w;mctx.font='900 '+fs+'px '+fam;return fs;}
   if(GH>GW*1.15){
     var rowH=GH*.27;fit('00',GW*.9,rowH);
-    mctx.fillText(hh,GW/2,GH*.22);mctx.fillText(mm,GW/2,GH*.53);
+    mctx.fillText(hh,GW/2,GH*.22);mctx.fillText(mm,GW/2,GH*.53);hrX=GW;hrY=Math.round(GH*.375);
   }else{
     fit('00:00',GW*.9,GH*.5);mctx.fillText(hh+':'+mm,GW/2,GH*.4);
+    hrX=Math.round(GW/2-mctx.measureText(hh+':'+mm).width/2+mctx.measureText(hh).width);hrY=groundTop;
   }
   var d=mctx.getImageData(0,0,GW,GH).data,m=new Uint8Array(N);
   for(var i=0;i<N;i++)m[i]=d[i*4+3]>128?1:0;
@@ -100,6 +104,8 @@ function release(i,kick,vx0){          // 積もった1粒を、落ちる粒に�
   PX[np]=(i%GW)+.5;PY[np]=((i/GW)|0)+.5;VX[np]=(vx0||0)+(Math.random()-.5)*(kick?1.6:.5);
   VY[np]=kick?-Math.random()*kick:Math.random()*.3;PC[np]=col[i];PF[np]=kick?(kick>2?55:28):0;PT[np]=0;np++;
 }
+
+function drop(i){var n=np;release(i,false);if(np>n)PF[np-1]=60;}   // 型はそのままで1粒を落とす(しばらくは積もらせない。そうしないと元の場所にすぐ積もり直してしまう)
 
 function applyTime(){
   var d=new Date(),key=d.getHours()*60+d.getMinutes();
@@ -122,6 +128,18 @@ function applyDec(){               // 10秒の区切りを見て、50秒なら�
     var sd=Math.random()<.5?1:-1;
     star={x:sd>0?GW*.05:GW*.95,y:-2,vx:sd*GW*.8/100,vy:GH/100,tr:[],r:Math.max(2,Math.round(GW*.011))};
   }
+  if(!first&&Math.floor(Date.now()%60000/10000)===1&&new Date().getMinutes()%5===2){   // 5分に1回の10秒: 時の数字が流れ落ちて積もり直す
+    var top=-1,bot=-1;
+    for(var y=0;y<hrY;y++)for(var x=0;x<hrX;x++)if(mask[y*GW+x]){if(top<0)top=y;bot=y;break;}
+    if(top>=0)flow={y:top,row:top-1,end:bot,v:(bot-top+1)/1200};   // 約20秒で上から下まで
+  }
+}
+function stepFlow(){               // 時の数字を上の段から1段ずつ崩す(分が変わるときと同じ崩れ方)。空いた所は今の色の砂でいつも通り積もる
+  if(!flow)return;
+  flow.y+=flow.v;
+  while(flow.row<(flow.y|0)&&flow.row<flow.end){flow.row++;
+    for(var x=0,i=flow.row*GW;x<hrX;x++,i++)if(set[i]===1)drop(i);}
+  if(flow.row>=flow.end)flow=null;
 }
 function addP(x,y,vx,vy,c,pf){if(np>=MAXP)return;PX[np]=x;PY[np]=y;VX[np]=vx;VY[np]=vy;PC[np]=c;PF[np]=pf;PT[np]=0;np++;}
 function stepStar(){
@@ -154,7 +172,7 @@ function smallEvent(){
     mini={x:GW*(.15+Math.random()*.7),y:groundTop*(.03+Math.random()*.4),vx:sd*GW*.006,vy:GW*.0035,a:0,d:34};
   }else if(r<.72){                 // 数字の縁から砂が数粒こぼれ落ちる(こぼれた所はまた積もる)
     for(k=0;k<300;k++){i=GW+((Math.random()*(groundTop-1)*GW)|0);
-      if(set[i]===1&&(!set[i-1]||!set[i+1])){for(n=3+((Math.random()*4)|0);n>0&&i>=GW&&set[i]===1;n--,i-=GW)release(i,false);break;}}
+      if(set[i]===1&&(!set[i-1]||!set[i+1])){for(n=3+((Math.random()*4)|0);n>0&&i>=GW&&set[i]===1;n--,i-=GW)drop(i);break;}}
   }else{                           // 砂丘の表面のきらめき(近くで3〜5粒、少しずつずれて光る)
     x=(Math.random()*GW)|0;n=3+((Math.random()*3)|0);
     for(k=0;k<n;k++){var gx=x+(((Math.random()-.5)*GW*.16)|0);if(gx<0||gx>=GW)continue;
@@ -189,7 +207,7 @@ function sink(){                   // 砂丘が育ったら、地層ごとゆっ
 
 function step(){
   t+=1/60;frameNo++;
-  applyDec();applyTime();stepStar();stepEvents();
+  applyDec();applyTime();stepStar();stepFlow();stepEvents();
   if(frameNo%8===1)scanNeed();
   // 傾き: 傾けた側へ砂が数字から流れ落ちる。戻すとまた積もる
   tiltX+=(tiltRaw-tiltX)*.15;
@@ -199,6 +217,7 @@ function step(){
   // 振る: 砂が舞い上がる(数字も砂丘も)
   if(shake>.02){for(var b2=0,nb=5000*shake;b2<nb;b2++){var si=(Math.random()*N)|0;if(set[si])release(si,3.6);}shake*=.88;}
   var nT=tl>0?0:Math.min(120,Math.max(totalEmpty?6:0,Math.ceil(totalEmpty/350)));
+  if(flow&&nT&&nT<14)nT=14;             // 流れ落ちている間は、空いた所へ降らせる砂を少し増やして追いつかせる
   for(var k=0;k<nT&&needCols.length;k++)spawn(needCols[(Math.random()*needCols.length)|0],true);
   spawn(Math.random()*GW,false);        // いつも少しだけ降っている砂
   var wind=Math.sin(t*.13)*.18;
