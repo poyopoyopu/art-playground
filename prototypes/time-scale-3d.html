@@ -42,14 +42,6 @@
   #back { position:fixed; z-index:6; top:max(16px,env(safe-area-inset-top)); left:max(16px,env(safe-area-inset-left));
     color:rgba(225,241,237,.6); text-decoration:none; font:10px/1.2 Arial,sans-serif; letter-spacing:.15em; padding:9px 11px;
     border:1px solid rgba(218,241,238,.16); border-radius:20px; background:rgba(1,10,15,.25); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); }
-  /* センサーを使うボタン(傾き・インカメラ)は、ボタンで示す */
-  #tools { position:fixed; z-index:6; left:max(14px,env(safe-area-inset-left)); top:calc(58px + env(safe-area-inset-top)); display:flex; flex-direction:column; gap:8px; }
-  .tbtn { display:flex; align-items:center; gap:7px; height:40px; padding:0 14px 0 11px; border-radius:20px; border:1.5px solid rgba(255,255,255,.7);
-    background:rgba(8,18,24,.72); color:#fff; font:700 13px/1 system-ui,-apple-system,"Hiragino Sans",sans-serif; letter-spacing:.04em;
-    -webkit-tap-highlight-color:transparent; backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); }
-  .tbtn svg { width:19px; height:19px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
-  .tbtn.on { background:#fff; color:#111; border-color:#fff; }
-  .tbtn[hidden] { display:none; }
   #sea { inset:-38%; will-change:transform; }
   #gl { will-change:transform; }
   #note { position:fixed; z-index:5; left:0; right:0; top:42%; text-align:center; pointer-events:none; color:rgba(232,244,240,.0);
@@ -69,10 +61,6 @@
 <div id="gl" aria-hidden="true"></div>
 <canvas id="fg"></canvas>
 <a id="back" href="../index.html">‹ ART PLAYGROUND</a>
-<div id="tools">
-  <button id="tiltBtn" class="tbtn" type="button" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="8.5" y="3" width="7" height="18" rx="2"/><path d="M4.5 9c-1 2-1 4 0 6M19.5 9c1 2 1 4 0 6"/></svg><span>傾き OFF</span></button>
-  <button id="camBtn" class="tbtn" type="button" aria-pressed="false"><span>📷 OFF</span></button>
-</div>
 <div id="note" aria-live="polite"></div>
 <video id="cam" playsinline muted autoplay style="position:fixed;left:0;top:0;width:160px;height:120px;opacity:0;pointer-events:none;z-index:-1"></video>
 <script type="module">
@@ -578,7 +566,7 @@ addEventListener('pointerup', () => { if (ptr && !ptr.drag && performance.now() 
 addEventListener('pointercancel', () => { ptr = null; }, { passive: true });
 
 // tilt (sensor): a button, because the sensor has to be asked for
-const tiltBtn = $('tiltBtn'), tilt = { on: false, base: null, got: false, g: 0, b: 0 };
+let tiltBtn = null; const tilt = { on: false, base: null, got: false, g: 0, b: 0 };
 function onTilt(e) {
   if (e.beta == null || e.gamma == null) return;
   tilt.got = true;
@@ -586,8 +574,7 @@ function onTilt(e) {
   tilt.g += (clamp(e.gamma - tilt.base.g, -30, 30) - tilt.g) * .3; tilt.b += (clamp(e.beta - tilt.base.b, -28, 28) - tilt.b) * .3;
 }
 function setTilt(on) {
-  tilt.on = on; tiltBtn.classList.toggle('on', on); tiltBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
-  tiltBtn.querySelector('span').textContent = on ? '傾き ON' : '傾き OFF';
+  tilt.on = on; if (tiltBtn) { tiltBtn.classList.toggle('apk-on', on); tiltBtn.setAttribute('aria-pressed', on ? 'true' : 'false'); }
   if (on) {
     if (cam.on) stopCam();
     tilt.base = null; tilt.got = false; tilt.g = tilt.b = 0;
@@ -596,18 +583,18 @@ function setTilt(on) {
     setTimeout(() => { if (tilt.on && !tilt.got) { setTilt(false); say('この端末では傾きセンサーが使えないみたい。指でなぞっても覗ける', 4200); } }, 2200);
   } else removeEventListener('deviceorientation', onTilt);
 }
-tiltBtn.addEventListener('click', () => {
+function onTiltClick() {
   requestWakeLock();
   if (tilt.on) { setTilt(false); say('傾き OFF', 1600); return; }
   const D = window.DeviceOrientationEvent;
   if (!D) { say('この端末では傾きセンサーが使えないみたい。指でなぞっても覗ける', 4200); return; }
   if (typeof D.requestPermission === 'function') D.requestPermission().then(r => { if (r === 'granted') setTilt(true); else say('傾きが許可されなかった。指でなぞっても覗ける', 4600); }).catch(() => say('傾きが許可されなかった。指でなぞっても覗ける', 4600));
   else setTilt(true);
-});
+}
 
 // camera (face tracking): the front camera is read in this page only.
 // The video element is hidden and never drawn; no frame is saved or sent anywhere.
-const camBtn = $('camBtn'), camVideo = $('cam');
+let camBtn = null; const camVideo = $('cam');
 const cam = { on: false, stream: null, det: null, busy: false, base: null, nb: 0, raf: 0, last: 0, seen: -99 };
 const MP = new URL('../assets/vendor/mediapipe-face-detection/', import.meta.url).href;
 function loadMP() {
@@ -619,14 +606,15 @@ const camStat = { sent: 0, res: 0, faces: 0, t0: 0, rate: '', err: '' };
 function camStatus() {
   if (!cam.on) return;
   const now = performance.now() / 1000, seen = now - cam.seen < .6;
-  camBtn.querySelector('span').textContent = seen ? '📷 顔 ●' : '📷 顔 ○';
+  if (camBtn) camBtn.style.boxShadow = seen ? '0 0 0 2px rgba(120,255,180,.9)' : ''; // a green ring while a face is seen
   if (now - camStat.t0 > 1) { camStat.rate = `send ${camStat.sent}/s res ${camStat.res}/s face ${camStat.faces}/s`; camStat.sent = camStat.res = camStat.faces = 0; camStat.t0 = now; }
   if (camDbg) camDbg.textContent = `${camStat.rate}\nvideo ${camVideo.videoWidth}x${camVideo.videoHeight} rs${camVideo.readyState}\nhead ${head.tx.toFixed(2)} ${head.ty.toFixed(2)} z${head.tz.toFixed(2)}\nwatch ${watch.k.toFixed(2)} ${camStat.err}`;
   if (cam.on && now - cam.startAt > 4 && now - cam.seen > 4 && !cam.hinted) { cam.hinted = true; say('顔が見つからない。画面の正面から、明るいところでのぞいてみて', 4200); }
 }
 function setCamUI(on) {
-  camBtn.classList.toggle('on', on); camBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
-  camBtn.querySelector('span').textContent = on ? '📷 ON' : '📷 OFF';
+  if (!camBtn) return;
+  camBtn.classList.toggle('apk-on', on); camBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  camBtn.style.opacity = ''; camBtn.style.boxShadow = '';
 }
 function camFail(msg) {
   stopCam();
@@ -676,7 +664,7 @@ function stopCam() {
 }
 async function startCam() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { camFail('この端末ではカメラが使えないみたい'); return; }
-  camBtn.querySelector('span').textContent = '📷 …';
+  if (camBtn) camBtn.style.opacity = '.55'; // starting
   try {
     cam.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 320 }, height: { ideal: 240 } }, audio: false });
   } catch (e) { camFail('カメラが許可されなかった。傾きか、指なぞりで見られる'); return; }
@@ -695,11 +683,11 @@ async function startCam() {
   say('📷 ON。顔を動かすと、窓から覗くように奥行きが見える(映像は保存も送信もしない)', 4800);
   camLoop();
 }
-camBtn.addEventListener('click', () => {
+function onCamClick() {
   requestWakeLock();
   if (cam.on) { stopCam(); say('📷 OFF', 1600); return; }
   startCam();
-});
+}
 
 let awake = null;
 function requestWakeLock() {
@@ -1125,9 +1113,13 @@ if (window.APKit) APKit.init({
   buttons: [
     { label: '✦', name: 'mutate', onClick: () => { pal = (pal + 1) % PALS.length; if (grow) grow.rgb = colorFor(grow.hk, grow.m); say(PALS[pal].name); } }, // これから積もる泥の色を替える
     { label: '⏭', name: 'event', onClick: onEventButton },  // 出来事をいま見る(10分 → 正時)
-    { label: '↻', name: 'reset', onClick: () => { if (preview) finishPreview(true); fullSync(); say('積もり直し'); } }
+    { label: '↻', name: 'reset', onClick: () => { if (preview) finishPreview(true); fullSync(); say('積もり直し'); } },
+    // センサーを使うボタンは、下の操作バーに並べる(傾き=スマホの絵、カメラ=📷。ONは白く光る)
+    { label: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="8.5" y="3" width="7" height="18" rx="2"/><path d="M4.5 9c-1 2-1 4 0 6M19.5 9c1 2 1 4 0 6"/></svg>', name: 'tilt', onClick: onTiltClick },
+    { label: '📷', name: 'camera', onClick: onCamClick }
   ]
 });
+tiltBtn = document.querySelector('.apk-btn[aria-label="tilt"]'); camBtn = document.querySelector('.apk-btn[aria-label="camera"]');
 
 const testHead = /[?&]head=([-\d.]+),([-\d.]+)/.exec(location.search);
 if (testHead) { head.on = true; head.tx = parseFloat(testHead[1]); head.ty = parseFloat(testHead[2]); E.x = head.tx; E.y = head.ty; }
