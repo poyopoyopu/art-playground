@@ -17,7 +17,7 @@
      - 触る: 水の中をタップ = アオリイカがそこへ泳いでいき、漏斗の噴射で泥に穴をあける。穴は消えない。
        あとから積もる層は穴を少しずつ埋めながら覆うので、地層に「掘った跡」が残る。石(過ぎた時間)は硬くて掘れない。
        地層をタップ = その層がいつ積もったかを読む。
-     ボタン: ✦ これから積もる泥の色を替える(積もった層の色は変わらない) / ⏭ 出来事をいま見る(10分の鍵層 → 正時) / ↻ 積もり直す
+     ボタン: ✦ これから積もる泥の色を替える(積もった層の色は変わらない) / ⏭ 出来事をいま見る(10分の鍵層 → 正時 → エギ) / ↻ 積もり直す
      題名の SCALE は「鱗」と「目盛り」と「地質年代表(geologic time scale)」の掛け言葉。 -->
 <html lang="ja">
 <head>
@@ -416,7 +416,7 @@ function setMotionKeep(a, m, egiAt) {
   if (egiAt) a.egi.obj.position.copy(egiAt);
   else if (had && b.egiShown) { a.egi.obj.position.copy(ep); a.egi.obj.rotation.copy(er); }
 }
-const egiEv = { on: false, stage: '', t: 0, next: 50 + Math.random() * 30 };
+const egiEv = { on: false, stage: '', t: 0, next: 25 + Math.random() * 15 };
 function updateEgi(dt) {
   if (!aori || anim || preview) { if (egiEv.on) endEgi(false); return; }
   if (!egiEv.on) {
@@ -517,8 +517,9 @@ function finishPreview(instant) {
 }
 function onEventButton() {
   if (previewStep === 0) { ashPulse = 1.4; say('10分 — 白い鍵層'); }
-  else previewHour();
-  previewStep = (previewStep + 1) % 2;
+  else if (previewStep === 1) previewHour();
+  else { if (!egiEv.on) { egiEv.next = 0; say('エギを落とす', 1600); } }
+  previewStep = (previewStep + 1) % 3;
 }
 function scatterFish(x, y, power) {
   for (const f of fish) { const dx = f.x - x, dy = f.y - y, d = Math.hypot(dx, dy) + 20; f.vx += dx / d * power; f.vy += dy / d * power * .6; }
@@ -536,7 +537,7 @@ function doBlow(x) {
 function handleTap(x, y) {
   const sy = surfAt(x);
   if (y > sy + 8 * UI) { readStrata(x, y); return; }
-  if (egiEv.on) endEgi(false);
+  if (egiEv.on) return; // the squid is busy with the lure; let it finish
   aoriX = clamp(x - shX(GL_D), W * .12, POLE - 70 * UI);
   pendingBlow = { x: aoriX, t0: performance.now() };
   aoriIdleAt = performance.now() + 26000;
@@ -853,6 +854,10 @@ function updateSquids(dt, tintRGB) {
   if (kouika) {
     const kx = KX(), at = onPlane(kx, surfAt(kx), tmpP);
     kouika.brain.home.set(0, at.y + .2, at.z);
+    // a crater or any other sudden step in the floor under it: make the cuttlefish again on the new floor,
+    // because the kit keeps its arms where the old floor was and they would be left floating
+    if (!anim && kouika.lastFloor != null && Math.abs(at.y - kouika.lastFloor) > .012 && kouika.motion !== 'bury') { spawnKouika(false); return; }
+    kouika.lastFloor = at.y;
     kouika.brain.floorY = at.y; kouika.fx.floorY = at.y + .005;
     const b = kouika.brain;
     if (holdBury && kouika.motion === 'bury' && b.phase === 'hidden' && b.pt > .6) b.pt = .6;
