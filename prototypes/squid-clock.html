@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#031622">
+  <title>INK TIDE — 色で時を泳ぐイカ</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body, canvas { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #031622; }
+    body { font-family: Georgia, "Times New Roman", serif; }
+    #sea { position: fixed; inset: 0; overflow: hidden; background: radial-gradient(ellipse at 50% 48%, #123b49 0%, #082633 42%, #03141f 100%); }
+    #sea::before { content: ""; position: absolute; inset: -30% -20%; opacity: .34; background: repeating-linear-gradient(104deg, transparent 0 12%, rgba(156,224,222,.07) 13%, rgba(156,224,222,.01) 17%, transparent 22% 31%); filter: blur(15px); animation: caustics 18s ease-in-out infinite alternate; transform-origin: 50% 0; }
+    #sea::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(145,226,223,.11), transparent 29%, rgba(0,8,17,.22)); pointer-events: none; }
+    @keyframes caustics { from { transform: translate3d(-3%, -2%, 0) rotate(-5deg) scale(1.08); } to { transform: translate3d(3%, 2%, 0) rotate(5deg) scale(1.16); } }
+    canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+    #back { position: fixed; z-index: 3; top: max(17px, env(safe-area-inset-top)); left: max(17px, env(safe-area-inset-left)); color: rgba(225,245,241,.68); text-decoration: none; font: 10px/1.2 Arial, sans-serif; letter-spacing: .16em; padding: 9px 11px; border: 1px solid rgba(218,241,238,.18); border-radius: 20px; backdrop-filter: blur(8px); transition: color .3s, border-color .3s; }
+    #back:active { color: #fff; border-color: rgba(255,255,255,.55); }
+    #hint { position: fixed; z-index: 2; bottom: max(31px, env(safe-area-inset-bottom)); left: 0; right: 0; text-align: center; color: rgba(220,241,238,.44); font: 9px/1 Arial,sans-serif; letter-spacing: .25em; pointer-events: none; opacity: .8; transition: opacity 2s; }
+    #hint.fade { opacity: 0; }
+    #error { display:none; position:fixed; inset:auto 20px 20px; z-index:5; color:#ffd8d2; font:13px/1.5 sans-serif; text-align:center; }
+  </style>
+  <script type="importmap">
+    { "imports": {
+      "three": "../assets/vendor/three/three.module.js",
+      "three/addons/": "../assets/vendor/three/examples/jsm/"
+    } }
+  </script>
+</head>
+<body>
+  <div id="sea" aria-hidden="true"></div>
+  <a id="back" href="../index.html">‹ ART PLAYGROUND</a>
+  <div id="hint">A QUIET CLOCK, WRITTEN IN COLOUR</div>
+  <div id="error" role="status"></div>
+  <script type="module">
+    import * as THREE from 'three';
+    import { loadSquids, createSquid } from '../assets/squid-kit/squid-kit.js';
+
+    const sea = document.getElementById('sea');
+    const error = document.getElementById('error');
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(innerWidth, innerHeight, false);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.15;
+    sea.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(34, innerWidth / innerHeight, .1, 30);
+    camera.position.set(1.01, 1.31, 1.32);
+    camera.lookAt(0, 1, 0);
+    scene.add(new THREE.HemisphereLight(0x9bd4d4, 0x071a25, 1.45));
+    const key = new THREE.DirectionalLight(0xc6f5ec, 2.5);
+    key.position.set(-2.5, 4.5, 3.5);
+    scene.add(key);
+    const rim = new THREE.DirectionalLight(0x4d9eb5, 1.8);
+    rim.position.set(2, 1.8, -3);
+    scene.add(rim);
+
+    let actor;
+    let awake = null;
+    function requestWakeLock() {
+      if (!navigator.wakeLock || awake || document.visibilityState !== 'visible') return;
+      navigator.wakeLock.request('screen').then(lock => {
+        awake = lock;
+        lock.addEventListener('release', () => { awake = null; });
+      }).catch(() => {});
+    }
+    requestWakeLock();
+    document.addEventListener('visibilitychange', requestWakeLock);
+    addEventListener('pointerdown', requestWakeLock, { passive: true });
+
+    let surprise = 0;
+    let turnAt = 52 + Math.random() * 23;
+    let turnFor = 0;
+    let turning = false;
+    let lastT = performance.now() / 1000;
+    let elapsed = 0;
+    addEventListener('pointerdown', () => {
+      if (!actor) return;
+      surprise = 1;
+      actor.setMotion('backward');
+    }, { passive: true });
+
+    function clockValues(now) {
+      const date = new Date();
+      const minutePhase = (date.getMinutes() + date.getSeconds() / 60 + date.getMilliseconds() / 60000) / 60;
+      const hour = date.getHours() + date.getMinutes() / 60 + date.getSeconds() / 3600;
+      return { date, minutePhase, hour };
+    }
+
+    function render() {
+      const now = performance.now() / 1000;
+      const dt = Math.min(.05, Math.max(0, now - lastT));
+      lastT = now;
+      elapsed += dt;
+      if (actor) {
+        const { date, minutePhase, hour } = clockValues(Date.now());
+        const u = actor.squid.uniforms;
+        if (turning) {
+          turnFor -= dt;
+          if (turnFor <= 0) {
+            turning = false;
+            actor.setMotion('hover');
+            turnAt = elapsed + 45 + Math.random() * 30;
+          }
+        } else if (surprise <= 0 && elapsed >= turnAt) {
+          turning = true;
+          turnFor = 3.5;
+          actor.setMotion('turn');
+        }
+        if (surprise > 0) {
+          surprise = Math.max(0, surprise - dt / 3.4);
+          if (surprise === 0 && !turning) actor.setMotion('hover');
+        }
+
+        actor.update(dt);
+        const hourAngle = (hour / 24) * Math.PI * 2 - Math.PI / 2;
+        const day = (Math.cos(hourAngle) + 1) * .5;
+        const daylight = THREE.MathUtils.smoothstep(day, .23, .79);
+        const minuteWave = Math.sin(minutePhase * Math.PI * 2);
+        const minuteCos = Math.cos(minutePhase * Math.PI * 2);
+        const second = date.getSeconds() + date.getMilliseconds() / 1000;
+        const secondPhase = second / 60;
+        const minuteFlash = Math.exp(-Math.pow(Math.min(second, 60 - second) / .72, 2));
+
+        // Clock owns these uniforms after actor.update(), so its random colour episodes cannot override time.
+        u.uDark.value = THREE.MathUtils.lerp(.83, .12, daylight) + .045 * minuteWave;
+        u.uPale.value = THREE.MathUtils.lerp(.10, .46, daylight) + .035 * minuteCos + surprise * .92;
+        u.uCloud.value = .28 + .12 * (1 + minuteWave);
+        u.uFlicker.value = .12 * minuteFlash;
+        u.uDash.value = .22 + .16 * (.5 + .5 * minuteCos);
+        u.uDashS.value.x = -.52 + minutePhase * 1.04;
+        u.uDashS.value.y = .92;
+        u.uSpot.value.setHSL(.48 + minutePhase * .48, .68, .58);
+        // SKIN_FRAG moves its cloud by uTime*4.5; this phase completes one full sweep in 60 seconds.
+        u.uTime.value = secondPhase * (Math.PI * 2 / 4.5);
+        renderer.render(scene, camera);
+      }
+      requestAnimationFrame(render);
+    }
+
+    function resize() {
+      const w = innerWidth, h = innerHeight;
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setSize(w, h, false);
+      camera.aspect = w / Math.max(1, h);
+      camera.position.set(1.01, 1.31, h > w ? 1.32 : 1.78);
+      camera.updateProjectionMatrix();
+      camera.lookAt(0, 1, 0);
+    }
+    addEventListener('resize', resize, { passive: true });
+
+    try {
+      await loadSquids('../assets/squid-kit/');
+      actor = createSquid('aori', { detail: 'low', home: new THREE.Vector3(0, 1, 0) });
+      actor.setMotion('hover');
+      scene.add(actor.object);
+      for (let i = 0; i < 24; i++) actor.update(1 / 60);
+      requestAnimationFrame(render);
+      setTimeout(() => document.getElementById('hint').classList.add('fade'), 8000);
+    } catch (e) {
+      console.error(e);
+      error.textContent = 'イカを読み込めませんでした。ページを再読み込みしてください。';
+      error.style.display = 'block';
+    }
+  </script>
+</body>
+</html>
