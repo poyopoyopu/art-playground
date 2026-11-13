@@ -4,6 +4,8 @@
      見る位置(📷 顔 / 傾き / 指なぞり / 何もしないときはゆっくり漂う)が動くと、奥のものほど大きくずれて、泥の上面が奥へのびて見える。
      📷: インカメラの映像はこのページの中だけで顔の位置を読むのに使い、表示・保存・送信はしない。拒否されたら傾き、それも無ければ指なぞり。
      テスト用: ?head=x,y(-1〜1)で、カメラなしに見る位置を固定できる。
+     海の時間帯: 朝・昼・夕・夜で海の色と光が変わる。夜は鱗とプランクトンが光る(テスト用: ?hour=0〜23)。
+     来訪者: 数分おきに、クラゲかエイがゆっくり水の中を横切る。エイが近くを通ると魚の群れはよける。
      以下は元の TIME SCALE の説明。魚・イカ3Dキット(assets/squid-kit、CC0)を使う試作。
      世界のルール: 「魚の群れが秒をはこび、こぼれた鱗が一分で一枚の泥になり、一時間で一枚の石になる」。
      - 秒: 小さな魚の群れが1分かけて左から右へ渡り、こぼれた鱗(光る粒)が海底に落ちて、その分の泥の層を左から順に敷いていく。
@@ -29,10 +31,10 @@
   html, body, canvas { -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
   html, body { position:fixed; inset:0; width:100%; height:100%; margin:0; overflow:hidden; background:#03101a; }
   #sea { position:absolute; overflow:hidden; background:linear-gradient(180deg,#0f3442 0%,#0a2633 22%,#061a25 50%,#041119 78%,#020a10 100%); }
-  #sea::before { content:""; position:absolute; inset:-30% -25% 45%; pointer-events:none; opacity:.34;
+  #sea::before { content:""; position:absolute; inset:-30% -25% 45%; pointer-events:none; opacity:var(--sh,.34);
     background:repeating-conic-gradient(from 172deg at 50% 0%,transparent 0deg 5deg,rgba(170,222,214,.10) 5.6deg 6.2deg,transparent 7deg 12deg);
     filter:blur(14px); transform:scaleX(1.4); animation:shafts 19s ease-in-out infinite alternate; }
-  @keyframes shafts { to { transform:translateX(4%) scaleX(1.7) rotate(3deg); opacity:.55; } }
+  @keyframes shafts { to { transform:translateX(4%) scaleX(1.7) rotate(3deg); } }
   canvas, #gl canvas { position:absolute; inset:0; display:block; width:100%; height:100%; }
   #gl { position:absolute; inset:0; pointer-events:none; }
   #fg { touch-action:none; }
@@ -138,7 +140,7 @@ function layout() {
 // ---------- depth: the screen is the glass of a tank ----------
 // E is where the viewer's eye is (x right, y up, -1..1). Something at depth d (0 = on the glass, 1 = the far sea)
 // is drawn shifted by d*M toward the eye's side: far things follow the eye, the glass stays put.
-const E = { x: 0, y: 0, tx: 0, ty: .35 }, EDGE_D = .95, GL_D = .2;
+const E = { x: 0, y: 0, tx: 0, ty: .35 }, EDGE_D = .5, GL_D = .2;
 let M = 60, G = 1; // G grows while a face is watching through the glass
 const shX = d => E.x * d * M * G, shY = d => -E.y * d * M * G;
 const head = { on: false, tx: 0, ty: 0, tz: 1 };
@@ -691,6 +693,7 @@ function frame() {
   updateEye(dt, elapsed); camStatus();
   updateFish(dt, N.s, ashMinute, tintRGB);
   updateParticles(dt);
+  updateSea(N); updateVisitors(dt);
   updateSquids(dt, tintRGB);
 
   drawBG(tintRGB, ashMinute);
@@ -733,6 +736,7 @@ function updateFish(dt, s, ash, tintRGB) {
       const g = fish[k], dx = f.x - g.x, dy = f.y - g.y, d2 = dx * dx + dy * dy, R = 15 * UI;
       if (d2 < R * R && d2 > .01) { const d = Math.sqrt(d2); ax += dx / d * (R - d) * 9; ay += dy / d * (R - d) * 9; }
     }
+    for (const v of visitors) { const R = (v.kind === 'ray' ? 120 : 50) * UI, ex = f.x - v.x, ey = f.y - v.y, ed = Math.hypot(ex, ey); if (ed < R) { ax += ex / (ed + 1) * (R - ed) * 7; ay += ey / (ed + 1) * (R - ed) * 7; } }
     const dx = f.x - ax0, dy = f.y - ay0, d = Math.hypot(dx, dy), RA = 92 * UI;
     if (d < RA) { ax += dx / (d + 1) * (RA - d) * 6; ay += dy / (d + 1) * (RA - d) * 6; }
     f.vx += ax * dt; f.vy += ay * dt;
@@ -800,9 +804,123 @@ function updateSquids(dt, tintRGB) {
 }
 
 // ---------- background: snow + fish (behind the squids) ----------
+// ---------- the sea's time of day ----------
+// keyframes by local hour: top / middle / bottom of the water, light shafts, night glow
+const SEAK = [
+  [0,    [4, 14, 26],  [3, 9, 18],   [1, 4, 9],   0,   1],
+  [4.5,  [5, 16, 28],  [3, 10, 19],  [1, 5, 10],  0,   1],
+  [6,    [58, 74, 98], [22, 40, 56], [5, 14, 22], .2,  .25],
+  [8,    [26, 92, 108],[12, 54, 68], [4, 20, 30], .42, 0],
+  [15.5, [24, 86, 102],[11, 50, 64], [4, 19, 29], .4,  0],
+  [17.5, [86, 56, 74], [30, 32, 52], [6, 11, 20], .24, .2],
+  [19.3, [10, 24, 40], [5, 13, 24],  [2, 6, 12],  .03, .85],
+  [24,   [4, 14, 26],  [3, 9, 18],   [1, 4, 9],   0,   1],
+];
+const sea = { top: [15, 52, 66], mid: [6, 26, 37], bot: [2, 10, 16], sh: .34, night: 0, last: -1 };
+const forceHour = (/[?&]hour=([\d.]+)/.exec(location.search) || [])[1];
+function updateSea(N) {
+  const hh = forceHour != null ? parseFloat(forceHour) : N.h + N.m / 60 + N.s / 3600;
+  let i = 0; while (i < SEAK.length - 2 && hh >= SEAK[i + 1][0]) i++;
+  const a = SEAK[i], b = SEAK[i + 1], t = smooth(0, 1, (hh - a[0]) / (b[0] - a[0]));
+  sea.top = mix(a[1], b[1], t); sea.mid = mix(a[2], b[2], t); sea.bot = mix(a[3], b[3], t);
+  sea.sh = lerp(a[4], b[4], t); sea.night = lerp(a[5], b[5], t);
+  if (elapsed - sea.last > .5) { // CSS only needs a gentle refresh
+    sea.last = elapsed;
+    seaEl.style.background = `linear-gradient(180deg,${rgbs(sea.top)} 0%,${rgbs(mix(sea.top, sea.mid, .55))} 22%,${rgbs(sea.mid)} 50%,${rgbs(mix(sea.mid, sea.bot, .6))} 78%,${rgbs(sea.bot)} 100%)`;
+    seaEl.style.setProperty('--sh', sea.sh.toFixed(3));
+    hemi.intensity = 1.7 * (1 - .45 * sea.night); key.intensity = 3 * (1 - .5 * sea.night);
+  }
+}
+// night plankton: tiny blue lights that wake when something passes
+const glow = [];
+function makeGlow() { glow.length = 0; for (let i = 0; i < 70; i++) glow.push({ x: Math.random() * W, y: waterTop + Math.random() * (Y60 - waterTop), d: .2 + Math.random() * .7, ph: Math.random() * 6.28, f: .4 + Math.random() * 1.4, w: 0 }); }
+function drawGlow(g) {
+  const n = sea.night; if (n < .05) return;
+  g.globalCompositeOperation = 'lighter';
+  for (const p of glow) {
+    let wake = 0;
+    for (const f of fish) { const dx = f.x - p.x, dy = f.y - p.y; if (dx * dx + dy * dy < 900 * UI * UI) { wake = 1; break; } }
+    for (const v of visitors) { const dx = v.x - p.x, dy = v.y - p.y; if (dx * dx + dy * dy < 3600 * UI * UI) { wake = 1; break; } }
+    p.w = Math.max(wake, p.w - .012);
+    const a = n * (.1 + .22 * Math.max(0, Math.sin(elapsed * p.f + p.ph)) + .45 * p.w), x = p.x + shX(p.d), y = p.y + shY(p.d), r = (.7 + p.w * 1.1) * UI;
+    const gr = g.createRadialGradient(x, y, 0, x, y, r * 3);
+    gr.addColorStop(0, `rgba(120,230,255,${a})`); gr.addColorStop(1, 'rgba(60,160,255,0)');
+    g.fillStyle = gr; g.fillRect(x - r * 3, y - r * 3, r * 6, r * 6);
+  }
+  g.globalCompositeOperation = 'source-over';
+}
+
+// ---------- visitors: now and then a jellyfish or a ray crosses the water ----------
+const visitors = [];
+let nextVisit = 35 + Math.random() * 30;
+function spawnVisitor(kind) {
+  kind = kind || (Math.random() < .6 ? 'jelly' : 'ray');
+  const dir = Math.random() < .5 ? 1 : -1, d = kind === 'ray' ? .45 + Math.random() * .4 : .2 + Math.random() * .55;
+  const sc = (1.25 - d * .6) * UI;
+  if (kind === 'jelly') visitors.push({ kind, dir, d, sc: sc * (.8 + Math.random() * .5), x: dir > 0 ? -60 * UI : W + 60 * UI, y: lerp(waterTop + 40 * UI, Y60 - 60 * UI, Math.random()), t: 0, ph: Math.random() * 6, hue: Math.random() });
+  else visitors.push({ kind, dir, d, sc: sc * (.9 + Math.random() * .4), x: dir > 0 ? -110 * UI : W + 110 * UI, y: lerp(waterTop + 60 * UI, Y60 - 30 * UI, .35 + Math.random() * .6), t: 0, ph: Math.random() * 6, vy: (Math.random() - .5) * 6 });
+}
+function updateVisitors(dt) {
+  if (elapsed > nextVisit && !visitors.length) { spawnVisitor(); nextVisit = elapsed + 110 + Math.random() * 120; }
+  for (let i = visitors.length - 1; i >= 0; i--) {
+    const v = visitors[i]; v.t += dt;
+    if (v.kind === 'jelly') { const pulse = Math.max(0, Math.sin(v.t * 1.7 + v.ph)); v.x += v.dir * (6 + 10 * pulse) * UI * dt; v.y += (-7 * pulse + 3.2) * UI * dt; }
+    else { v.x += v.dir * 34 * UI * dt; v.y += (v.vy + Math.sin(v.t * .5) * 5) * UI * dt; }
+    if (v.x < -160 * UI || v.x > W + 160 * UI || v.y < -80) visitors.splice(i, 1);
+  }
+}
+function drawJelly(g, v) {
+  const n = sea.night, R = 25 * v.sc, p = Math.max(0, Math.sin(v.t * 1.7 + v.ph)), sq = 1 - .18 * p, wd = R * (1 + .14 * p), hgt = R * .85 * sq;
+  const x = v.x + shX(v.d), y = v.y + shY(v.d);
+  const col = n > .5 ? [140, 220, 255] : mix([255, 196, 220], [210, 230, 255], v.hue);
+  g.save(); g.translate(x, y);
+  // tentacles trail behind the swim
+  g.strokeStyle = rgbs(col, .22 + .3 * n); g.lineWidth = Math.max(.6, .9 * v.sc);
+  for (let k = 0; k < 7; k++) {
+    const x0 = (k / 6 - .5) * wd * 1.5; g.beginPath(); g.moveTo(x0, 0);
+    for (let s = 1; s <= 8; s++) { const yy = s * R * .42, xx = x0 + Math.sin(v.t * 1.6 - s * .7 + k) * R * .12 * s / 4 - v.dir * s * R * .05; g.lineTo(xx, yy); }
+    g.stroke();
+  }
+  // oral arms
+  g.strokeStyle = rgbs(col, .35 + .3 * n); g.lineWidth = Math.max(1, 2 * v.sc);
+  for (let k = -1; k <= 1; k += 2) { g.beginPath(); g.moveTo(k * wd * .15, 0); g.quadraticCurveTo(k * wd * .3 + Math.sin(v.t + k) * 4, R * 1.1, k * wd * .1, R * 2); g.stroke(); }
+  // bell
+  g.beginPath(); g.moveTo(-wd, 0); g.bezierCurveTo(-wd, -hgt * 1.35, wd, -hgt * 1.35, wd, 0); g.quadraticCurveTo(0, hgt * .22, -wd, 0); g.closePath();
+  const gr = g.createRadialGradient(0, -hgt * .5, 0, 0, -hgt * .3, wd * 1.2);
+  gr.addColorStop(0, rgbs(col, .5 + .3 * n)); gr.addColorStop(.7, rgbs(col, .2 + .2 * n)); gr.addColorStop(1, rgbs(col, .05));
+  if (n > .3) g.globalCompositeOperation = 'lighter';
+  g.fillStyle = gr; g.fill();
+  g.strokeStyle = rgbs(mix(col, WHITE, .5), .35 + .3 * n); g.lineWidth = .8; g.stroke();
+  // four gonads, the moon jelly's mark
+  for (let k = 0; k < 4; k++) { g.beginPath(); g.ellipse((k - 1.5) * wd * .28, -hgt * .45, wd * .1, hgt * .14, 0, 0, 6.283); g.fillStyle = rgbs(mix(col, WHITE, .4), .25 + .3 * n); g.fill(); }
+  g.restore(); g.globalCompositeOperation = 'source-over';
+}
+function drawRay(g, v) {
+  const n = sea.night, S = 92 * v.sc, x = v.x + shX(v.d), y = v.y + shY(v.d), fl = Math.sin(v.t * 2.1 + v.ph);
+  g.save(); g.translate(x, y); g.scale(v.dir, 1);
+  const tip = fl * S * .18;
+  g.beginPath();
+  g.moveTo(S * .55, 0); // snout
+  g.bezierCurveTo(S * .35, -S * .14, S * .1, -S * .34 - tip * .5, -S * .05, -S * .3 - tip); // upper wing (far)
+  g.bezierCurveTo(-S * .2, -S * .12 - tip * .4, -S * .45, -S * .02, -S * .5, 0);
+  g.bezierCurveTo(-S * .45, S * .05, -S * .2, S * .2 + tip * .4, -S * .05, S * .36 + tip); // lower wing (near)
+  g.bezierCurveTo(S * .1, S * .42 + tip * .5, S * .35, S * .14, S * .55, 0);
+  g.closePath();
+  const top = mix([64, 76, 84], sea.top, .25 + .35 * n), belly = mix([150, 168, 172], sea.mid, .3 + .4 * n);
+  const gr = g.createLinearGradient(0, -S * .3, 0, S * .3); gr.addColorStop(0, rgbs(top, .95)); gr.addColorStop(1, rgbs(belly, .9));
+  g.fillStyle = gr; g.fill();
+  // tail
+  g.strokeStyle = rgbs(top, .8); g.lineWidth = Math.max(.8, 1.4 * v.sc);
+  g.beginPath(); g.moveTo(-S * .48, 0); g.quadraticCurveTo(-S * .9, Math.sin(v.t * 1.5) * S * .06, -S * 1.35, Math.sin(v.t * 1.2 + 1) * S * .1); g.stroke();
+  // eye
+  g.fillStyle = 'rgba(10,16,20,.8)'; g.beginPath(); g.arc(S * .3, -S * .04, Math.max(.8, 1.4 * v.sc), 0, 6.283); g.fill();
+  g.restore();
+}
 function drawBG(tintRGB, ash) {
   bx.setTransform(1, 0, 0, 1, 0, 0); bx.clearRect(0, 0, bg.width, bg.height); bx.setTransform(DPR, 0, 0, DPR, 0, 0);
   for (const s of snow) { if (s.y > Y0) continue; const d = .35 + s.z * .65; bx.fillStyle = `rgba(214,232,228,${s.a * (1.1 - s.z * .5)})`; bx.fillRect(s.x + shX(d), s.y + shY(d), s.s, s.s); }
+  drawGlow(bx);
+  for (const v of visitors) if (v.d >= .45) (v.kind === 'jelly' ? drawJelly : drawRay)(bx, v);
   drawTopFace();
   const glintCol = ash ? WHITE : mix(tintRGB, WHITE, .35);
   for (const f of fish) {
@@ -815,13 +933,14 @@ function drawBG(tintRGB, ash) {
     bx.lineTo(-L * .3, h * .3);
     bx.quadraticCurveTo(L * .18, h * 1.25, L * .5, 0);
     const gr = bx.createLinearGradient(0, -h, 0, h);
-    gr.addColorStop(0, 'rgba(58,92,112,.92)'); gr.addColorStop(.55, 'rgba(176,204,212,.92)'); gr.addColorStop(1, 'rgba(226,236,236,.92)');
+    const nd = 1 - .55 * sea.night; gr.addColorStop(0, rgbs(mix([58, 92, 112], sea.bot, .5 * sea.night), .92)); gr.addColorStop(.55, rgbs([176 * nd, 204 * nd, 212 * nd], .92)); gr.addColorStop(1, rgbs([226 * nd, 236 * nd, 236 * nd], .92));
     bx.fillStyle = gr; bx.fill();
     const gl = Math.pow(Math.max(0, Math.sin(elapsed * 1.6 + f.ph + f.ang * 2)), 10) * .85 + (ash ? .25 : 0);
     if (gl > .02) { bx.fillStyle = rgbs(glintCol, Math.min(.95, gl)); bx.fill(); }
     bx.fillStyle = 'rgba(8,20,28,.85)'; bx.beginPath(); bx.arc(L * .33, -h * .15, Math.max(.7, L * .045), 0, 6.283); bx.fill();
     bx.restore();
   }
+  for (const v of visitors) if (v.d < .45) (v.kind === 'jelly' ? drawJelly : drawRay)(bx, v);
 }
 
 // ---------- foreground: strata, scales, pole ----------
@@ -897,7 +1016,8 @@ function drawFG(N) {
   // scales, puffs, sparkles, jet streaks
   for (const p of P) {
     const ox = p.d ? shX(p.d) : 0, oy = p.d ? shY(p.d) : 0; g.save(); g.translate(ox, oy);
-    if (p.k === 0) { const tw = .55 + .45 * Math.sin(elapsed * 11 + p.tw); g.fillStyle = rgbs(p.rgb, .5 + .5 * tw); g.fillRect(p.x - p.sz / 2, p.y - p.sz / 2, p.sz, p.sz); }
+    if (p.k === 0) { const tw = .55 + .45 * Math.sin(elapsed * 11 + p.tw); g.fillStyle = rgbs(p.rgb, .5 + .5 * tw); g.fillRect(p.x - p.sz / 2, p.y - p.sz / 2, p.sz, p.sz);
+      if (sea.night > .2) { g.globalCompositeOperation = 'lighter'; g.fillStyle = rgbs(mix(p.rgb, [150, 230, 255], .5), .22 * sea.night * tw); g.beginPath(); g.arc(p.x, p.y, p.sz * 2.6, 0, 6.283); g.fill(); g.globalCompositeOperation = 'source-over'; } }
     else if (p.k === 1) { const a = Math.min(1, p.life * 4) * (1 - p.life / p.max); g.fillStyle = rgbs(p.rgb, .9 * a); g.fillRect(p.x - p.sz / 2, p.y - p.sz / 2, p.sz, p.sz); }
     else if (p.k === 2) { const a = 1 - p.life / p.max; g.fillStyle = rgbs(mix(p.rgb, WHITE, .6), a); g.beginPath(); g.arc(p.x, p.y, p.sz * (1 + p.life * 3), 0, 6.283); g.fill(); }
     else if (p.k === 3) { const a = 1 - p.life / p.max; g.strokeStyle = `rgba(210,236,238,${.35 * a})`; g.lineWidth = 1; g.beginPath(); g.moveTo(p.x, p.y - 26); g.lineTo(p.x, p.y); g.stroke(); }
@@ -920,7 +1040,7 @@ function drawTopFace() {
   g.closePath();
   const ymin = Math.min(surf[0], surf[COLS >> 1], surf[COLS - 1]) + dy;
   const gr = g.createLinearGradient(0, ymin, 0, ymin - dy + 4);
-  gr.addColorStop(0, rgbs(mix(c, [6, 22, 30], .72))); gr.addColorStop(1, rgbs(mix(mix(c, WHITE, .18), [6, 22, 30], .25)));
+  gr.addColorStop(0, rgbs(mix(c, sea.bot, .78))); gr.addColorStop(1, rgbs(mix(c, sea.bot, .38)));
   g.fillStyle = gr; g.fill();
   g.save(); g.clip(); g.globalAlpha = .28; g.fillStyle = grainBg; g.fillRect(-W, ymin - 4, W * 3, -dy + 12); g.restore();
   g.beginPath(); back.forEach((x, i) => g[i ? 'lineTo' : 'moveTo'](x + dx, surfAt(x) + dy));
@@ -984,14 +1104,14 @@ function drawPole(g, N) {
 // ---------- boot ----------
 let resizeT = 0, lastW = 0, lastH = 0;
 function boot() {
-  layout(); makeGrain(); makeFish(); makeSnow(); makeNear(); fullSync(); fitCamera();
+  layout(); makeGrain(); makeFish(); makeSnow(); makeNear(); fullSync(); fitCamera(); makeGlow();
   aoriX = W * .4; lastW = W; lastH = H;
 }
 addEventListener('resize', () => {
   clearTimeout(resizeT);
   resizeT = setTimeout(() => {
     if (innerWidth === lastW && Math.abs(innerHeight - lastH) < 2) return;
-    layout(); makeSnow(); makeNear(); fullSync(); fitCamera(); lastW = W; lastH = H;
+    layout(); makeSnow(); makeNear(); makeGlow(); fullSync(); fitCamera(); lastW = W; lastH = H;
     for (const f of fish) { f.x = clamp(f.x, 0, W); f.y = clamp(f.y, 0, waterBottom); }
   }, 180);
 }, { passive: true });
@@ -1013,7 +1133,7 @@ if (window.APKit) APKit.init({
 
 const testHead = /[?&]head=([-\d.]+),([-\d.]+)/.exec(location.search);
 if (testHead) { head.on = true; head.tx = parseFloat(testHead[1]); head.ty = parseFloat(testHead[2]); E.x = head.tx; E.y = head.ty; }
-if (testHead || /[?&]test\b/.test(location.search)) window.__ts = { E, head, drag, watch, fakeFace(x, y, z) { cam.on = true; head.on = true; cam.seen = performance.now() / 1000; head.tx = x; head.ty = y; head.tz = z; }, previewNow() { previewHour(); if (preview) preview.t = 5.5; }, get anim() { return anim; }, get preview() { return preview; } };
+if (testHead || /[?&]test\b/.test(location.search)) window.__ts = { E, head, drag, watch, visitors, spawnVisitor, fakeFace(x, y, z) { cam.on = true; head.on = true; cam.seen = performance.now() / 1000; head.tx = x; head.ty = y; head.tz = z; }, previewNow() { previewHour(); if (preview) preview.t = 5.5; }, get anim() { return anim; }, get preview() { return preview; } };
 
 try {
   await loadSquids('../assets/squid-kit/');
