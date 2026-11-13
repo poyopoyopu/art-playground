@@ -9,17 +9,19 @@
     :root { color-scheme: dark; }
     * { box-sizing: border-box; }
     html, body, canvas { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
-    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #031622; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #020c13; }
     body { font-family: Georgia, "Times New Roman", serif; }
-    #sea { position: fixed; inset: 0; overflow: hidden; background: radial-gradient(ellipse at 50% 48%, #123b49 0%, #082633 42%, #03141f 100%); }
-    #sea::before { content: ""; position: absolute; inset: -30% -20%; opacity: .34; background: repeating-linear-gradient(104deg, transparent 0 12%, rgba(156,224,222,.07) 13%, rgba(156,224,222,.01) 17%, transparent 22% 31%); filter: blur(15px); animation: caustics 18s ease-in-out infinite alternate; transform-origin: 50% 0; }
-    #sea::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(145,226,223,.11), transparent 29%, rgba(0,8,17,.22)); pointer-events: none; }
+    #sea { position: fixed; inset: 0; overflow: hidden; background: radial-gradient(ellipse at 50% 48%, #0a2029 0%, #06151e 42%, #020910 100%); }
+    #sea::before { content: ""; position: absolute; inset: -30% -20%; opacity: .14; background: repeating-linear-gradient(104deg, transparent 0 12%, rgba(119,166,166,.045) 13%, rgba(119,166,166,.006) 17%, transparent 22% 31%); filter: blur(15px); animation: caustics 18s ease-in-out infinite alternate; transform-origin: 50% 0; }
+    #sea::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(102,157,157,.045), transparent 29%, rgba(0,5,11,.35)); pointer-events: none; }
     @keyframes caustics { from { transform: translate3d(-3%, -2%, 0) rotate(-5deg) scale(1.08); } to { transform: translate3d(3%, 2%, 0) rotate(5deg) scale(1.16); } }
     canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     #back { position: fixed; z-index: 3; top: max(17px, env(safe-area-inset-top)); left: max(17px, env(safe-area-inset-left)); color: rgba(225,245,241,.68); text-decoration: none; font: 10px/1.2 Arial, sans-serif; letter-spacing: .16em; padding: 9px 11px; border: 1px solid rgba(218,241,238,.18); border-radius: 20px; backdrop-filter: blur(8px); transition: color .3s, border-color .3s; }
     #back:active { color: #fff; border-color: rgba(255,255,255,.55); }
     #hint { position: fixed; z-index: 2; bottom: max(31px, env(safe-area-inset-bottom)); left: 0; right: 0; text-align: center; color: rgba(220,241,238,.44); font: 9px/1 Arial,sans-serif; letter-spacing: .25em; pointer-events: none; opacity: .8; transition: opacity 2s; }
     #hint.fade { opacity: 0; }
+    #clock { position: fixed; z-index: 2; top: max(22px, env(safe-area-inset-top)); left: 0; right: 0; text-align: center; color: rgba(226,239,235,.72); font: 300 22px/1 Georgia,serif; letter-spacing: .13em; opacity: 0; transition: opacity .45s ease; pointer-events: none; text-shadow: 0 1px 14px rgba(0,0,0,.7); }
+    #clock.show { opacity: .68; }
     #error { display:none; position:fixed; inset:auto 20px 20px; z-index:5; color:#ffd8d2; font:13px/1.5 sans-serif; text-align:center; }
   </style>
   <script type="importmap">
@@ -33,6 +35,7 @@
   <div id="sea" aria-hidden="true"></div>
   <a id="back" href="../index.html">‹ ART PLAYGROUND</a>
   <div id="hint">A QUIET CLOCK, WRITTEN IN COLOUR</div>
+  <div id="clock" aria-live="off"></div>
   <div id="error" role="status"></div>
   <script type="module">
     import * as THREE from 'three';
@@ -40,23 +43,26 @@
 
     const sea = document.getElementById('sea');
     const error = document.getElementById('error');
+    const clockEl = document.getElementById('clock');
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(innerWidth, innerHeight, false);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.15;
+    renderer.toneMappingExposure = 1.28;
     sea.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(34, innerWidth / innerHeight, .1, 30);
     camera.position.set(1.01, 1.31, 1.32);
     camera.lookAt(0, 1, 0);
-    scene.add(new THREE.HemisphereLight(0x9bd4d4, 0x071a25, 1.45));
-    const key = new THREE.DirectionalLight(0xc6f5ec, 2.5);
+    const hemi = new THREE.HemisphereLight(0xbcefff, 0x071a25, 1.9);
+    scene.add(hemi);
+    const key = new THREE.DirectionalLight(0xe4fff5, 4.4);
     key.position.set(-2.5, 4.5, 3.5);
     scene.add(key);
-    const rim = new THREE.DirectionalLight(0x4d9eb5, 1.8);
+    const neutralLight = new THREE.Color(0xffffff);
+    const rim = new THREE.DirectionalLight(0x68c9d8, 2.2);
     rim.position.set(2, 1.8, -3);
     scene.add(rim);
 
@@ -74,6 +80,7 @@
     addEventListener('pointerdown', requestWakeLock, { passive: true });
 
     let surprise = 0;
+    let clockTimer = 0;
     let turnAt = 52 + Math.random() * 23;
     let turnFor = 0;
     let turning = false;
@@ -83,6 +90,11 @@
       if (!actor) return;
       surprise = 1;
       actor.setMotion('backward');
+      const d = new Date();
+      clockEl.textContent = [d.getHours(), d.getMinutes(), d.getSeconds()].map(n => String(n).padStart(2, '0')).join(':');
+      clockEl.classList.add('show');
+      clearTimeout(clockTimer);
+      clockTimer = setTimeout(() => clockEl.classList.remove('show'), 3400);
     }, { passive: true });
 
     function clockValues(now) {
@@ -122,19 +134,30 @@
         const day = (Math.cos(hourAngle) + 1) * .5;
         const daylight = THREE.MathUtils.smoothstep(day, .23, .79);
         const second = date.getSeconds() + date.getMilliseconds() / 1000;
+        const minute = date.getMinutes();
+        const palettePhase = (secondPhase + minute * .075) % 1;
         const colorWave = Math.sin(secondPhase * Math.PI * 2);
         const colorCos = Math.cos(secondPhase * Math.PI * 2);
         const minuteFlash = Math.exp(-Math.pow(Math.min(second, 60 - second) / .72, 2));
 
         // Clock owns these uniforms after actor.update(), so its random colour episodes cannot override time.
-        u.uDark.value = THREE.MathUtils.lerp(.83, .12, daylight);
-        u.uPale.value = THREE.MathUtils.lerp(.10, .46, daylight) + surprise * .92;
-        u.uCloud.value = .28 + .12 * (1 + colorWave);
+        u.uDark.value = THREE.MathUtils.lerp(1.9, 1.7, daylight);
+        u.uPale.value = THREE.MathUtils.lerp(.015, .10, daylight) + surprise * .92;
+        u.uCloud.value = 2.35 + .12 * (1 + colorWave);
         u.uFlicker.value = .12 * minuteFlash;
-        u.uDash.value = .22 + .16 * (.5 + .5 * colorCos);
+        u.uDash.value = .48 + .18 * (.5 + .5 * colorCos);
         u.uDashS.value.x = -.52 + secondPhase * 1.04;
         u.uDashS.value.y = .92;
-        u.uSpot.value.setHSL(.48 + secondPhase * .48, .68, .58);
+        // Cycle through cephalopod-like skin tones; minute shifts where the 60-second sweep sits in the palette.
+        const palette = ['#ed4930', '#a51cff', '#00cbb3', '#f5ffff', '#ffb82e', '#ed4930'];
+        const p = palettePhase * (palette.length - 1);
+        const i = Math.floor(p);
+        const c0 = new THREE.Color(palette[i]);
+        const c1 = new THREE.Color(palette[i + 1]);
+        u.uSpot.value.copy(c0).lerp(c1, p - i);
+        // Tint only the squid's broad lights with the skin palette so the same hue reaches shadowed surfaces too.
+        hemi.color.copy(u.uSpot.value).lerp(neutralLight, 0.3);
+        key.color.copy(u.uSpot.value).lerp(neutralLight, 0.58);
         // SKIN_FRAG moves its cloud by uTime*4.5; this phase completes one full sweep in 60 seconds.
         u.uTime.value = secondPhase * (Math.PI * 2 / 4.5);
         renderer.render(scene, camera);
