@@ -770,7 +770,7 @@ function applyView(dt, t) {
   const k = 1 - Math.exp(-7 * dt);
   head.x += (head.tx - head.x) * k; head.y += (head.ty - head.y) * k; head.z += (head.tz - head.z) * k;
   const dist = DIST * head.z;
-  eye.set(head.on ? head.x * 2.6 : 0, TGY + dist * Math.tan(view.el) + (head.on ? head.y * 1.5 : 0), ZW + dist);
+  eye.set(head.on ? head.x * 2.0 : 0, TGY + dist * Math.tan(view.el) + (head.on ? head.y * 1.5 : 0), ZW + dist);
   camera.position.copy(eye); camera.rotation.set(0, 0, 0);
   const near = .3, far = 16, d = eye.z - ZW, kk = near / d;
   const f = d / (eye.z - BD * .42), yw = eye.y + (YBASE - eye.y) * f, wb = yw - .075 * HS;
@@ -836,6 +836,89 @@ tiltBtn.addEventListener('click', () => {
   if (!D) { say('この端末では傾きセンサーが使えないみたい', 4200); return; }
   if (typeof D.requestPermission === 'function') D.requestPermission().then(r => { if (r === 'granted') setTilt(true); else say('傾きが許可されなかった。設定で許可すると使える', 4600); }).catch(() => say('傾きが許可されなかった。設定で許可すると使える', 4600));
   else setTilt(true);
+});
+
+// camera (face tracking): the front camera is read in this page only.
+// The video element is hidden and never drawn; no frame is saved or sent anywhere.
+const camBtn = $('camBtn'), camVideo = $('cam');
+const cam = { on: false, stream: null, det: null, busy: false, base: null, nb: 0, raf: 0, last: 0, seen: -99 };
+const MP = new URL('../assets/vendor/mediapipe-face-detection/', import.meta.url).href;
+function loadMP() {
+  if (window.FaceDetection) return Promise.resolve();
+  return new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = MP + 'face_detection.js'; sc.onload = res; sc.onerror = () => rej(new Error('script')); document.head.appendChild(sc); });
+}
+function setCamUI(on) {
+  camBtn.classList.toggle('on', on); camBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  camBtn.querySelector('span').textContent = on ? '📷 ON' : '📷 OFF';
+}
+function camFail(msg) {
+  stopCam();
+  say(msg, 5200);
+  // fall back: tilt sensor, then finger drag
+  const D = window.DeviceOrientationEvent;
+  if (D && typeof D.requestPermission !== 'function' && !tilt.on) setTilt(true);
+}
+function onFace(r) {
+  cam.busy = false;
+  const d = r && r.detections && r.detections[0];
+  const bb = d && (d.boundingBox || (d.locationData && d.locationData.relativeBoundingBox));
+  if (!bb) return;
+  const cx = bb.xCenter != null ? bb.xCenter : bb.xmin + bb.width / 2, cy = bb.yCenter != null ? bb.yCenter : bb.ymin + bb.height / 2, w = bb.width;
+  if (!(w > 0.03)) return;
+  // the raw front camera image is not mirrored: a face that moves to the user's right sits on the image's left
+  const x = .5 - cx, y = .5 - cy;
+  const now = performance.now() / 1000;
+  if (!cam.base) cam.base = { x, y, w };
+  else if (cam.nb < 12) { cam.nb++; cam.base.x += (x - cam.base.x) * .25; cam.base.y += (y - cam.base.y) * .25; cam.base.w += (w - cam.base.w) * .25; }
+  else { const a = now - cam.seen > 1.5 ? .5 : .004; cam.base.x += (x - cam.base.x) * a; cam.base.y += (y - cam.base.y) * a; cam.base.w += (w - cam.base.w) * a; }
+  cam.seen = now;
+  head.tx = clamp((x - cam.base.x) * 3.2, -1, 1);
+  head.ty = clamp((y - cam.base.y) * 3.2, -1, 1);
+  head.tz = clamp(Math.pow(cam.base.w / w, .7), .72, 1.35);
+}
+function camLoop() {
+  if (!cam.on) return;
+  cam.raf = requestAnimationFrame(camLoop);
+  const now = performance.now();
+  if (cam.busy || now - cam.last < 45 || document.visibilityState !== 'visible' || camVideo.readyState < 2) return;
+  cam.busy = true; cam.last = now;
+  cam.det.send({ image: camVideo }).catch(() => { cam.busy = false; });
+  if (performance.now() / 1000 - cam.seen > 1.2) { head.tx *= .98; head.ty *= .98; head.tz += (1 - head.tz) * .02; }
+}
+function stopCam() {
+  cam.on = false; cancelAnimationFrame(cam.raf);
+  if (cam.stream) { cam.stream.getTracks().forEach(t => t.stop()); cam.stream = null; }
+  camVideo.srcObject = null;
+  if (cam.det) { try { cam.det.close(); } catch (e) {} cam.det = null; }
+  cam.base = null; cam.nb = 0; cam.busy = false;
+  head.on = false; head.tx = head.ty = 0; head.tz = 1;
+  setCamUI(false);
+}
+async function startCam() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { camFail('この端末ではカメラが使えないみたい'); return; }
+  camBtn.querySelector('span').textContent = '📷 …';
+  try {
+    cam.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 320 }, height: { ideal: 240 } }, audio: false });
+  } catch (e) { camFail('カメラが許可されなかった。傾きか、指なぞりで見られる'); return; }
+  try {
+    camVideo.srcObject = cam.stream; camVideo.muted = true; camVideo.setAttribute('playsinline', '');
+    await camVideo.play();
+    await loadMP();
+    cam.det = new window.FaceDetection({ locateFile: f => MP + f });
+    cam.det.setOptions({ model: 'short', minDetectionConfidence: .55 });
+    cam.det.onResults(onFace);
+    await cam.det.initialize();
+  } catch (e) { camFail('顔の検出を始められなかった。傾きか、指なぞりで見られる'); return; }
+  cam.on = true; head.on = true; cam.seen = -99; cam.base = null; cam.nb = 0;
+  if (tilt.on) setTilt(false);
+  setCamUI(true);
+  say('📷 ON。顔を動かすと、窓から覗くように奥行きが見える(映像は保存も送信もしない)', 4800);
+  camLoop();
+}
+camBtn.addEventListener('click', () => {
+  requestWakeLock();
+  if (cam.on) { stopCam(); say('📷 OFF', 1600); return; }
+  startCam();
 });
 
 // ---------- frame ----------
