@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<!-- EDGE LIGHT — クロちゃん(Claude)作。おっちゃんが持ち込んだ「森の木立ちにプリズムの虹の光が差す動画」から。ap-kit.js統合: クロちゃん -->
+<!-- 世界のルール: 光は、さえぎる木の縁をかすめたときだけ虹に割れる。開けた空の光は白いまま。木を植えると虹が増え、抜くと消える -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>EDGE LIGHT — 虹は、さえぎる木の縁でだけ生まれる</title>
+<script src="../ap-kit.js"></script>
+<style>
+html,body{margin:0;height:100%;background:#050403;overflow:hidden}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#hint{position:fixed;left:0;right:0;bottom:16%;text-align:center;color:rgba(255,246,236,.82);font:13px/1.8 -apple-system,"Hiragino Sans",sans-serif;letter-spacing:.06em;pointer-events:none;opacity:0;transition:opacity 1.2s;text-shadow:0 0 8px #000}
+#hint.on{opacity:1}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint"></div>
+<script>
+(function(){
+var cv=document.getElementById('c'), hint=document.getElementById('hint');
+var gl=cv.getContext('webgl2',{preserveDrawingBuffer:true,antialias:false});
+if(!gl){hint.textContent='この端末では表示できないみたい(WebGL2が必要)';hint.classList.add('on');return;}
+
+var MAXT=14, WL=7;
+var VS='#version 300 es\nvoid main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2.-1.,0.,1.);}';
+var FS='#version 300 es\nprecision highp float;\n'+
+'uniform vec2 R;uniform float T;uniform vec2 S;uniform vec4 TR['+MAXT+'];uniform vec4 TD['+MAXT+'];uniform int N;\n'+
+'uniform float DISP;uniform vec2 DDIR;uniform float SPREAD;uniform float SEED;uniform float BT;\n'+
+'out vec4 o;\n'+
+'float h1(vec2 p){vec3 q=fract(vec3(p.xyx)*.1031);q+=dot(q,q.yzx+33.33);return fract((q.x+q.y)*q.z);}\n'+
+'float vn(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(h1(i),h1(i+vec2(1,0)),f.x),mix(h1(i+vec2(0,1)),h1(i+1.),f.x),f.y);}\n'+
+'vec3 spec(float f){return .5+.5*cos(6.2832*(f*.82+vec3(0.,.33,.67)));}\n'+
+// 光の筋(葉のすきまで割れた光)。角度だけで決まる
+'float streak(float a){vec2 d=vec2(cos(a),sin(a));float n1=vn(d*21.+vec2(SEED,T*.035));float n2=vn(d*6.5+vec2(SEED*1.7+T*.018,3.1));float n3=vn(d*48.+vec2(SEED*.3-T*.05,9.));return n1*n1*n1*1.5+n2*n2*.7+n3*n3*n3*n3*.9+.06;}\n'+
+'void main(){\n'+
+' vec2 p=(gl_FragCoord.xy-.5*R)/R.y;float asp=R.x/R.y;\n'+
+' float vis['+WL+'];for(int k=0;k<'+WL+';k++)vis[k]=1.;\n'+
+' float edge=0.;float rp=length(p-S);\n'+
+// 木ごとに、画素→太陽の線が幹にさえぎられるかを解く(幹は上下に長い直線なので交差は一次式で決まる)
+' for(int i=0;i<'+MAXT+';i++){if(i>=N)break;vec4 t=TR[i];if(t.w<.002)continue;\n'+
+'  float d0=p.x-(t.x+t.y*p.y),d1=S.x-(t.x+t.y*S.y);float ym=.5*(p.y+S.y);\n'+
+'  float hw=t.z*(1.-.35*(ym+.5))*t.w;float dd=DDIR.x-t.y*DDIR.y;float m0=abs(d0);\n'+
+'  float mc,scc;if(d0*d1<0.){mc=0.;scc=d1/(d1-d0);}else if(abs(d1)<m0){mc=abs(d1);scc=0.;}else{mc=m0;scc=1.;}\n'+
+'  float g=max(mc-hw,0.)/.05;edge+=exp(-g*g)*t.w*exp(-scc*rp/.45);\n'+
+'  for(int k=0;k<'+WL+';k++){float d1k=d1+(float(k)-3.)*DISP*dd;float mk,sc;\n'+
+'   if(d0*d1k<0.){mk=0.;sc=d1k/(d1k-d0);}else if(abs(d1k)<m0){mk=abs(d1k);sc=0.;}else{mk=m0;sc=1.;}\n'+
+'   float bl=1.-smoothstep(hw-.0015,hw+.0045,mk);vis[k]*=1.-bl*exp(-sc*rp/.26)*(1.-TD[i].x*.55);}\n'+
+' }\n'+
+' edge=min(edge,1.4);\n'+
+' vec3 vc=vec3(0.);float av=0.;\n'+
+' for(int k=0;k<'+WL+';k++){vc+=spec(1.-float(k)/6.)*vis[k];av+=vis[k];}\n'+
+' av/=7.;vc=mix(vec3(av),vc*2./7.,.75);\n'+   // 色ごとの影のずれ(全部見えていれば白)
+' vec2 v=p-S;float rk=length(v);float a=atan(v.y,v.x);vec2 dir=v/max(rk,1e-5);\n'+
+' float hn=vn(dir*3.5+vec2(SEED*.9,T*.012));\n'+
+' vec3 rb=mix(spec(fract(a*1.9+hn*1.6-T*.01)),vec3(1.,.78,.74),.34)*vec3(1.12,.9,.92);\n'+   // 縁をかすめた光は虹の帯になる
+' float sat=clamp(edge*1.3,0.,1.);\n'+
+' vec3 tint=mix(vec3(1.),rb*1.6,sat*.8);\n'+
+' float I=streak(a+SPREAD*edge*sin(a*40.+T*.3))*(.065/(rk+.04)+.16*exp(-rk*1.6));\n'+
+' vec3 col=tint*vc*I;\n'+
+' float r=length(p-S);\n'+
+' col+=vec3(1.,.93,.86)*(exp(-r*r*1100.)*4.+exp(-r*16.)*.45)*vis[3]*vc;\n'+
+' col+=vec3(.55,.38,.32)*.10*av*exp(-r*1.8);\n'+
+' col*=vec3(1.05,.92,.84);\n'+
+' col+=vec3(.022,.018,.016)+vec3(.0,.012,.004)*smoothstep(.1,-.5,p.y);\n'+
+// 幹(奥から手前へ)。幹の手前の空気にも光の筋が少し残る
+' vec3 beam=col;\n'+
+' for(int i=0;i<'+MAXT+';i++){if(i>=N)break;vec4 t=TR[i];if(t.w<.002)continue;float dep=TD[i].x;\n'+
+'  float xc=t.x+t.y*p.y,d0=p.x-xc;float hw=t.z*(1.-.35*(p.y+.5))*t.w;\n'+
+'  float inn=smoothstep(hw+.0016,hw-.0016,abs(d0));if(inn<=0.)continue;\n'+
+'  float u=d0/max(hw,1e-4);float bark=vn(vec2(u*3.+TD[i].y*7.,p.y*38.))*.6+vn(vec2(u*9.,p.y*110.+TD[i].y))*.4;\n'+
+'  vec3 tc=vec3(.03,.024,.019)*(.55+.9*bark)*(.75+.25*cos(u*1.57));\n'+
+'  float side=sign(d0)==sign(S.x-xc)?1.:0.;\n'+
+'  tc+=vec3(1.,.78,.6)*smoothstep(.6,1.,abs(u))*side*.28/(1.+abs(p.y-S.y)*7.);\n'+
+'  tc=mix(tc,col*.55+vec3(.035,.028,.026),dep*.6);\n'+
+'  col=mix(col,tc,inn);}\n'+
+' col+=beam*.06;\n'+
+// 画面の端の葉
+' float em=smoothstep(asp*.5*.72,asp*.5+.02,abs(p.x))+smoothstep(.42,.56,p.y)*.5;\n'+
+' float lf=vn(p*9.+SEED)*.6+vn(p*23.+SEED*2.)*.4;\n'+
+' float leaf=clamp((lf+em*.75-1.)*9.,0.,1.);\n'+
+' col=mix(col,vec3(.016,.022,.012)+col*.12,leaf);\n'+
+// きらめき(光の当たる所だけ。分が変わると太陽から輪が広がり、輪が通る所が強くきらめく)
+' float lum=dot(col,vec3(.3,.5,.2));\n'+
+' float ring=BT<8.?exp(-pow((r-BT*.28)*9.,2.))*exp(-BT*.35):0.;\n'+
+' vec3 gg=vec3(0.);\n'+
+' for(int L=0;L<2;L++){float cs=L==0?.02:.008;vec2 gq=p/cs;vec2 id=floor(gq),f=fract(gq)-.5;float h=h1(id+SEED+float(L)*17.);\n'+
+'  float dens=(L==0?.12:.2)+.3*smoothstep(.15,-.5,p.y)+leaf*.25+ring*.6;\n'+
+'  if(h<dens){vec2 of=(vec2(h1(id+3.1),h1(id+7.7))-.5)*.55;vec2 q=f-of;\n'+
+'   float tw=pow(.5+.5*sin(T*(1.5+h*5.)+h*60.),5.);\n'+
+'   float s=exp(-dot(q,q)*90.)+exp(-abs(q.x)*36.-abs(q.y)*5.)*.35+exp(-abs(q.y)*36.-abs(q.x)*5.)*.35;\n'+
+'   gg+=mix(vec3(1.,.95,.9),spec(fract(h*7.))*1.6,.55)*s*tw*(lum*4.+ring*1.6)*(L==0?1.:.6);}}\n'+
+' col+=gg*(1.-leaf*.3);\n'+
+' col=1.-exp(-col*2.1);col=pow(col,vec3(.92));\n'+
+' col+=(h1(gl_FragCoord.xy+fract(T))-.5)/255.;\n'+
+' o=vec4(col,1.);}\n';
+
+function sh(t,s){var x=gl.createShader(t);gl.shaderSource(x,s);gl.compileShader(x);if(!gl.getShaderParameter(x,gl.COMPILE_STATUS))throw gl.getShaderInfoLog(x);return x;}
+var pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,VS));gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,FS));gl.linkProgram(pr);
+if(!gl.getProgramParameter(pr,gl.LINK_STATUS))throw gl.getProgramInfoLog(pr);
+gl.useProgram(pr);gl.bindVertexArray(gl.createVertexArray());
+var U={};['R','T','S','TR','TD','N','DISP','DDIR','SPREAD','SEED','BT'].forEach(function(n){U[n]=gl.getUniformLocation(pr,n);});
+
+// ---- 画面
+var W=1,H=1,scale=Math.min(window.devicePixelRatio||1,1.5);
+function resize(){W=innerWidth;H=innerHeight;cv.width=Math.round(W*scale);cv.height=Math.round(H*scale);gl.viewport(0,0,cv.width,cv.height);}
+addEventListener('resize',resize);resize();
+function toP(x,y){return [(x-W/2)/H,(H/2-y)/H];}
+
+// ---- 森(幹: x=画面中央の高さでの位置、lean=傾き、hw=根元の半分の幅、depth=奥ほど1)
+var trees=[], sun=[.1,.24], sunT=[.1,.24], seed=Math.random()*100;
+function T_(x,lean,hw,depth){return {x:x,lean:lean,hw:hw,depth:depth,g:1,gt:1,seed:Math.random()};}
+function initial(){
+  var a=Math.min(W/H,1)*.5/.23;   // 横長でも縦長と同じ並びに見えるように
+  trees=[T_(-.31*a,.02,.075,.05),T_(-.12*a,-.03,.034,.55),T_(.0*a,.01,.05,.25),T_(.128*a,.012,.011,.15),
+         T_(.2*a,-.02,.022,.7),T_(.3*a,.03,.06,.1),T_(-.2*a,.0,.012,.85),T_(.155*a,.0,.009,.9)];
+  sun=[.103*a,.24];sunT=sun.slice();
+}
+function randomGrove(){
+  var hx=W/H*.5;trees=[];var n=5+Math.floor(Math.random()*4);
+  for(var i=0;i<n;i++)trees.push(T_((Math.random()*2-1)*hx*.95,(Math.random()-.5)*.08,.008+Math.pow(Math.random(),2)*.07,Math.random()));
+  sunT=[(Math.random()*2-1)*hx*.6,.12+Math.random()*.2];seed=Math.random()*100;
+  trees.forEach(function(t){var d=sunT[0]-(t.x+t.lean*sunT[1]),hw=t.hw*(1-.35*(sunT[1]+.5));if(Math.abs(d)<hw+.012)t.x-=(d>=0?1:-1)*(hw+.02);});   // 太陽を幹の真後ろに隠さない
+}
+initial();
+
+// ---- タップ=植える/抜く、なぞる=太陽を動かす
+var ptr=null;
+function hitTree(p){var best=-1,bd=1e9;for(var i=trees.length-1;i>=0;i--){var t=trees[i];if(t.gt===0)continue;
+  var xc=t.x+t.lean*p[1],hw=t.hw*(1-.35*(p[1]+.5))*t.g,d=Math.abs(p[0]-xc)-hw;if(d<.018&&d<bd){bd=d;best=i;}}return best;}
+cv.addEventListener('pointerdown',function(e){if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  ptr={id:e.pointerId,x:e.clientX,y:e.clientY,t:performance.now(),moved:false};cv.setPointerCapture(e.pointerId);});
+cv.addEventListener('pointermove',function(e){if(!ptr||e.pointerId!==ptr.id)return;
+  if(!ptr.moved&&Math.hypot(e.clientX-ptr.x,e.clientY-ptr.y)>14)ptr.moved=true;
+  if(ptr.moved){var p=toP(e.clientX,e.clientY);sunT=[p[0],Math.max(-.46,Math.min(.48,p[1]))];}});
+function up(e){if(!ptr||e.pointerId!==ptr.id)return;
+  if(!ptr.moved&&performance.now()-ptr.t<500){var p=toP(e.clientX,e.clientY),i=hitTree(p);
+    if(i>=0)trees[i].gt=0;   // 抜く
+    else{var alive=trees.filter(function(t){return t.gt>0;});
+      if(alive.length>=MAXT)alive[0].gt=0;   // いっぱいなら一番古い木から抜ける
+      var hw=.012+Math.random()*.045,lean=(Math.random()-.5)*.06;
+      var t=T_(p[0]-lean*p[1],lean,hw,Math.random()*.6);t.g=0;trees.push(t);}}
+  ptr=null;}
+cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
+
+// ---- 傾き=プリズムを回す(虹の幅と向きが変わる)。下の操作バーのボタンで入れる
+var tiltOn=false,gotOri=false,tgt=[0,0],tilt=[0,0],tiltBtn=null,hintT=0;
+function showHint(s,ms){hint.innerHTML=s;hint.classList.add('on');clearTimeout(hintT);hintT=setTimeout(function(){hint.classList.remove('on');},ms);}
+function clamp(v,a){return Math.max(-a,Math.min(a,v));}
+function onOri(e){if(e.gamma==null)return;gotOri=true;tgt=[clamp(e.gamma/30,1.3),clamp((e.beta-45)/30,1.3)];}
+function setTilt(on){tiltOn=on;if(tiltBtn)tiltBtn.classList.toggle('apk-on',on);
+  if(on){gotOri=false;addEventListener('deviceorientation',onOri);showHint('傾き ON<br>傾けるとプリズムが回って、虹の幅が変わる',4500);
+    setTimeout(function(){if(tiltOn&&!gotOri){setTilt(false);showHint('この端末では傾きセンサーが使えないみたい',4500);}},2000);}
+  else{removeEventListener('deviceorientation',onOri);tgt=[0,0];}}
+function toggleTilt(){
+  if(tiltOn){setTilt(false);showHint('傾き OFF',2000);return;}
+  var D=window.DeviceOrientationEvent;
+  if(!D){showHint('この端末では傾きセンサーが使えないみたい',4500);return;}
+  if(typeof D.requestPermission==='function'){var no=function(){showHint('傾きが許可されなかった<br>設定で許可すると使える',5000);};
+    D.requestPermission().then(function(r){if(r==='granted')setTilt(true);else no();}).catch(no);}
+  else setTilt(true);
+}
+
+// ---- 描画
+var t0=performance.now(),last=t0,lastMin=new Date().getMinutes(),burstAt=-99,frames=0,acc=0;
+var trArr=new Float32Array(MAXT*4),tdArr=new Float32Array(MAXT*4);
+function frame(now){
+  var dt=Math.min(.05,(now-last)/1000);last=now;var t=(now-t0)/1000;
+  // 分が変わったら、太陽から光の輪
+  var m=new Date().getMinutes();if(m!==lastMin){lastMin=m;burstAt=t;}
+  var k=1-Math.exp(-dt*10);tilt[0]+=(tgt[0]-tilt[0])*k;tilt[1]+=(tgt[1]-tilt[1])*k;
+  var ks=1-Math.exp(-dt*7);sun[0]+=(sunT[0]-sun[0])*ks;sun[1]+=(sunT[1]-sun[1])*ks;
+  // 木が育つ/抜けて消える
+  for(var i=trees.length-1;i>=0;i--){var tr=trees[i];tr.g+=(tr.gt-tr.g)*(1-Math.exp(-dt*(tr.gt?2.2:3.5)));if(tr.gt===0&&tr.g<.003)trees.splice(i,1);}
+  // 奥から手前の順で渡す
+  var ord=trees.slice().sort(function(a,b){return b.depth-a.depth;}).slice(-MAXT);
+  trArr.fill(0);tdArr.fill(0);
+  ord.forEach(function(tr,i){trArr.set([tr.x,tr.lean,tr.hw,tr.g],i*4);tdArr.set([tr.depth,tr.seed,0,0],i*4);});
+  var tm=Math.hypot(tilt[0],tilt[1]);
+  var disp=tiltOn?.006*(1+tm*2.4):.0065+.002*Math.sin(t*.31);
+  var spread=tiltOn?.022*(1+tm*2.2):.026+.006*Math.sin(t*.23+1);
+  var ang=tiltOn&&tm>.05?Math.atan2(tilt[1],tilt[0])*.5:.25*Math.sin(t*.07);
+  gl.uniform2f(U.R,cv.width,cv.height);gl.uniform1f(U.T,t);gl.uniform2f(U.S,sun[0],sun[1]);
+  gl.uniform4fv(U.TR,trArr);gl.uniform4fv(U.TD,tdArr);gl.uniform1i(U.N,ord.length);
+  gl.uniform1f(U.DISP,disp);gl.uniform2f(U.DDIR,Math.cos(ang),Math.sin(ang));gl.uniform1f(U.SPREAD,spread);
+  gl.uniform1f(U.SEED,seed);gl.uniform1f(U.BT,t-burstAt);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+  // 重い端末では解像度を少し下げる
+  frames++;acc+=dt;if(frames===60){if(acc/60>.024&&scale>.6){scale*=.85;resize();}frames=0;acc=0;}
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+APKit.init({
+  canvas:cv, gifName:'edge-light-loop', clockFormat:'spec',
+  dock:true, autoHide:true, fullscreenButton:false,
+  buttons:[
+    {label:'✦',name:'mutate',onClick:function(){randomGrove();}},   // 森の並び・光の筋・太陽の位置を作り直す
+    {label:'↻',name:'reset',onClick:function(){initial();seed=Math.random()*100;}},
+    {label:'<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="8.5" y="3" width="7" height="18" rx="2"/><path d="M4.5 9c-1 2-1 4 0 6M19.5 9c1 2 1 4 0 6"/></svg>',name:'tilt',onClick:function(){toggleTilt();}}
+  ]
+});
+tiltBtn=document.querySelector('.apk-btn[aria-label="tilt"]');
+showHint('虹は、木の縁をかすめた光だけ<br>タップで木を植える・抜く / なぞると太陽が動く<br>下のスマホの絵で傾き',6500);
+})();
+</script>
+</body>
+</html>
