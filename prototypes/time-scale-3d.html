@@ -9,7 +9,9 @@
        秒をはこぶのはカタクチイワシの群れ(いつもいる)。ほかの魚は基本的に「通りすぎる」だけ(おっちゃん「ごちゃごちゃ。基本的に通過で、たまにアクション」):
        十数秒〜30秒おきに、マアジの群れ・サバの群れ・マダイ・イサキの2匹・クロダイのどれかが画面を横切って去る。
        ときどき大きな魚(ブリ・ヒラマサ・サワラ・スズキ・タチウオ)が横切り、半分くらいはイワシの群れに突っ込む(アクション)。
-     イカも一緒(おっちゃん「イカも入れてよ！イカ大好き！」): アオリイカが泳ぎ回り、タップでアオリが穴を掘る(イカが読み込めないときはクロダイが掘る)。コウイカも正時に潜る。
+     イカも一緒(おっちゃん「イカも入れてよ！イカ大好き！」): アオリイカが泳ぎ回り、タップでアオリが穴を掘る。
+     コウイカはやめてマゴチに(おっちゃん「コウイカ何もアクションないから要らない」): マゴチは底の砂にじっと伏せ、上を小魚が通ると跳び上がって襲い、
+       正時の少し前に砂に潜って、石になったあとの新しい海底から出てくる。魚の大きさは毎回ばらつく(おっちゃん「サイズもランダム性が欲しい」)。
      エギ: 数分おきに、上から糸でエギ(イカ釣りの疑似餌)が沈んでくる。アオリイカが後ろについて追い、抱きつくか見切る。
        抱いたら墨を吐いて離し、見切ったらエギは巻き上げられて帰っていく(イカ・エギは魚・イカ3Dキットの3Dデータ)。
      以下は元の TIME SCALE の説明。魚・イカ3Dキット(assets/squid-kit、CC0)を使う試作。
@@ -407,7 +409,7 @@ function faceTo(obj, st, vx, vy, dt) {
 async function initFish3() {
   await loadFish(FISHDIR, ['katakuchi']);
   for (const f of fish) {
-    const a = createFish('katakuchi', (8 + Math.random() * 2) * FS);
+    const a = createFish('katakuchi', (6 + Math.random() * 6) * FS);
     a.setDetail('low'); a.setMotion('swim'); scene.add(a.object);
     fish3.push({ a, yaw: f.vx > 0 ? Math.PI : 0, pitch: 0 });
   }
@@ -432,7 +434,7 @@ async function spawnBig(id, now) {
   bigLoading = true;
   const pick = id ? BIG.find(b => b[0] === id) : BIG[Math.floor(Math.random() * BIG.length)];
   try { await loadFish(FISHDIR, [pick[0]]); } catch (e) { bigLoading = false; return; }
-  const a = createFish(pick[0], pick[1] * FS * (.9 + Math.random() * .2));
+  const a = createFish(pick[0], pick[1] * FS * (.65 + Math.random() * .8));
   a.setDetail('high'); a.setMotion('swim'); scene.add(a.object);
   const dir = Math.random() < .5 ? 1 : -1, Lpx = a.length / K, d = .5 + Math.random() * .25;
   big = { a, dir, d, Lpx, x: dir > 0 ? -Lpx : W + Lpx, y: lerp(waterTop + 60 * UI, Y60 - 50 * UI, Math.random()), sp: (W + Lpx * 2) / (22 + Math.random() * 10), t: 0, yaw: dir > 0 ? Math.PI : 0, pitch: 0, vy: 0, charge: pick[0] !== 'tachiuo' && Math.random() < .55 };
@@ -456,8 +458,8 @@ function updateBig(dt) {
 }
 
 // ---------- passers: fish cross the water and leave (one group at a time) ----------
-let digger = null, magochi = null; // (residents are gone; kept so older calls stay harmless)
-const flathead = () => false;
+let digger = null, magochi = null;
+const flathead = () => magochi && !magochi.buried;
 function sendDigger() { return false; }
 const PASS = [ // id, cm, how many, band (share of the water from the top), speed (screens per second ~ 1/crossing time)
   ['aji', 18, 9, [.25, .7]], ['saba', 30, 6, [.15, .55]], ['madai', 38, 1, [.65, .95]],
@@ -470,9 +472,9 @@ async function spawnPass(force) {
   try { await loadFish(FISHDIR, [P[0]]); } catch (e) { passLoading = false; return; }
   const dir = Math.random() < .5 ? 1 : -1, n = P[2], bottom = Math.min(Y60, surf[Math.floor(COLS / 2)] || Y60);
   const y = lerp(waterTop + 30 * UI, bottom - 30 * UI, lerp(P[3][0], P[3][1], Math.random()));
-  const members = [];
+  const members = [], gsz = .6 + Math.random() * .9; // the whole group is young or old together; each fish varies a little
   for (let i = 0; i < n; i++) {
-    const a = createFish(P[0], P[1] * FS * (.9 + Math.random() * .2));
+    const a = createFish(P[0], P[1] * FS * gsz * (.8 + Math.random() * .4));
     a.setDetail(n > 2 ? 'low' : 'high'); a.setMotion('swim'); scene.add(a.object);
     members.push({ a, ox: (Math.random() - .5) * (n > 2 ? 90 : 50) * UI - i * (n > 2 ? 4 : 30) * UI * dir, oy: (Math.random() - .5) * (n > 2 ? 46 : 20) * UI,
       ph: Math.random() * 6.28, yaw: dir > 0 ? Math.PI : 0, pitch: 0, d: (n > 2 ? .45 : .35) + Math.random() * .25 });
@@ -503,8 +505,48 @@ function updatePass(dt) {
   }
 }
 const floorAtX = x => surfAt(clamp(x, 0, W));
-function updateWorld(dt) { updatePass(dt); }
-async function initWorld() {}
+// the flathead: flat on the sand, ambushes small fish passing above, goes under before the hour
+async function initWorld() {
+  await loadFish(FISHDIR, ['magochi']);
+  const a = createFish('magochi', 46 * FS * (.8 + Math.random() * .5));
+  a.setDetail('high'); a.setMotion('hover'); scene.add(a.object);
+  magochi = { a, x: W * .62, y: 0, d: .3, yaw: 0, pitch: 0, hgt: a.length / K * .1, lunge: 0, cool: 6, buried: false, sink: 0, rise: false, tx: W * .62, next: 20 };
+}
+function updateMagochi(dt, N) {
+  const m = magochi; if (!m) return;
+  // the hour: under the sand before it, out of the new floor after it
+  const should = (N.m === 59 && N.s > 41) || (preview && preview.stage === 'bury') || (anim && anim.type === 'compact');
+  if (should && !m.buried) { m.buried = true; burst(m.x, 24, 50 * UI, 80 * UI, colorAtDepth); }
+  if (!should && m.buried && !anim) { m.buried = false; m.rise = true; burst(m.x, 34, 60 * UI, 120 * UI, colorAtDepth); }
+  if (m.buried) m.sink = Math.min(1, m.sink + dt / 1.8); else if (m.rise) { m.sink = Math.max(0, m.sink - dt / 1.4); if (!m.sink) m.rise = false; }
+  // now and then it shuffles to another spot
+  if (!m.buried && !m.lunge && elapsed > m.next) { m.tx = clamp(m.x + (Math.random() - .5) * 120 * UI, 40 * UI, POLE - 60 * UI); m.next = elapsed + 25 + Math.random() * 25; }
+  const vx = (m.tx - m.x) * .6; m.x += clamp(vx, -14 * UI, 14 * UI) * dt;
+  // ambush: a small fish right above it
+  m.cool -= dt;
+  if (!m.buried && !m.lunge && m.cool <= 0) {
+    const fy = floorAtX(m.x);
+    let prey = null;
+    for (const f of fish) if (Math.abs(f.x - m.x) < 60 * UI && fy - f.y < 110 * UI && fy - f.y > 0) { prey = f; break; }
+    if (!prey && pass) for (const q of pass.members) { const qx = pass.x + q.ox, qy = pass.y + q.oy; if (Math.abs(qx - m.x) < 60 * UI && fy - qy < 110 * UI && fy - qy > 0) { prey = { x: qx, y: qy }; break; } }
+    if (prey) { m.lunge = 1e-3; m.ly = (fy - prey.y) * .8; m.lx = (prey.x - m.x) * .6; m.cool = 22 + Math.random() * 15; m.a.setMotion('power'); burst(m.x, 20, 40 * UI, 90 * UI, colorAtDepth); scatterFish(m.x, fy - 40 * UI, 160); }
+  }
+  let up = 0, side = 0;
+  if (m.lunge) {
+    m.lunge += dt / 1.3; const u = Math.min(1, m.lunge), e = Math.sin(Math.PI * u);
+    up = m.ly * e; side = m.lx * e;
+    if (u >= 1) { m.lunge = 0; m.a.setMotion('hover'); m.x += m.lx * .2; }
+  }
+  const fy = floorAtX(m.x);
+  const y = fy - m.hgt - up + m.sink * m.hgt * 3;
+  placeAt(m.a.object, m.x + side, y, m.d);
+  m.a.object.scale.setScalar(1.2 - m.d * .5);
+  m.a.object.visible = !(m.buried && m.sink >= 1);
+  faceTo(m.a.object, m, side ? side : (m.tx - m.x) || -1, m.lunge ? -up : 0, dt);
+  m.a.drive = { speed: m.lunge ? .6 : 0, turnRate: 0 };
+  m.a.update(dt);
+}
+function updateWorld(dt, N) { updatePass(dt); updateMagochi(dt, N); }
 
 // ---------- the squids' own day: the aori roams, darts, chases the school, checks the floor; the cuttlefish shows its colours ----------
 const roam = { kind: '', t: 0, next: 4, speed: .14, mood: 0 };
@@ -604,7 +646,9 @@ function endEgi(grabbed) {
 }
 // The kit's arms and tentacles keep their own state in the world, so when the floor jumps (an hour pressed into stone,
 // a preview being undone) the cuttlefish is made again on the new floor instead of being dragged there.
+const USE_KOUIKA = false; // replaced by the flathead (magochi) on 2026/11/13
 function spawnKouika(emerge) {
+  if (!USE_KOUIKA) return;
   if (!kitReady) return;
   if (kouika) kouika.dispose();
   updateSurface();
@@ -910,7 +954,7 @@ function frame() {
 
   updateEye(dt, elapsed); camStatus();
   updateFish(dt, N.s, ashMinute, tintRGB);
-  updateBig(dt); syncFish3(dt); updateWorld(dt);
+  updateBig(dt); syncFish3(dt); updateWorld(dt, N);
   updateParticles(dt);
   updateSea(N); updateEgi(dt);
   updateKouLife(dt, N);
@@ -1302,7 +1346,7 @@ tiltBtn = document.querySelector('.apk-btn[aria-label="tilt"]'); camBtn = docume
 
 const testHead = /[?&]head=([-\d.]+),([-\d.]+)/.exec(location.search);
 if (testHead) { head.on = true; head.tx = parseFloat(testHead[1]); head.ty = parseFloat(testHead[2]); E.x = head.tx; E.y = head.ty; }
-if (testHead || /[?&]test\b/.test(location.search)) window.__ts = { E, head, drag, watch, spawnPass, get pass() { return pass; }, spawnBig, get big() { return big; }, get fish3() { return fish3; }, roam, get kouika() { return kouika; }, startEgi(f) { egiEv.next = 0; egiEv.force = f; }, get egi() { return egiEv; }, get aori() { return aori; }, fakeFace(x, y, z) { cam.on = true; head.on = true; cam.seen = performance.now() / 1000; head.tx = x; head.ty = y; head.tz = z; }, previewNow() { previewHour(); if (preview) preview.t = 5.5; }, get anim() { return anim; }, get preview() { return preview; } };
+if (testHead || /[?&]test\b/.test(location.search)) window.__ts = { E, head, drag, watch, spawnPass, get magochi() { return magochi; }, get pass() { return pass; }, spawnBig, get big() { return big; }, get fish3() { return fish3; }, roam, get kouika() { return kouika; }, startEgi(f) { egiEv.next = 0; egiEv.force = f; }, get egi() { return egiEv; }, get aori() { return aori; }, fakeFace(x, y, z) { cam.on = true; head.on = true; cam.seen = performance.now() / 1000; head.tx = x; head.ty = y; head.tz = z; }, previewNow() { previewHour(); if (preview) preview.t = 5.5; }, get anim() { return anim; }, get preview() { return preview; } };
 
 try { await initFish3(); } catch (e) { console.error(e); } // without the kit the school stays drawn flat
 try {
