@@ -67,6 +67,7 @@
     scene.add(rim);
 
     let actor;
+    let actorFloat;
     let awake = null;
     function requestWakeLock() {
       if (!navigator.wakeLock || awake || document.visibilityState !== 'visible') return;
@@ -130,6 +131,16 @@
         }
 
         actor.update(dt);
+        if (actor.motion === 'hover') {
+          // The kit's hover leaves these targets alone; raise the fin wave without speeding it up.
+          actor.squid.target.finAmp = 2.25;
+          actor.squid.target.finFreq = .8;
+        }
+        // Add a slow, small whole-body sway outside the actor so its own transforms stay untouched.
+        actorFloat.position.y = Math.sin(elapsed * .72) * .04;
+        actorFloat.position.x = Math.sin(elapsed * .39 + .8) * .012;
+        actorFloat.rotation.z = Math.sin(elapsed * .58) * .055;
+        actorFloat.rotation.x = Math.sin(elapsed * .43 + 1.2) * .024;
         const hourAngle = (hour / 24) * Math.PI * 2 - Math.PI / 2;
         const day = (Math.cos(hourAngle) + 1) * .5;
         const daylight = THREE.MathUtils.smoothstep(day, .23, .79);
@@ -180,7 +191,9 @@
       await loadSquids('../assets/squid-kit/');
       actor = createSquid('aori', { detail: 'low', home: new THREE.Vector3(0, 1, 0) });
       actor.setMotion('hover');
-      scene.add(actor.object);
+      actorFloat = new THREE.Group();
+      actorFloat.add(actor.object);
+      scene.add(actorFloat);
       for (let i = 0; i < 24; i++) actor.update(1 / 60);
       requestAnimationFrame(render);
       setTimeout(() => document.getElementById('hint').classList.add('fade'), 8000);
