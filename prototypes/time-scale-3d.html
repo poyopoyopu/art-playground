@@ -5,6 +5,7 @@
      📷: インカメラの映像はこのページの中だけで顔の位置を読むのに使い、表示・保存・送信はしない。拒否されたら傾き、それも無ければ指なぞり。
      テスト用: ?head=x,y(-1〜1)で、カメラなしに見る位置を固定できる。
      海の時間帯: 朝・昼・夕・夜で海の色と光が変わる。夜は鱗とプランクトンが光る(テスト用: ?hour=0〜23)。
+     魚: 秒をはこぶ群れはカタクチイワシ、ときどき大きな魚(ブリ・マダイ・スズキ・タチウオ・サバ)がゆっくり横切る(魚の3Dキット assets/fish-kit、CC0)。
      エギ: 数分おきに、上から糸でエギ(イカ釣りの疑似餌)が沈んでくる。アオリイカが後ろについて追い、抱きつくか見切る。
        抱いたら墨を吐いて離し、見切ったらエギは巻き上げられて帰っていく(イカ・エギは魚・イカ3Dキットの3Dデータ)。
      以下は元の TIME SCALE の説明。魚・イカ3Dキット(assets/squid-kit、CC0)を使う試作。
@@ -17,7 +18,7 @@
      - 触る: 水の中をタップ = アオリイカがそこへ泳いでいき、漏斗の噴射で泥に穴をあける。穴は消えない。
        あとから積もる層は穴を少しずつ埋めながら覆うので、地層に「掘った跡」が残る。石(過ぎた時間)は硬くて掘れない。
        地層をタップ = その層がいつ積もったかを読む。
-     ボタン: ✦ これから積もる泥の色を替える(積もった層の色は変わらない) / ⏭ 出来事をいま見る(10分の鍵層 → 正時 → エギ) / ↻ 積もり直す
+     ボタン: ✦ これから積もる泥の色を替える(積もった層の色は変わらない) / ⏭ 出来事をいま見る(10分の鍵層 → 正時 → エギ → 大きな魚) / ↻ 積もり直す
      題名の SCALE は「鱗」と「目盛り」と「地質年代表(geologic time scale)」の掛け言葉。 -->
 <html lang="ja">
 <head>
@@ -66,6 +67,7 @@
 <script type="module">
 import * as THREE from 'three';
 import { loadSquids, createSquid } from '../assets/squid-kit/squid-kit.js';
+import { loadFish, createFish } from '../assets/fish-kit/fish-kit.js';
 
 const $ = id => document.getElementById(id);
 const bg = $('bg'), fg = $('fg'), glWrap = $('gl'), note = $('note'), seaEl = $('sea');
@@ -381,6 +383,67 @@ function fitCamera() {
   camera.getWorldDirection(camDir);
 }
 let aoriX = 0, kitReady = false, aoriSP = null;
+// ---------- 3D fish (fish kit): the school of anchovies, and now and then a big fish ----------
+const FISHDIR = '../assets/fish-kit/fish/';
+let fishReady = false, big = null, bigNext = 80 + Math.random() * 60;
+const fish3 = [];
+// a fish at screen point (x, y) and depth d: into the squid layer (which is shifted by GL_D), and pushed along the view
+// so the depth buffer sorts it against the squids without moving it on screen (the camera is orthographic)
+function placeAt(obj, x, y, d) {
+  onPlane(x + shX(d) - shX(GL_D), y + shY(d) - shY(GL_D), obj.position);
+  obj.position.addScaledVector(camDir, (d - GL_D) * 3);
+}
+function faceTo(obj, st, vx, vy, dt) {
+  if (Math.abs(vx) > 2) st.yaw += ((vx > 0 ? Math.PI : 0) - st.yaw) * (1 - Math.exp(-3.5 * dt)); // screen right is world -Z
+  const pitch = clamp(Math.atan2(vy, Math.abs(vx) + 1), -.6, .6);
+  st.pitch += (pitch - st.pitch) * (1 - Math.exp(-4 * dt));
+  obj.rotation.set(st.pitch, st.yaw, 0, 'YXZ');
+}
+async function initFish3() {
+  await loadFish(FISHDIR, ['katakuchi']);
+  for (const f of fish) {
+    const a = createFish('katakuchi', 8 + Math.random() * 2);
+    a.setDetail('low'); a.setMotion('swim'); scene.add(a.object);
+    fish3.push({ a, yaw: f.vx > 0 ? Math.PI : 0, pitch: 0 });
+  }
+  fishReady = true;
+}
+function syncFish3(dt) {
+  if (!fishReady) return;
+  for (let i = 0; i < fish.length && i < fish3.length; i++) {
+    const f = fish[i], o = fish3[i];
+    placeAt(o.a.object, f.x, f.y, f.d);
+    o.a.object.scale.setScalar(1.25 - f.d * .6);
+    faceTo(o.a.object, o, f.vx, f.vy, dt);
+    o.a.drive = { speed: Math.hypot(f.vx, f.vy) * K * .9 + .04, turnRate: 0 };
+    o.a.update(dt);
+  }
+}
+const BIG = [['buri', 58], ['madai', 42], ['seabass', 56], ['tachiuo', 90], ['saba', 36]];
+let bigLoading = false;
+async function spawnBig(id) {
+  if (big || bigLoading || !fishReady) return;
+  bigLoading = true;
+  const pick = id ? BIG.find(b => b[0] === id) : BIG[Math.floor(Math.random() * BIG.length)];
+  try { await loadFish(FISHDIR, [pick[0]]); } catch (e) { bigLoading = false; return; }
+  const a = createFish(pick[0], pick[1] * (.9 + Math.random() * .2));
+  a.setDetail('high'); a.setMotion('swim'); scene.add(a.object);
+  const dir = Math.random() < .5 ? 1 : -1, Lpx = a.length / K, d = .5 + Math.random() * .25;
+  big = { a, dir, d, Lpx, x: dir > 0 ? -Lpx : W + Lpx, y: lerp(waterTop + 60 * UI, Y60 - 50 * UI, Math.random()), sp: (W + Lpx * 2) / (22 + Math.random() * 10), t: 0, yaw: dir > 0 ? Math.PI : 0, pitch: 0, vy: 0 };
+  bigLoading = false;
+}
+function updateBig(dt) {
+  if (!big) { if (fishReady && elapsed > bigNext && !anim && !preview) { bigNext = elapsed + 140 + Math.random() * 110; spawnBig(); } return; }
+  const b = big; b.t += dt;
+  b.vy = Math.sin(b.t * .4) * 6 * UI;
+  b.x += b.dir * b.sp * dt; b.y += b.vy * dt;
+  const sc = 1.15 - b.d * .4;
+  placeAt(b.a.object, b.x, b.y, b.d); b.a.object.scale.setScalar(sc);
+  faceTo(b.a.object, b, b.dir * b.sp, b.vy, dt);
+  b.a.drive = { speed: b.sp * K, turnRate: 0 }; b.a.update(dt);
+  if ((b.dir > 0 && b.x > W + b.Lpx * 1.2) || (b.dir < 0 && b.x < -b.Lpx * 1.2)) { b.a.dispose(); big = null; }
+}
+
 // ---------- the squids' own day: the aori roams, darts, chases the school, checks the floor; the cuttlefish shows its colours ----------
 const roam = { kind: '', t: 0, next: 4, speed: .14, mood: 0 };
 function roamIdle() { return !egiEv.on && !pendingBlow && watch.k < .05 && !anim && !preview && performance.now() > aoriIdleAt; }
@@ -550,8 +613,9 @@ function finishPreview(instant) {
 function onEventButton() {
   if (previewStep === 0) { ashPulse = 1.4; say('10分 — 白い鍵層'); }
   else if (previewStep === 1) previewHour();
-  else { if (!egiEv.on) { egiEv.next = 0; say('エギを落とす', 1600); } }
-  previewStep = (previewStep + 1) % 3;
+  else if (previewStep === 2) { if (!egiEv.on) { egiEv.next = 0; say('エギを落とす', 1600); } }
+  else spawnBig();
+  previewStep = (previewStep + 1) % 4;
 }
 function scatterFish(x, y, power) {
   for (const f of fish) { const dx = f.x - x, dy = f.y - y, d = Math.hypot(dx, dy) + 20; f.vx += dx / d * power; f.vy += dy / d * power * .6; }
@@ -784,13 +848,14 @@ function frame() {
 
   updateEye(dt, elapsed); camStatus();
   updateFish(dt, N.s, ashMinute, tintRGB);
+  updateBig(dt); syncFish3(dt);
   updateParticles(dt);
   updateSea(N); updateEgi(dt);
   updateKouLife(dt, N);
   updateSquids(dt, tintRGB);
 
   drawBG(tintRGB, ashMinute);
-  if (aori || kouika) renderer.render(scene, camera);
+  if (aori || kouika || fishReady) renderer.render(scene, camera);
   drawFG(N);
   requestAnimationFrame(frame);
 }
@@ -829,6 +894,7 @@ function updateFish(dt, s, ash, tintRGB) {
       const g = fish[k], dx = f.x - g.x, dy = f.y - g.y, d2 = dx * dx + dy * dy, R = 15 * UI;
       if (d2 < R * R && d2 > .01) { const d = Math.sqrt(d2); ax += dx / d * (R - d) * 9; ay += dy / d * (R - d) * 9; }
     }
+    if (big) { const R = big.Lpx * .7, ex = f.x - big.x, ey = f.y - big.y, ed = Math.hypot(ex, ey); if (ed < R) { ax += ex / (ed + 1) * (R - ed) * 8; ay += ey / (ed + 1) * (R - ed) * 8; } }
     const dx = f.x - ax0, dy = f.y - ay0, d = Math.hypot(dx, dy), RA = 92 * UI;
     if (d < RA) { ax += dx / (d + 1) * (RA - d) * 6; ay += dy / (d + 1) * (RA - d) * 6; }
     f.vx += ax * dt; f.vy += ay * dt;
@@ -961,7 +1027,7 @@ function drawBG(tintRGB, ash) {
   drawGlow(bx);
   drawTopFace();
   const glintCol = ash ? WHITE : mix(tintRGB, WHITE, .35);
-  for (const f of fish) {
+  if (!fishReady) for (const f of fish) { // drawn flat only until the 3D fish arrive
     bx.save(); bx.translate(f.x + shX(f.d), f.y + shY(f.d)); bx.rotate(f.ang); if (Math.cos(f.ang) < 0) bx.scale(1, -1);
     const L = f.L * (1.7 - f.d * .9), h = L * .2, wag = Math.sin(elapsed * 9 + f.ph) * L * .05;
     bx.beginPath();
@@ -1174,7 +1240,7 @@ tiltBtn = document.querySelector('.apk-btn[aria-label="tilt"]'); camBtn = docume
 
 const testHead = /[?&]head=([-\d.]+),([-\d.]+)/.exec(location.search);
 if (testHead) { head.on = true; head.tx = parseFloat(testHead[1]); head.ty = parseFloat(testHead[2]); E.x = head.tx; E.y = head.ty; }
-if (testHead || /[?&]test\b/.test(location.search)) window.__ts = { E, head, drag, watch, roam, get kouika() { return kouika; }, startEgi(f) { egiEv.next = 0; egiEv.force = f; }, get egi() { return egiEv; }, get aori() { return aori; }, fakeFace(x, y, z) { cam.on = true; head.on = true; cam.seen = performance.now() / 1000; head.tx = x; head.ty = y; head.tz = z; }, previewNow() { previewHour(); if (preview) preview.t = 5.5; }, get anim() { return anim; }, get preview() { return preview; } };
+if (testHead || /[?&]test\b/.test(location.search)) window.__ts = { E, head, drag, watch, spawnBig, get big() { return big; }, get fish3() { return fish3; }, roam, get kouika() { return kouika; }, startEgi(f) { egiEv.next = 0; egiEv.force = f; }, get egi() { return egiEv; }, get aori() { return aori; }, fakeFace(x, y, z) { cam.on = true; head.on = true; cam.seen = performance.now() / 1000; head.tx = x; head.ty = y; head.tz = z; }, previewNow() { previewHour(); if (preview) preview.t = 5.5; }, get anim() { return anim; }, get preview() { return preview; } };
 
 try {
   await loadSquids('../assets/squid-kit/');
@@ -1184,6 +1250,7 @@ try {
 } catch (e) {
   console.error(e); // the clock still works without the squids
 }
+try { await initFish3(); } catch (e) { console.error(e); } // without the kit the school stays drawn flat
 </script>
 </body>
 </html>
