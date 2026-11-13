@@ -1,0 +1,1381 @@
+<!doctype html>
+<!-- SCALEFALL(art-v124)— 2026/11/13 おっちゃん「採用 名前も考えて/録画つけてカレントへ」で prototypes/time-scale-3d.html から昇格。
+     名前はクロちゃんが付けた: 鱗(scale)が降り(fall)積もって時間の地層になる。相対パスをルート用に直した以外は試作と同じ。 -->
+<!-- TIME SCALE 3D — クロちゃん(Claude)作。2026/11/13。TIME SCALE(time-scale.html)に「水槽の窓」の奥行きを足した版。
+     奥行き: 画面は水槽のガラス。地層はガラスに押しつけられた泥の断面で、その奥に海底の上面・イカ・魚・マリンスノー・海がある。
+     見る位置(傾き / 指なぞり / 何もしないときはゆっくり漂う。📷の顔追跡は外した)が動くと、奥のものほど大きくずれて、泥の上面が奥へのびて見える。
+     📷: インカメラの映像はこのページの中だけで顔の位置を読むのに使い、表示・保存・送信はしない。拒否されたら傾き、それも無ければ指なぞり。
+     テスト用: ?head=x,y(-1〜1)で、カメラなしに見る位置を固定できる。
+     海の時間帯: 朝・昼・夕・夜で海の色と光が変わる。夜は鱗とプランクトンが光る(テスト用: ?hour=0〜23)。
+     魚(2026/11/13 おっちゃん「イカに固執するのはやめて、魚がいっぱいの方がいい」→イカはやめて、魚の3Dキット assets/fish-kit(CC0)の魚で満たす):
+       秒をはこぶのはカタクチイワシの群れ(いつもいる)。ほかの魚は基本的に「通りすぎる」だけ(おっちゃん「ごちゃごちゃ。基本的に通過で、たまにアクション」):
+       十数秒〜30秒おきに、マアジ・サバ・カマス・イサキの子どもの群れ、マダイ・イサキ・クロダイ・メバル・尾長グレ・口太グレ・シブダイのどれかが画面を横切って去る。
+       ときどき大きな魚(ブリ・ヒラマサ・サワラ・スズキ・キハダ)が横切り、半分くらいはイワシの群れに突っ込む(アクション)。
+     イカも一緒(おっちゃん「イカも入れてよ！イカ大好き！」): アオリイカが泳ぎ回り、タップでアオリが穴を掘る。
+     コウイカはやめてマゴチに(おっちゃん「コウイカ何もアクションないから要らない」)。底の魚はマゴチかカサゴのどちらか(開くたび・正時のたびにランダム)。底の砂にじっと伏せ、上を小魚が通ると跳び上がって襲い、
+       正時の少し前に砂に潜って、石になったあとの新しい海底から出てくる。魚の大きさは毎回ばらつく(おっちゃん「サイズもランダム性が欲しい」)。
+     エギ: 数分おきに、上から糸でエギ(イカ釣りの疑似餌)が沈んでくる。アオリイカが後ろについて追い、抱きつくか見切る。
+       抱いたら墨を吐いて離し、見切ったらエギは巻き上げられて帰っていく(イカ・エギは魚・イカ3Dキットの3Dデータ)。
+     以下は元の TIME SCALE の説明。魚・イカ3Dキット(assets/squid-kit、CC0)を使う試作。
+     世界のルール: 「魚の群れが秒をはこび、こぼれた鱗が一分で一枚の泥になり、一時間で一枚の石になる」。
+     - 秒: 小さな魚の群れが1分かけて左から右へ渡り、こぼれた鱗(光る粒)が海底に落ちて、その分の泥の層を左から順に敷いていく。
+       分が変わると群れは左へ駆け戻り、次の色の層が始まる。層の色は1分ごとに少しずつ変わる(1時間で虹を一周)。
+     - 分: 右端の測量杭に目盛り(:00〜:50)。泥の面が今の分を指し、面の上に HH:MM が乗る。10分ごとの層は白い鍵層。
+     - 正時: その1時間ぶんの60枚の層が押し固められて、1枚の薄い「石」(下に積み重なる時間の帯)になる。
+       コウイカは正時の少し前に泥へ潜り、石になったあとの新しい海底から出てくる。
+     - 触る: 水の中をタップ = アオリイカがそこへ泳いでいき、漏斗の噴射で泥に穴をあける。穴は消えない。
+       あとから積もる層は穴を少しずつ埋めながら覆うので、地層に「掘った跡」が残る。石(過ぎた時間)は硬くて掘れない。
+       地層をタップ = その層がいつ積もったかを読む。
+     ボタン: ✦ これから積もる泥の色を替える(積もった層の色は変わらない) / ⏭ 出来事をいま見る(10分の鍵層 → 正時 → エギ → 大きな魚) / ↻ 積もり直す
+     題名の SCALE は「鱗」と「目盛り」と「地質年代表(geologic time scale)」の掛け言葉。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#04131c">
+<title>SCALEFALL — 鱗が降り、一分は泥に、一時間は石になる</title>
+<script src="ap-kit.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body, canvas { -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
+  html, body { position:fixed; inset:0; width:100%; height:100%; margin:0; overflow:hidden; background:#03101a; }
+  #sea { position:absolute; overflow:hidden; background:linear-gradient(180deg,#0f3442 0%,#0a2633 22%,#061a25 50%,#041119 78%,#020a10 100%); }
+  #sea::before { content:""; position:absolute; inset:-30% -25% 45%; pointer-events:none; opacity:var(--sh,.34);
+    background:repeating-conic-gradient(from 172deg at 50% 0%,transparent 0deg 5deg,rgba(170,222,214,.10) 5.6deg 6.2deg,transparent 7deg 12deg);
+    filter:blur(14px); transform:scaleX(1.4); animation:shafts 19s ease-in-out infinite alternate; }
+  @keyframes shafts { to { transform:translateX(4%) scaleX(1.7) rotate(3deg); } }
+  canvas, #gl canvas { position:absolute; inset:0; display:block; width:100%; height:100%; }
+  #gl { position:absolute; inset:0; pointer-events:none; }
+  #fg { touch-action:none; }
+  #back { position:fixed; z-index:6; top:max(16px,env(safe-area-inset-top)); left:max(16px,env(safe-area-inset-left));
+    color:rgba(225,241,237,.6); text-decoration:none; font:10px/1.2 Arial,sans-serif; letter-spacing:.15em; padding:9px 11px;
+    border:1px solid rgba(218,241,238,.16); border-radius:20px; background:rgba(1,10,15,.25); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); }
+  #sea { inset:-38%; will-change:transform; }
+  #gl { will-change:transform; }
+  #note { position:fixed; z-index:5; left:0; right:0; top:42%; text-align:center; pointer-events:none; color:rgba(232,244,240,.0);
+    font:300 13px/1.6 Georgia,serif; letter-spacing:.32em; transition:color .6s; text-shadow:0 2px 12px #000; }
+  #note.show { color:rgba(232,244,240,.82); }
+</style>
+<script type="importmap">
+  { "imports": {
+    "three": "./assets/vendor/three/three.module.js",
+    "three/addons/": "./assets/vendor/three/examples/jsm/"
+  } }
+</script>
+</head>
+<body>
+<div id="sea" aria-hidden="true"></div>
+<canvas id="bg" aria-hidden="true"></canvas>
+<div id="gl" aria-hidden="true"></div>
+<canvas id="fg"></canvas>
+<a id="back" href="index.html">‹ ART PLAYGROUND</a>
+<div id="note" aria-live="polite"></div>
+<video id="cam" playsinline muted autoplay style="position:fixed;left:0;top:0;width:160px;height:120px;opacity:0;pointer-events:none;z-index:-1"></video>
+<script type="module">
+import * as THREE from 'three';
+import { loadSquids, createSquid } from './assets/squid-kit/squid-kit.js';
+import { loadFish, createFish } from './assets/fish-kit/fish-kit.js';
+
+const $ = id => document.getElementById(id);
+const bg = $('bg'), fg = $('fg'), glWrap = $('gl'), note = $('note'), seaEl = $('sea');
+const bx = bg.getContext('2d'), fx = fg.getContext('2d');
+const cache = document.createElement('canvas'), cx = cache.getContext('2d');
+
+// ---------- small helpers ----------
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, t) => a + (b - a) * t;
+const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+const easeIO = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+const pad = n => String(n).padStart(2, '0');
+function h1(i) { let t = Math.imul((i | 0) ^ 0x9e3779b9, 0x85ebca6b); t ^= t >>> 13; t = Math.imul(t, 0xc2b2ae35); t ^= t >>> 16; return (t >>> 0) / 4294967296 * 2 - 1; }
+function vn(x, seed) { const i = Math.floor(x), f = x - i, u = f * f * (3 - 2 * f); return h1(i + seed * 7919) * (1 - u) + h1(i + 1 + seed * 7919) * u; }
+function hsl(h, s, l) {
+  h = ((h % 360) + 360) % 360 / 360;
+  const q = l < .5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
+  const f = t => { t = (t + 1) % 1; return t < 1/6 ? p + (q - p) * 6 * t : t < .5 ? q : t < 2/3 ? p + (q - p) * (2/3 - t) * 6 : p; };
+  return [f(h + 1/3) * 255, f(h) * 255, f(h - 1/3) * 255];
+}
+const rgbs = (c, a = 1) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
+const mix = (c, d, t) => [lerp(c[0], d[0], t), lerp(c[1], d[1], t), lerp(c[2], d[2], t)];
+const WHITE = [255, 255, 255], BLACK = [0, 0, 0];
+
+// ---------- palettes (✦ changes what falls from now on; the record keeps its colours) ----------
+const ASH = [222, 217, 204];
+const PALS = [
+  { name: 'SPECTRUM', f: (hk, m) => hsl(hk * 137.508 + m * 6, .5, .42 + .05 * Math.sin(m * .9)) },
+  { name: 'AGATE', f: (hk, m) => {
+      const st = [[236, 216, 178], [204, 128, 66], [150, 66, 42], [98, 60, 46], [218, 172, 118], [168, 98, 70]];
+      const p = ((m + hk * 7) / 6) % st.length, i = Math.floor(p), t = p - i;
+      return mix(st[i], st[(i + 1) % st.length], t * t * (3 - 2 * t));
+    } },
+  { name: 'ABYSS', f: (hk, m) => hsl(170 + 125 * (.5 + .5 * Math.sin((m + hk * 13) / 60 * Math.PI * 4)), .56, .40 + .09 * Math.sin(m * 1.3)) },
+  { name: 'EMBER', f: (hk, m) => hsl(4 + 46 * (.5 + .5 * Math.sin((m + hk * 11) / 60 * Math.PI * 6)), .74, .42 + .1 * Math.sin(m * 1.7)) },
+];
+let pal = 0;
+const colorFor = (hk, m) => m % 10 === 0 ? mix(ASH, PALS[pal].f(hk, m), .12) : PALS[pal].f(hk, m);
+
+// ---------- layout ----------
+let W = 0, H = 0, DPR = 1, COLS = 0, CW = 2, Y0 = 0, Y60 = 0, T = 5, BAND = 12, K = .005, POLE = 0, UI = 1;
+let TAPER = 46, waterTop = 0, waterBottom = 0;
+function layout() {
+  W = innerWidth; H = innerHeight; DPR = Math.min(devicePixelRatio || 1, 2);
+  for (const c of [bg, fg, cache]) { c.width = Math.round(W * DPR); c.height = Math.round(H * DPR); }
+  const portrait = H >= W;
+  Y0 = Math.round(H * (portrait ? .785 : .84));
+  Y60 = Math.round(H * (portrait ? .405 : .40));
+  T = (Y0 - Y60) / 60;
+  BAND = Math.max(9, Math.round(T * 2.6));
+  COLS = Math.ceil(W / CW) + 1;
+  K = .86 / Math.min(W, H * 1.25); // 1 px = K metres: squids big (about 1.5x TIME SCALE). Fish are made at FS of their size so they still fit
+  UI = clamp(Math.min(W, H) / 390, .85, 1.4);
+  POLE = W - Math.max(22, W * .058);
+  TAPER = 46 * UI;
+  waterTop = Math.max(46, H * .055);
+  waterBottom = Y60 - H * .05;
+  M = Math.min(W, H) * .2;
+}
+
+// ---------- depth: the screen is the glass of a tank ----------
+// E is where the viewer's eye is (x right, y up, -1..1). Something at depth d (0 = on the glass, 1 = the far sea)
+// is drawn shifted by d*M toward the eye's side: far things follow the eye, the glass stays put.
+const E = { x: 0, y: 0, tx: 0, ty: .35 }, EDGE_D = .5, GL_D = .2;
+let M = 60, G = 1; // G grows while a face is watching through the glass
+const shX = d => E.x * d * M * G, shY = d => -E.y * d * M * G;
+const head = { on: false, tx: 0, ty: 0, tz: 1 };
+const drag = { x: 0, y: 0, at: -99 };
+
+// ---------- the record ----------
+// layers: the current hour's finished minute layers (index = minute). Each has a top boundary per column (y, px).
+// bands: past hours pressed into stone, newest first, each pre-rendered to its own small canvas.
+let layers = [], bands = [], grow = null;
+let state = { hk: 0, h: 0, m: 0 };
+let flatBase = null;
+const hourKeyOf = ms => Math.floor(ms / 3600000);
+function nowInfo() { const d = new Date(); return { d, hk: hourKeyOf(d.getTime()), h: d.getHours(), m: d.getMinutes(), s: d.getSeconds() + d.getMilliseconds() / 1000 }; }
+function flat(y) { const a = new Float32Array(COLS); a.fill(y); return a; }
+function blur(a, r) {
+  const n = a.length, out = new Float32Array(n);
+  for (let j = 0; j < n; j++) { let s = 0, c = 0; for (let k = -r; k <= r; k++) { const i = clamp(j + k, 0, n - 1); s += a[i]; c++; } out[j] = s / c; }
+  return out;
+}
+// A new layer drapes over the one below: hollows fill faster than bumps, so a dug hole heals slowly but its scar stays in the strata.
+// Near the survey pole the thickness is exact, so the surface there reads the minute.
+function makeTop(bottom, hk, m) {
+  const seed = (hk * 61 + m) % 99991;
+  const sm = blur(bottom, 6), out = new Float32Array(COLS), exact = Y0 - (m + 1) * T;
+  for (let j = 0; j < COLS; j++) {
+    const x = j * CW;
+    const n = .36 * vn(x / (70 * UI), seed) + .14 * vn(x / (23 * UI), seed + 11);
+    const filled = Math.min(bottom[j], bottom[j] * .58 + sm[j] * .42);
+    const v = filled - T * (1 + n), pb = smooth(POLE - 84 * UI, POLE - 26 * UI, x);
+    out[j] = Math.min(bottom[j], v + (exact - v) * pb);
+  }
+  return out;
+}
+const mkLayer = (top, hk, m) => ({ top, hk, m, ash: m % 10 === 0, rgb: colorFor(hk, m) });
+function synthLayers(hk, upto) {
+  let bottom = flatBase; const arr = [];
+  for (let m = 0; m < upto; m++) { const top = makeTop(bottom, hk, m); arr.push(mkLayer(top, hk, m)); bottom = top; }
+  return arr;
+}
+function newGrow(hk, m) {
+  const bottom = layers.length ? layers[layers.length - 1].top : flatBase;
+  return { hk, m, bottom, top: makeTop(bottom, hk, m), rgb: colorFor(hk, m), ash: m % 10 === 0 };
+}
+function stone(c, ash) { const l = c[0] * .3 + c[1] * .55 + c[2] * .15; return mix(mix(c, [l, l, l], .5), [10, 14, 18], ash ? .3 : .42); }
+function hourLabel(hk) { return pad(new Date(hk * 3600000 + 1000).getHours()); }
+// Press one hour of layers into a thin band of stone. The 60 boundaries keep their order, squeezed into BAND px.
+function makeBand(arr, hk) {
+  const h = BAND, c = document.createElement('canvas');
+  c.width = Math.round(W * DPR); c.height = Math.max(1, Math.round((h + 1) * DPR));
+  const g = c.getContext('2d'); g.setTransform(DPR, 0, 0, DPR, 0, 0);
+  const s = BAND / (60 * T);
+  const yb = y => h - (Y0 - y) * s;
+  g.fillStyle = rgbs(stone(arr.length ? arr[0].rgb : ASH, false)); g.fillRect(0, 0, W, h + 1);
+  for (let i = arr.length - 1; i >= 0; i--) {
+    const top = arr[i].top; g.beginPath(); g.moveTo(0, h + 1);
+    for (let j = 0; j < COLS; j++) g.lineTo(j * CW, yb(top[j]));
+    g.lineTo(W, h + 1); g.closePath();
+    g.fillStyle = rgbs(stone(arr[i].rgb, arr[i].ash)); g.fill();
+  }
+  for (let i = 0; i < arr.length; i++) if (arr[i].ash) {
+    const top = arr[i].top; g.beginPath();
+    for (let j = 0; j < COLS; j++) g[j ? 'lineTo' : 'moveTo'](j * CW, yb(top[j]) + .5);
+    g.strokeStyle = 'rgba(255,250,236,.30)'; g.lineWidth = .6; g.stroke();
+  }
+  g.fillStyle = 'rgba(0,0,0,.45)'; g.fillRect(0, 0, W, .8);
+  g.fillStyle = 'rgba(255,255,255,.10)'; g.fillRect(0, .8, W, .7);
+  return { cv: c, h, hk, label: hourLabel(hk) };
+}
+function fullSync() {
+  const N = nowInfo();
+  flatBase = flat(Y0);
+  const need = Math.ceil((H - Y0) / BAND) + 2;
+  bands = [];
+  for (let k = 1; k <= need; k++) bands.push(makeBand(synthLayers(N.hk - k, 60), N.hk - k));
+  layers = synthLayers(N.hk, N.m);
+  state = { hk: N.hk, h: N.h, m: N.m };
+  grow = newGrow(N.hk, N.m);
+  anim = null; reading = null;
+  rebuildCache();
+  spawnKouika(false);
+}
+
+// ---------- drawing the strata ----------
+function layerPath(g, top, bottomY) {
+  g.beginPath(); g.moveTo(0, bottomY);
+  for (let j = 0; j < COLS; j++) g.lineTo(j * CW, top[j]);
+  g.lineTo(W, bottomY); g.closePath();
+}
+function strokeTop(g, top, style, w) {
+  g.beginPath();
+  for (let j = 0; j < COLS; j++) g[j ? 'lineTo' : 'moveTo'](j * CW, top[j]);
+  g.strokeStyle = style; g.lineWidth = w; g.stroke();
+}
+function drawBands(g, offset, skipFirst) {
+  let y = Y0 + offset;
+  for (let i = skipFirst ? 1 : 0; i < bands.length && y < H + 2; i++) { g.drawImage(bands[i].cv, 0, y, W, bands[i].h + 1); y += bands[i].h; }
+}
+// Painter's order from the top layer down: each layer is filled from its top to the base, so shared boundaries never leave seams.
+function drawLayers(g, arr, n, map, baseY) {
+  for (let i = n - 1; i >= 0; i--) {
+    const L = arr[i], top = map ? L.top.map(map) : L.top;
+    layerPath(g, top, baseY); g.fillStyle = rgbs(L.rgb); g.fill();
+  }
+  for (let i = 0; i < n; i++) {
+    const L = arr[i], top = map ? L.top.map(map) : L.top;
+    strokeTop(g, top, L.ash ? 'rgba(255,252,240,.55)' : rgbs(mix(L.rgb, WHITE, .4), .42), L.ash ? .9 : .7);
+    g.save(); g.translate(0, 1.3); strokeTop(g, top, 'rgba(0,0,0,.16)', .8); g.restore();
+  }
+}
+function rebuildCache() {
+  cx.setTransform(1, 0, 0, 1, 0, 0); cx.clearRect(0, 0, cache.width, cache.height);
+  cx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  drawBands(cx, 0, false);
+  drawLayers(cx, layers, layers.length, null, Y0 + 1);
+}
+
+// ---------- grain texture (baked once) ----------
+let grainPat = null, grainBg = null;
+function makeGrain() {
+  const c = document.createElement('canvas'); c.width = c.height = 180;
+  const g = c.getContext('2d');
+  for (let i = 0; i < 2600; i++) {
+    const l = Math.random() < .5; g.fillStyle = l ? `rgba(255,248,230,${.25 + Math.random() * .45})` : `rgba(0,0,0,${.25 + Math.random() * .5})`;
+    const s = Math.random() < .08 ? 2 : 1; g.fillRect(Math.random() * 180, Math.random() * 180, s, s);
+  }
+  grainPat = fx.createPattern(c, 'repeat'); grainBg = bx.createPattern(c, 'repeat');
+}
+
+// ---------- surface ----------
+let surf = new Float32Array(1);
+let anim = null; // {type:'compact'|'reveal', t, dur, ...}
+let sNow = 0;
+function frontX(s) { return -TAPER + (W + 2 * TAPER) * clamp((s - 7) / 52, 0, 1); }
+function growTop(j, s) {
+  const f = frontX(s), x = j * CW, u = clamp((f - x) / TAPER, 0, 1);
+  return grow.bottom[j] + (grow.top[j] - grow.bottom[j]) * u * u * (3 - 2 * u);
+}
+function compactMap(e) { // where a boundary y goes while an hour is being pressed
+  const sc = lerp(1, BAND / (60 * T), e), sh = BAND * e;
+  return y => Y0 + sh - (Y0 - y) * sc;
+}
+function updateSurface() {
+  if (surf.length !== COLS) surf = new Float32Array(COLS);
+  if (anim && anim.type === 'compact') {
+    const e = easeIO(clamp(anim.t / anim.dur, 0, 1)), m = compactMap(e), top = anim.arr.length ? anim.arr[anim.arr.length - 1].top : flatBase;
+    for (let j = 0; j < COLS; j++) surf[j] = m(top[j]);
+  } else if (anim && anim.type === 'reveal') {
+    const n = anim.shown, top = n ? anim.arr[n - 1].top : flatBase;
+    for (let j = 0; j < COLS; j++) surf[j] = top[j];
+  } else if (grow) {
+    for (let j = 0; j < COLS; j++) surf[j] = growTop(j, sNow);
+  } else surf.fill(Y0);
+}
+const surfAt = x => surf[clamp(Math.round(x / CW), 0, COLS - 1)];
+
+// ---------- craters: the only thing the viewer can do to the record ----------
+function crater(cxp) {
+  if (anim) return;
+  const R = 30 * UI, D = Math.min(T * 5.5, 30 * UI);
+  const floor = new Float32Array(COLS);
+  for (let j = 0; j < COLS; j++) {
+    const d = (j * CW - cxp) / R, bell = Math.exp(-d * d * 1.7);
+    floor[j] = bell > .02 ? Math.min(Y0, surf[j] + D * bell) : -1e9; // stone (past hours) is too hard to dig
+  }
+  const cut = a => { for (let j = 0; j < COLS; j++) if (a[j] < floor[j]) a[j] = floor[j]; };
+  layers.forEach(L => cut(L.top));
+  if (grow.bottom !== flatBase) cut(grow.bottom);
+  grow.top = makeTop(grow.bottom, grow.hk, grow.m);
+  rebuildCache();
+}
+
+// ---------- particles (scales falling, silt puffs, jet streaks, sparkles) ----------
+const P = [];
+const MAXP = 900;
+function addP(o) { if (P.length >= MAXP) P.shift(); P.push(o); }
+function colorAtDepth(x, y) {
+  const j = clamp(Math.round(x / CW), 0, COLS - 1);
+  for (let i = layers.length - 1; i >= 0; i--) { const bot = i ? layers[i - 1].top[j] : Y0; if (y >= layers[i].top[j] - .5 && y <= bot + .5) return layers[i].rgb; }
+  return grow ? grow.rgb : ASH;
+}
+function burst(x0, n, spread, power, colorFn) {
+  for (let i = 0; i < n; i++) {
+    const x = x0 + (Math.random() - .5) * spread, y = surfAt(x) - 1;
+    const a = -Math.PI / 2 + (Math.random() - .5) * 1.6;
+    const v = power * (.35 + Math.random() * .75);
+    addP({ k: 1, d: GL_D, x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, sz: (1 + Math.random() * 1.8) * UI, rgb: colorFn(x, y + Math.random() * 18), life: 0, max: 3 + Math.random() * 2.5, tw: Math.random() * 6 });
+  }
+}
+
+// ---------- fish school: the second hand ----------
+const fish = [];
+const watch = { k: 0, greet: false, cool: 0 }; // the school notices a face at the glass
+function makeFish() {
+  fish.length = 0;
+  const n = 18;
+  for (let i = 0; i < n; i++) fish.push({
+    x: W * .1 + Math.random() * 40, y: H * .15 + Math.random() * 40, vx: 20, vy: 0, ang: 0,
+    L: (11 + Math.random() * 6) * UI, a: Math.random() * 6.28, w: (.25 + Math.random() * .35) * (Math.random() < .5 ? -1 : 1),
+    r: (6 + Math.random() * 42) * UI, ph: Math.random() * 6.28, emit: 0, d: 0, d0: .28 + Math.random() * .34
+  });
+  for (const f of fish) f.d = f.d0;
+}
+function schoolTarget(s, t) {
+  const y = lerp(waterTop, waterBottom, .42) + Math.sin(t * .23) * H * .018;
+  const L = W * .07, R = W * .93;
+  if (s < 3) return { x: lerp(R, L, easeIO(s / 3)), y, dash: true };
+  return { x: lerp(L, R, clamp((s - 3) / 52, 0, 1)) + Math.sin(t * .4) * 6 * UI, y, dash: false };
+}
+
+// ---------- marine snow ----------
+const snow = [];
+function makeSnow() {
+  snow.length = 0;
+  for (let i = 0; i < 80; i++) snow.push({ x: Math.random() * W, y: Math.random() * H, v: 4 + Math.random() * 10, s: Math.random() * 1.3 + .3, a: .08 + Math.random() * .22, z: Math.random() });
+}
+
+// ---------- squids (kit) ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.12;
+glWrap.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, .1, 30);
+const hemi = new THREE.HemisphereLight(0xd2ece6, 0x06131b, 1.7); scene.add(hemi);
+const key = new THREE.DirectionalLight(0xeaf5ec, 3.0); key.position.set(4, 6, 4); scene.add(key);
+const rim = new THREE.DirectionalLight(0x7fb2b8, 1.4); rim.position.set(-3, 2, -3); scene.add(rim);
+const neutral = new THREE.Color(0xd2ece6), tint = new THREE.Color();
+let aori = null, kouika = null;
+const tmpV = new THREE.Vector3();
+// The camera looks along -X, so screen right is world -Z. 1 px = K metres.
+// The camera looks from the side, a little from the front and above, so we see the squids' faces and backs.
+// Screen points are mapped onto the plane x = 0 (where the squids live) by casting the camera ray.
+const AZ = .5, EL = .2, camDir = new THREE.Vector3(), tmpS = new THREE.Vector3(), tmpP = new THREE.Vector3();
+let MG = 40; // the squid layer is drawn bigger than the screen, so shifting it for depth never cuts a squid off
+function onPlane(sx, sy, out = new THREE.Vector3()) {
+  out.set((sx + MG) / (W + 2 * MG) * 2 - 1, 1 - (sy + MG) / (H + 2 * MG) * 2, 0).unproject(camera);
+  return out.addScaledVector(camDir, -out.x / camDir.x);
+}
+const toScreen = v => { const p = tmpS.copy(v).project(camera); return { x: (p.x + 1) / 2 * (W + 2 * MG) - MG, y: (1 - p.y) / 2 * (H + 2 * MG) - MG }; };
+function fitCamera() {
+  MG = Math.ceil(GL_D * M * 2.3) + 6;
+  renderer.setPixelRatio(DPR); renderer.setSize(W + 2 * MG, H + 2 * MG, false);
+  Object.assign(renderer.domElement.style, { left: -MG + 'px', top: -MG + 'px', right: 'auto', bottom: 'auto', width: W + 2 * MG + 'px', height: H + 2 * MG + 'px' });
+  const w2 = (W + 2 * MG) / 2 * K, h2 = (H + 2 * MG) / 2 * K;
+  camera.left = -w2; camera.right = w2; camera.top = h2; camera.bottom = -h2;
+  camera.position.set(Math.cos(AZ) * Math.cos(EL), Math.sin(EL), Math.sin(AZ) * Math.cos(EL)).multiplyScalar(8);
+  camera.lookAt(0, 0, 0); camera.updateProjectionMatrix(); camera.updateMatrixWorld();
+  camera.getWorldDirection(camDir);
+}
+let aoriX = 0, kitReady = false, aoriSP = null;
+// ---------- 3D fish (fish kit): the school of anchovies, and now and then a big fish ----------
+const FISHDIR = './assets/fish-kit/fish/';
+const FS = .72; // fish are drawn at this share of their real size, so the squids can be big and the sea still holds many fish
+let fishReady = false, big = null, bigNext = 80 + Math.random() * 60;
+const fish3 = [];
+// a fish at screen point (x, y) and depth d: into the squid layer (which is shifted by GL_D), and pushed along the view
+// so the depth buffer sorts it against the squids without moving it on screen (the camera is orthographic)
+function placeAt(obj, x, y, d) {
+  onPlane(x + shX(d) - shX(GL_D), y + shY(d) - shY(GL_D), obj.position);
+  obj.position.addScaledVector(camDir, (d - GL_D) * 3);
+}
+function faceTo(obj, st, vx, vy, dt) {
+  if (Math.abs(vx) > 2) st.yaw += ((vx > 0 ? Math.PI : 0) - st.yaw) * (1 - Math.exp(-3.5 * dt)); // screen right is world -Z
+  const pitch = clamp(Math.atan2(vy, Math.abs(vx) + 1), -.6, .6);
+  st.pitch += (pitch - st.pitch) * (1 - Math.exp(-4 * dt));
+  obj.rotation.set(st.pitch, st.yaw, 0, 'YXZ');
+}
+async function initFish3() {
+  await loadFish(FISHDIR, ['katakuchi']);
+  for (const f of fish) {
+    const a = createFish('katakuchi', (6 + Math.random() * 6) * FS);
+    a.setDetail('low'); a.setMotion('swim'); scene.add(a.object);
+    fish3.push({ a, yaw: f.vx > 0 ? Math.PI : 0, pitch: 0 });
+  }
+  fishReady = true;
+}
+function syncFish3(dt) {
+  if (!fishReady) return;
+  for (let i = 0; i < fish.length && i < fish3.length; i++) {
+    const f = fish[i], o = fish3[i];
+    placeAt(o.a.object, f.x, f.y, f.d);
+    o.a.object.scale.setScalar(1.25 - f.d * .6);
+    faceTo(o.a.object, o, f.vx, f.vy, dt);
+    o.a.drive = { speed: Math.hypot(f.vx, f.vy) * K * .9 + .04, turnRate: 0 };
+    o.a.update(dt);
+  }
+}
+const BIG = [['buri', 62], ['hiramasa', 66], ['sawara', 60], ['seabass', 56], ['kihada', 90]]; // タチウオは長すぎて画面に収まらないので外した(おっちゃん)
+let bigLoading = false;
+async function spawnBig(id, now) {
+  if (big || bigLoading || !fishReady) return;
+  if (now) say('大きな魚が来る', 1600);
+  bigLoading = true;
+  const pick = id ? BIG.find(b => b[0] === id) : BIG[Math.floor(Math.random() * BIG.length)];
+  try { await loadFish(FISHDIR, [pick[0]]); } catch (e) { bigLoading = false; return; }
+  const a = createFish(pick[0], Math.min(pick[1] * FS * (.65 + Math.random() * .8), W * .6 * K * 100)); // never longer than 60% of the screen
+  a.setDetail('high'); a.setMotion('swim'); scene.add(a.object);
+  const dir = Math.random() < .5 ? 1 : -1, Lpx = a.length / K, d = .5 + Math.random() * .25;
+  big = { a, dir, d, Lpx, x: dir > 0 ? -Lpx : W + Lpx, y: lerp(waterTop + 60 * UI, Y60 - 50 * UI, Math.random()), sp: (W + Lpx * 2) / (22 + Math.random() * 10), t: 0, yaw: dir > 0 ? Math.PI : 0, pitch: 0, vy: 0, charge: pick[0] !== 'tachiuo' && Math.random() < .55 };
+  if (big.charge) big.sp *= 1.35;
+  bigLoading = false;
+}
+function updateBig(dt) {
+  if (!big) { if (fishReady && elapsed > bigNext && !anim && !preview) { bigNext = elapsed + 140 + Math.random() * 110; spawnBig(); } return; }
+  const b = big; b.t += dt;
+  b.vy = Math.sin(b.t * .4) * 6 * UI;
+  if (b.charge) { // a hunter: it bends its path through the anchovy school
+    let my = 0; for (const f of fish) my += f.y; my /= fish.length;
+    b.vy += clamp((my - b.y) * .9, -40 * UI, 40 * UI);
+  }
+  b.vy = clamp(b.vy, -b.sp * .3, b.sp * .3); // a big fish turns its path gently, never noses steeply
+  b.x += b.dir * b.sp * dt; b.y += b.vy * dt;
+  const sc = 1.15 - b.d * .4;
+  placeAt(b.a.object, b.x, b.y, b.d); b.a.object.scale.setScalar(sc);
+  faceTo(b.a.object, b, b.dir * b.sp, b.vy, dt);
+  b.a.drive = { speed: b.sp * K, turnRate: 0 }; b.a.update(dt);
+  if ((b.dir > 0 && b.x > W + b.Lpx * 1.2) || (b.dir < 0 && b.x < -b.Lpx * 1.2)) { b.a.dispose(); big = null; }
+}
+
+// ---------- passers: fish cross the water and leave (one group at a time) ----------
+let digger = null, magochi = null;
+const flathead = () => magochi && !magochi.buried;
+function sendDigger() { return false; }
+const PASS = [ // id, cm, how many, band (share of the water from the top)
+  ['aji', 18, 9, [.25, .7]], ['saba', 30, 6, [.15, .55]], ['madai', 38, 1, [.65, .95]],
+  ['isaki', 24, 2, [.5, .9]], ['kurodai', 32, 1, [.75, .98]],
+  ['kamasu', 30, 8, [.2, .6]],          // long thin barracuda, in a tight line
+  ['isaki_young', 11, 12, [.35, .8]],   // striped young grunts, a small busy school
+  ['mebaru', 20, 3, [.55, .9]],         // rockfish, a few together low down
+  ['onagagure', 36, 3, [.35, .75]], ['kuchibuto', 34, 3, [.4, .8]], // the two opaleyes, from the rocks
+  ['shibudai', 32, 2, [.5, .9]]];
+let pass = null, passNext = 12 + Math.random() * 8, passLoading = false;
+async function spawnPass(force) {
+  if (pass || passLoading || !fishReady) return;
+  passLoading = true;
+  const P = force ? PASS.find(p => p[0] === force) : PASS[Math.floor(Math.random() * PASS.length)];
+  try { await loadFish(FISHDIR, [P[0]]); } catch (e) { passLoading = false; return; }
+  const dir = Math.random() < .5 ? 1 : -1, n = P[2], bottom = Math.min(Y60, surf[Math.floor(COLS / 2)] || Y60);
+  const y = lerp(waterTop + 30 * UI, bottom - 30 * UI, lerp(P[3][0], P[3][1], Math.random()));
+  const members = [], gsz = .6 + Math.random() * .9; // the whole group is young or old together; each fish varies a little
+  for (let i = 0; i < n; i++) {
+    const a = createFish(P[0], P[1] * FS * gsz * (.8 + Math.random() * .4));
+    a.setDetail(n > 2 ? 'low' : 'high'); a.setMotion('swim'); scene.add(a.object);
+    members.push({ a, ox: (Math.random() - .5) * (n > 2 ? 90 : 50) * UI - i * (n > 2 ? 4 : 30) * UI * dir, oy: (Math.random() - .5) * (n > 2 ? 46 : 20) * UI,
+      ph: Math.random() * 6.28, yaw: dir > 0 ? Math.PI : 0, pitch: 0, d: (n > 2 ? .45 : .35) + Math.random() * .25 });
+  }
+  const span = W + 260 * UI;
+  pass = { id: P[0], dir, x: dir > 0 ? -130 * UI : W + 130 * UI, y, members, sp: span / (14 + Math.random() * 9), t: 0 };
+  passLoading = false;
+}
+function updatePass(dt) {
+  if (!pass) { if (fishReady && elapsed > passNext && !anim && !preview) spawnPass(); return; }
+  const P = pass; P.t += dt;
+  P.x += P.dir * P.sp * dt;
+  const wave = Math.sin(P.t * .5) * 10 * UI;
+  for (const m of P.members) {
+    m.ph += dt * 1.3;
+    let x = P.x + m.ox + Math.cos(m.ph) * 6 * UI, y = P.y + m.oy + wave + Math.sin(m.ph * .8) * 4 * UI;
+    // the school bends around a squid or a big fish in its way
+    for (const o of [aoriSP, big && { x: big.x, y: big.y, r: big.Lpx * .6 }]) if (o) { const R = o.r || 70 * UI, ex = x - o.x, ey = y - o.y, ed = Math.hypot(ex, ey); if (ed < R) { y += (ey >= 0 ? 1 : -1) * (R - ed) * .8; } }
+    y = Math.min(y, floorAtX(x) - 14 * UI);
+    const vy = (y - (m.ly ?? y)) / Math.max(dt, 1e-3); m.ly = y;
+    placeAt(m.a.object, x, y, m.d); m.a.object.scale.setScalar(1.2 - m.d * .5);
+    faceTo(m.a.object, m, P.dir * P.sp, vy * .3, dt);
+    m.a.drive = { speed: P.sp * K, turnRate: 0 }; m.a.update(dt);
+  }
+  if ((P.dir > 0 && P.x > W + 260 * UI) || (P.dir < 0 && P.x < -260 * UI)) {
+    for (const m of P.members) m.a.dispose();
+    pass = null; passNext = elapsed + 12 + Math.random() * 18;
+  }
+}
+const floorAtX = x => surfAt(clamp(x, 0, W));
+// the flathead: flat on the sand, ambushes small fish passing above, goes under before the hour
+const FLOOR = [['magochi', 46, .1], ['kasago', 26, .17]]; // id, cm, body height share (how far it stands off the sand)
+function makeFloorFish(prev) {
+  const F = FLOOR[Math.floor(Math.random() * FLOOR.length)];
+  const a = createFish(F[0], F[1] * FS * (.8 + Math.random() * .5));
+  a.setDetail('high'); a.setMotion('hover'); scene.add(a.object);
+  const x = prev ? prev.x : W * .62;
+  return { id: F[0], a, x, y: 0, d: .3, yaw: prev ? prev.yaw : 0, pitch: 0, hgt: a.length / K * F[2], lunge: 0, cool: 6, buried: !!prev, sink: prev ? 1 : 0, rise: false, tx: x, next: 20 };
+}
+async function initWorld() {
+  await loadFish(FISHDIR, FLOOR.map(f => f[0]));
+  magochi = makeFloorFish(null);
+}
+function updateMagochi(dt, N) {
+  const m = magochi; if (!m) return;
+  // the hour: under the sand before it, out of the new floor after it
+  const should = (N.m === 59 && N.s > 41) || (preview && preview.stage === 'bury') || (anim && anim.type === 'compact');
+  if (should && !m.buried) { m.buried = true; burst(m.x, 24, 50 * UI, 80 * UI, colorAtDepth); }
+  if (!should && m.buried && !anim) {
+    // who comes out of the new sea floor is a toss-up: the flathead or the scorpionfish
+    if (Math.random() < .5) { m.a.dispose(); magochi = makeFloorFish(m); return updateMagochi(dt, N); }
+    m.buried = false; m.rise = true; burst(m.x, 34, 60 * UI, 120 * UI, colorAtDepth);
+  }
+  if (m.buried) m.sink = Math.min(1, m.sink + dt / 1.8); else if (m.rise) { m.sink = Math.max(0, m.sink - dt / 1.4); if (!m.sink) m.rise = false; }
+  // now and then it shuffles to another spot
+  if (!m.buried && !m.lunge && elapsed > m.next) { m.tx = clamp(m.x + (Math.random() - .5) * 120 * UI, 40 * UI, POLE - 60 * UI); m.next = elapsed + 25 + Math.random() * 25; }
+  const vx = (m.tx - m.x) * .6; m.x += clamp(vx, -14 * UI, 14 * UI) * dt;
+  // ambush: a small fish right above it
+  m.cool -= dt;
+  if (!m.buried && !m.lunge && m.cool <= 0) {
+    const fy = floorAtX(m.x);
+    let prey = null;
+    for (const f of fish) if (Math.abs(f.x - m.x) < 60 * UI && fy - f.y < 110 * UI && fy - f.y > 0) { prey = f; break; }
+    if (!prey && pass) for (const q of pass.members) { const qx = pass.x + q.ox, qy = pass.y + q.oy; if (Math.abs(qx - m.x) < 60 * UI && fy - qy < 110 * UI && fy - qy > 0) { prey = { x: qx, y: qy }; break; } }
+    if (prey) { m.lunge = 1e-3; m.ly = (fy - prey.y) * .8; m.lx = (prey.x - m.x) * .6; m.cool = 22 + Math.random() * 15; m.a.setMotion('power'); burst(m.x, 20, 40 * UI, 90 * UI, colorAtDepth); scatterFish(m.x, fy - 40 * UI, 160); }
+  }
+  let up = 0, side = 0;
+  if (m.lunge) {
+    m.lunge += dt / 1.3; const u = Math.min(1, m.lunge), e = Math.sin(Math.PI * u);
+    up = m.ly * e; side = m.lx * e;
+    if (u >= 1) { m.lunge = 0; m.a.setMotion('hover'); m.x += m.lx * .2; }
+  }
+  const fy = floorAtX(m.x);
+  const y = fy - m.hgt - up + m.sink * m.hgt * 3;
+  placeAt(m.a.object, m.x + side, y, m.d);
+  m.a.object.scale.setScalar(1.2 - m.d * .5);
+  m.a.object.visible = !(m.buried && m.sink >= 1);
+  faceTo(m.a.object, m, side ? side : (m.tx - m.x) || -1, m.lunge ? -up : 0, dt);
+  m.a.drive = { speed: m.lunge ? .6 : 0, turnRate: 0 };
+  m.a.update(dt);
+}
+function updateWorld(dt, N) { updatePass(dt); updateMagochi(dt, N); }
+
+// ---------- the squids' own day: the aori roams, darts, chases the school, checks the floor; the cuttlefish shows its colours ----------
+const roam = { kind: '', t: 0, next: 4, speed: .14, mood: 0 };
+function roamIdle() { return !egiEv.on && !pendingBlow && watch.k < .05 && !anim && !preview && performance.now() > aoriIdleAt; }
+function updateRoam(dt) {
+  roam.t += dt;
+  if (roam.kind === 'chase' && roam.t < 6) { // keep after the school
+    let mx = 0, my = 0; for (const f of fish) { mx += f.x + shX(f.d); my += f.y + shY(f.d); } mx /= fish.length; my /= fish.length;
+    aoriX = clamp(mx - shX(GL_D), 100 * UI, W - 115 * UI); aoriYv = clamp(my + 30 * UI, waterTop + 40 * UI, waterBottom);
+  }
+  if (roam.kind === 'dart' && roam.t > 1.6 && roam.t - dt <= 1.6) { const p = toScreen(aori.getCenter(tmpV)); aoriX = clamp(p.x, 100 * UI, W - 115 * UI); aoriYv = clamp(p.y, waterTop + 30 * UI, waterBottom); }
+  if (roam.kind === 'floor' && roam.t > 4 && roam.t - dt <= 4) { const x = aoriX + shX(GL_D); burst(x, 16, 30 * UI, 60 * UI, colorAtDepth); aoriYv = lerp(waterTop, waterBottom, .55); }
+  if (!roamIdle()) { roam.next = Math.max(roam.next, elapsed + 3); if (!egiEv.on) roam.kind = ''; roam.speed = .42; return; }
+  if (elapsed < roam.next) return;
+  const r = Math.random();
+  roam.t = 0; roam.speed = .14;
+  if (r < .5) { // cruise somewhere else
+    roam.kind = 'cruise';
+    let x; do x = lerp(105 * UI, W - 125 * UI, Math.random()); while (Math.abs(x - aoriX) < W * .22);
+    aoriX = x; aoriYv = lerp(waterTop + 50 * UI, waterBottom - 10 * UI, Math.random());
+    roam.next = elapsed + 7 + Math.random() * 7;
+  } else if (r < .68) { // a sudden jet, mantle first
+    roam.kind = 'dart'; roam.mood = 1; aori.brain.jet(.75 + Math.random() * .25);
+    roam.next = elapsed + 5 + Math.random() * 4;
+  } else if (r < .86) { // after the fish
+    roam.kind = 'chase'; roam.speed = .2; roam.mood = .7;
+    roam.next = elapsed + 7 + Math.random() * 3;
+  } else { // down to look at the sea floor
+    roam.kind = 'floor';
+    aoriX = clamp(aoriX + (Math.random() - .5) * W * .4, 105 * UI, W - 125 * UI);
+    aoriYv = surfAt(aoriX + shX(GL_D)) - 52 * UI;
+    roam.next = elapsed + 9 + Math.random() * 3;
+  }
+}
+const kouLife = { cloud: 8 + Math.random() * 6, bury: 100 + Math.random() * 60, c: 0 };
+function updateKouLife(dt, N) {
+  if (!kouika || anim || preview) return;
+  if (elapsed > kouLife.cloud) { kouLife.c = 1; kouLife.cloud = elapsed + 10 + Math.random() * 10; }
+  if (kouLife.c > 0) { // dark bands pass over its back, the cuttlefish's display
+    const u = kouika.squid.uniforms; u.uCloud.value = Math.max(u.uCloud.value, 3.2 * Math.sin(Math.PI * kouLife.c)); u.uFlicker.value = Math.max(u.uFlicker.value, .6 * kouLife.c);
+    kouLife.c = Math.max(0, kouLife.c - dt / 3.5);
+  }
+  if (elapsed > kouLife.bury && kouika.motion === 'rest' && N.m !== 59 && N.m !== 0) { kouika.setMotion('bury'); kouLife.bury = elapsed + 150 + Math.random() * 90; }
+}
+function makeAori() {
+  const a = createSquid('aori', { detail: 'low', home: onPlane(aoriX, aoriY()) });
+  a.setMotion('hover'); scene.add(a.object);
+  // the kit's floor stains assume a fixed sea floor; ours rises and is pressed into stone, so they would float in the water
+  a.fx.group.remove(a.fx.ground.mesh, a.fx.wetStains.mesh);
+  a.egi.obj.scale.setScalar(1.7); a.egiRef.len *= 1.7; a.egiRef.r *= 1.7;
+  for (let i = 0; i < 30; i++) a.update(1 / 60);
+  return a;
+}
+function respawnAori() { if (!kitReady) return; if (aori) aori.dispose(); aoriX = W * .4; aori = makeAori(); }
+
+// ---------- the lure: now and then an egi sinks on a line, and the aori works it ----------
+// The kit snaps the squid back to its home and its default heading when a lure motion starts; here it keeps
+// swimming from where it is, so the body never jumps away from its arms.
+function setMotionKeep(a, m, egiAt) {
+  const b = a.brain, r = a.squid.root.position.clone(), yaw = b.yaw, pitch = b.pitch, roll = b.roll, vel = b.vel.clone();
+  const ep = a.egi.obj.position.clone(), er = a.egi.obj.rotation.clone(), had = b.egiShown;
+  b.home.copy(r);
+  a.setMotion(m);
+  a.squid.root.position.copy(r); b.yaw = yaw; b.pitch = pitch; b.roll = roll; b.vel.copy(vel);
+  if (egiAt) a.egi.obj.position.copy(egiAt);
+  else if (had && b.egiShown) { a.egi.obj.position.copy(ep); a.egi.obj.rotation.copy(er); }
+}
+const egiEv = { on: false, stage: '', t: 0, next: 25 + Math.random() * 15 };
+function updateEgi(dt) {
+  if (!aori || anim || preview) { if (egiEv.on) endEgi(false); return; }
+  if (!egiEv.on) {
+    if (elapsed > egiEv.next && !pendingBlow && watch.k < .05) {
+      // first the squid moves to the open water on the right, so the lure sinks where it can be seen
+      egiEv.on = true; egiEv.stage = 'prep'; egiEv.t = 0; egiEv.len = 7 + Math.random() * 3;
+      aoriX = W * .66; aoriYv = null; aoriIdleAt = performance.now() + 60000; roam.kind = '';
+    }
+    return;
+  }
+  egiEv.t += dt;
+  if (egiEv.stage === 'prep') {
+    const r = aori.squid.root.position, want = onPlane(aoriX, aoriY(), tmpP), k = 1 - Math.exp(-1.5 * dt), mx = .42 * dt;
+    r.z += clamp((want.z - r.z) * k, -mx, mx); r.y += clamp((want.y - r.y) * k, -mx, mx);
+    if (egiEv.t > 3) { egiEv.stage = 'follow'; egiEv.t = 0; setMotionKeep(aori, 'follow', aori.squid.root.position.clone().add(new THREE.Vector3(.12, .42, .38))); say('エギが沈んでくる', 2200); }
+  } else if (egiEv.stage === 'follow' && egiEv.t > egiEv.len) {
+    egiEv.stage = egiEv.force || (Math.random() < .62 ? 'attack' : 'refuse'); egiEv.t = 0; egiEv.force = null;
+    setMotionKeep(aori, egiEv.stage);
+  } else if (egiEv.stage === 'attack' && egiEv.t > 12) { endEgi(true); }
+  else if (egiEv.stage === 'refuse') {
+    if (egiEv.t > 4.5) aori.egi.obj.position.y += (egiEv.t - 4.5) * 1.2 * dt; // reeled up and away
+    if (egiEv.t > 7.5) endEgi(false);
+  }
+}
+function endEgi(grabbed) {
+  if (!egiEv.on) return;
+  egiEv.on = false; egiEv.stage = ''; egiEv.next = elapsed + 150 + Math.random() * 120; aoriIdleAt = performance.now() + 8000;
+  if (aori) { setMotionKeep(aori, 'hover'); if (grabbed) aori.spitInk(); }
+}
+// The kit's arms and tentacles keep their own state in the world, so when the floor jumps (an hour pressed into stone,
+// a preview being undone) the cuttlefish is made again on the new floor instead of being dragged there.
+const USE_KOUIKA = false; // replaced by the flathead (magochi) on 2026/11/13
+function spawnKouika(emerge) {
+  if (!USE_KOUIKA) return;
+  if (!kitReady) return;
+  if (kouika) kouika.dispose();
+  updateSurface();
+  const at = onPlane(KX(), surfAt(KX()));
+  kouika = createSquid('kouika', { detail: 'low', floorY: at.y, home: new THREE.Vector3(0, at.y + .2, at.z) });
+  kouika.fx.group.remove(kouika.fx.ground.mesh, kouika.fx.wetStains.mesh);
+  scene.add(kouika.object);
+  if (emerge) { kouika.setMotion('bury'); kouika.brain.phase = 'hidden'; kouika.brain.pt = 3.95; kouPrev = 'hidden'; }
+  else { kouika.setMotion('rest'); kouPrev = ''; }
+  for (let i = 0; i < 20; i++) kouika.update(1 / 60);
+}
+const KX = () => W * .64;
+let aoriYv = null;
+const aoriY = () => aoriYv != null ? aoriYv : lerp(waterTop, waterBottom, .64);
+
+// ---------- events ----------
+let ashPulse = 0, hourPulse = 0, excite = 0, sealT = -1, buryArmed = false, holdBury = false, kouPrev = '';
+let pendingBlow = null, aoriIdleAt = 0, preview = null, previewStep = 0, reading = null;
+function say(t, ms) { note.textContent = t; note.classList.add('show'); clearTimeout(say.k); say.k = setTimeout(() => note.classList.remove('show'), ms || 1800); }
+
+function finalizeGrow() {
+  if (!grow) return;
+  layers.push({ top: grow.top, hk: grow.hk, m: grow.m, ash: grow.ash, rgb: grow.rgb });
+  grow = null; sealT = 0;
+}
+function startCompaction(isPreview) {
+  anim = { type: 'compact', t: 0, dur: 3.6, arr: layers.slice(), preview: isPreview };
+  hourPulse = 1;
+  if (kouika) kouika.object.visible = false;
+  burst(W / 2, 70, W, 120 * UI, colorAtDepth);
+  scatterFish(W / 2, waterBottom + 40, 160);
+}
+function endCompaction() {
+  const a = anim;
+  bands.unshift(makeBand(a.arr, a.preview ? state.hk : state.hk));
+  const need = Math.ceil((H - Y0) / BAND) + 2; if (bands.length > need + 2) bands.length = need + 2;
+  layers = []; anim = null;
+  holdBury = false;
+  setTimeout(() => spawnKouika(true), 350);
+}
+function advanceTo(N) {
+  finalizeGrow();
+  if (N.hk !== state.hk) {
+    startCompaction(false);
+    anim.next = N;
+  } else {
+    state.m = N.m; grow = newGrow(state.hk, state.m); rebuildCache();
+    if (N.m % 10 === 0) ashPulse = 1;
+  }
+}
+function previewHour() {
+  if (anim || preview) return;
+  const snap = { layers: layers.slice(), grow, bands: bands.slice() };
+  preview = { t: 0, snap, stage: 'bury' };
+  if (kouika) { kouika.setMotion('bury'); holdBury = true; }
+  say('正時 — 一時間が石になる');
+}
+function finishPreview(instant) {
+  const p = preview; preview = null;
+  if (!p) return;
+  if (anim && anim.type === 'compact') anim = null;
+  bands = p.snap.bands; layers = p.snap.layers; grow = p.snap.grow;
+  holdBury = false;
+  if (instant || !layers.length) { anim = null; rebuildCache(); spawnKouika(false); return; }
+  anim = { type: 'reveal', t: 0, dur: 1.6, arr: layers, shown: 0 };
+  if (kouika) kouika.object.visible = false;
+}
+function onEventButton() {
+  if (previewStep === 0) { ashPulse = 1.4; say('10分 — 白い鍵層'); }
+  else if (previewStep === 1) previewHour();
+  else if (previewStep === 2 && aori) { if (!egiEv.on) { egiEv.next = 0; say('エギを落とす', 1600); } }
+  else spawnBig(null, true);
+  previewStep = (previewStep + 1) % (aori ? 4 : 3);
+}
+function scatterFish(x, y, power) {
+  for (const f of fish) { const dx = f.x - x, dy = f.y - y, d = Math.hypot(dx, dy) + 20; f.vx += dx / d * power; f.vy += dy / d * power * .6; }
+}
+function doBlow(x) {
+  x = clamp(x, 26 * UI, POLE - 70 * UI);
+  const sy = surfAt(x);
+  crater(x);
+  burst(x, 46, 54 * UI, 150 * UI, (px, py) => colorAtDepth(px, py));
+  for (let i = 0; i < 16; i++) addP({ k: 3, d: GL_D, x: x + (Math.random() - .5) * 18 * UI, y: sy - 40 - Math.random() * 60, vx: (Math.random() - .5) * 20, vy: 380 + Math.random() * 200, sz: 1, life: 0, max: .35 + Math.random() * .2, rgb: [210, 236, 238] });
+  scatterFish(x, sy - 30, 120);
+  excite = 1;
+  if (aori) aori.brain.vel.y += .32;
+}
+function handleTap(x, y) {
+  const sy = surfAt(x);
+  if (y > sy + 8 * UI) { readStrata(x, y); return; }
+  if (egiEv.on) return; // the squid is busy with the lure; let it finish
+  aoriX = clamp(x - shX(GL_D), W * .12, POLE - 70 * UI);
+  pendingBlow = { x: aoriX, t0: performance.now() };
+  aoriIdleAt = performance.now() + 9000; aoriYv = null; roam.kind = '';
+  if (!aori) { pendingBlow = null; if (!sendDigger(x)) doBlow(x); }
+}
+function readStrata(x, y) {
+  const j = clamp(Math.round(x / CW), 0, COLS - 1);
+  if (y <= Y0 + .5 && !anim) {
+    if (grow && y >= surf[j] - .5 && y <= grow.bottom[j] + .5 && surf[j] < grow.bottom[j] - .3) { reading = { x, y, text: `${pad(state.h)}:${pad(grow.m)}  いま積もっている`, top: null, t: 0 }; return; }
+    for (let i = layers.length - 1; i >= 0; i--) {
+      const bot = i ? layers[i - 1].top : flatBase;
+      if (y >= layers[i].top[j] - .5 && y <= bot[j] + .5) { reading = { x, y, text: `${pad(state.h)}:${pad(i)}`, top: layers[i].top, bot, t: 0 }; return; }
+    }
+  }
+  let yy = Y0;
+  for (const b of bands) { if (y >= yy && y < yy + b.h) { reading = { x, y, text: `${b.label}:00 – ${b.label}:59  石`, band: yy, bh: b.h, t: 0 }; return; } yy += b.h; }
+}
+
+// ---------- input ----------
+let ptr = null;
+addEventListener('pointerdown', e => {
+  if (e.target.closest && e.target.closest('a,button,.apk-ctrl,.apk-sheet')) return;
+  if (window.APKit && APKit.isUI && APKit.isUI(e.clientX, e.clientY)) return;
+  ptr = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, t0: performance.now(), drag: false };
+  requestWakeLock();
+}, { passive: true });
+addEventListener('pointermove', e => {
+  if (!ptr) return;
+  if (!ptr.drag && Math.hypot(e.clientX - ptr.x0, e.clientY - ptr.y0) > 10) ptr.drag = true;
+  if (ptr.drag && !head.on && !tilt.on) {
+    drag.x = clamp(drag.x + (e.clientX - ptr.x) / (W * .45), -1, 1);
+    drag.y = clamp(drag.y - (e.clientY - ptr.y) / (H * .3), -.6, 1);
+    drag.at = performance.now() / 1000;
+  }
+  ptr.x = e.clientX; ptr.y = e.clientY;
+}, { passive: true });
+addEventListener('pointerup', () => { if (ptr && !ptr.drag && performance.now() - ptr.t0 < 600) handleTap(ptr.x0, ptr.y0); ptr = null; }, { passive: true });
+addEventListener('pointercancel', () => { ptr = null; }, { passive: true });
+
+// tilt (sensor): a button, because the sensor has to be asked for
+let tiltBtn = null; const tilt = { on: false, base: null, got: false, g: 0, b: 0 };
+function onTilt(e) {
+  if (e.beta == null || e.gamma == null) return;
+  tilt.got = true;
+  if (!tilt.base) tilt.base = { b: e.beta, g: e.gamma };
+  tilt.g += (clamp(e.gamma - tilt.base.g, -30, 30) - tilt.g) * .3; tilt.b += (clamp(e.beta - tilt.base.b, -28, 28) - tilt.b) * .3;
+}
+function setTilt(on) {
+  tilt.on = on; if (tiltBtn) { tiltBtn.classList.toggle('apk-on', on); tiltBtn.setAttribute('aria-pressed', on ? 'true' : 'false'); }
+  if (on) {
+    if (cam.on) stopCam();
+    tilt.base = null; tilt.got = false; tilt.g = tilt.b = 0;
+    addEventListener('deviceorientation', onTilt);
+    say('傾き ON。スマホを傾けると、水槽の奥が覗ける', 3600);
+    setTimeout(() => { if (tilt.on && !tilt.got) { setTilt(false); say('この端末では傾きセンサーが使えないみたい。指でなぞっても覗ける', 4200); } }, 2200);
+  } else removeEventListener('deviceorientation', onTilt);
+}
+function onTiltClick() {
+  requestWakeLock();
+  if (tilt.on) { setTilt(false); say('傾き OFF', 1600); return; }
+  const D = window.DeviceOrientationEvent;
+  if (!D) { say('この端末では傾きセンサーが使えないみたい。指でなぞっても覗ける', 4200); return; }
+  if (typeof D.requestPermission === 'function') D.requestPermission().then(r => { if (r === 'granted') setTilt(true); else say('傾きが許可されなかった。指でなぞっても覗ける', 4600); }).catch(() => say('傾きが許可されなかった。指でなぞっても覗ける', 4600));
+  else setTilt(true);
+}
+
+// camera (face tracking): the front camera is read in this page only.
+// The video element is hidden and never drawn; no frame is saved or sent anywhere.
+let camBtn = null; const camVideo = $('cam');
+const cam = { on: false, stream: null, det: null, busy: false, base: null, nb: 0, raf: 0, last: 0, seen: -99 };
+const MP = new URL('./assets/vendor/mediapipe-face-detection/', import.meta.url).href;
+function loadMP() {
+  if (window.FaceDetection) return Promise.resolve();
+  return new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = MP + 'face_detection.js'; sc.onload = res; sc.onerror = () => rej(new Error('script')); document.head.appendChild(sc); });
+}
+const camDbg = /[?&]camdebug\b/.test(location.search) ? Object.assign(document.body.appendChild(document.createElement('div')), { style: 'position:fixed;z-index:9;left:8px;bottom:8px;font:11px/1.4 monospace;color:#8f8;background:rgba(0,0,0,.6);padding:4px 6px;pointer-events:none;white-space:pre' }) : null;
+const camStat = { sent: 0, res: 0, faces: 0, t0: 0, rate: '', err: '' };
+function camStatus() {
+  if (!cam.on) return;
+  const now = performance.now() / 1000, seen = now - cam.seen < .6;
+  if (camBtn) camBtn.style.boxShadow = seen ? '0 0 0 2px rgba(120,255,180,.9)' : ''; // a green ring while a face is seen
+  if (now - camStat.t0 > 1) { camStat.rate = `send ${camStat.sent}/s res ${camStat.res}/s face ${camStat.faces}/s`; camStat.sent = camStat.res = camStat.faces = 0; camStat.t0 = now; }
+  if (camDbg) camDbg.textContent = `${camStat.rate}\nvideo ${camVideo.videoWidth}x${camVideo.videoHeight} rs${camVideo.readyState}\nhead ${head.tx.toFixed(2)} ${head.ty.toFixed(2)} z${head.tz.toFixed(2)}\nwatch ${watch.k.toFixed(2)} ${camStat.err}`;
+  if (cam.on && now - cam.startAt > 4 && now - cam.seen > 4 && !cam.hinted) { cam.hinted = true; say('顔が見つからない。画面の正面から、明るいところでのぞいてみて', 4200); }
+}
+function setCamUI(on) {
+  if (!camBtn) return;
+  camBtn.classList.toggle('apk-on', on); camBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  camBtn.style.opacity = ''; camBtn.style.boxShadow = '';
+}
+function camFail(msg) {
+  stopCam();
+  say(msg, 5200);
+  // fall back: tilt sensor, then finger drag
+  const D = window.DeviceOrientationEvent;
+  if (D && typeof D.requestPermission !== 'function' && !tilt.on) setTilt(true);
+}
+function onFace(r) {
+  cam.busy = false; camStat.res++;
+  const d = r && r.detections && r.detections[0];
+  const bb = d && (d.boundingBox || (d.locationData && d.locationData.relativeBoundingBox));
+  if (!bb) return;
+  const cx = bb.xCenter != null ? bb.xCenter : bb.xmin + bb.width / 2, cy = bb.yCenter != null ? bb.yCenter : bb.ymin + bb.height / 2, w = bb.width;
+  if (!(w > 0.03)) return;
+  // the raw front camera image is not mirrored: a face that moves to the user's right sits on the image's left
+  const x = .5 - cx, y = .5 - cy;
+  const now = performance.now() / 1000;
+  if (!cam.base) cam.base = { x, y, w };
+  else if (cam.nb < 12) { cam.nb++; cam.base.x += (x - cam.base.x) * .25; cam.base.y += (y - cam.base.y) * .25; cam.base.w += (w - cam.base.w) * .25; }
+  else { const a = now - cam.seen > 1.5 ? .5 : .0012; cam.base.x += (x - cam.base.x) * a; cam.base.y += (y - cam.base.y) * a; cam.base.w += (w - cam.base.w) * a; }
+  if (now - cam.seen > 2.5) watch.greet = true;
+  camStat.faces++;
+  cam.seen = now;
+  head.tx = clamp((x - cam.base.x) * 5.5, -1, 1);
+  head.ty = clamp((y - cam.base.y) * 5.5, -1, 1);
+  head.tz = clamp(Math.pow(cam.base.w / w, .7), .72, 1.35);
+}
+function camLoop() {
+  if (!cam.on) return;
+  cam.raf = requestAnimationFrame(camLoop);
+  const now = performance.now();
+  if (cam.busy || now - cam.last < 45 || document.visibilityState !== 'visible' || camVideo.readyState < 2) return;
+  cam.busy = true; cam.last = now;
+  camStat.sent++;
+  cam.det.send({ image: camVideo }).catch(e => { cam.busy = false; camStat.err = String(e).slice(0, 60); });
+  if (performance.now() / 1000 - cam.seen > 1.2) { head.tx *= .98; head.ty *= .98; head.tz += (1 - head.tz) * .02; }
+}
+function stopCam() {
+  cam.on = false; cancelAnimationFrame(cam.raf);
+  if (cam.stream) { cam.stream.getTracks().forEach(t => t.stop()); cam.stream = null; }
+  camVideo.srcObject = null;
+  if (cam.det) { try { cam.det.close(); } catch (e) {} cam.det = null; }
+  cam.base = null; cam.nb = 0; cam.busy = false;
+  head.on = false; head.tx = head.ty = 0; head.tz = 1;
+  setCamUI(false);
+}
+async function startCam() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { camFail('この端末ではカメラが使えないみたい'); return; }
+  if (camBtn) camBtn.style.opacity = '.55'; // starting
+  try {
+    cam.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 320 }, height: { ideal: 240 } }, audio: false });
+  } catch (e) { camFail('カメラが許可されなかった。傾きか、指なぞりで見られる'); return; }
+  try {
+    camVideo.srcObject = cam.stream; camVideo.muted = true; camVideo.setAttribute('playsinline', '');
+    await camVideo.play();
+    await loadMP();
+    cam.det = new window.FaceDetection({ locateFile: f => MP + f });
+    cam.det.setOptions({ model: 'short', minDetectionConfidence: .4 });
+    cam.det.onResults(onFace);
+    await cam.det.initialize();
+  } catch (e) { camFail('顔の検出を始められなかった。傾きか、指なぞりで見られる'); return; }
+  cam.on = true; head.on = true; cam.seen = -99; cam.startAt = performance.now() / 1000; cam.hinted = false; cam.base = null; cam.nb = 0;
+  if (tilt.on) setTilt(false);
+  setCamUI(true);
+  say('📷 ON。顔を動かすと、窓から覗くように奥行きが見える(映像は保存も送信もしない)', 4800);
+  camLoop();
+}
+function onCamClick() {
+  requestWakeLock();
+  if (cam.on) { stopCam(); say('📷 OFF', 1600); return; }
+  startCam();
+}
+
+let awake = null;
+function requestWakeLock() {
+  if (!navigator.wakeLock || awake || document.visibilityState !== 'visible') return;
+  navigator.wakeLock.request('screen').then(l => { awake = l; l.addEventListener('release', () => { awake = null; }); }).catch(() => {});
+}
+document.addEventListener('visibilitychange', requestWakeLock);
+
+// ---------- frame ----------
+let last = performance.now() / 1000, elapsed = 0;
+function frame() {
+  const now = performance.now() / 1000, dt = Math.min(.05, Math.max(0, now - last)); last = now; elapsed += dt;
+  const N = nowInfo(); sNow = N.s;
+
+  // --- clock bookkeeping
+  const cur = N.hk * 60 + N.m, st = state.hk * 60 + state.m;
+  if (cur !== st && !preview && !(anim && anim.type === 'compact' && !anim.preview)) {
+    if (cur - st === 1) advanceTo(N); else fullSync();
+  }
+  if (N.m === 59 && N.s > 41 && !buryArmed && kouika && !preview) { buryArmed = true; kouika.setMotion('bury'); holdBury = true; }
+  if (N.m !== 59 && !(anim && anim.type === 'compact')) buryArmed = false;
+
+  if (preview) {
+    preview.t += dt;
+    if (preview.stage === 'bury' && preview.t > (kouika ? 5.4 : flathead() ? 3.2 : .3)) { preview.stage = 'compact'; finalizeGrowPreview(); startCompaction(true); }
+    if (preview.stage === 'after' && preview.t > preview.until) finishPreview(false);
+  }
+  if (anim) {
+    anim.t += dt;
+    if (anim.type === 'compact' && anim.t >= anim.dur) {
+      const nx = anim.next, wasPreview = anim.preview;
+      endCompaction();
+      if (wasPreview && preview) { preview.stage = 'after'; preview.until = preview.t + 3.2; }
+      if (nx) { state = { hk: nx.hk, h: nx.h, m: nx.m }; layers = nx.m ? synthLayers(nx.hk, nx.m) : []; grow = newGrow(state.hk, state.m); ashPulse = 1; }
+      else if (!wasPreview) { grow = newGrow(state.hk, state.m); }
+      rebuildCache();
+    } else if (anim && anim.type === 'reveal') {
+      anim.shown = Math.min(anim.arr.length, Math.ceil(anim.arr.length * easeIO(clamp(anim.t / anim.dur, 0, 1))));
+      if (anim.t >= anim.dur) { anim = null; rebuildCache(); spawnKouika(false); }
+    }
+  }
+  state.h = N.h;
+  updateSurface();
+
+  ashPulse = Math.max(0, ashPulse - dt / 5);
+  hourPulse = Math.max(0, hourPulse - dt / 3);
+  excite = Math.max(0, excite - dt / 1.6);
+  const ashMinute = (grow && grow.ash) || ashPulse > .2;
+  const tintRGB = grow ? grow.rgb : ASH;
+
+  updateEye(dt, elapsed); camStatus();
+  updateFish(dt, N.s, ashMinute, tintRGB);
+  updateBig(dt); syncFish3(dt); updateWorld(dt, N);
+  updateParticles(dt);
+  updateSea(N); updateEgi(dt);
+  updateKouLife(dt, N);
+  updateSquids(dt, tintRGB);
+
+  drawBG(tintRGB, ashMinute);
+  if (aori || kouika || fishReady) renderer.render(scene, camera);
+  drawFG(N);
+  requestAnimationFrame(frame);
+}
+function finalizeGrowPreview() { // a preview presses the hour as it is right now, half-finished layer included
+  if (grow) { layers = layers.concat([{ top: Float32Array.from(surf), hk: grow.hk, m: grow.m, ash: grow.ash, rgb: grow.rgb }]); grow = null; }
+}
+
+// ---------- updates ----------
+function updateFish(dt, s, ash, tintRGB) {
+  let tg = schoolTarget(s, elapsed);
+  // a face at the glass: the school comes to look back, and scatters if the face comes too close
+  const now = performance.now() / 1000, seen = head.on && cam.on && now - cam.seen < 1.2;
+  watch.cool = Math.max(0, watch.cool - dt);
+  watch.k += ((seen && watch.cool <= 0 ? 1 : 0) - watch.k) * (1 - Math.exp(-(seen ? 1.4 : .8) * dt));
+  if (seen && watch.greet) { watch.greet = false; say('魚が、のぞく顔に気づいた', 2600); }
+  if (seen && head.tz < .8 && watch.cool <= 0 && watch.k > .5) {
+    watch.cool = 4; watch.k = 0;
+    let mx = 0, my = 0; for (const f of fish) { mx += f.x; my += f.y; } mx /= fish.length; my /= fish.length;
+    scatterFish(mx, my, 260); for (const f of fish) f.d = Math.min(.75, f.d0 + .2);
+    say('近すぎて、散った', 2000);
+  }
+  if (watch.k > .02 && !tg.dash) {
+    const fxp = W * (.48 + E.x * .26), fyp = lerp(waterTop, waterBottom, .72) - E.y * H * .08 + Math.sin(elapsed * .7) * 8 * UI;
+    tg = { x: lerp(tg.x, fxp, watch.k), y: lerp(tg.y, fyp, watch.k), dash: false };
+  }
+  const emitting = !tg.dash && !anim;
+  let ax0 = -1e9, ay0 = 0;
+  if (aori) { const p = toScreen(aori.getCenter(tmpV)); ax0 = p.x + shX(GL_D); ay0 = p.y + shY(GL_D); }
+  for (let i = 0; i < fish.length; i++) {
+    const f = fish[i];
+    f.a += f.w * dt * (1 + watch.k);
+    f.d += ((watch.k > .02 ? lerp(f.d0, .05 + f.d0 * .2, watch.k) : f.d0) - f.d) * (1 - Math.exp(-1.2 * dt));
+    const ox = Math.cos(f.a) * f.r, oy = Math.sin(f.a) * f.r * .5;
+    let ax = (tg.x + ox - f.x) * (tg.dash ? 3.2 : 1.1), ay = (tg.y + oy - f.y) * 1.1;
+    for (let k = 0; k < fish.length; k++) if (k !== i) {
+      const g = fish[k], dx = f.x - g.x, dy = f.y - g.y, d2 = dx * dx + dy * dy, R = 15 * UI;
+      if (d2 < R * R && d2 > .01) { const d = Math.sqrt(d2); ax += dx / d * (R - d) * 9; ay += dy / d * (R - d) * 9; }
+    }
+    if (big) { const R = big.Lpx * .7, ex = f.x - big.x, ey = f.y - big.y, ed = Math.hypot(ex, ey); if (ed < R) { ax += ex / (ed + 1) * (R - ed) * 8; ay += ey / (ed + 1) * (R - ed) * 8; } }
+    const dx = f.x - ax0, dy = f.y - ay0, d = Math.hypot(dx, dy), RA = 92 * UI;
+    if (d < RA) { ax += dx / (d + 1) * (RA - d) * 6; ay += dy / (d + 1) * (RA - d) * 6; }
+    f.vx += ax * dt; f.vy += ay * dt;
+    const damp = Math.exp(-1.3 * dt); f.vx *= damp; f.vy *= damp;
+    const sp = Math.hypot(f.vx, f.vy), mx = (tg.dash ? 240 : 75) * UI;
+    if (sp > mx) { f.vx *= mx / sp; f.vy *= mx / sp; }
+    f.x += f.vx * dt; f.y += f.vy * dt;
+    if (sp > 3) { let da = Math.atan2(f.vy, f.vx) - f.ang; da = Math.atan2(Math.sin(da), Math.cos(da)); f.ang += da * (1 - Math.exp(-7 * dt)); }
+    if (emitting && Math.random() < (ash ? 4.6 : 2.3) * dt) {
+      const c = ash ? mix(ASH, WHITE, .3) : mix(tintRGB, WHITE, .18);
+      addP({ k: 0, d: f.d, x: f.x, y: f.y + 2, vx: f.vx * .15, vy: 8, sz: (ash ? 1.5 : 1.1) * UI * (.8 + Math.random() * .6), rgb: c, tw: Math.random() * 6, vt: (68 + Math.random() * 46) * UI, life: 0, max: 30 });
+    }
+  }
+}
+function updateParticles(dt) {
+  for (let i = P.length - 1; i >= 0; i--) {
+    const p = P[i]; p.life += dt;
+    if (p.k === 0) { // a scale sinking to the bottom
+      p.vy += (p.vt - p.vy) * 1.4 * dt; p.vx *= Math.exp(-.8 * dt);
+      p.x += (p.vx + Math.sin(elapsed * .8 + p.tw) * 5) * dt; p.y += p.vy * dt;
+      if (p.y >= surfAt(p.x) - .6) { P.splice(i, 1); if (Math.random() < .35) addP({ k: 2, d: p.d, x: p.x, y: surfAt(p.x) - .5, sz: p.sz, rgb: p.rgb, life: 0, max: .4 }); continue; }
+    } else if (p.k === 1) { // silt thrown up, settling back
+      p.vy += 70 * UI * dt; const dr = Math.exp(-2.2 * dt); p.vx *= dr; p.vy *= dr;
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      if ((p.vy > 0 && p.y >= surfAt(p.x)) || p.life > p.max) { P.splice(i, 1); continue; }
+    } else if (p.k === 3) { p.x += p.vx * dt; p.y += p.vy * dt; if (p.life > p.max) { P.splice(i, 1); continue; } }
+    else if (p.life > p.max) { P.splice(i, 1); continue; }
+    if (p.x < -20 || p.x > W + 20 || p.y > H + 10) P.splice(i, 1);
+  }
+  for (const s of snow) { s.y += s.v * dt; s.x += Math.sin(elapsed * .2 + s.z * 9) * 3 * dt; if (s.y > H) { s.y = -4; s.x = Math.random() * W; } }
+}
+function updateSquids(dt, tintRGB) {
+  tint.setRGB(tintRGB[0] / 255, tintRGB[1] / 255, tintRGB[2] / 255, THREE.SRGBColorSpace);
+  hemi.color.copy(neutral).lerp(tint, .18);
+  if (aori) {
+    updateRoam(dt);
+    const want = onPlane(aoriX, aoriY(), tmpP);
+    aori.brain.home.copy(want);
+    const cx0 = toScreen(aori.getCenter(tmpV)).x, fy = onPlane(cx0, surfAt(cx0), tmpV).y;
+    aori.brain.floorY = fy; aori.fx.floorY = fy + .005; aori.egi.floorY = fy;
+    aori.update(dt);
+    // the fins can hold it still but not carry it far, so the page glides it to where it was sent (not while it works a lure)
+    const r = aori.squid.root.position, mx = roam.speed * dt, k = 1 - Math.exp(-1.5 * dt);
+    if (!egiEv.on && !(roam.kind === 'dart' && roam.t < 1.6)) {
+      const dz = want.z - r.z, dy = want.y - r.y;
+      r.z += clamp(dz * k, -mx, mx); r.y += clamp(dy * k, -mx, mx);
+      // travelling: turn to face the way it goes (arms first). Screen left is world +z; the kit's yaw 0 faces +z
+      if (Math.abs(dz) > .06) { const b = aori.brain, goal = dz > 0 ? 0 : Math.PI; let d = goal - b.yaw; d = Math.atan2(Math.sin(d), Math.cos(d)); b.yaw += d * (1 - Math.exp(-4 * dt)); }
+    }
+    aoriSP = toScreen(aori.getCenter(tmpV)); aoriSP.x += shX(GL_D); aoriSP.y += shY(GL_D);
+    // if it ever ends up far off the screen, a fresh one swims in where it belongs
+    if (!egiEv.on && (aoriSP.x < -80 * UI || aoriSP.x > W + 80 * UI || aoriSP.y < -80 * UI || aoriSP.y > Y0)) respawnAori();
+    if (pendingBlow) {
+      const p = toScreen(aori.getCenter(tmpV));
+      if (Math.abs(p.x - pendingBlow.x) < 14 * UI || performance.now() - pendingBlow.t0 > 4200) { doBlow(p.x + shX(GL_D)); pendingBlow = null; }
+    }
+    const u = aori.squid.uniforms;
+    if (excite > 0) u.uDark.value = Math.min(1, u.uDark.value + .5 * excite);
+    if (roam.mood > 0) { u.uCloud.value = Math.max(u.uCloud.value, 2.2 * roam.mood); u.uDark.value = Math.max(u.uDark.value, .45 * roam.mood); roam.mood = Math.max(0, roam.mood - dt / 3); }
+    if (hourPulse > 0) u.uPale.value = Math.max(u.uPale.value, .7 * hourPulse);
+  }
+  if (kouika) {
+    const kx = KX(), at = onPlane(kx, surfAt(kx), tmpP);
+    kouika.brain.home.set(0, at.y + .2, at.z);
+    // a crater or any other sudden step in the floor under it: make the cuttlefish again on the new floor,
+    // because the kit keeps its arms where the old floor was and they would be left floating
+    if (!anim && kouika.lastFloor != null && Math.abs(at.y - kouika.lastFloor) > .012 && kouika.motion !== 'bury') { spawnKouika(false); return; }
+    kouika.lastFloor = at.y;
+    kouika.brain.floorY = at.y; kouika.fx.floorY = at.y + .005;
+    const b = kouika.brain;
+    if (holdBury && kouika.motion === 'bury' && b.phase === 'hidden' && b.pt > .6) b.pt = .6;
+    if (kouika.motion === 'bury' && b.phase === 'emerge' && kouPrev !== 'emerge') burst(kx, 30, 50 * UI, 110 * UI, colorAtDepth);
+    if (kouika.motion === 'bury' && kouPrev === 'emerge' && b.phase === 'settle') kouika.setMotion('rest');
+    kouPrev = kouika.motion === 'bury' ? b.phase : '';
+    kouika.update(dt);
+    if (ashPulse > 0) { const u = kouika.squid.uniforms; u.uCloud.value = Math.max(u.uCloud.value, 3.4 * ashPulse); u.uFlicker.value = Math.max(u.uFlicker.value, .8 * ashPulse); }
+  }
+}
+
+// ---------- background: snow + fish (behind the squids) ----------
+// ---------- the sea's time of day ----------
+// keyframes by local hour: top / middle / bottom of the water, light shafts, night glow
+const SEAK = [
+  [0,    [4, 14, 26],  [3, 9, 18],   [1, 4, 9],   0,   1],
+  [4.5,  [5, 16, 28],  [3, 10, 19],  [1, 5, 10],  0,   1],
+  [6,    [58, 74, 98], [22, 40, 56], [5, 14, 22], .2,  .25],
+  [8,    [26, 92, 108],[12, 54, 68], [4, 20, 30], .42, 0],
+  [15.5, [24, 86, 102],[11, 50, 64], [4, 19, 29], .4,  0],
+  [17.5, [86, 56, 74], [30, 32, 52], [6, 11, 20], .24, .2],
+  [19.3, [10, 24, 40], [5, 13, 24],  [2, 6, 12],  .03, .85],
+  [24,   [4, 14, 26],  [3, 9, 18],   [1, 4, 9],   0,   1],
+];
+const sea = { top: [15, 52, 66], mid: [6, 26, 37], bot: [2, 10, 16], sh: .34, night: 0, last: -1 };
+const forceHour = (/[?&]hour=([\d.]+)/.exec(location.search) || [])[1];
+function updateSea(N) {
+  const hh = forceHour != null ? parseFloat(forceHour) : N.h + N.m / 60 + N.s / 3600;
+  let i = 0; while (i < SEAK.length - 2 && hh >= SEAK[i + 1][0]) i++;
+  const a = SEAK[i], b = SEAK[i + 1], t = smooth(0, 1, (hh - a[0]) / (b[0] - a[0]));
+  sea.top = mix(a[1], b[1], t); sea.mid = mix(a[2], b[2], t); sea.bot = mix(a[3], b[3], t);
+  sea.sh = lerp(a[4], b[4], t); sea.night = lerp(a[5], b[5], t);
+  if (elapsed - sea.last > .5) { // CSS only needs a gentle refresh
+    sea.last = elapsed;
+    seaEl.style.background = `linear-gradient(180deg,${rgbs(sea.top)} 0%,${rgbs(mix(sea.top, sea.mid, .55))} 22%,${rgbs(sea.mid)} 50%,${rgbs(mix(sea.mid, sea.bot, .6))} 78%,${rgbs(sea.bot)} 100%)`;
+    seaEl.style.setProperty('--sh', sea.sh.toFixed(3));
+    hemi.intensity = 1.7 * (1 - .45 * sea.night); key.intensity = 3 * (1 - .5 * sea.night);
+  }
+}
+// night plankton: tiny blue lights that wake when something passes
+const glow = [];
+function makeGlow() { glow.length = 0; for (let i = 0; i < 70; i++) glow.push({ x: Math.random() * W, y: waterTop + Math.random() * (Y60 - waterTop), d: .2 + Math.random() * .7, ph: Math.random() * 6.28, f: .4 + Math.random() * 1.4, w: 0 }); }
+function drawGlow(g) {
+  const n = sea.night; if (n < .05) return;
+  g.globalCompositeOperation = 'lighter';
+  for (const p of glow) {
+    let wake = 0;
+    for (const f of fish) { const dx = f.x - p.x, dy = f.y - p.y; if (dx * dx + dy * dy < 900 * UI * UI) { wake = 1; break; } }
+    if (aoriSP) { const dx = aoriSP.x - p.x, dy = aoriSP.y - p.y; if (dx * dx + dy * dy < 3600 * UI * UI) wake = 1; }
+    p.w = Math.max(wake, p.w - .012);
+    const a = n * (.1 + .22 * Math.max(0, Math.sin(elapsed * p.f + p.ph)) + .45 * p.w), x = p.x + shX(p.d), y = p.y + shY(p.d), r = (.7 + p.w * 1.1) * UI;
+    const gr = g.createRadialGradient(x, y, 0, x, y, r * 3);
+    gr.addColorStop(0, `rgba(120,230,255,${a})`); gr.addColorStop(1, 'rgba(60,160,255,0)');
+    g.fillStyle = gr; g.fillRect(x - r * 3, y - r * 3, r * 6, r * 6);
+  }
+  g.globalCompositeOperation = 'source-over';
+}
+
+function drawBG(tintRGB, ash) {
+  bx.setTransform(1, 0, 0, 1, 0, 0); bx.clearRect(0, 0, bg.width, bg.height); bx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  for (const s of snow) { if (s.y > Y0) continue; const d = .35 + s.z * .65; bx.fillStyle = `rgba(214,232,228,${s.a * (1.1 - s.z * .5)})`; bx.fillRect(s.x + shX(d), s.y + shY(d), s.s, s.s); }
+  drawGlow(bx);
+  drawTopFace();
+  const glintCol = ash ? WHITE : mix(tintRGB, WHITE, .35);
+  if (!fishReady) for (const f of fish) { // drawn flat only until the 3D fish arrive
+    bx.save(); bx.translate(f.x + shX(f.d), f.y + shY(f.d)); bx.rotate(f.ang); if (Math.cos(f.ang) < 0) bx.scale(1, -1);
+    const L = f.L * (1.7 - f.d * .9), h = L * .2, wag = Math.sin(elapsed * 9 + f.ph) * L * .05;
+    bx.beginPath();
+    bx.moveTo(L * .5, 0);
+    bx.quadraticCurveTo(L * .18, -h * 1.25, -L * .3, -h * .3);
+    bx.lineTo(-L * .52, -h * .95 + wag); bx.lineTo(-L * .44, wag * .5); bx.lineTo(-L * .52, h * .95 + wag);
+    bx.lineTo(-L * .3, h * .3);
+    bx.quadraticCurveTo(L * .18, h * 1.25, L * .5, 0);
+    const gr = bx.createLinearGradient(0, -h, 0, h);
+    const nd = 1 - .55 * sea.night; gr.addColorStop(0, rgbs(mix([58, 92, 112], sea.bot, .5 * sea.night), .92)); gr.addColorStop(.55, rgbs([176 * nd, 204 * nd, 212 * nd], .92)); gr.addColorStop(1, rgbs([226 * nd, 236 * nd, 236 * nd], .92));
+    bx.fillStyle = gr; bx.fill();
+    const gl = Math.pow(Math.max(0, Math.sin(elapsed * 1.6 + f.ph + f.ang * 2)), 10) * .85 + (ash ? .25 : 0);
+    if (gl > .02) { bx.fillStyle = rgbs(glintCol, Math.min(.95, gl)); bx.fill(); }
+    bx.fillStyle = 'rgba(8,20,28,.85)'; bx.beginPath(); bx.arc(L * .33, -h * .15, Math.max(.7, L * .045), 0, 6.283); bx.fill();
+    bx.restore();
+  }
+}
+
+// ---------- foreground: strata, scales, pole ----------
+function drawFG(N) {
+  const g = fx;
+  g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, fg.width, fg.height);
+  g.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  // strata
+  if (!anim) {
+    g.drawImage(cache, 0, 0, W, H);
+    if (grow) {
+      g.beginPath(); g.moveTo(0, grow.bottom[0] + 1);
+      for (let j = 0; j < COLS; j++) g.lineTo(j * CW, surf[j]);
+      for (let j = COLS - 1; j >= 0; j--) g.lineTo(j * CW, grow.bottom[j] + 1);
+      g.closePath(); g.fillStyle = rgbs(grow.rgb); g.fill();
+    }
+  } else if (anim.type === 'compact') {
+    const e = easeIO(clamp(anim.t / anim.dur, 0, 1));
+    drawBands(g, BAND * e, false);
+    drawLayers(g, anim.arr, anim.arr.length, compactMap(e), Y0 + BAND * e + 1);
+    const glow = Math.sin(Math.PI * clamp(anim.t / anim.dur, 0, 1));
+    if (glow > 0) { g.globalCompositeOperation = 'lighter'; g.fillStyle = `rgba(255,244,220,${.16 * glow})`; g.fillRect(0, surf[0] - 6, W, Y0 + BAND - surf[0] + 6); g.globalCompositeOperation = 'source-over'; }
+  } else if (anim.type === 'reveal') {
+    const u = easeIO(clamp(anim.t / anim.dur, 0, 1));
+    drawBands(g, 0, false);
+    drawLayers(g, anim.arr, anim.shown, null, Y0 + 1);
+  }
+
+  // material: grain, depth, slow agate sheen (only on the strata already drawn)
+  g.globalCompositeOperation = 'source-atop';
+  g.globalAlpha = .32; g.fillStyle = grainPat; g.fillRect(0, Y60 - 40, W, H); g.globalAlpha = 1;
+  const dg = g.createLinearGradient(0, Y60, 0, H);
+  dg.addColorStop(0, 'rgba(0,6,12,0)'); dg.addColorStop(clamp((Y0 - Y60) / (H - Y60), 0, 1), 'rgba(0,6,12,.2)'); dg.addColorStop(1, 'rgba(0,4,8,.62)');
+  g.fillStyle = dg; g.fillRect(0, Y60 - 40, W, H);
+  const sx = (elapsed * 18) % (W * 2.2) - W * .6;
+  const sh = g.createLinearGradient(sx, Y60, sx + W * .55, H);
+  sh.addColorStop(0, 'rgba(255,255,255,0)'); sh.addColorStop(.5, 'rgba(236,250,255,.07)'); sh.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = sh; g.fillRect(0, Y60 - 40, W, H);
+  g.globalCompositeOperation = 'source-over';
+
+  // the sea floor catches the light
+  g.beginPath(); for (let j = 0; j < COLS; j++) g[j ? 'lineTo' : 'moveTo'](j * CW, surf[j]);
+  g.strokeStyle = 'rgba(190,232,236,.08)'; g.lineWidth = 7; g.stroke();
+  g.strokeStyle = 'rgba(214,242,244,.42)'; g.lineWidth = .9; g.stroke();
+
+  // the minute just sealed: a light runs along its top
+  if (sealT >= 0 && layers.length && !anim) {
+    sealT += 1 / 60; const t = sealT / 1.3;
+    if (t > 1) sealT = -1; else {
+      const top = layers[layers.length - 1].top, x1 = t * (W + 80) - 40;
+      g.beginPath(); let started = false;
+      for (let j = 0; j < COLS; j++) { const x = j * CW; if (x < x1 - 90 || x > x1) continue; g[started ? 'lineTo' : 'moveTo'](x, top[j]); started = true; }
+      const lg = g.createLinearGradient(x1 - 90, 0, x1, 0); lg.addColorStop(0, 'rgba(255,255,240,0)'); lg.addColorStop(1, 'rgba(255,255,240,.85)');
+      g.strokeStyle = lg; g.lineWidth = 1.4; g.stroke();
+    }
+  }
+
+  // reading a layer
+  if (reading) {
+    reading.t += 1 / 60;
+    const a = reading.t < .2 ? reading.t / .2 : reading.t > 2.4 ? Math.max(0, 1 - (reading.t - 2.4) / .5) : 1;
+    if (a <= 0) reading = null; else {
+      if (reading.top) { g.beginPath(); g.moveTo(0, reading.bot[0]); for (let j = 0; j < COLS; j++) g.lineTo(j * CW, reading.top[j]); for (let j = COLS - 1; j >= 0; j--) g.lineTo(j * CW, reading.bot[j]); g.closePath(); g.fillStyle = `rgba(255,255,255,${.22 * a})`; g.fill(); }
+      if (reading.band !== undefined) { g.fillStyle = `rgba(255,255,255,${.16 * a})`; g.fillRect(0, reading.band, W, reading.bh); }
+      g.font = `${13 * UI}px Georgia, serif`; const tw = g.measureText(reading.text).width;
+      const bxp = clamp(reading.x - tw / 2 - 10, 8, W - tw - 28), byp = reading.y - 40 * UI;
+      g.fillStyle = `rgba(2,12,18,${.62 * a})`; roundRect(g, bxp, byp, tw + 20, 24 * UI, 12 * UI); g.fill();
+      g.fillStyle = `rgba(236,246,242,${.92 * a})`; g.fillText(reading.text, bxp + 10, byp + 16.5 * UI);
+    }
+  }
+
+  // scales, puffs, sparkles, jet streaks
+  for (const p of P) {
+    const ox = p.d ? shX(p.d) : 0, oy = p.d ? shY(p.d) : 0; g.save(); g.translate(ox, oy);
+    if (p.k === 0) { const tw = .55 + .45 * Math.sin(elapsed * 11 + p.tw); g.fillStyle = rgbs(p.rgb, .5 + .5 * tw); g.fillRect(p.x - p.sz / 2, p.y - p.sz / 2, p.sz, p.sz);
+      if (sea.night > .2) { g.globalCompositeOperation = 'lighter'; g.fillStyle = rgbs(mix(p.rgb, [150, 230, 255], .5), .22 * sea.night * tw); g.beginPath(); g.arc(p.x, p.y, p.sz * 2.6, 0, 6.283); g.fill(); g.globalCompositeOperation = 'source-over'; } }
+    else if (p.k === 1) { const a = Math.min(1, p.life * 4) * (1 - p.life / p.max); g.fillStyle = rgbs(p.rgb, .9 * a); g.fillRect(p.x - p.sz / 2, p.y - p.sz / 2, p.sz, p.sz); }
+    else if (p.k === 2) { const a = 1 - p.life / p.max; g.fillStyle = rgbs(mix(p.rgb, WHITE, .6), a); g.beginPath(); g.arc(p.x, p.y, p.sz * (1 + p.life * 3), 0, 6.283); g.fill(); }
+    else if (p.k === 3) { const a = 1 - p.life / p.max; g.strokeStyle = `rgba(210,236,238,${.35 * a})`; g.lineWidth = 1; g.beginPath(); g.moveTo(p.x, p.y - 26); g.lineTo(p.x, p.y); g.stroke(); }
+    g.restore();
+  }
+  drawNear();
+
+  drawPole(g, N);
+}
+// The sea floor goes back from the glass: its top face shows between the front edge (the cut) and the edge at EDGE_D.
+function drawTopFace() {
+  const g = bx, dx = shX(EDGE_D), dy = shY(EDGE_D);
+  if (dy > -.5) return; // looking from below: the cut face hides it
+  const c = grow ? grow.rgb : (layers.length ? layers[layers.length - 1].rgb : [120, 120, 120]);
+  const x0 = -Math.abs(dx) - CW, x1 = W + Math.abs(dx) + CW, back = [];
+  for (let x = x0; x <= x1; x += CW) back.push(x);
+  g.beginPath();
+  back.forEach((x, i) => g[i ? 'lineTo' : 'moveTo'](x + dx, surfAt(x) + dy));
+  for (let i = back.length - 1; i >= 0; i--) g.lineTo(back[i], surfAt(back[i]) + 2);
+  g.closePath();
+  const ymin = Math.min(surf[0], surf[COLS >> 1], surf[COLS - 1]) + dy;
+  const gr = g.createLinearGradient(0, ymin, 0, ymin - dy + 4);
+  gr.addColorStop(0, rgbs(mix(c, sea.bot, .78))); gr.addColorStop(1, rgbs(mix(c, sea.bot, .38)));
+  g.fillStyle = gr; g.fill();
+  g.save(); g.clip(); g.globalAlpha = .28; g.fillStyle = grainBg; g.fillRect(-W, ymin - 4, W * 3, -dy + 12); g.restore();
+  g.beginPath(); back.forEach((x, i) => g[i ? 'lineTo' : 'moveTo'](x + dx, surfAt(x) + dy));
+  g.strokeStyle = 'rgba(200,236,240,.16)'; g.lineWidth = 1; g.stroke();
+}
+// motes between the glass and the eye: they move the other way
+const near = [];
+function makeNear() { near.length = 0; for (let i = 0; i < 9; i++) near.push({ x: Math.random() * W, y: Math.random() * H, r: (3 + Math.random() * 7) * UI, v: 3 + Math.random() * 6, a: .05 + Math.random() * .08, d: -(.5 + Math.random() * .7) }); }
+function drawNear() {
+  const g = fx;
+  for (const n of near) {
+    n.y += n.v / 60; if (n.y > H + 20) { n.y = -20; n.x = Math.random() * W; }
+    const x = n.x + shX(n.d), y = n.y + shY(n.d), gr = g.createRadialGradient(x, y, 0, x, y, n.r);
+    gr.addColorStop(0, `rgba(220,240,236,${n.a})`); gr.addColorStop(1, 'rgba(220,240,236,0)');
+    g.fillStyle = gr; g.fillRect(x - n.r, y - n.r, n.r * 2, n.r * 2);
+  }
+}
+function updateEye(dt, t) {
+  let tx, ty;
+  if (head.on) { tx = head.tx; ty = head.ty; }
+  else if (tilt.on && tilt.got) { tx = -tilt.g / 30; ty = .35 + tilt.b / 28; }
+  else {
+    const idle = t - drag.at, k = smooth(4, 10, idle);
+    if (idle > 4) { drag.x *= Math.exp(-.5 * dt * k); drag.y += (.35 - drag.y) * (1 - Math.exp(-.5 * dt * k)); }
+    tx = drag.x + .5 * Math.sin(t * .13) * k; ty = drag.y + .15 * Math.sin(t * .09 + 1) * k;
+  }
+  E.tx = clamp(tx, -1, 1); E.ty = clamp(ty, -1, 1);
+  const a = 1 - Math.exp(-6 * dt);
+  E.x += (E.tx - E.x) * a; E.y += (E.ty - E.y) * a;
+  G += ((head.on ? 2 : 1) - G) * (1 - Math.exp(-2 * dt));
+  seaEl.style.transform = `translate3d(${shX(.7).toFixed(1)}px,${shY(.7).toFixed(1)}px,0)`;
+  glWrap.style.transform = `translate3d(${shX(GL_D).toFixed(1)}px,${shY(GL_D).toFixed(1)}px,0)`;
+}
+function roundRect(g, x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
+function drawPole(g, N) {
+  const px = POLE, top = Y60 - 22 * UI, bot = Math.min(H, Y0 + BAND * 2.5);
+  g.strokeStyle = 'rgba(226,238,232,.42)'; g.lineWidth = 1.2;
+  g.beginPath(); g.moveTo(px, top); g.lineTo(px, bot); g.stroke();
+  g.fillStyle = 'rgba(226,238,232,.5)'; g.beginPath(); g.arc(px, top, 1.8 * UI, 0, 6.283); g.fill();
+  g.font = `${9 * UI}px Georgia, serif`; g.textAlign = 'left';
+  for (let m = 0; m <= 60; m++) {
+    const y = Y0 - m * T, big = m % 10 === 0;
+    g.strokeStyle = big ? 'rgba(226,238,232,.55)' : 'rgba(226,238,232,.22)'; g.lineWidth = big ? 1 : .7;
+    g.beginPath(); g.moveTo(px, y); g.lineTo(px + (big ? 7 : 3) * UI, y); g.stroke();
+    if (big && m < 60) { g.fillStyle = 'rgba(226,238,232,.5)'; g.fillText(':' + pad(m), px + 3 * UI, y - 2.5 * UI); }
+  }
+  // the reading: the sea floor at the pole is "now"
+  const sy = surf[clamp(Math.round(px / CW), 0, COLS - 1)];
+  g.fillStyle = 'rgba(244,250,246,.9)';
+  g.beginPath(); g.moveTo(px - 2, sy); g.lineTo(px - 8 * UI, sy - 4 * UI); g.lineTo(px - 8 * UI, sy + 4 * UI); g.closePath(); g.fill();
+  g.font = `300 ${17 * UI}px Georgia, serif`; g.textAlign = 'right';
+  g.shadowColor = 'rgba(0,0,0,.7)'; g.shadowBlur = 10;
+  g.fillStyle = 'rgba(240,248,244,.86)'; g.fillText(`${pad(N.h)}:${pad(N.m)}`, px - 12 * UI, sy - 8 * UI);
+  g.shadowBlur = 0;
+  // past hours, written on the stone
+  g.font = `${8.5 * UI}px Georgia, serif`; g.textAlign = 'left';
+  let y = Y0 + (anim && anim.type === 'compact' ? BAND * easeIO(clamp(anim.t / anim.dur, 0, 1)) : 0);
+  for (const b of bands) { if (y > H) break; if (b.h >= 9) { g.fillStyle = 'rgba(236,240,232,.38)'; g.fillText(b.label, 7 * UI, y + b.h / 2 + 3 * UI); } y += b.h; }
+}
+
+// ---------- boot ----------
+let resizeT = 0, lastW = 0, lastH = 0;
+function boot() {
+  layout(); makeGrain(); makeFish(); makeSnow(); makeNear(); fullSync(); fitCamera(); makeGlow();
+  aoriX = W * .4; lastW = W; lastH = H;
+}
+addEventListener('resize', () => {
+  clearTimeout(resizeT);
+  resizeT = setTimeout(() => {
+    if (innerWidth === lastW && Math.abs(innerHeight - lastH) < 2) return;
+    layout(); makeSnow(); makeNear(); makeGlow(); fullSync(); fitCamera(); lastW = W; lastH = H;
+    for (const f of fish) { f.x = clamp(f.x, 0, W); f.y = clamp(f.y, 0, waterBottom); }
+  }, 180);
+}, { passive: true });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') last = performance.now() / 1000; });
+
+boot();
+requestWakeLock();
+requestAnimationFrame(frame);
+
+if (window.APKit) APKit.init({
+  canvas: fg, gifName: 'time-scale-3d-loop', clockFormat: 'spec',
+  dock: true, autoHide: true, fullscreenButton: false,
+  buttons: [
+    { label: '✦', name: 'mutate', onClick: () => { pal = (pal + 1) % PALS.length; if (grow) grow.rgb = colorFor(grow.hk, grow.m); say(PALS[pal].name); } }, // これから積もる泥の色を替える
+    { label: '⏭', name: 'event', onClick: onEventButton },  // 出来事をいま見る(10分 → 正時)
+    { label: '↻', name: 'reset', onClick: () => { if (preview) finishPreview(true); fullSync(); say('積もり直し'); } },
+    // センサーを使うボタンは、下の操作バーに並べる(傾き=スマホの絵。ONは白く光る)
+    { label: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="8.5" y="3" width="7" height="18" rx="2"/><path d="M4.5 9c-1 2-1 4 0 6M19.5 9c1 2 1 4 0 6"/></svg>', name: 'tilt', onClick: onTiltClick }
+    // 📷(インカメラの顔で覗く)は外した(2026/11/13 おっちゃん「インカメラも要らないかな」)。コードは残してある
+  ]
+});
+tiltBtn = document.querySelector('.apk-btn[aria-label="tilt"]'); camBtn = document.querySelector('.apk-btn[aria-label="camera"]');
+
+const testHead = /[?&]head=([-\d.]+),([-\d.]+)/.exec(location.search);
+if (testHead) { head.on = true; head.tx = parseFloat(testHead[1]); head.ty = parseFloat(testHead[2]); E.x = head.tx; E.y = head.ty; }
+if (testHead || /[?&]test\b/.test(location.search)) window.__ts = { E, head, drag, watch, spawnPass, get magochi() { return magochi; }, get pass() { return pass; }, spawnBig, get big() { return big; }, get fish3() { return fish3; }, roam, get kouika() { return kouika; }, startEgi(f) { egiEv.next = 0; egiEv.force = f; }, get egi() { return egiEv; }, get aori() { return aori; }, fakeFace(x, y, z) { cam.on = true; head.on = true; cam.seen = performance.now() / 1000; head.tx = x; head.ty = y; head.tz = z; }, previewNow() { previewHour(); if (preview) preview.t = 5.5; }, get anim() { return anim; }, get preview() { return preview; } };
+
+try { await initFish3(); } catch (e) { console.error(e); } // without the kit the school stays drawn flat
+try {
+  await loadSquids('./assets/squid-kit/');
+  kitReady = true;
+  aori = makeAori();
+  spawnKouika(false);
+} catch (e) {
+  console.error(e); // without the squids the black seabream digs instead
+}
+try { await initWorld(); } catch (e) { console.error(e); }
+</script>
+</body>
+</html>
