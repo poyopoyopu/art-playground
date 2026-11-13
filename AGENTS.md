@@ -305,6 +305,7 @@ SNS(Instagram/TikTok)から来た人をサイトで迎え、気に入った人�
 - **トップ**: `index.html` の head に description / OGP / Twitterカード / favicon / apple-touch-icon(静的)。`og:image` は絶対URL `https://art-playground.artplayground.workers.dev/brand/og-image.jpg`(1200×630。LAMP FOLD・ANIMAL MANSION・BIRTHMARKを並べたもの。作り直すときだけ `python3 tools/gen_og.py --brand`)。
 - **作品ページ**: 作品ファイルは書き換えず、`worker.js` が直接開き/クローラーのときだけ head に OGP・favicon を差し込む。対象は `WORK_PAGE_RE`(`art-vNN…html` と `void-field-ii.html`)と `WORK_PAGE_EXTRA`(ギャラリーにあるprototypes 3作品)。**新作を `art-vNN-name.html` で昇格すれば自動で対象**。タイトルは `<title>` の「NAME — 日本語の一言」から作る。
 - カード画像は `og/<パスの / を __ にして .html を除く>.jpg`(1200×630)。生成は `tools/gen_og.py`(ポスターと同じく、足りない/古い分だけ作る・`--check` あり。撮影設定は `tools/poster-config.json` を共用し、`#hint` とap-kitのUIは常に隠す)。`og/` に無ければ既定画像になる。
+- **IGリール用の縦型カバー(2026/11〜)**: グリッドは3:4で中央しか見えず、横長のOGPカードを流用すると題名の黒い部分ばかり並ぶため、別に縦型を作る。`python3 tools/gen_og.py --reel` → `reel/<og/と同じ名前>.jpg`(1080×1920・9:16)。作品を 540×960 の画面で2倍密度で撮り(撮影設定は `tools/poster-config.json` を共用。座標は 460×900 画面のものを比例させて使う)、下端に薄い影+題名を小さく重ねる。対象は `index.html` の `REC_WORKS`(`--only` なら全作品から選べる)。題名は既定=グリッドで切れる下端(`outside`。y≈1720〜。グリッドは絵だけ、リールタブ・共有では見える)、`--reel-title grid` でグリッドで見える下端(y≈1560〜1650)。`--check`/`--all`/`--only` はOGPと同じ。見えるのは中央1080×1440(y=240〜1680)なので、絵の見せ場はその中。リンクプレビューには使わない(スマホに送ってIGのカバーに上げる用)。デザインを変えたら `REEL_VERSION` を上げる。新作の採用時は 5b の後に `python3 tools/gen_og.py --reel` も実行して `reel/` を同じコミットに入れる。
 - `brand/` にfavicon(SVG・32px)・apple-touch-icon(180px)・PWAアイコン(192/512px)・既定OGP。`manifest.webmanifest` にアイコンを登録済み。
 
 ### 作品ページを直接開いたとき(戻りリンク)
