@@ -7,10 +7,10 @@
      海の時間帯: 朝・昼・夕・夜で海の色と光が変わる。夜は鱗とプランクトンが光る(テスト用: ?hour=0〜23)。
      魚(2026/11/13 おっちゃん「イカに固執するのはやめて、魚がいっぱいの方がいい」→イカはやめて、魚の3Dキット assets/fish-kit(CC0)の魚で満たす):
        秒をはこぶのはカタクチイワシの群れ(いつもいる)。ほかの魚は基本的に「通りすぎる」だけ(おっちゃん「ごちゃごちゃ。基本的に通過で、たまにアクション」):
-       十数秒〜30秒おきに、マアジの群れ・サバの群れ・マダイ・イサキの2匹・クロダイのどれかが画面を横切って去る。
-       ときどき大きな魚(ブリ・ヒラマサ・サワラ・スズキ)が横切り、半分くらいはイワシの群れに突っ込む(アクション)。
+       十数秒〜30秒おきに、マアジ・サバ・カマス・イサキの子どもの群れ、マダイ・イサキ・クロダイ・メバル・尾長グレ・口太グレ・シブダイのどれかが画面を横切って去る。
+       ときどき大きな魚(ブリ・ヒラマサ・サワラ・スズキ・キハダ)が横切り、半分くらいはイワシの群れに突っ込む(アクション)。
      イカも一緒(おっちゃん「イカも入れてよ！イカ大好き！」): アオリイカが泳ぎ回り、タップでアオリが穴を掘る。
-     コウイカはやめてマゴチに(おっちゃん「コウイカ何もアクションないから要らない」): マゴチは底の砂にじっと伏せ、上を小魚が通ると跳び上がって襲い、
+     コウイカはやめてマゴチに(おっちゃん「コウイカ何もアクションないから要らない」)。底の魚はマゴチかカサゴのどちらか(開くたび・正時のたびにランダム)。底の砂にじっと伏せ、上を小魚が通ると跳び上がって襲い、
        正時の少し前に砂に潜って、石になったあとの新しい海底から出てくる。魚の大きさは毎回ばらつく(おっちゃん「サイズもランダム性が欲しい」)。
      エギ: 数分おきに、上から糸でエギ(イカ釣りの疑似餌)が沈んでくる。アオリイカが後ろについて追い、抱きつくか見切る。
        抱いたら墨を吐いて離し、見切ったらエギは巻き上げられて帰っていく(イカ・エギは魚・イカ3Dキットの3Dデータ)。
@@ -426,7 +426,7 @@ function syncFish3(dt) {
     o.a.update(dt);
   }
 }
-const BIG = [['buri', 62], ['hiramasa', 66], ['sawara', 60], ['seabass', 56]]; // タチウオは長すぎて画面に収まらないので外した(おっちゃん)
+const BIG = [['buri', 62], ['hiramasa', 66], ['sawara', 60], ['seabass', 56], ['kihada', 90]]; // タチウオは長すぎて画面に収まらないので外した(おっちゃん)
 let bigLoading = false;
 async function spawnBig(id, now) {
   if (big || bigLoading || !fishReady) return;
@@ -449,6 +449,7 @@ function updateBig(dt) {
     let my = 0; for (const f of fish) my += f.y; my /= fish.length;
     b.vy += clamp((my - b.y) * .9, -40 * UI, 40 * UI);
   }
+  b.vy = clamp(b.vy, -b.sp * .3, b.sp * .3); // a big fish turns its path gently, never noses steeply
   b.x += b.dir * b.sp * dt; b.y += b.vy * dt;
   const sc = 1.15 - b.d * .4;
   placeAt(b.a.object, b.x, b.y, b.d); b.a.object.scale.setScalar(sc);
@@ -461,9 +462,14 @@ function updateBig(dt) {
 let digger = null, magochi = null;
 const flathead = () => magochi && !magochi.buried;
 function sendDigger() { return false; }
-const PASS = [ // id, cm, how many, band (share of the water from the top), speed (screens per second ~ 1/crossing time)
+const PASS = [ // id, cm, how many, band (share of the water from the top)
   ['aji', 18, 9, [.25, .7]], ['saba', 30, 6, [.15, .55]], ['madai', 38, 1, [.65, .95]],
-  ['isaki', 24, 2, [.5, .9]], ['kurodai', 32, 1, [.75, .98]], ['aji', 18, 7, [.3, .75]]];
+  ['isaki', 24, 2, [.5, .9]], ['kurodai', 32, 1, [.75, .98]],
+  ['kamasu', 30, 8, [.2, .6]],          // long thin barracuda, in a tight line
+  ['isaki_young', 11, 12, [.35, .8]],   // striped young grunts, a small busy school
+  ['mebaru', 20, 3, [.55, .9]],         // rockfish, a few together low down
+  ['onagagure', 36, 3, [.35, .75]], ['kuchibuto', 34, 3, [.4, .8]], // the two opaleyes, from the rocks
+  ['shibudai', 32, 2, [.5, .9]]];
 let pass = null, passNext = 12 + Math.random() * 8, passLoading = false;
 async function spawnPass(force) {
   if (pass || passLoading || !fishReady) return;
@@ -506,18 +512,28 @@ function updatePass(dt) {
 }
 const floorAtX = x => surfAt(clamp(x, 0, W));
 // the flathead: flat on the sand, ambushes small fish passing above, goes under before the hour
-async function initWorld() {
-  await loadFish(FISHDIR, ['magochi']);
-  const a = createFish('magochi', 46 * FS * (.8 + Math.random() * .5));
+const FLOOR = [['magochi', 46, .1], ['kasago', 26, .17]]; // id, cm, body height share (how far it stands off the sand)
+function makeFloorFish(prev) {
+  const F = FLOOR[Math.floor(Math.random() * FLOOR.length)];
+  const a = createFish(F[0], F[1] * FS * (.8 + Math.random() * .5));
   a.setDetail('high'); a.setMotion('hover'); scene.add(a.object);
-  magochi = { a, x: W * .62, y: 0, d: .3, yaw: 0, pitch: 0, hgt: a.length / K * .1, lunge: 0, cool: 6, buried: false, sink: 0, rise: false, tx: W * .62, next: 20 };
+  const x = prev ? prev.x : W * .62;
+  return { id: F[0], a, x, y: 0, d: .3, yaw: prev ? prev.yaw : 0, pitch: 0, hgt: a.length / K * F[2], lunge: 0, cool: 6, buried: !!prev, sink: prev ? 1 : 0, rise: false, tx: x, next: 20 };
+}
+async function initWorld() {
+  await loadFish(FISHDIR, FLOOR.map(f => f[0]));
+  magochi = makeFloorFish(null);
 }
 function updateMagochi(dt, N) {
   const m = magochi; if (!m) return;
   // the hour: under the sand before it, out of the new floor after it
   const should = (N.m === 59 && N.s > 41) || (preview && preview.stage === 'bury') || (anim && anim.type === 'compact');
   if (should && !m.buried) { m.buried = true; burst(m.x, 24, 50 * UI, 80 * UI, colorAtDepth); }
-  if (!should && m.buried && !anim) { m.buried = false; m.rise = true; burst(m.x, 34, 60 * UI, 120 * UI, colorAtDepth); }
+  if (!should && m.buried && !anim) {
+    // who comes out of the new sea floor is a toss-up: the flathead or the scorpionfish
+    if (Math.random() < .5) { m.a.dispose(); magochi = makeFloorFish(m); return updateMagochi(dt, N); }
+    m.buried = false; m.rise = true; burst(m.x, 34, 60 * UI, 120 * UI, colorAtDepth);
+  }
   if (m.buried) m.sink = Math.min(1, m.sink + dt / 1.8); else if (m.rise) { m.sink = Math.max(0, m.sink - dt / 1.4); if (!m.sink) m.rise = false; }
   // now and then it shuffles to another spot
   if (!m.buried && !m.lunge && elapsed > m.next) { m.tx = clamp(m.x + (Math.random() - .5) * 120 * UI, 40 * UI, POLE - 60 * UI); m.next = elapsed + 25 + Math.random() * 25; }
