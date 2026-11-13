@@ -5,7 +5,8 @@
      📷: インカメラの映像はこのページの中だけで顔の位置を読むのに使い、表示・保存・送信はしない。拒否されたら傾き、それも無ければ指なぞり。
      テスト用: ?head=x,y(-1〜1)で、カメラなしに見る位置を固定できる。
      海の時間帯: 朝・昼・夕・夜で海の色と光が変わる。夜は鱗とプランクトンが光る(テスト用: ?hour=0〜23)。
-     来訪者: 数分おきに、クラゲかエイがゆっくり水の中を横切る。エイが近くを通ると魚の群れはよける。
+     エギ: 数分おきに、上から糸でエギ(イカ釣りの疑似餌)が沈んでくる。アオリイカが後ろについて追い、抱きつくか見切る。
+       抱いたら墨を吐いて離し、見切ったらエギは巻き上げられて帰っていく(イカ・エギは魚・イカ3Dキットの3Dデータ)。
      以下は元の TIME SCALE の説明。魚・イカ3Dキット(assets/squid-kit、CC0)を使う試作。
      世界のルール: 「魚の群れが秒をはこび、こぼれた鱗が一分で一枚の泥になり、一時間で一枚の石になる」。
      - 秒: 小さな魚の群れが1分かけて左から右へ渡り、こぼれた鱗(光る粒)が海底に落ちて、その分の泥の層を左から順に敷いていく。
@@ -375,19 +376,76 @@ const tmpV = new THREE.Vector3();
 // The camera looks from the side, a little from the front and above, so we see the squids' faces and backs.
 // Screen points are mapped onto the plane x = 0 (where the squids live) by casting the camera ray.
 const AZ = .5, EL = .2, camDir = new THREE.Vector3(), tmpS = new THREE.Vector3(), tmpP = new THREE.Vector3();
+let MG = 40; // the squid layer is drawn bigger than the screen, so shifting it for depth never cuts a squid off
 function onPlane(sx, sy, out = new THREE.Vector3()) {
-  out.set(sx / W * 2 - 1, 1 - sy / H * 2, 0).unproject(camera);
+  out.set((sx + MG) / (W + 2 * MG) * 2 - 1, 1 - (sy + MG) / (H + 2 * MG) * 2, 0).unproject(camera);
   return out.addScaledVector(camDir, -out.x / camDir.x);
 }
-const toScreen = v => { const p = tmpS.copy(v).project(camera); return { x: (p.x + 1) / 2 * W, y: (1 - p.y) / 2 * H }; };
+const toScreen = v => { const p = tmpS.copy(v).project(camera); return { x: (p.x + 1) / 2 * (W + 2 * MG) - MG, y: (1 - p.y) / 2 * (H + 2 * MG) - MG }; };
 function fitCamera() {
-  renderer.setPixelRatio(DPR); renderer.setSize(W, H, false);
-  camera.left = -W / 2 * K; camera.right = W / 2 * K; camera.top = H / 2 * K; camera.bottom = -H / 2 * K;
+  MG = Math.ceil(GL_D * M * 2.3) + 6;
+  renderer.setPixelRatio(DPR); renderer.setSize(W + 2 * MG, H + 2 * MG, false);
+  Object.assign(renderer.domElement.style, { left: -MG + 'px', top: -MG + 'px', right: 'auto', bottom: 'auto', width: W + 2 * MG + 'px', height: H + 2 * MG + 'px' });
+  const w2 = (W + 2 * MG) / 2 * K, h2 = (H + 2 * MG) / 2 * K;
+  camera.left = -w2; camera.right = w2; camera.top = h2; camera.bottom = -h2;
   camera.position.set(Math.cos(AZ) * Math.cos(EL), Math.sin(EL), Math.sin(AZ) * Math.cos(EL)).multiplyScalar(8);
   camera.lookAt(0, 0, 0); camera.updateProjectionMatrix(); camera.updateMatrixWorld();
   camera.getWorldDirection(camDir);
 }
-let aoriX = 0, kitReady = false;
+let aoriX = 0, kitReady = false, aoriSP = null;
+function makeAori() {
+  const a = createSquid('aori', { detail: 'low', home: onPlane(aoriX, aoriY()) });
+  a.setMotion('hover'); scene.add(a.object);
+  // the kit's floor stains assume a fixed sea floor; ours rises and is pressed into stone, so they would float in the water
+  a.fx.group.remove(a.fx.ground.mesh, a.fx.wetStains.mesh);
+  a.egi.obj.scale.setScalar(1.7); a.egiRef.len *= 1.7; a.egiRef.r *= 1.7;
+  for (let i = 0; i < 30; i++) a.update(1 / 60);
+  return a;
+}
+function respawnAori() { if (!kitReady) return; if (aori) aori.dispose(); aoriX = W * .4; aori = makeAori(); }
+
+// ---------- the lure: now and then an egi sinks on a line, and the aori works it ----------
+// The kit snaps the squid back to its home and its default heading when a lure motion starts; here it keeps
+// swimming from where it is, so the body never jumps away from its arms.
+function setMotionKeep(a, m, egiAt) {
+  const b = a.brain, r = a.squid.root.position.clone(), yaw = b.yaw, pitch = b.pitch, roll = b.roll, vel = b.vel.clone();
+  const ep = a.egi.obj.position.clone(), er = a.egi.obj.rotation.clone(), had = b.egiShown;
+  b.home.copy(r);
+  a.setMotion(m);
+  a.squid.root.position.copy(r); b.yaw = yaw; b.pitch = pitch; b.roll = roll; b.vel.copy(vel);
+  if (egiAt) a.egi.obj.position.copy(egiAt);
+  else if (had && b.egiShown) { a.egi.obj.position.copy(ep); a.egi.obj.rotation.copy(er); }
+}
+const egiEv = { on: false, stage: '', t: 0, next: 50 + Math.random() * 30 };
+function updateEgi(dt) {
+  if (!aori || anim || preview) { if (egiEv.on) endEgi(false); return; }
+  if (!egiEv.on) {
+    if (elapsed > egiEv.next && !pendingBlow && watch.k < .05) {
+      // first the squid moves to the open water on the right, so the lure sinks where it can be seen
+      egiEv.on = true; egiEv.stage = 'prep'; egiEv.t = 0; egiEv.len = 7 + Math.random() * 3;
+      aoriX = W * .66; aoriIdleAt = performance.now() + 60000;
+    }
+    return;
+  }
+  egiEv.t += dt;
+  if (egiEv.stage === 'prep') {
+    const r = aori.squid.root.position, want = onPlane(aoriX, aoriY(), tmpP), k = 1 - Math.exp(-1.5 * dt), mx = .42 * dt;
+    r.z += clamp((want.z - r.z) * k, -mx, mx); r.y += clamp((want.y - r.y) * k, -mx, mx);
+    if (egiEv.t > 3) { egiEv.stage = 'follow'; egiEv.t = 0; setMotionKeep(aori, 'follow', aori.squid.root.position.clone().add(new THREE.Vector3(.12, .42, .38))); say('エギが沈んでくる', 2200); }
+  } else if (egiEv.stage === 'follow' && egiEv.t > egiEv.len) {
+    egiEv.stage = egiEv.force || (Math.random() < .62 ? 'attack' : 'refuse'); egiEv.t = 0; egiEv.force = null;
+    setMotionKeep(aori, egiEv.stage);
+  } else if (egiEv.stage === 'attack' && egiEv.t > 12) { endEgi(true); }
+  else if (egiEv.stage === 'refuse') {
+    if (egiEv.t > 4.5) aori.egi.obj.position.y += (egiEv.t - 4.5) * 1.2 * dt; // reeled up and away
+    if (egiEv.t > 7.5) endEgi(false);
+  }
+}
+function endEgi(grabbed) {
+  if (!egiEv.on) return;
+  egiEv.on = false; egiEv.stage = ''; egiEv.next = elapsed + 150 + Math.random() * 120; aoriIdleAt = performance.now() + 8000;
+  if (aori) { setMotionKeep(aori, 'hover'); if (grabbed) aori.spitInk(); }
+}
 // The kit's arms and tentacles keep their own state in the world, so when the floor jumps (an hour pressed into stone,
 // a preview being undone) the cuttlefish is made again on the new floor instead of being dragged there.
 function spawnKouika(emerge) {
@@ -478,6 +536,7 @@ function doBlow(x) {
 function handleTap(x, y) {
   const sy = surfAt(x);
   if (y > sy + 8 * UI) { readStrata(x, y); return; }
+  if (egiEv.on) endEgi(false);
   aoriX = clamp(x - shX(GL_D), W * .12, POLE - 70 * UI);
   pendingBlow = { x: aoriX, t0: performance.now() };
   aoriIdleAt = performance.now() + 26000;
@@ -693,7 +752,7 @@ function frame() {
   updateEye(dt, elapsed); camStatus();
   updateFish(dt, N.s, ashMinute, tintRGB);
   updateParticles(dt);
-  updateSea(N); updateVisitors(dt);
+  updateSea(N); updateEgi(dt);
   updateSquids(dt, tintRGB);
 
   drawBG(tintRGB, ashMinute);
@@ -736,7 +795,6 @@ function updateFish(dt, s, ash, tintRGB) {
       const g = fish[k], dx = f.x - g.x, dy = f.y - g.y, d2 = dx * dx + dy * dy, R = 15 * UI;
       if (d2 < R * R && d2 > .01) { const d = Math.sqrt(d2); ax += dx / d * (R - d) * 9; ay += dy / d * (R - d) * 9; }
     }
-    for (const v of visitors) { const R = (v.kind === 'ray' ? 120 : 50) * UI, ex = f.x - v.x, ey = f.y - v.y, ed = Math.hypot(ex, ey); if (ed < R) { ax += ex / (ed + 1) * (R - ed) * 7; ay += ey / (ed + 1) * (R - ed) * 7; } }
     const dx = f.x - ax0, dy = f.y - ay0, d = Math.hypot(dx, dy), RA = 92 * UI;
     if (d < RA) { ax += dx / (d + 1) * (RA - d) * 6; ay += dy / (d + 1) * (RA - d) * 6; }
     f.vx += ax * dt; f.vy += ay * dt;
@@ -776,11 +834,14 @@ function updateSquids(dt, tintRGB) {
     const want = onPlane(aoriX, aoriY(), tmpP);
     aori.brain.home.copy(want);
     const cx0 = toScreen(aori.getCenter(tmpV)).x, fy = onPlane(cx0, surfAt(cx0), tmpV).y;
-    aori.brain.floorY = fy; aori.fx.floorY = fy + .005;
+    aori.brain.floorY = fy; aori.fx.floorY = fy + .005; aori.egi.floorY = fy;
     aori.update(dt);
-    // the fins can hold it still but not carry it far, so the page glides it to where it was sent
+    // the fins can hold it still but not carry it far, so the page glides it to where it was sent (not while it works a lure)
     const r = aori.squid.root.position, mx = .42 * dt, k = 1 - Math.exp(-1.5 * dt);
-    r.z += clamp((want.z - r.z) * k, -mx, mx); r.y += clamp((want.y - r.y) * k, -mx, mx);
+    if (!egiEv.on) { r.z += clamp((want.z - r.z) * k, -mx, mx); r.y += clamp((want.y - r.y) * k, -mx, mx); }
+    aoriSP = toScreen(aori.getCenter(tmpV)); aoriSP.x += shX(GL_D); aoriSP.y += shY(GL_D);
+    // if it ever ends up far off the screen, a fresh one swims in where it belongs
+    if (!egiEv.on && (aoriSP.x < -80 * UI || aoriSP.x > W + 80 * UI || aoriSP.y < -80 * UI || aoriSP.y > Y0)) respawnAori();
     if (pendingBlow) {
       const p = toScreen(aori.getCenter(tmpV));
       if (Math.abs(p.x - pendingBlow.x) < 14 * UI || performance.now() - pendingBlow.t0 > 4200) { doBlow(p.x + shX(GL_D)); pendingBlow = null; }
@@ -840,7 +901,7 @@ function drawGlow(g) {
   for (const p of glow) {
     let wake = 0;
     for (const f of fish) { const dx = f.x - p.x, dy = f.y - p.y; if (dx * dx + dy * dy < 900 * UI * UI) { wake = 1; break; } }
-    for (const v of visitors) { const dx = v.x - p.x, dy = v.y - p.y; if (dx * dx + dy * dy < 3600 * UI * UI) { wake = 1; break; } }
+    if (aoriSP) { const dx = aoriSP.x - p.x, dy = aoriSP.y - p.y; if (dx * dx + dy * dy < 3600 * UI * UI) wake = 1; }
     p.w = Math.max(wake, p.w - .012);
     const a = n * (.1 + .22 * Math.max(0, Math.sin(elapsed * p.f + p.ph)) + .45 * p.w), x = p.x + shX(p.d), y = p.y + shY(p.d), r = (.7 + p.w * 1.1) * UI;
     const gr = g.createRadialGradient(x, y, 0, x, y, r * 3);
@@ -850,77 +911,10 @@ function drawGlow(g) {
   g.globalCompositeOperation = 'source-over';
 }
 
-// ---------- visitors: now and then a jellyfish or a ray crosses the water ----------
-const visitors = [];
-let nextVisit = 35 + Math.random() * 30;
-function spawnVisitor(kind) {
-  kind = kind || (Math.random() < .6 ? 'jelly' : 'ray');
-  const dir = Math.random() < .5 ? 1 : -1, d = kind === 'ray' ? .45 + Math.random() * .4 : .2 + Math.random() * .55;
-  const sc = (1.25 - d * .6) * UI;
-  if (kind === 'jelly') visitors.push({ kind, dir, d, sc: sc * (.8 + Math.random() * .5), x: dir > 0 ? -60 * UI : W + 60 * UI, y: lerp(waterTop + 40 * UI, Y60 - 60 * UI, Math.random()), t: 0, ph: Math.random() * 6, hue: Math.random() });
-  else visitors.push({ kind, dir, d, sc: sc * (.9 + Math.random() * .4), x: dir > 0 ? -110 * UI : W + 110 * UI, y: lerp(waterTop + 60 * UI, Y60 - 30 * UI, .35 + Math.random() * .6), t: 0, ph: Math.random() * 6, vy: (Math.random() - .5) * 6 });
-}
-function updateVisitors(dt) {
-  if (elapsed > nextVisit && !visitors.length) { spawnVisitor(); nextVisit = elapsed + 110 + Math.random() * 120; }
-  for (let i = visitors.length - 1; i >= 0; i--) {
-    const v = visitors[i]; v.t += dt;
-    if (v.kind === 'jelly') { const pulse = Math.max(0, Math.sin(v.t * 1.7 + v.ph)); v.x += v.dir * (6 + 10 * pulse) * UI * dt; v.y += (-7 * pulse + 3.2) * UI * dt; }
-    else { v.x += v.dir * 34 * UI * dt; v.y += (v.vy + Math.sin(v.t * .5) * 5) * UI * dt; }
-    if (v.x < -160 * UI || v.x > W + 160 * UI || v.y < -80) visitors.splice(i, 1);
-  }
-}
-function drawJelly(g, v) {
-  const n = sea.night, R = 25 * v.sc, p = Math.max(0, Math.sin(v.t * 1.7 + v.ph)), sq = 1 - .18 * p, wd = R * (1 + .14 * p), hgt = R * .85 * sq;
-  const x = v.x + shX(v.d), y = v.y + shY(v.d);
-  const col = n > .5 ? [140, 220, 255] : mix([255, 196, 220], [210, 230, 255], v.hue);
-  g.save(); g.translate(x, y);
-  // tentacles trail behind the swim
-  g.strokeStyle = rgbs(col, .22 + .3 * n); g.lineWidth = Math.max(.6, .9 * v.sc);
-  for (let k = 0; k < 7; k++) {
-    const x0 = (k / 6 - .5) * wd * 1.5; g.beginPath(); g.moveTo(x0, 0);
-    for (let s = 1; s <= 8; s++) { const yy = s * R * .42, xx = x0 + Math.sin(v.t * 1.6 - s * .7 + k) * R * .12 * s / 4 - v.dir * s * R * .05; g.lineTo(xx, yy); }
-    g.stroke();
-  }
-  // oral arms
-  g.strokeStyle = rgbs(col, .35 + .3 * n); g.lineWidth = Math.max(1, 2 * v.sc);
-  for (let k = -1; k <= 1; k += 2) { g.beginPath(); g.moveTo(k * wd * .15, 0); g.quadraticCurveTo(k * wd * .3 + Math.sin(v.t + k) * 4, R * 1.1, k * wd * .1, R * 2); g.stroke(); }
-  // bell
-  g.beginPath(); g.moveTo(-wd, 0); g.bezierCurveTo(-wd, -hgt * 1.35, wd, -hgt * 1.35, wd, 0); g.quadraticCurveTo(0, hgt * .22, -wd, 0); g.closePath();
-  const gr = g.createRadialGradient(0, -hgt * .5, 0, 0, -hgt * .3, wd * 1.2);
-  gr.addColorStop(0, rgbs(col, .5 + .3 * n)); gr.addColorStop(.7, rgbs(col, .2 + .2 * n)); gr.addColorStop(1, rgbs(col, .05));
-  if (n > .3) g.globalCompositeOperation = 'lighter';
-  g.fillStyle = gr; g.fill();
-  g.strokeStyle = rgbs(mix(col, WHITE, .5), .35 + .3 * n); g.lineWidth = .8; g.stroke();
-  // four gonads, the moon jelly's mark
-  for (let k = 0; k < 4; k++) { g.beginPath(); g.ellipse((k - 1.5) * wd * .28, -hgt * .45, wd * .1, hgt * .14, 0, 0, 6.283); g.fillStyle = rgbs(mix(col, WHITE, .4), .25 + .3 * n); g.fill(); }
-  g.restore(); g.globalCompositeOperation = 'source-over';
-}
-function drawRay(g, v) {
-  const n = sea.night, S = 92 * v.sc, x = v.x + shX(v.d), y = v.y + shY(v.d), fl = Math.sin(v.t * 2.1 + v.ph);
-  g.save(); g.translate(x, y); g.scale(v.dir, 1);
-  const tip = fl * S * .18;
-  g.beginPath();
-  g.moveTo(S * .55, 0); // snout
-  g.bezierCurveTo(S * .35, -S * .14, S * .1, -S * .34 - tip * .5, -S * .05, -S * .3 - tip); // upper wing (far)
-  g.bezierCurveTo(-S * .2, -S * .12 - tip * .4, -S * .45, -S * .02, -S * .5, 0);
-  g.bezierCurveTo(-S * .45, S * .05, -S * .2, S * .2 + tip * .4, -S * .05, S * .36 + tip); // lower wing (near)
-  g.bezierCurveTo(S * .1, S * .42 + tip * .5, S * .35, S * .14, S * .55, 0);
-  g.closePath();
-  const top = mix([64, 76, 84], sea.top, .25 + .35 * n), belly = mix([150, 168, 172], sea.mid, .3 + .4 * n);
-  const gr = g.createLinearGradient(0, -S * .3, 0, S * .3); gr.addColorStop(0, rgbs(top, .95)); gr.addColorStop(1, rgbs(belly, .9));
-  g.fillStyle = gr; g.fill();
-  // tail
-  g.strokeStyle = rgbs(top, .8); g.lineWidth = Math.max(.8, 1.4 * v.sc);
-  g.beginPath(); g.moveTo(-S * .48, 0); g.quadraticCurveTo(-S * .9, Math.sin(v.t * 1.5) * S * .06, -S * 1.35, Math.sin(v.t * 1.2 + 1) * S * .1); g.stroke();
-  // eye
-  g.fillStyle = 'rgba(10,16,20,.8)'; g.beginPath(); g.arc(S * .3, -S * .04, Math.max(.8, 1.4 * v.sc), 0, 6.283); g.fill();
-  g.restore();
-}
 function drawBG(tintRGB, ash) {
   bx.setTransform(1, 0, 0, 1, 0, 0); bx.clearRect(0, 0, bg.width, bg.height); bx.setTransform(DPR, 0, 0, DPR, 0, 0);
   for (const s of snow) { if (s.y > Y0) continue; const d = .35 + s.z * .65; bx.fillStyle = `rgba(214,232,228,${s.a * (1.1 - s.z * .5)})`; bx.fillRect(s.x + shX(d), s.y + shY(d), s.s, s.s); }
   drawGlow(bx);
-  for (const v of visitors) if (v.d >= .45) (v.kind === 'jelly' ? drawJelly : drawRay)(bx, v);
   drawTopFace();
   const glintCol = ash ? WHITE : mix(tintRGB, WHITE, .35);
   for (const f of fish) {
@@ -940,7 +934,6 @@ function drawBG(tintRGB, ash) {
     bx.fillStyle = 'rgba(8,20,28,.85)'; bx.beginPath(); bx.arc(L * .33, -h * .15, Math.max(.7, L * .045), 0, 6.283); bx.fill();
     bx.restore();
   }
-  for (const v of visitors) if (v.d < .45) (v.kind === 'jelly' ? drawJelly : drawRay)(bx, v);
 }
 
 // ---------- foreground: strata, scales, pole ----------
@@ -1133,17 +1126,13 @@ if (window.APKit) APKit.init({
 
 const testHead = /[?&]head=([-\d.]+),([-\d.]+)/.exec(location.search);
 if (testHead) { head.on = true; head.tx = parseFloat(testHead[1]); head.ty = parseFloat(testHead[2]); E.x = head.tx; E.y = head.ty; }
-if (testHead || /[?&]test\b/.test(location.search)) window.__ts = { E, head, drag, watch, visitors, spawnVisitor, fakeFace(x, y, z) { cam.on = true; head.on = true; cam.seen = performance.now() / 1000; head.tx = x; head.ty = y; head.tz = z; }, previewNow() { previewHour(); if (preview) preview.t = 5.5; }, get anim() { return anim; }, get preview() { return preview; } };
+if (testHead || /[?&]test\b/.test(location.search)) window.__ts = { E, head, drag, watch, startEgi(f) { egiEv.next = 0; egiEv.force = f; }, get egi() { return egiEv; }, get aori() { return aori; }, fakeFace(x, y, z) { cam.on = true; head.on = true; cam.seen = performance.now() / 1000; head.tx = x; head.ty = y; head.tz = z; }, previewNow() { previewHour(); if (preview) preview.t = 5.5; }, get anim() { return anim; }, get preview() { return preview; } };
 
 try {
   await loadSquids('../assets/squid-kit/');
   kitReady = true;
-  aori = createSquid('aori', { detail: 'low', home: onPlane(aoriX, aoriY()) });
-  aori.setMotion('hover'); scene.add(aori.object);
+  aori = makeAori();
   spawnKouika(false);
-  // the kit's floor stains assume a fixed sea floor; ours rises and is pressed into stone, so they would float in the water
-  aori.fx.group.remove(aori.fx.ground.mesh, aori.fx.wetStains.mesh);
-  for (let i = 0; i < 30; i++) { aori.update(1 / 60); kouika.update(1 / 60); }
 } catch (e) {
   console.error(e); // the clock still works without the squids
 }
