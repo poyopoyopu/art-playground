@@ -47,7 +47,7 @@
   .tbtn svg { width:19px; height:19px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
   .tbtn.on { background:#fff; color:#111; border-color:#fff; }
   .tbtn[hidden] { display:none; }
-  #sea { inset:-26%; will-change:transform; }
+  #sea { inset:-38%; will-change:transform; }
   #gl { will-change:transform; }
   #note { position:fixed; z-index:5; left:0; right:0; top:42%; text-align:center; pointer-events:none; color:rgba(232,244,240,.0);
     font:300 13px/1.6 Georgia,serif; letter-spacing:.32em; transition:color .6s; text-shadow:0 2px 12px #000; }
@@ -139,8 +139,8 @@ function layout() {
 // E is where the viewer's eye is (x right, y up, -1..1). Something at depth d (0 = on the glass, 1 = the far sea)
 // is drawn shifted by d*M toward the eye's side: far things follow the eye, the glass stays put.
 const E = { x: 0, y: 0, tx: 0, ty: .35 }, EDGE_D = .95, GL_D = .2;
-let M = 60;
-const shX = d => E.x * d * M, shY = d => -E.y * d * M;
+let M = 60, G = 1; // G grows while a face is watching through the glass
+const shX = d => E.x * d * M * G, shY = d => -E.y * d * M * G;
 const head = { on: false, tx: 0, ty: 0, tz: 1 };
 const drag = { x: 0, y: 0, at: -99 };
 
@@ -330,14 +330,16 @@ function burst(x0, n, spread, power, colorFn) {
 
 // ---------- fish school: the second hand ----------
 const fish = [];
+const watch = { k: 0, greet: false, cool: 0 }; // the school notices a face at the glass
 function makeFish() {
   fish.length = 0;
   const n = 18;
   for (let i = 0; i < n; i++) fish.push({
     x: W * .1 + Math.random() * 40, y: H * .15 + Math.random() * 40, vx: 20, vy: 0, ang: 0,
     L: (11 + Math.random() * 6) * UI, a: Math.random() * 6.28, w: (.25 + Math.random() * .35) * (Math.random() < .5 ? -1 : 1),
-    r: (6 + Math.random() * 42) * UI, ph: Math.random() * 6.28, emit: 0, d: .28 + Math.random() * .34
+    r: (6 + Math.random() * 42) * UI, ph: Math.random() * 6.28, emit: 0, d: 0, d0: .28 + Math.random() * .34
   });
+  for (const f of fish) f.d = f.d0;
 }
 function schoolTarget(s, t) {
   const y = lerp(waterTop, waterBottom, .42) + Math.sin(t * .23) * H * .018;
@@ -573,10 +575,11 @@ function onFace(r) {
   const now = performance.now() / 1000;
   if (!cam.base) cam.base = { x, y, w };
   else if (cam.nb < 12) { cam.nb++; cam.base.x += (x - cam.base.x) * .25; cam.base.y += (y - cam.base.y) * .25; cam.base.w += (w - cam.base.w) * .25; }
-  else { const a = now - cam.seen > 1.5 ? .5 : .004; cam.base.x += (x - cam.base.x) * a; cam.base.y += (y - cam.base.y) * a; cam.base.w += (w - cam.base.w) * a; }
+  else { const a = now - cam.seen > 1.5 ? .5 : .0012; cam.base.x += (x - cam.base.x) * a; cam.base.y += (y - cam.base.y) * a; cam.base.w += (w - cam.base.w) * a; }
+  if (now - cam.seen > 2.5) watch.greet = true;
   cam.seen = now;
-  head.tx = clamp((x - cam.base.x) * 3.2, -1, 1);
-  head.ty = clamp((y - cam.base.y) * 3.2, -1, 1);
+  head.tx = clamp((x - cam.base.x) * 5.5, -1, 1);
+  head.ty = clamp((y - cam.base.y) * 5.5, -1, 1);
   head.tz = clamp(Math.pow(cam.base.w / w, .7), .72, 1.35);
 }
 function camLoop() {
@@ -689,13 +692,29 @@ function finalizeGrowPreview() { // a preview presses the hour as it is right no
 
 // ---------- updates ----------
 function updateFish(dt, s, ash, tintRGB) {
-  const tg = schoolTarget(s, elapsed);
+  let tg = schoolTarget(s, elapsed);
+  // a face at the glass: the school comes to look back, and scatters if the face comes too close
+  const now = performance.now() / 1000, seen = head.on && cam.on && now - cam.seen < 1.2;
+  watch.cool = Math.max(0, watch.cool - dt);
+  watch.k += ((seen && watch.cool <= 0 ? 1 : 0) - watch.k) * (1 - Math.exp(-(seen ? 1.4 : .8) * dt));
+  if (seen && watch.greet) { watch.greet = false; say('魚が、のぞく顔に気づいた', 2600); }
+  if (seen && head.tz < .8 && watch.cool <= 0 && watch.k > .5) {
+    watch.cool = 4; watch.k = 0;
+    let mx = 0, my = 0; for (const f of fish) { mx += f.x; my += f.y; } mx /= fish.length; my /= fish.length;
+    scatterFish(mx, my, 260); for (const f of fish) f.d = Math.min(.75, f.d0 + .2);
+    say('近すぎて、散った', 2000);
+  }
+  if (watch.k > .02 && !tg.dash) {
+    const fxp = W * (.48 + E.x * .26), fyp = lerp(waterTop, waterBottom, .72) - E.y * H * .08 + Math.sin(elapsed * .7) * 8 * UI;
+    tg = { x: lerp(tg.x, fxp, watch.k), y: lerp(tg.y, fyp, watch.k), dash: false };
+  }
   const emitting = !tg.dash && !anim;
   let ax0 = -1e9, ay0 = 0;
   if (aori) { const p = toScreen(aori.getCenter(tmpV)); ax0 = p.x + shX(GL_D); ay0 = p.y + shY(GL_D); }
   for (let i = 0; i < fish.length; i++) {
     const f = fish[i];
-    f.a += f.w * dt;
+    f.a += f.w * dt * (1 + watch.k);
+    f.d += ((watch.k > .02 ? lerp(f.d0, .05 + f.d0 * .2, watch.k) : f.d0) - f.d) * (1 - Math.exp(-1.2 * dt));
     const ox = Math.cos(f.a) * f.r, oy = Math.sin(f.a) * f.r * .5;
     let ax = (tg.x + ox - f.x) * (tg.dash ? 3.2 : 1.1), ay = (tg.y + oy - f.y) * 1.1;
     for (let k = 0; k < fish.length; k++) if (k !== i) {
@@ -776,7 +795,7 @@ function drawBG(tintRGB, ash) {
   const glintCol = ash ? WHITE : mix(tintRGB, WHITE, .35);
   for (const f of fish) {
     bx.save(); bx.translate(f.x + shX(f.d), f.y + shY(f.d)); bx.rotate(f.ang); if (Math.cos(f.ang) < 0) bx.scale(1, -1);
-    const L = f.L * (1.5 - f.d * .5), h = L * .2, wag = Math.sin(elapsed * 9 + f.ph) * L * .05;
+    const L = f.L * (1.7 - f.d * .9), h = L * .2, wag = Math.sin(elapsed * 9 + f.ph) * L * .05;
     bx.beginPath();
     bx.moveTo(L * .5, 0);
     bx.quadraticCurveTo(L * .18, -h * 1.25, -L * .3, -h * .3);
@@ -919,7 +938,8 @@ function updateEye(dt, t) {
   E.tx = clamp(tx, -1, 1); E.ty = clamp(ty, -1, 1);
   const a = 1 - Math.exp(-6 * dt);
   E.x += (E.tx - E.x) * a; E.y += (E.ty - E.y) * a;
-  seaEl.style.transform = `translate3d(${shX(1).toFixed(1)}px,${shY(1).toFixed(1)}px,0)`;
+  G += ((head.on ? 2 : 1) - G) * (1 - Math.exp(-2 * dt));
+  seaEl.style.transform = `translate3d(${shX(.7).toFixed(1)}px,${shY(.7).toFixed(1)}px,0)`;
   glWrap.style.transform = `translate3d(${shX(GL_D).toFixed(1)}px,${shY(GL_D).toFixed(1)}px,0)`;
 }
 function roundRect(g, x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
@@ -981,7 +1001,7 @@ if (window.APKit) APKit.init({
 
 const testHead = /[?&]head=([-\d.]+),([-\d.]+)/.exec(location.search);
 if (testHead) { head.on = true; head.tx = parseFloat(testHead[1]); head.ty = parseFloat(testHead[2]); E.x = head.tx; E.y = head.ty; }
-if (testHead || /[?&]test\b/.test(location.search)) window.__ts = { E, head, drag, previewNow() { previewHour(); if (preview) preview.t = 5.5; }, get anim() { return anim; }, get preview() { return preview; } };
+if (testHead || /[?&]test\b/.test(location.search)) window.__ts = { E, head, drag, watch, fakeFace(x, y, z) { cam.on = true; head.on = true; cam.seen = performance.now() / 1000; head.tx = x; head.ty = y; head.tz = z; }, previewNow() { previewHour(); if (preview) preview.t = 5.5; }, get anim() { return anim; }, get preview() { return preview; } };
 
 try {
   await loadSquids('../assets/squid-kit/');
