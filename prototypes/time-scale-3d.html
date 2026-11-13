@@ -5,7 +5,11 @@
      📷: インカメラの映像はこのページの中だけで顔の位置を読むのに使い、表示・保存・送信はしない。拒否されたら傾き、それも無ければ指なぞり。
      テスト用: ?head=x,y(-1〜1)で、カメラなしに見る位置を固定できる。
      海の時間帯: 朝・昼・夕・夜で海の色と光が変わる。夜は鱗とプランクトンが光る(テスト用: ?hour=0〜23)。
-     魚: 秒をはこぶ群れはカタクチイワシ、ときどき大きな魚(ブリ・マダイ・スズキ・タチウオ・サバ)がゆっくり横切る(魚の3Dキット assets/fish-kit、CC0)。
+     魚(2026/11/13 おっちゃん「イカに固執するのはやめて、魚がいっぱいの方がいい」→イカはやめて、魚の3Dキット assets/fish-kit(CC0)の魚で満たす):
+       秒をはこぶのはカタクチイワシの群れ。中層にマアジの群れ、奥をサバの群れ。底の少し上をマダイ・クロダイ・イサキ、底にカサゴとマゴチ。
+       ときどき大きな魚(ブリ・ヒラマサ・サワラ・スズキ・タチウオ)が横切り、イワシの群れに突っ込むこともある。
+       水の中をタップ=クロダイがそこへ泳いでいって砂をつつき、穴をあける(穴は消えない)。マゴチは正時の少し前に砂に潜り、石になったあとの新しい海底から出てくる。
+     (以下の説明のうち、アオリイカ・コウイカ・エギは今は出ない。コードは残してある)
      エギ: 数分おきに、上から糸でエギ(イカ釣りの疑似餌)が沈んでくる。アオリイカが後ろについて追い、抱きつくか見切る。
        抱いたら墨を吐いて離し、見切ったらエギは巻き上げられて帰っていく(イカ・エギは魚・イカ3Dキットの3Dデータ)。
      以下は元の TIME SCALE の説明。魚・イカ3Dキット(assets/squid-kit、CC0)を使う試作。
@@ -18,7 +22,7 @@
      - 触る: 水の中をタップ = アオリイカがそこへ泳いでいき、漏斗の噴射で泥に穴をあける。穴は消えない。
        あとから積もる層は穴を少しずつ埋めながら覆うので、地層に「掘った跡」が残る。石(過ぎた時間)は硬くて掘れない。
        地層をタップ = その層がいつ積もったかを読む。
-     ボタン: ✦ これから積もる泥の色を替える(積もった層の色は変わらない) / ⏭ 出来事をいま見る(10分の鍵層 → 正時 → エギ → 大きな魚) / ↻ 積もり直す
+     ボタン: ✦ これから積もる泥の色を替える(積もった層の色は変わらない) / ⏭ 出来事をいま見る(10分の鍵層 → 正時 → 大きな魚) / ↻ 積もり直す
      題名の SCALE は「鱗」と「目盛り」と「地質年代表(geologic time scale)」の掛け言葉。 -->
 <html lang="ja">
 <head>
@@ -119,7 +123,7 @@ function layout() {
   T = (Y0 - Y60) / 60;
   BAND = Math.max(9, Math.round(T * 2.6));
   COLS = Math.ceil(W / CW) + 1;
-  K = .86 / Math.min(W, H * 1.25); // squids about 1.5x the size of TIME SCALE
+  K = 1.2 / Math.min(W, H * 1.25); // 1 px = K metres (a 30 cm mackerel is about 100 px on a phone)
   UI = clamp(Math.min(W, H) / 390, .85, 1.4);
   POLE = W - Math.max(22, W * .058);
   TAPER = 46 * UI;
@@ -326,7 +330,7 @@ const fish = [];
 const watch = { k: 0, greet: false, cool: 0 }; // the school notices a face at the glass
 function makeFish() {
   fish.length = 0;
-  const n = 18;
+  const n = 24;
   for (let i = 0; i < n; i++) fish.push({
     x: W * .1 + Math.random() * 40, y: H * .15 + Math.random() * 40, vx: 20, vy: 0, ang: 0,
     L: (11 + Math.random() * 6) * UI, a: Math.random() * 6.28, w: (.25 + Math.random() * .35) * (Math.random() < .5 ? -1 : 1),
@@ -419,29 +423,138 @@ function syncFish3(dt) {
     o.a.update(dt);
   }
 }
-const BIG = [['buri', 58], ['madai', 42], ['seabass', 56], ['tachiuo', 90], ['saba', 36]];
+const BIG = [['buri', 62], ['hiramasa', 66], ['sawara', 60], ['seabass', 56], ['tachiuo', 90]];
 let bigLoading = false;
-async function spawnBig(id) {
+async function spawnBig(id, now) {
   if (big || bigLoading || !fishReady) return;
+  if (now) say('大きな魚が来る', 1600);
   bigLoading = true;
   const pick = id ? BIG.find(b => b[0] === id) : BIG[Math.floor(Math.random() * BIG.length)];
   try { await loadFish(FISHDIR, [pick[0]]); } catch (e) { bigLoading = false; return; }
   const a = createFish(pick[0], pick[1] * (.9 + Math.random() * .2));
   a.setDetail('high'); a.setMotion('swim'); scene.add(a.object);
   const dir = Math.random() < .5 ? 1 : -1, Lpx = a.length / K, d = .5 + Math.random() * .25;
-  big = { a, dir, d, Lpx, x: dir > 0 ? -Lpx : W + Lpx, y: lerp(waterTop + 60 * UI, Y60 - 50 * UI, Math.random()), sp: (W + Lpx * 2) / (22 + Math.random() * 10), t: 0, yaw: dir > 0 ? Math.PI : 0, pitch: 0, vy: 0 };
+  big = { a, dir, d, Lpx, x: dir > 0 ? -Lpx : W + Lpx, y: lerp(waterTop + 60 * UI, Y60 - 50 * UI, Math.random()), sp: (W + Lpx * 2) / (22 + Math.random() * 10), t: 0, yaw: dir > 0 ? Math.PI : 0, pitch: 0, vy: 0, charge: pick[0] !== 'tachiuo' && Math.random() < .55 };
+  if (big.charge) big.sp *= 1.35;
   bigLoading = false;
 }
 function updateBig(dt) {
   if (!big) { if (fishReady && elapsed > bigNext && !anim && !preview) { bigNext = elapsed + 140 + Math.random() * 110; spawnBig(); } return; }
   const b = big; b.t += dt;
   b.vy = Math.sin(b.t * .4) * 6 * UI;
+  if (b.charge) { // a hunter: it bends its path through the anchovy school
+    let my = 0; for (const f of fish) my += f.y; my /= fish.length;
+    b.vy += clamp((my - b.y) * .9, -40 * UI, 40 * UI);
+  }
   b.x += b.dir * b.sp * dt; b.y += b.vy * dt;
   const sc = 1.15 - b.d * .4;
   placeAt(b.a.object, b.x, b.y, b.d); b.a.object.scale.setScalar(sc);
   faceTo(b.a.object, b, b.dir * b.sp, b.vy, dt);
   b.a.drive = { speed: b.sp * K, turnRate: 0 }; b.a.update(dt);
   if ((b.dir > 0 && b.x > W + b.Lpx * 1.2) || (b.dir < 0 && b.x < -b.Lpx * 1.2)) { b.a.dispose(); big = null; }
+}
+
+// ---------- the fish world: schools in the open water, fish along the bottom ----------
+const RES = [], LEADERS = [];
+let digger = null, magochi = null;
+const flathead = () => magochi && !magochi.buried;
+const floorAt = x => surfAt(clamp(x, 0, W));
+function bandY(kind, x) {
+  const mid = lerp(waterTop, waterBottom, .5);
+  if (kind === 'mid') return lerp(waterTop + 50 * UI, waterBottom - 20 * UI, Math.random());
+  if (kind === 'far') return lerp(waterTop + 30 * UI, mid + 40 * UI, Math.random());
+  if (kind === 'low') return floorAt(x) - lerp(26, 80, Math.random()) * UI;
+  return floorAt(x);
+}
+function newLeader(kind, speed) { const L = { kind, x: Math.random() * W, y: 0, tx: 0, ty: 0, next: 0, speed }; L.y = bandY(kind, L.x); LEADERS.push(L); return L; }
+function makeAgent(id, cm, kind, opt = {}) {
+  const a = createFish(id, cm);
+  a.setDetail(opt.detail || 'low'); a.setMotion(kind === 'floor' ? 'hover' : 'swim'); scene.add(a.object);
+  const x = opt.x != null ? opt.x : lerp(W * .1, W * .9, Math.random());
+  const g = { id, a, kind, school: opt.school || null, x, y: bandY(kind, x), vx: 0, vy: 0, d: opt.d != null ? opt.d : .4, yaw: Math.random() < .5 ? 0 : Math.PI, pitch: 0,
+    tx: x, ty: 0, next: 0, speed: opt.speed || 30, hgt: a.length / K * .16, r: (6 + Math.random() * 40) * UI, ang: Math.random() * 6.28, w: (.3 + Math.random() * .4) * (Math.random() < .5 ? -1 : 1), kick: 0 };
+  if (g.school) { g.x = g.school.x + (Math.random() - .5) * 60 * UI; g.y = g.school.y + (Math.random() - .5) * 30 * UI; }
+  g.ty = g.y; RES.push(g); return g;
+}
+async function initWorld() {
+  await loadFish(FISHDIR, ['aji', 'saba', 'madai', 'kurodai', 'isaki', 'kasago', 'magochi']);
+  const aji = newLeader('mid', 26 * UI), saba = newLeader('far', 40 * UI);
+  for (let i = 0; i < 10; i++) makeAgent('aji', 16 + Math.random() * 5, 'school', { school: aji, d: .4 + Math.random() * .25, speed: 70 * UI });
+  for (let i = 0; i < 7; i++) makeAgent('saba', 28 + Math.random() * 6, 'school', { school: saba, d: .72 + Math.random() * .12, speed: 90 * UI });
+  makeAgent('madai', 36, 'low', { detail: 'high', d: .45, speed: 22 * UI });
+  digger = makeAgent('kurodai', 32, 'low', { detail: 'high', d: .3, speed: 26 * UI });
+  for (let i = 0; i < 2; i++) makeAgent('isaki', 22 + Math.random() * 4, 'low', { d: .5 + i * .15, speed: 30 * UI });
+  makeAgent('kasago', 24, 'floor', { detail: 'high', d: .25, x: W * .22 });
+  magochi = makeAgent('magochi', 42, 'floor', { detail: 'high', d: .35, x: W * .62 });
+}
+function sendDigger(x) {
+  if (!digger) return false;
+  digger.dig = { x: clamp(x, 26 * UI, POLE - 60 * UI), t0: elapsed }; digger.next = 0; return true;
+}
+function updateWorld(dt, N) {
+  if (!RES.length) return;
+  // leaders of the schools wander through their water
+  for (const L of LEADERS) {
+    if (elapsed > L.next || Math.hypot(L.tx - L.x, L.ty - L.y) < 20 * UI) { L.tx = lerp(W * .05, W * .95, Math.random()); L.ty = bandY(L.kind, L.tx); L.next = elapsed + 8 + Math.random() * 8; }
+    const dx = L.tx - L.x, dy = L.ty - L.y, d = Math.hypot(dx, dy) + 1e-3, v = Math.min(L.speed, d * .8);
+    L.x += dx / d * v * dt; L.y += dy / d * v * dt;
+  }
+  // the flathead goes under the sand before the hour, and comes out of the new sea floor after it
+  if (magochi) {
+    const m = magochi, should = (N.m === 59 && N.s > 41) || (preview && preview.stage === 'bury') || (anim && anim.type === 'compact');
+    if (should && !m.buried) { m.buried = true; m.sink = 0; burst(m.x, 22, 40 * UI, 70 * UI, colorAtDepth); }
+    if (!should && m.buried && !anim) { m.buried = false; m.sink = 1; m.rise = true; burst(m.x, 30, 50 * UI, 110 * UI, colorAtDepth); }
+  }
+  for (const g of RES) stepAgent(g, dt);
+}
+function stepAgent(g, dt) {
+  let tx, ty, k = 1;
+  if (g.kind === 'school') {
+    g.ang += g.w * dt;
+    tx = g.school.x + Math.cos(g.ang) * g.r; ty = g.school.y + Math.sin(g.ang) * g.r * .45;
+  } else if (g.kind === 'low') {
+    if (g.dig) { tx = g.dig.x; ty = floorAt(g.dig.x) - g.hgt * 1.2; k = 1.6; }
+    else {
+      if (elapsed > g.next || Math.abs(g.tx - g.x) < 12 * UI) { g.tx = lerp(W * .08, POLE - 40 * UI, Math.random()); g.next = elapsed + 7 + Math.random() * 9; g.dy = lerp(22, 70, Math.random()) * UI; }
+      tx = g.tx; ty = floorAt(g.x) - (g.dy || 40 * UI);
+    }
+  } else { // floor: sits still, now and then shuffles a little
+    if (elapsed > g.next) { g.tx = clamp(g.x + (Math.random() - .5) * 40 * UI, 20 * UI, POLE - 40 * UI); g.next = elapsed + 18 + Math.random() * 20; }
+    tx = g.tx; ty = floorAt(g.x) - g.hgt * .55;
+  }
+  let ax = (tx - g.x) * 1.1 * k, ay = (ty - g.y) * 1.1 * k;
+  if (g.kind === 'school') for (const o of RES) if (o !== g && o.school === g.school) {
+    const dx = g.x - o.x, dy = g.y - o.y, d2 = dx * dx + dy * dy, R = g.hgt * 4 + 8 * UI;
+    if (d2 < R * R && d2 > .01) { const d = Math.sqrt(d2); ax += dx / d * (R - d) * 6; ay += dy / d * (R - d) * 6; }
+  }
+  if (big && g.kind !== 'floor') { const R = big.Lpx * .75, ex = g.x - big.x, ey = g.y - big.y, ed = Math.hypot(ex, ey); if (ed < R) { ax += ex / (ed + 1) * (R - ed) * 7; ay += ey / (ed + 1) * (R - ed) * 7; } }
+  g.vx += ax * dt; g.vy += ay * dt;
+  const damp = Math.exp(-1.4 * dt); g.vx *= damp; g.vy *= damp;
+  const sp = Math.hypot(g.vx, g.vy), mx = g.kind === 'floor' ? 8 * UI : g.speed * (g.dig ? 1.6 : 1);
+  if (sp > mx) { g.vx *= mx / sp; g.vy *= mx / sp; }
+  g.x += g.vx * dt; g.y += g.vy * dt;
+  g.x = clamp(g.x, -60 * UI, W + 60 * UI);
+  const fl = floorAt(g.x) - g.hgt * (g.kind === 'floor' ? .55 : 1.1);
+  if (g.kind !== 'floor' && g.y > fl) { g.y = fl; g.vy = Math.min(g.vy, 0); }
+  if (g.kind === 'floor') g.y = fl;
+  // the black seabream reaches the spot: noses into the sand
+  if (g.dig && (Math.abs(g.x - g.dig.x) < 14 * UI && Math.abs(g.y - ty) < 18 * UI || elapsed - g.dig.t0 > 6)) { doBlow(g.dig.x); g.kick = 1; g.dig = null; g.next = elapsed + 3; }
+  g.kick = Math.max(0, g.kick - dt * 1.2);
+  // buried flathead: slides into the floor and hides; rising: comes up out of it
+  let sinkY = 0;
+  if (g === magochi) {
+    if (g.buried) g.sink = Math.min(1, (g.sink || 0) + dt / 1.8);
+    else if (g.rise) { g.sink = Math.max(0, g.sink - dt / 1.5); if (!g.sink) g.rise = false; }
+    sinkY = (g.sink || 0) * g.hgt * 1.6;
+    g.a.object.visible = !(g.buried && g.sink >= 1);
+  }
+  placeAt(g.a.object, g.x, g.y + sinkY, g.d);
+  g.a.object.scale.setScalar(1.2 - g.d * .5);
+  const vx = g.kind === 'floor' ? (g.yaw > 1.5 ? 3 : -3) : g.vx;
+  faceTo(g.a.object, g, vx, g.vy, dt);
+  if (g.kick) g.a.object.rotation.x += .7 * Math.sin(Math.PI * g.kick);
+  g.a.drive = { speed: g.kind === 'floor' ? 0 : Math.hypot(g.vx, g.vy) * K + .03, turnRate: 0 };
+  g.a.update(dt);
 }
 
 // ---------- the squids' own day: the aori roams, darts, chases the school, checks the floor; the cuttlefish shows its colours ----------
@@ -613,9 +726,8 @@ function finishPreview(instant) {
 function onEventButton() {
   if (previewStep === 0) { ashPulse = 1.4; say('10分 — 白い鍵層'); }
   else if (previewStep === 1) previewHour();
-  else if (previewStep === 2) { if (!egiEv.on) { egiEv.next = 0; say('エギを落とす', 1600); } }
-  else spawnBig();
-  previewStep = (previewStep + 1) % 4;
+  else spawnBig(null, true);
+  previewStep = (previewStep + 1) % 3;
 }
 function scatterFish(x, y, power) {
   for (const f of fish) { const dx = f.x - x, dy = f.y - y, d = Math.hypot(dx, dy) + 20; f.vx += dx / d * power; f.vy += dy / d * power * .6; }
@@ -637,7 +749,7 @@ function handleTap(x, y) {
   aoriX = clamp(x - shX(GL_D), W * .12, POLE - 70 * UI);
   pendingBlow = { x: aoriX, t0: performance.now() };
   aoriIdleAt = performance.now() + 9000; aoriYv = null; roam.kind = '';
-  if (!aori) { doBlow(aoriX); pendingBlow = null; }
+  if (!aori) { pendingBlow = null; if (!sendDigger(x)) doBlow(x); }
 }
 function readStrata(x, y) {
   const j = clamp(Math.round(x / CW), 0, COLS - 1);
@@ -820,7 +932,7 @@ function frame() {
 
   if (preview) {
     preview.t += dt;
-    if (preview.stage === 'bury' && preview.t > (kouika ? 5.4 : .3)) { preview.stage = 'compact'; finalizeGrowPreview(); startCompaction(true); }
+    if (preview.stage === 'bury' && preview.t > (kouika ? 5.4 : flathead() ? 3.2 : .3)) { preview.stage = 'compact'; finalizeGrowPreview(); startCompaction(true); }
     if (preview.stage === 'after' && preview.t > preview.until) finishPreview(false);
   }
   if (anim) {
@@ -848,7 +960,7 @@ function frame() {
 
   updateEye(dt, elapsed); camStatus();
   updateFish(dt, N.s, ashMinute, tintRGB);
-  updateBig(dt); syncFish3(dt);
+  updateBig(dt); syncFish3(dt); updateWorld(dt, N);
   updateParticles(dt);
   updateSea(N); updateEgi(dt);
   updateKouLife(dt, N);
@@ -1240,17 +1352,11 @@ tiltBtn = document.querySelector('.apk-btn[aria-label="tilt"]'); camBtn = docume
 
 const testHead = /[?&]head=([-\d.]+),([-\d.]+)/.exec(location.search);
 if (testHead) { head.on = true; head.tx = parseFloat(testHead[1]); head.ty = parseFloat(testHead[2]); E.x = head.tx; E.y = head.ty; }
-if (testHead || /[?&]test\b/.test(location.search)) window.__ts = { E, head, drag, watch, spawnBig, get big() { return big; }, get fish3() { return fish3; }, roam, get kouika() { return kouika; }, startEgi(f) { egiEv.next = 0; egiEv.force = f; }, get egi() { return egiEv; }, get aori() { return aori; }, fakeFace(x, y, z) { cam.on = true; head.on = true; cam.seen = performance.now() / 1000; head.tx = x; head.ty = y; head.tz = z; }, previewNow() { previewHour(); if (preview) preview.t = 5.5; }, get anim() { return anim; }, get preview() { return preview; } };
+if (testHead || /[?&]test\b/.test(location.search)) window.__ts = { E, head, drag, watch, RES, get digger() { return digger; }, get magochi() { return magochi; }, spawnBig, get big() { return big; }, get fish3() { return fish3; }, roam, get kouika() { return kouika; }, startEgi(f) { egiEv.next = 0; egiEv.force = f; }, get egi() { return egiEv; }, get aori() { return aori; }, fakeFace(x, y, z) { cam.on = true; head.on = true; cam.seen = performance.now() / 1000; head.tx = x; head.ty = y; head.tz = z; }, previewNow() { previewHour(); if (preview) preview.t = 5.5; }, get anim() { return anim; }, get preview() { return preview; } };
 
-try {
-  await loadSquids('../assets/squid-kit/');
-  kitReady = true;
-  aori = makeAori();
-  spawnKouika(false);
-} catch (e) {
-  console.error(e); // the clock still works without the squids
-}
+// (2026/11/13) the squids are not loaded any more: the sea belongs to the fish
 try { await initFish3(); } catch (e) { console.error(e); } // without the kit the school stays drawn flat
+try { await initWorld(); } catch (e) { console.error(e); }
 </script>
 </body>
 </html>
