@@ -87,9 +87,9 @@
 
     function clockValues(now) {
       const date = new Date();
-      const minutePhase = (date.getMinutes() + date.getSeconds() / 60 + date.getMilliseconds() / 60000) / 60;
+      const secondPhase = (date.getSeconds() + date.getMilliseconds() / 1000) / 60;
       const hour = date.getHours() + date.getMinutes() / 60 + date.getSeconds() / 3600;
-      return { date, minutePhase, hour };
+      return { date, secondPhase, hour };
     }
 
     function render() {
@@ -98,7 +98,7 @@
       lastT = now;
       elapsed += dt;
       if (actor) {
-        const { date, minutePhase, hour } = clockValues(Date.now());
+        const { date, secondPhase, hour } = clockValues(Date.now());
         const u = actor.squid.uniforms;
         if (turning) {
           turnFor -= dt;
@@ -121,21 +121,20 @@
         const hourAngle = (hour / 24) * Math.PI * 2 - Math.PI / 2;
         const day = (Math.cos(hourAngle) + 1) * .5;
         const daylight = THREE.MathUtils.smoothstep(day, .23, .79);
-        const minuteWave = Math.sin(minutePhase * Math.PI * 2);
-        const minuteCos = Math.cos(minutePhase * Math.PI * 2);
         const second = date.getSeconds() + date.getMilliseconds() / 1000;
-        const secondPhase = second / 60;
+        const colorWave = Math.sin(secondPhase * Math.PI * 2);
+        const colorCos = Math.cos(secondPhase * Math.PI * 2);
         const minuteFlash = Math.exp(-Math.pow(Math.min(second, 60 - second) / .72, 2));
 
         // Clock owns these uniforms after actor.update(), so its random colour episodes cannot override time.
-        u.uDark.value = THREE.MathUtils.lerp(.83, .12, daylight) + .045 * minuteWave;
-        u.uPale.value = THREE.MathUtils.lerp(.10, .46, daylight) + .035 * minuteCos + surprise * .92;
-        u.uCloud.value = .28 + .12 * (1 + minuteWave);
+        u.uDark.value = THREE.MathUtils.lerp(.83, .12, daylight);
+        u.uPale.value = THREE.MathUtils.lerp(.10, .46, daylight) + surprise * .92;
+        u.uCloud.value = .28 + .12 * (1 + colorWave);
         u.uFlicker.value = .12 * minuteFlash;
-        u.uDash.value = .22 + .16 * (.5 + .5 * minuteCos);
-        u.uDashS.value.x = -.52 + minutePhase * 1.04;
+        u.uDash.value = .22 + .16 * (.5 + .5 * colorCos);
+        u.uDashS.value.x = -.52 + secondPhase * 1.04;
         u.uDashS.value.y = .92;
-        u.uSpot.value.setHSL(.48 + minutePhase * .48, .68, .58);
+        u.uSpot.value.setHSL(.48 + secondPhase * .48, .68, .58);
         // SKIN_FRAG moves its cloud by uTime*4.5; this phase completes one full sweep in 60 seconds.
         u.uTime.value = secondPhase * (Math.PI * 2 / 4.5);
         renderer.render(scene, camera);
