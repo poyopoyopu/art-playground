@@ -1,0 +1,1073 @@
+<!doctype html>
+<!-- TIME SCALE 3D — クロちゃん(Claude)作。2026/11/13。prototypes/time-scale.html(2D版・残してある)の立体版。魚・イカ3Dキット(assets/squid-kit、CC0)を使う試作。
+     世界のルール(2D版と同じ): 「魚の群れが秒をはこび、こぼれた鱗が一分で一枚の泥になり、一時間で一枚の石になる」。
+     2D版の評価「3Dデータの意味があまりない」への答え: 地層を絵ではなく「立体の塊」にした。
+     - 塊: 横1.3m×奥行き0.7mの海底ブロック。上に今の1時間(60枚の層)が積もり、下に過ぎた時間の石(8時間ぶん)が積み重なる。
+       4つの側面がそのまま断面で、層の色・白い鍵層・掘った穴の跡が見える。視点は自動でゆっくり回り込む(指でなぞって回す/傾きボタン)。
+     - 秒: 魚の群れ(3D)が1分かけて左→右へ渡り、こぼれた鱗が落ちて泥の層を左から敷く。分が変わると群れは左へ駆け戻る。
+     - 分: 右の測量杭に目盛り(:00〜:50)。泥の面が今の分を指し、HH:MM が乗る。10分ごとの層は白い鍵層。
+     - 正時: 60枚が押し固められて薄い「石」1枚になる。コウイカは正時前に泥へ潜り、新しい海底から出てくる。
+     - 触る: 塊の上面をタップ = アオリイカがそこへ泳いでいき、漏斗の噴射で泥に穴をあける(穴は消えない。石は掘れない)。
+       断面(側面)をタップ = その層がいつ積もったかを読む。指でなぞる = 視点を回す。
+     ボタン: ✦色替え / ⏭出来事をいま見る / ↻積もり直し / 傾き=スマホを傾けて視点を動かす(センサー) / 📷=インカメラで顔を追い、顔の位置で視点が動く「水槽の窓」
+     📷: 顔の検出は端末の中だけ(@mediapipe/face_detection、assets/vendor/mediapipe-face-detection、Apache-2.0)。映像は表示・保存・送信しない。許可されない/使えないときは傾き→指なぞりで動く。
+     テスト用: URLに ?head=x,y(-1〜1)を付けると、カメラなしで「顔がそこにいる」ものとして視点を固定できる。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#04131c">
+<title>TIME SCALE 3D — 地層を立体の塊にした、魚の時計</title>
+<script src="../ap-kit.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body, canvas { -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
+  html, body { position:fixed; inset:0; width:100%; height:100%; margin:0; overflow:hidden; background:#03101a; }
+  #gl { position:absolute; inset:0; touch-action:none; }
+  #gl canvas { position:absolute; inset:0; display:block; width:100%; height:100%; touch-action:none; }
+  #back { position:fixed; z-index:6; top:max(16px,env(safe-area-inset-top)); left:max(16px,env(safe-area-inset-left));
+    color:rgba(225,241,237,.6); text-decoration:none; font:10px/1.2 Arial,sans-serif; letter-spacing:.15em; padding:9px 11px;
+    border:1px solid rgba(218,241,238,.16); border-radius:20px; background:rgba(1,10,15,.25); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); }
+  /* センサーを使うボタン(傾き・インカメラ)は、ボタンで示す */
+  #tools { position:fixed; z-index:6; left:max(14px,env(safe-area-inset-left)); top:calc(58px + env(safe-area-inset-top)); display:flex; flex-direction:column; gap:8px; }
+  .tbtn { display:flex; align-items:center; gap:7px; height:40px; padding:0 14px 0 11px; border-radius:20px; border:1.5px solid rgba(255,255,255,.7);
+    background:rgba(8,18,24,.72); color:#fff; font:700 13px/1 system-ui,-apple-system,"Hiragino Sans",sans-serif; letter-spacing:.04em;
+    -webkit-tap-highlight-color:transparent; backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); }
+  .tbtn svg { width:19px; height:19px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+  .tbtn.on { background:#fff; color:#111; border-color:#fff; }
+  .tbtn[hidden] { display:none; }
+  #note { position:fixed; z-index:5; left:0; right:0; top:40%; text-align:center; pointer-events:none; color:rgba(232,244,240,0);
+    font:300 13px/1.7 Georgia,"Hiragino Mincho ProN",serif; letter-spacing:.2em; transition:color .6s; text-shadow:0 2px 12px #000; padding:0 24px; }
+  #note.show { color:rgba(232,244,240,.86); }
+  #read { position:fixed; z-index:5; left:0; top:0; pointer-events:none; opacity:0; transition:opacity .25s; transform:translate(-50%,-130%);
+    font:13px/1 Georgia,serif; color:rgba(236,246,242,.94); background:rgba(2,12,18,.66); padding:7px 11px; border-radius:12px; white-space:nowrap;
+    border:1px solid rgba(218,241,238,.14); }
+  #read.on { opacity:1; }
+</style>
+<script type="importmap">
+  { "imports": {
+    "three": "../assets/vendor/three/three.module.js",
+    "three/addons/": "../assets/vendor/three/examples/jsm/"
+  } }
+</script>
+</head>
+<body>
+<div id="gl" aria-hidden="true"></div>
+<a id="back" href="../index.html">‹ ART PLAYGROUND</a>
+<div id="tools">
+  <button id="tiltBtn" class="tbtn" type="button" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="8.5" y="3" width="7" height="18" rx="2"/><path d="M4.5 9c-1 2-1 4 0 6M19.5 9c1 2 1 4 0 6"/></svg><span>傾き OFF</span></button>
+  <button id="camBtn" class="tbtn" type="button" aria-pressed="false"><span>📷 OFF</span></button>
+</div>
+<div id="note" aria-live="polite"></div>
+<div id="read"></div>
+<video id="cam" playsinline muted autoplay style="position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none"></video>
+<script type="module">
+import * as THREE from 'three';
+import { loadSquids, createSquid } from '../assets/squid-kit/squid-kit.js';
+
+const $ = id => document.getElementById(id);
+const note = $('note'), glWrap = $('gl'), readEl = $('read');
+
+// ---------- small helpers ----------
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, t) => a + (b - a) * t;
+const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+const easeIO = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+const pad = n => String(n).padStart(2, '0');
+function h2(i, j, s) { let t = Math.imul(i | 0, 0x27d4eb2d) ^ Math.imul(j | 0, 0x165667b1) ^ Math.imul(s | 0, 0x9e3779b9); t = Math.imul(t ^ (t >>> 15), 0x85ebca6b); t ^= t >>> 13; t = Math.imul(t, 0xc2b2ae35); t ^= t >>> 16; return (t >>> 0) / 4294967296 * 2 - 1; }
+function vn2(x, z, s) {
+  const i = Math.floor(x), j = Math.floor(z), fx = x - i, fz = z - j, ux = fx * fx * (3 - 2 * fx), uz = fz * fz * (3 - 2 * fz);
+  return (h2(i, j, s) * (1 - ux) + h2(i + 1, j, s) * ux) * (1 - uz) + (h2(i, j + 1, s) * (1 - ux) + h2(i + 1, j + 1, s) * ux) * uz;
+}
+function hsl(h, s, l) {
+  h = ((h % 360) + 360) % 360 / 360;
+  const q = l < .5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
+  const f = t => { t = (t + 1) % 1; return t < 1/6 ? p + (q - p) * 6 * t : t < .5 ? q : t < 2/3 ? p + (q - p) * (2/3 - t) * 6 : p; };
+  return [f(h + 1/3) * 255, f(h) * 255, f(h - 1/3) * 255];
+}
+const rgbs = (c, a = 1) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
+const mix = (c, d, t) => [lerp(c[0], d[0], t), lerp(c[1], d[1], t), lerp(c[2], d[2], t)];
+const WHITE = [255, 255, 255];
+const test = /[?&]head=([-\d.]+),([-\d.]+)/.exec(location.search);
+
+// ---------- palettes (✦ changes what falls from now on; the record keeps its colours) ----------
+const ASH = [222, 217, 204];
+const PALS = [
+  { name: 'SPECTRUM', f: (hk, m) => hsl(hk * 137.508 + m * 6, .5, .42 + .05 * Math.sin(m * .9)) },
+  { name: 'AGATE', f: (hk, m) => {
+      const st = [[236, 216, 178], [204, 128, 66], [150, 66, 42], [98, 60, 46], [218, 172, 118], [168, 98, 70]];
+      const p = ((m + hk * 7) / 6) % st.length, i = Math.floor(p), t = p - i;
+      return mix(st[i], st[(i + 1) % st.length], t * t * (3 - 2 * t));
+    } },
+  { name: 'ABYSS', f: (hk, m) => hsl(170 + 125 * (.5 + .5 * Math.sin((m + hk * 13) / 60 * Math.PI * 4)), .56, .40 + .09 * Math.sin(m * 1.3)) },
+  { name: 'EMBER', f: (hk, m) => hsl(4 + 46 * (.5 + .5 * Math.sin((m + hk * 11) / 60 * Math.PI * 6)), .74, .42 + .1 * Math.sin(m * 1.7)) },
+];
+let pal = 0;
+const colorFor = (hk, m) => m % 10 === 0 ? mix(ASH, PALS[pal].f(hk, m), .12) : PALS[pal].f(hk, m);
+
+// ---------- the block (metres). x = time axis (screen right), y = up, z = toward the viewer ----------
+const BW = 1.3, BD = .7, NX = 96, NZ = 32, VX = NX + 1, VZ = NZ + 1, NV = VX * VZ, DX = BW / NX, DZ = BD / NZ;
+const T = .0165, HMAX = 60 * T, BANDH = .1, NB = 7, STONE_H = NB * BANDH, YBASE = -STONE_H, NL = 60;
+const TAPER = .22, EPS = 2.5e-5, OFF = .0007;
+const POLEX = BW / 2 + .075, POLEZ = BD / 2 + .035;
+const GX = new Float32Array(NV), GZ = new Float32Array(NV);
+for (let k = 0; k < VZ; k++) for (let i = 0; i < VX; i++) { GX[k * VX + i] = -BW / 2 + i * DX; GZ[k * VX + i] = -BD / 2 + k * DZ; }
+
+const tmpB = new Float32Array(NV);
+function blur2(a, rx, rz) {
+  const out = new Float32Array(NV);
+  for (let k = 0; k < VZ; k++) for (let i = 0; i < VX; i++) { let s = 0; for (let d = -rx; d <= rx; d++) s += a[k * VX + clamp(i + d, 0, VX - 1)]; tmpB[k * VX + i] = s / (2 * rx + 1); }
+  for (let k = 0; k < VZ; k++) for (let i = 0; i < VX; i++) { let s = 0; for (let d = -rz; d <= rz; d++) s += tmpB[clamp(k + d, 0, VZ - 1) * VX + i]; out[k * VX + i] = s / (2 * rz + 1); }
+  return out;
+}
+function samp(a, x, z) {
+  let fi = (x + BW / 2) / DX, fk = (z + BD / 2) / DZ;
+  fi = clamp(fi, 0, NX - .0001); fk = clamp(fk, 0, NZ - .0001);
+  const i = fi | 0, k = fk | 0, u = fi - i, v = fk - k, id = k * VX + i;
+  return (a[id] * (1 - u) + a[id + 1] * u) * (1 - v) + (a[id + VX] * (1 - u) + a[id + VX + 1] * u) * v;
+}
+const sw = u => u * u * (3 - 2 * u);
+
+// ---------- the record ----------
+// layers: the current hour's finished minute layers (index = minute); top = height field (m) over the grid.
+// bands: past hours pressed into stone, newest first; only their four edge profiles are kept (that is all a stone shows).
+let layers = [], bands = [], grow = null, flatBase = new Float32Array(NV);
+let state = { hk: 0, h: 0, m: 0 };
+const hourKeyOf = ms => Math.floor(ms / 3600000);
+function nowInfo() { const d = new Date(); return { d, hk: hourKeyOf(d.getTime()), h: d.getHours(), m: d.getMinutes(), s: d.getSeconds() + d.getMilliseconds() / 1000 }; }
+// A new layer drapes over the one below: hollows fill faster than bumps, so a dug hole heals slowly but its scar stays in the strata.
+// Near the survey pole (right end) the thickness is exact, so the surface there reads the minute.
+function makeTop(bottom, hk, m) {
+  const seed = (hk * 61 + m) % 99991, sm = blur2(bottom, 3, 2), out = new Float32Array(NV), exact = (m + 1) * T;
+  for (let k = 0; k < VZ; k++) for (let i = 0; i < VX; i++) {
+    const id = k * VX + i, x = GX[id], z = GZ[id];
+    const n = .36 * vn2(x / .24, z / .34, seed) + .14 * vn2(x / .08, z / .11, seed + 11);
+    const b = bottom[id], filled = Math.max(b, b * .58 + sm[id] * .42);
+    const v = filled + T * (1 + n), pb = smooth(.2, .5, x);
+    out[id] = Math.max(b + .05 * T, v + (exact - v) * pb);
+  }
+  return out;
+}
+const mkLayer = (top, hk, m) => ({ top, hk, m, ash: m % 10 === 0, rgb: colorFor(hk, m) });
+function synthLayers(hk, upto) {
+  let bottom = flatBase; const arr = [];
+  for (let m = 0; m < upto; m++) { const top = makeTop(bottom, hk, m); arr.push(mkLayer(top, hk, m)); bottom = top; }
+  return arr;
+}
+function stoneRGB(c, ash) { const l = c[0] * .3 + c[1] * .55 + c[2] * .15; return mix(mix(c, [l, l, l], .6), [10, 14, 18], ash ? .3 : .44); }
+function prevColorFor() { return layers.length ? layers[layers.length - 1].rgb : bands.length ? stoneRGB(bands[0].layers[bands[0].layers.length - 1].rgb, false) : [60, 66, 70]; }
+function newGrow(hk, m) {
+  const bottom = layers.length ? layers[layers.length - 1].top : flatBase;
+  return { hk, m, bottom, top: makeTop(bottom, hk, m), rgb: colorFor(hk, m), ash: m % 10 === 0, prev: prevColorFor() };
+}
+function edgeSets(top) {
+  const f = new Float32Array(VX), b = new Float32Array(VX), l = new Float32Array(VZ), r = new Float32Array(VZ);
+  for (let i = 0; i < VX; i++) { f[i] = top[NZ * VX + i]; b[i] = top[NX - i]; }
+  for (let k = 0; k < VZ; k++) { l[k] = top[k * VX]; r[k] = top[(NZ - k) * VX + NX]; }
+  return { f, b, l, r };
+}
+function hourLabel(hk) { return pad(new Date(hk * 3600000 + 1000).getHours()); }
+const makeBand = (arr, hk) => ({ hk, label: hourLabel(hk), layers: arr.map(L => ({ e: edgeSets(L.top), rgb: L.rgb, ash: L.ash })) });
+
+// ---------- renderer / scene ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+const DPRMAX = Math.min(devicePixelRatio || 1, 2); let DPR = DPRMAX;
+renderer.setPixelRatio(DPR);
+renderer.setClearColor(0x03101a, 1);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.12;
+glWrap.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(40, 1, .3, 16);
+const pivot = new THREE.Group(); scene.add(pivot);
+const kitG = new THREE.Group(); kitG.rotation.y = -Math.PI / 2; pivot.add(kitG); // kit axes: x toward viewer, -z = screen right; ours: x = right, z = toward viewer
+const hemi = new THREE.HemisphereLight(0xd2ece6, 0x06131b, 1.7); scene.add(hemi);
+const key = new THREE.DirectionalLight(0xeaf5ec, 3.0); key.position.set(-1.6, 3.2, 2.6); scene.add(key);
+const rim = new THREE.DirectionalLight(0x7fb2b8, 1.4); rim.position.set(2.5, 1.5, -3); scene.add(rim);
+const neutral = new THREE.Color(0xd2ece6), tint = new THREE.Color();
+
+// shared uniforms for the strata shaders
+const LIGHT = new THREE.Vector3(-.4, .78, .5).normalize();
+const U = {
+  uCam: { value: new THREE.Vector3() }, uL: { value: LIGHT }, uFog: { value: new THREE.Color(.012, .05, .07) },
+  uGlow: { value: 0 }, uHi: { value: -9 }, uHiA: { value: 0 }, uSc: { value: 1 }, uSh: { value: 0 }, uTime: { value: 0 }
+};
+const FRAG_COMMON = /* glsl */`
+precision highp float;
+uniform vec3 uCam; uniform vec3 uL; uniform vec3 uFog; uniform float uGlow; uniform float uHi; uniform float uHiA;
+varying vec3 vW; varying vec3 vC; varying float vL; varying float vT; varying float vK; varying float vTh;
+float hsh(vec3 p){ p=fract(p*.3183099+.1); p*=17.; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
+float vnz(vec3 x){ vec3 i=floor(x),f=fract(x); f=f*f*(3.-2.*f);
+  return mix(mix(mix(hsh(i),hsh(i+vec3(1,0,0)),f.x),mix(hsh(i+vec3(0,1,0)),hsh(i+vec3(1,1,0)),f.x),f.y),
+             mix(mix(hsh(i+vec3(0,0,1)),hsh(i+vec3(1,0,1)),f.x),mix(hsh(i+vec3(0,1,1)),hsh(i+vec3(1,1,1)),f.x),f.y),f.z); }
+vec3 shade(vec3 base, vec3 n, vec3 v, float line, float ashf, float lid){
+  float g1 = vnz(vW*95.), g2 = vnz(vW*34.+4.);
+  float g = g1*.6 + g2*.4;
+  n = normalize(n + vec3(g1-.5, g2-.5, g1*g2-.25) * .5);
+  float diff = max(dot(n,uL),0.), amb = .34 + .24*n.y;
+  float rimv = pow(1.-max(dot(n,v),0.), 3.) * .10;
+  vec3 col = base * (.80 + .40*g) * (amb + .80*diff) + rimv * vec3(.45,.68,.72);
+  col = mix(col, col*1.55 + .05, line*.55);
+  col = mix(col, vec3(1.,.985,.93), line*ashf*.5);
+  col *= mix(.50, 1., smoothstep(-.95, .45, vW.y));
+  col += uGlow * vec3(.34,.29,.2);
+  if (abs(floor(lid+.01) - uHi) < .5) col = mix(col, vec3(1.), uHiA*.55);
+  float dist = length(uCam - vW);
+  return mix(col, uFog, 1. - exp(-dist*.05));
+}`;
+const FRAG_LAYER = FRAG_COMMON + /* glsl */`
+void main(){
+  if (vTh < .0004) discard;
+  vec3 n = normalize(cross(dFdx(vW), dFdy(vW))); vec3 v = normalize(uCam - vW); if (dot(n,v) < 0.) n = -n;
+  float line = vK < 1. ? smoothstep(.74,1.,vT) : 0.;
+  float ashf = fract(vL) > .1 ? 1. : 0.;
+  gl_FragColor = vec4(shade(vC, n, v, line, ashf, vL), 1.);
+}`;
+const VERT_LAYER = /* glsl */`
+uniform float uSc; uniform float uSh; uniform float uKind;
+attribute vec3 aColor; attribute float aLayer; attribute float aT;
+varying vec3 vW; varying vec3 vC; varying float vL; varying float vT; varying float vK; varying float vTh;
+void main(){
+  vec3 p = position; p.y = p.y*uSc - uSh;
+  vec4 w = modelMatrix*vec4(p,1.); vW = w.xyz; vC = aColor; vL = aLayer; vT = aT; vK = uKind; vTh = 1.;
+  gl_Position = projectionMatrix*viewMatrix*w;
+}`;
+const VERT_GROW = /* glsl */`
+uniform float uFront; uniform vec3 uGrowC; uniform vec3 uPrev; uniform float uGrowL;
+attribute float aH0; attribute float aH1; attribute float aMode;
+varying vec3 vW; varying vec3 vC; varying float vL; varying float vT; varying float vK; varying float vTh;
+void main(){
+  float u = clamp((uFront - (position.x + ${(BW / 2).toFixed(4)})) / ${TAPER.toFixed(4)}, 0., 1.);
+  float S = u*u*(3.-2.*u);
+  float h = aMode < .5 ? aH0 : aH0 + (aH1 - aH0)*S;
+  vec4 w = modelMatrix*vec4(position.x, h, position.z, 1.); vW = w.xyz;
+  bool surf = aMode > 1.5;
+  vC = surf ? mix(uPrev, uGrowC, S) : uGrowC; vL = uGrowL; vT = aMode < .5 ? 0. : 1.; vK = surf ? 2. : 0.;
+  vTh = surf ? h - aH0 : 1.;
+  gl_Position = projectionMatrix*viewMatrix*w;
+}`;
+const share = o => Object.assign({ uCam: U.uCam, uL: U.uL, uFog: U.uFog, uGlow: U.uGlow, uHi: U.uHi, uHiA: U.uHiA }, o);
+
+// --- finished layers: top surfaces (newest layer in the lowest slot, so the newest is drawn first and hides the rest early)
+const topPos = new Float32Array(NL * NV * 3), topCol = new Float32Array(NL * NV * 3), topId = new Float32Array(NL * NV), topT = new Float32Array(NL * NV).fill(1);
+for (let s = 0; s < NL; s++) for (let id = 0; id < NV; id++) { const o = (s * NV + id) * 3; topPos[o] = GX[id]; topPos[o + 2] = GZ[id]; }
+const NI = NX * NZ * 6, topIdx = new Uint32Array(NL * NI);
+for (let s = 0, q = 0; s < NL; s++) for (let k = 0; k < NZ; k++) for (let i = 0; i < NX; i++) {
+  const a = s * NV + k * VX + i, b = a + 1, c = a + VX, d = c + 1;
+  topIdx[q++] = a; topIdx[q++] = c; topIdx[q++] = b; topIdx[q++] = b; topIdx[q++] = c; topIdx[q++] = d;
+}
+const topGeo = new THREE.BufferGeometry();
+const A = (arr, n, dyn = true) => { const a = new THREE.BufferAttribute(arr, n); if (dyn) a.setUsage(THREE.DynamicDrawUsage); return a; };
+topGeo.setAttribute('position', A(topPos, 3)); topGeo.setAttribute('aColor', A(topCol, 3)); topGeo.setAttribute('aLayer', A(topId, 1)); topGeo.setAttribute('aT', A(topT, 1, false));
+topGeo.setIndex(new THREE.BufferAttribute(topIdx, 1)); topGeo.setDrawRange(0, 0);
+const topMat = new THREE.ShaderMaterial({ vertexShader: VERT_LAYER, fragmentShader: FRAG_LAYER, side: THREE.DoubleSide,
+  uniforms: share({ uSc: U.uSc, uSh: U.uSh, uKind: { value: 2 } }) });
+const topMesh = new THREE.Mesh(topGeo, topMat); topMesh.frustumCulled = false; pivot.add(topMesh);
+
+// --- finished layers: the four side faces (strips between one boundary and the one below)
+const EDGES = [
+  { n: VX, xz: j => [-BW / 2 + j * DX, BD / 2 + OFF], get: (t, j) => t[NZ * VX + j] },   // front
+  { n: VX, xz: j => [-BW / 2 + j * DX, -BD / 2 - OFF], get: (t, j) => t[j] },            // back
+  { n: VZ, xz: j => [BW / 2 + OFF, -BD / 2 + j * DZ], get: (t, j) => t[j * VX + NX] },   // right
+  { n: VZ, xz: j => [-BW / 2 - OFF, -BD / 2 + j * DZ], get: (t, j) => t[j * VX] }        // left
+];
+const SV = EDGES.reduce((a, e) => a + e.n * 2, 0), SI = EDGES.reduce((a, e) => a + (e.n - 1) * 6, 0);
+const stPos = new Float32Array(NL * SV * 3), stCol = new Float32Array(NL * SV * 3), stId = new Float32Array(NL * SV), stT = new Float32Array(NL * SV), stIdx = new Uint32Array(NL * SI);
+for (let s = 0, q = 0; s < NL; s++) {
+  let v0 = s * SV;
+  for (const e of EDGES) {
+    for (let j = 0; j < e.n; j++) {
+      const [x, z] = e.xz(j), o = (v0 + j * 2) * 3;
+      stPos[o] = x; stPos[o + 2] = z; stPos[o + 3] = x; stPos[o + 5] = z;
+      stT[v0 + j * 2] = 0; stT[v0 + j * 2 + 1] = 1;
+    }
+    for (let j = 0; j < e.n - 1; j++) { const a = v0 + j * 2; stIdx[q++] = a; stIdx[q++] = a + 1; stIdx[q++] = a + 2; stIdx[q++] = a + 1; stIdx[q++] = a + 3; stIdx[q++] = a + 2; }
+    v0 += e.n * 2;
+  }
+}
+const stGeo = new THREE.BufferGeometry();
+stGeo.setAttribute('position', A(stPos, 3)); stGeo.setAttribute('aColor', A(stCol, 3)); stGeo.setAttribute('aLayer', A(stId, 1)); stGeo.setAttribute('aT', A(stT, 1, false));
+stGeo.setIndex(new THREE.BufferAttribute(stIdx, 1)); stGeo.setDrawRange(0, 0);
+const stMat = new THREE.ShaderMaterial({ vertexShader: VERT_LAYER, fragmentShader: FRAG_LAYER, side: THREE.DoubleSide,
+  uniforms: share({ uSc: U.uSc, uSh: U.uSh, uKind: { value: 0 } }) });
+const stMesh = new THREE.Mesh(stGeo, stMat); stMesh.frustumCulled = false; pivot.add(stMesh);
+
+let nDrawn = 0;
+function setLayerRange(n) {
+  n = clamp(n, 0, NL); nDrawn = n;
+  topGeo.setDrawRange((NL - n) * NI, n * NI);
+  stGeo.setDrawRange((NL - n) * SI, n * SI);
+}
+function writeLayer(m, L) {
+  const s = NL - 1 - m, lid = m + (L.ash ? .3 : 0), rgb = L.rgb;
+  for (let id = 0; id < NV; id++) {
+    const o = (s * NV + id) * 3;
+    topPos[o + 1] = L.top[id]; topCol[o] = rgb[0] / 255; topCol[o + 1] = rgb[1] / 255; topCol[o + 2] = rgb[2] / 255; topId[s * NV + id] = lid;
+  }
+  const lower = m ? layers[m - 1].top : flatBase;
+  let v0 = s * SV;
+  for (const e of EDGES) {
+    for (let j = 0; j < e.n; j++) {
+      const a = v0 + j * 2, o = a * 3;
+      stPos[o + 1] = e.get(lower, j); stPos[o + 4] = e.get(L.top, j);
+      for (let q = 0; q < 2; q++) { const p = (a + q) * 3; stCol[p] = rgb[0] / 255; stCol[p + 1] = rgb[1] / 255; stCol[p + 2] = rgb[2] / 255; stId[a + q] = lid; }
+    }
+    v0 += e.n * 2;
+  }
+}
+function uploadLayers() {
+  layers.forEach((L, m) => writeLayer(m, L));
+  for (const g of [topGeo, stGeo]) for (const a of Object.values(g.attributes)) a.needsUpdate = true;
+  setLayerRange(layers.length);
+}
+
+// --- the growing layer (the current minute): the second hand lays it down from left to right
+const gPos = new Float32Array((NV + SV) * 3), gH0 = new Float32Array(NV + SV), gH1 = new Float32Array(NV + SV), gMode = new Float32Array(NV + SV);
+for (let id = 0; id < NV; id++) { gPos[id * 3] = GX[id]; gPos[id * 3 + 2] = GZ[id]; gMode[id] = 2; }
+const gIdx = new Uint32Array(NX * NZ * 6 + SI);
+{ let q = 0;
+  for (let k = 0; k < NZ; k++) for (let i = 0; i < NX; i++) { const a = k * VX + i, b = a + 1, c = a + VX, d = c + 1; gIdx[q++] = a; gIdx[q++] = c; gIdx[q++] = b; gIdx[q++] = b; gIdx[q++] = c; gIdx[q++] = d; }
+  let v0 = NV;
+  for (const e of EDGES) {
+    for (let j = 0; j < e.n; j++) { const [x, z] = e.xz(j), a = v0 + j * 2; gPos[a * 3] = x; gPos[a * 3 + 2] = z; gPos[a * 3 + 3] = x; gPos[a * 3 + 5] = z; gMode[a] = 0; gMode[a + 1] = 1; }
+    for (let j = 0; j < e.n - 1; j++) { const a = v0 + j * 2; gIdx[q++] = a; gIdx[q++] = a + 1; gIdx[q++] = a + 2; gIdx[q++] = a + 1; gIdx[q++] = a + 3; gIdx[q++] = a + 2; }
+    v0 += e.n * 2;
+  }
+}
+const gGeo = new THREE.BufferGeometry();
+gGeo.setAttribute('position', A(gPos, 3, false)); gGeo.setAttribute('aH0', A(gH0, 1)); gGeo.setAttribute('aH1', A(gH1, 1)); gGeo.setAttribute('aMode', A(gMode, 1, false));
+gGeo.setIndex(new THREE.BufferAttribute(gIdx, 1));
+const gMat = new THREE.ShaderMaterial({ vertexShader: VERT_GROW, fragmentShader: FRAG_LAYER, side: THREE.DoubleSide,
+  uniforms: share({ uFront: { value: -9 }, uGrowC: { value: new THREE.Vector3() }, uPrev: { value: new THREE.Vector3() }, uGrowL: { value: 0 } }) });
+const gMesh = new THREE.Mesh(gGeo, gMat); gMesh.frustumCulled = false; pivot.add(gMesh);
+function writeGrow() {
+  if (!grow) { gMesh.visible = false; return; }
+  gMesh.visible = true;
+  for (let id = 0; id < NV; id++) { gH0[id] = grow.bottom[id]; gH1[id] = grow.top[id]; }
+  let v0 = NV;
+  for (const e of EDGES) {
+    for (let j = 0; j < e.n; j++) { const a = v0 + j * 2, b0 = e.get(grow.bottom, j), t0 = e.get(grow.top, j); gH0[a] = b0; gH1[a] = b0; gH0[a + 1] = b0; gH1[a + 1] = t0; }
+    v0 += e.n * 2;
+  }
+  gGeo.attributes.aH0.needsUpdate = true; gGeo.attributes.aH1.needsUpdate = true;
+  const u = gMat.uniforms;
+  u.uGrowC.value.set(grow.rgb[0] / 255, grow.rgb[1] / 255, grow.rgb[2] / 255);
+  u.uPrev.value.set(grow.prev[0] / 255, grow.prev[1] / 255, grow.prev[2] / 255);
+  u.uGrowL.value = grow.m + (grow.ash ? .3 : 0);
+}
+
+// --- stone (past hours): a box whose four faces are textures painted from the bands' edge profiles
+const BH = 48, FACEW = { f: 768, b: 768, l: 384, r: 384 };
+const faceCv = {}, faceTex = {};
+for (const k of Object.keys(FACEW)) {
+  const c = document.createElement('canvas'); c.width = FACEW[k]; c.height = NB * BH; faceCv[k] = c;
+  const t = new THREE.CanvasTexture(c); t.flipY = false; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy()); t.colorSpace = THREE.NoColorSpace; faceTex[k] = t;
+}
+const stoneCss = (c, ash) => rgbs(stoneRGB(c, ash));
+function paintBand(g, band, key, w, y0) {
+  const s = BH / HMAX, n = band.layers.length;
+  g.fillStyle = stoneCss(band.layers[0].rgb, false); g.fillRect(0, y0, w, BH);
+  const yOf = h => clamp(y0 + BH - h * s, y0, y0 + BH);
+  for (let i = n - 1; i >= 0; i--) {
+    const e = band.layers[i].e[key], m = e.length;
+    g.beginPath(); g.moveTo(0, y0 + BH + 1);
+    for (let j = 0; j < m; j++) g.lineTo(j / (m - 1) * w, yOf(e[j]));
+    g.lineTo(w, y0 + BH + 1); g.closePath(); g.fillStyle = stoneCss(band.layers[i].rgb, band.layers[i].ash); g.fill();
+  }
+  for (let i = 0; i < n; i++) if (band.layers[i].ash) {
+    const e = band.layers[i].e[key], m = e.length; g.beginPath();
+    for (let j = 0; j < m; j++) g[j ? 'lineTo' : 'moveTo'](j / (m - 1) * w, yOf(e[j]) + .5);
+    g.strokeStyle = 'rgba(255,250,236,.34)'; g.lineWidth = .7; g.stroke();
+  }
+  g.fillStyle = 'rgba(0,0,0,.5)'; g.fillRect(0, y0, w, 1);
+  g.fillStyle = 'rgba(255,255,255,.12)'; g.fillRect(0, y0 + 1, w, 1);
+  if (key === 'f') { g.font = '16px Georgia, serif'; g.fillStyle = 'rgba(236,240,232,.55)'; g.fillText(band.label, 10, y0 + BH / 2 + 5); }
+}
+function paintBands() {
+  for (const key of Object.keys(FACEW)) {
+    const c = faceCv[key], g = c.getContext('2d');
+    g.fillStyle = '#0b1115'; g.fillRect(0, 0, c.width, c.height);
+    bands.forEach((b, i) => paintBand(g, b, key, c.width, i * BH));
+    faceTex[key].needsUpdate = true;
+  }
+  const tc = bands.length ? stoneRGB(bands[0].layers[bands[0].layers.length - 1].rgb, false) : [40, 46, 50];
+  stoneTopMat.uniforms.uCol.value.set(tc[0] / 255, tc[1] / 255, tc[2] / 255);
+}
+const STONE_VERT = /* glsl */`
+uniform float uSh; varying vec3 vW; varying float vU; varying float vY;
+void main(){ vU = uv.x; vY = position.y + uSh; vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; }`;
+const STONE_FRAG = FRAG_COMMON.replace('varying vec3 vW; varying vec3 vC; varying float vL; varying float vT; varying float vK; varying float vTh;', 'varying vec3 vW;') + /* glsl */`
+uniform sampler2D uTex; uniform float uBandHi; varying float vU; varying float vY;
+void main(){
+  if (vY > .0006) discard;
+  float v = -vY / ${STONE_H.toFixed(4)};
+  vec3 base = texture2D(uTex, vec2(vU, clamp(v,0.,1.))).rgb;
+  vec3 n = normalize(cross(dFdx(vW), dFdy(vW))); vec3 vv = normalize(uCam - vW); if (dot(n,vv) < 0.) n = -n;
+  float g = vnz(vW*95.)*.6 + vnz(vW*34.)*.4;
+  float diff = max(dot(n,uL),0.), amb = .34 + .24*n.y;
+  vec3 col = base * (.82 + .36*g) * (amb + .80*diff);
+  col *= mix(1., .42, smoothstep(0., 1., v));
+  float band = floor(v * ${NB.toFixed(1)});
+  if (abs(band - uBandHi) < .5) col = mix(col, vec3(1.), uHiA*.45);
+  col += uGlow * vec3(.12,.1,.07);
+  float dist = length(uCam - vW);
+  gl_FragColor = vec4(mix(col, uFog, 1. - exp(-dist*.05)), 1.);
+}`;
+const FACES = { f: { rot: 0, pos: [0, 0, BD / 2], w: BW }, b: { rot: Math.PI, pos: [0, 0, -BD / 2], w: BW }, r: { rot: Math.PI / 2, pos: [BW / 2, 0, 0], w: BD }, l: { rot: -Math.PI / 2, pos: [-BW / 2, 0, 0], w: BD } };
+const stoneMats = [];
+const stoneGroup = new THREE.Group(); pivot.add(stoneGroup);
+for (const k of Object.keys(FACES)) {
+  const F = FACES[k], geo = new THREE.PlaneGeometry(F.w, STONE_H); geo.translate(0, -STONE_H / 2, 0);
+  const mat = new THREE.ShaderMaterial({ vertexShader: STONE_VERT, fragmentShader: STONE_FRAG, uniforms: share({ uTex: { value: faceTex[k] }, uSh: U.uSh, uBandHi: { value: -9 } }), side: THREE.FrontSide });
+  stoneMats.push(mat);
+  const mesh = new THREE.Mesh(geo, mat); mesh.rotation.y = F.rot; mesh.position.set(...F.pos); stoneGroup.add(mesh);
+}
+const stoneTopMat = new THREE.ShaderMaterial({ uniforms: { uCol: { value: new THREE.Color(.2, .22, .24) }, uSh: U.uSh },
+  vertexShader: `uniform float uSh; void main(){ vec3 p = position; p.y -= uSh; gl_Position = projectionMatrix*modelViewMatrix*vec4(p,1.); }`,
+  fragmentShader: `uniform vec3 uCol; void main(){ gl_FragColor = vec4(uCol*.8,1.); }` });
+const stoneTop = new THREE.Mesh(new THREE.PlaneGeometry(BW, BD).rotateX(-Math.PI / 2).translate(0, -.0008, 0), stoneTopMat); pivot.add(stoneTop);
+
+// --- the room: back wall, side walls, floor (fixed in the world while the block turns)
+const ROOM_VERT = /* glsl */`varying vec3 vW; void main(){ vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; }`;
+const ROOM_FRAG = /* glsl */`
+uniform float uTime; varying vec3 vW;
+void main(){
+  float y = vW.y;
+  vec3 topc = vec3(.060,.205,.265), midc = vec3(.035,.115,.155), botc = vec3(.008,.030,.045);
+  vec3 col = mix(botc, mix(midc, topc, smoothstep(1.3, 3.8, y)), smoothstep(-.9, 1.5, y));
+  float sh = 0.;
+  sh += pow(max(0., sin(vW.x*2.3 + vW.y*.55 + uTime*.045)), 7.);
+  sh += pow(max(0., sin(vW.x*3.9 - vW.y*.40 - uTime*.035 + 1.7)), 9.) * .8;
+  sh += pow(max(0., sin(vW.x*1.4 + vW.y*.70 + uTime*.028 + 3.1)), 6.) * .7;
+  col += vec3(.32,.55,.55) * sh * .042 * smoothstep(.0, 3.6, y) * (1. - smoothstep(-.4, 3.8, -y*.0));
+  col *= 1. - .45*smoothstep(.55, 1.45, abs(vW.x));
+  gl_FragColor = vec4(col, 1.);
+}`;
+const roomMat = new THREE.ShaderMaterial({ vertexShader: ROOM_VERT, fragmentShader: ROOM_FRAG, uniforms: { uTime: U.uTime }, side: THREE.BackSide });
+const room = new THREE.Mesh(new THREE.BoxGeometry(2.4, 7, 2.5), roomMat); room.position.set(0, 1.55, -.45); scene.add(room);
+const floorMat = new THREE.ShaderMaterial({ transparent: true, depthWrite: false,
+  vertexShader: ROOM_VERT, uniforms: { uTime: U.uTime },
+  fragmentShader: /* glsl */`varying vec3 vW; void main(){ float r = length(vW.xz*vec2(.75,1.1)); float sh = smoothstep(1.15, .35, r); gl_FragColor = vec4(vec3(.004,.012,.018), mix(.55, .94, sh)); }` });
+const floorM = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 2.5).rotateX(-Math.PI / 2), floorMat); floorM.position.set(0, YBASE - .012, -.45); scene.add(floorM);
+
+// --- survey pole + labels
+const poleG = new THREE.Group(); poleG.position.set(POLEX, 0, POLEZ); pivot.add(poleG);
+const poleMat = new THREE.MeshBasicMaterial({ color: 0xd8e8e2, transparent: true, opacity: .62 });
+const stake = new THREE.Mesh(new THREE.BoxGeometry(.006, HMAX + .17, .006), poleMat); stake.position.y = (HMAX + .17) / 2 - .03; poleG.add(stake);
+const ticks = new THREE.InstancedMesh(new THREE.BoxGeometry(1, .0016, .006), poleMat, 61);
+{ const o = new THREE.Object3D(); for (let m = 0; m <= 60; m++) { const big = m % 10 === 0, w = big ? .036 : .016; o.position.set(w / 2, m * T, 0); o.scale.set(w, 1, 1); o.updateMatrix(); ticks.setMatrixAt(m, o.matrix); } }
+poleG.add(ticks);
+function textSprite(w, h, scaleW, drawFn) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, transparent: true, depthTest: false, depthWrite: false }));
+  sp.scale.set(scaleW, scaleW * h / w, 1); sp.renderOrder = 20;
+  sp.userData.draw = txt => { const g = c.getContext('2d'); g.clearRect(0, 0, w, h); drawFn(g, txt, w, h); t.needsUpdate = true; };
+  return sp;
+}
+const clockSp = textSprite(256, 96, .3, (g, txt, w, h) => {
+  g.font = '300 58px Georgia, serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.shadowColor = 'rgba(0,0,0,.8)'; g.shadowBlur = 10; g.fillStyle = 'rgba(240,248,244,.92)'; g.fillText(txt, w / 2, h / 2);
+});
+pivot.add(clockSp);
+for (let m = 0; m < 60; m += 10) {
+  const sp = textSprite(64, 32, .06, (g, txt, w, h) => { g.font = '20px Georgia, serif'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillStyle = 'rgba(226,238,232,.7)'; g.fillText(txt, 4, h / 2); });
+  sp.userData.draw(':' + pad(m)); sp.position.set(POLEX + .075, m * T + .008, POLEZ); pivot.add(sp);
+}
+const nowMark = new THREE.Mesh(new THREE.OctahedronGeometry(.016), new THREE.MeshBasicMaterial({ color: 0xf4faf6 })); pivot.add(nowMark);
+let clockTxt = '';
+
+// ---------- particles: scales, silt, sparkles, jet streaks (one Points object) ----------
+const MAXP = 900, NPT = MAXP * 3;
+const pPos = new Float32Array(NPT * 3), pCol = new Float32Array(NPT * 4), pSz = new Float32Array(NPT);
+const pGeo = new THREE.BufferGeometry();
+pGeo.setAttribute('position', A(pPos, 3)); pGeo.setAttribute('aCol', A(pCol, 4)); pGeo.setAttribute('aSize', A(pSz, 1)); pGeo.setDrawRange(0, 0);
+const pMat = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, uniforms: { uHalfH: { value: 400 } },
+  vertexShader: /* glsl */`attribute vec4 aCol; attribute float aSize; uniform float uHalfH; varying vec4 vC;
+    void main(){ vC = aCol; vec4 mv = modelViewMatrix*vec4(position,1.); gl_Position = projectionMatrix*mv;
+      gl_PointSize = max(1.6, aSize*projectionMatrix[1][1]*uHalfH/gl_Position.w); }`,
+  fragmentShader: /* glsl */`varying vec4 vC; void main(){ float d = length(gl_PointCoord-.5); float a = smoothstep(.5,.12,d); gl_FragColor = vec4(vC.rgb, vC.a*a); }` });
+const pPts = new THREE.Points(pGeo, pMat); pPts.frustumCulled = false; pivot.add(pPts);
+const P = [];
+function addP(o) { if (P.length >= MAXP) P.shift(); P.push(o); }
+
+// marine snow (its own little Points)
+const NSN = 160, snPos = new Float32Array(NSN * 3), snCol = new Float32Array(NSN * 4), snSz = new Float32Array(NSN), snV = [];
+for (let i = 0; i < NSN; i++) {
+  snPos[i * 3] = (Math.random() - .5) * 2.1; snPos[i * 3 + 1] = -.5 + Math.random() * 3.4; snPos[i * 3 + 2] = -1.1 + Math.random() * 1.7;
+  snV.push(.012 + Math.random() * .03); snSz[i] = .0035 + Math.random() * .004; snCol.set([.84, .91, .89, .1 + Math.random() * .22], i * 4);
+}
+const snGeo = new THREE.BufferGeometry();
+snGeo.setAttribute('position', A(snPos, 3)); snGeo.setAttribute('aCol', A(snCol, 4, false)); snGeo.setAttribute('aSize', A(snSz, 1, false));
+const snPts = new THREE.Points(snGeo, pMat); snPts.frustumCulled = false; scene.add(snPts);
+
+// ---------- fish school: the second hand ----------
+function fishGeos() {
+  const prof = [[0, .5], [.07, .44], [.12, .3], [.15, .1], [.14, -.1], [.1, -.28], [.05, -.38], [.02, -.42]].map(p => new THREE.Vector2(p[0], p[1]));
+  const body = new THREE.LatheGeometry(prof, 8); body.rotateZ(-Math.PI / 2); body.scale(1, 1.2, .62);
+  const pos = body.attributes.position, col = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) { const t = smooth(-.06, .08, pos.getY(i)); col[i * 3] = lerp(.2, .9, t); col[i * 3 + 1] = lerp(.3, .94, t); col[i * 3 + 2] = lerp(.38, .94, t); }
+  body.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const tail = new THREE.BufferGeometry();
+  tail.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, 0, 0, -.2, .17, 0, -.11, 0, 0, -.2, -.17, 0]), 3));
+  tail.setIndex([0, 1, 2, 0, 2, 3]);
+  const tc = new Float32Array(12); for (let i = 0; i < 12; i += 3) { tc[i] = .55; tc[i + 1] = .66; tc[i + 2] = .7; }
+  tail.setAttribute('color', new THREE.BufferAttribute(tc, 3));
+  return { body, tail };
+}
+const NF = 22, fish = [];
+const { body: fBodyG, tail: fTailG } = fishGeos();
+const fMat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: .5, roughness: .38, side: THREE.DoubleSide });
+const fBody = new THREE.InstancedMesh(fBodyG, fMat, NF), fTail = new THREE.InstancedMesh(fTailG, fMat, NF);
+for (const m of [fBody, fTail]) { m.setColorAt(0, new THREE.Color(1, 1, 1)); m.frustumCulled = false; pivot.add(m); }
+const FISH_Y = HMAX + .3;
+function makeFish() {
+  fish.length = 0;
+  for (let i = 0; i < NF; i++) fish.push({
+    p: new THREE.Vector3(-.5 + Math.random() * .1, FISH_Y + (Math.random() - .5) * .1, (Math.random() - .5) * .3), v: new THREE.Vector3(.05, 0, 0),
+    L: .05 + Math.random() * .025, a: Math.random() * 6.28, w: (.25 + Math.random() * .35) * (Math.random() < .5 ? -1 : 1),
+    r: .03 + Math.random() * .17, ph: Math.random() * 6.28, yaw: 0, pit: 0
+  });
+}
+function schoolTarget(s, t) {
+  const y = FISH_Y + Math.sin(t * .23) * .05, z = Math.sin(t * .17) * .09, L = -BW / 2 + .07, R = BW / 2 - .05;
+  if (s < 3) return { x: lerp(R, L, easeIO(s / 3)), y, z, dash: true };
+  return { x: lerp(L, R, clamp((s - 3) / 52, 0, 1)) + Math.sin(t * .4) * .02, y, z, dash: false };
+}
+
+// ---------- squids (kit) ----------
+const tmpV = new THREE.Vector3(), tmpW = new THREE.Vector3();
+let aori = null, kouika = null, kitReady = false;
+const centerLocal = (act, out) => pivot.worldToLocal(act.getCenter(out));
+const kitPt = (x, y, z, out) => out.set(z, y, -x);     // ours -> kit axes
+const KX = .2, KZ = .02;
+function spawnKouika(emerge) {
+  if (!kitReady) return;
+  if (kouika) kouika.dispose();
+  const fy = surfH(KX, KZ);
+  kouika = createSquid('kouika', { detail: 'low', floorY: fy, home: kitPt(KX, fy + .2, KZ, new THREE.Vector3()) });
+  kouika.fx.group.remove(kouika.fx.ground.mesh, kouika.fx.wetStains.mesh);
+  kitG.add(kouika.object);
+  if (emerge) { kouika.setMotion('bury'); kouika.brain.phase = 'hidden'; kouika.brain.pt = 3.95; kouPrev = 'hidden'; }
+  else { kouika.setMotion('rest'); kouPrev = ''; }
+  for (let i = 0; i < 20; i++) kouika.update(1 / 60);
+}
+
+// ---------- surface (the sea floor, as the strata currently show it) ----------
+let anim = null, sNow = 0; // anim: {type:'compact'|'reveal', t, dur, arr, ...}
+const compSc = e => lerp(1, BANDH / HMAX, e);
+const frontLocal = s => -TAPER + (BW + 2 * TAPER) * clamp((s - 7) / 52, 0, 1);
+const uAt = (x, front) => clamp((front - (x + BW / 2)) / TAPER, 0, 1);
+function surfH(x, z) {
+  if (anim && anim.type === 'compact') {
+    const e = easeIO(clamp(anim.t / anim.dur, 0, 1)), top = anim.arr.length ? anim.arr[anim.arr.length - 1].top : flatBase;
+    return samp(top, x, z) * compSc(e) - BANDH * e;
+  }
+  if (anim && anim.type === 'reveal') { const n = anim.shown; return n ? samp(anim.arr[n - 1].top, x, z) : 0; }
+  if (grow) { const b = samp(grow.bottom, x, z), t = samp(grow.top, x, z); return b + (t - b) * sw(uAt(x, frontLocal(sNow))); }
+  return 0;
+}
+function colorAtDepth(x, y, z) {
+  for (let i = layers.length - 1; i >= 0; i--) {
+    const top = samp(layers[i].top, x, z), bot = i ? samp(layers[i - 1].top, x, z) : 0;
+    if (y >= bot - .002 && y <= top + .002) return layers[i].rgb;
+  }
+  return grow ? grow.rgb : ASH;
+}
+function burst(x0, z0, n, spread, power, fn) {
+  for (let i = 0; i < n; i++) {
+    const a0 = Math.random() * 6.283, r = Math.random() * spread, x = x0 + Math.cos(a0) * r, z = z0 + Math.sin(a0) * r * .8, y = surfH(x, z);
+    const a = Math.random() * 6.283, el = .9 + Math.random() * .6, v = power * (.35 + Math.random() * .75);
+    addP({ k: 1, x, y: y + .003, z, vx: Math.cos(a) * v * .35, vy: Math.sin(el) * v, vz: Math.sin(a) * v * .35, sz: .005 + Math.random() * .008, rgb: fn(x, y - .01 - Math.random() * .03, z), life: 0, max: 3 + Math.random() * 2.5 });
+  }
+}
+
+// ---------- craters: the only thing the viewer can do to the record ----------
+const CR = .12, CD = .1;
+function crater(cx, cz) {
+  if (anim || !grow) return;
+  const floor = new Float32Array(NV).fill(-1e9);
+  for (let id = 0; id < NV; id++) {
+    const dx = GX[id] - cx, dz = GZ[id] - cz, bell = Math.exp(-(dx * dx + dz * dz) / (CR * CR) * 1.7);
+    if (bell > .02) floor[id] = Math.max(0, surfH(GX[id], GZ[id]) - CD * bell); // stone (past hours) is too hard to dig
+  }
+  // each layer's cap sits a hair lower than the one below it, so where several layers are cut flat the lowest one is the one you see
+  layers.forEach((L, i) => { for (let id = 0; id < NV; id++) if (floor[id] > -1e8) { const c = floor[id] - i * EPS; if (L.top[id] > c) L.top[id] = c; } });
+  grow.top = makeTop(grow.bottom, grow.hk, grow.m);
+  uploadLayers(); writeGrow();
+}
+
+// ---------- events ----------
+let ashPulse = 0, hourPulse = 0, excite = 0, buryArmed = false, holdBury = false, kouPrev = '';
+let pendingBlow = null, aoriIdleAt = 0, preview = null, previewStep = 0, reading = null, aoriT = { x: -.3, z: .03 };
+function say(t, ms = 1800) { note.textContent = t; note.classList.add('show'); clearTimeout(say.k); say.k = setTimeout(() => note.classList.remove('show'), ms); }
+
+function fullSync() {
+  const N = nowInfo();
+  flatBase = new Float32Array(NV);
+  bands = [];
+  for (let k = 1; k <= NB; k++) bands.push(makeBand(synthLayers(N.hk - k, 60), N.hk - k));
+  layers = synthLayers(N.hk, N.m);
+  state = { hk: N.hk, h: N.h, m: N.m };
+  anim = null; reading = null; U.uSc.value = 1; U.uSh.value = 0;
+  grow = newGrow(N.hk, N.m);
+  paintBands(); uploadLayers(); writeGrow();
+  spawnKouika(false);
+}
+function finalizeGrow() {
+  if (!grow) return;
+  layers.push({ top: grow.top, hk: grow.hk, m: grow.m, ash: grow.ash, rgb: grow.rgb });
+  grow = null;
+  writeLayer(layers.length - 1, layers[layers.length - 1]);
+  for (const g of [topGeo, stGeo]) for (const a of Object.values(g.attributes)) a.needsUpdate = true;
+  setLayerRange(layers.length);
+}
+function startCompaction(isPreview) {
+  anim = { type: 'compact', t: 0, dur: 3.6, arr: layers.slice(), preview: isPreview };
+  hourPulse = 1;
+  gMesh.visible = false;
+  if (kouika) kouika.object.visible = false;
+  burst(0, 0, 70, .62, 1.2, colorAtDepth);
+  scatterFish(0, FISH_Y - .3, 0, 1.6);
+}
+function endCompaction() {
+  const a = anim;
+  bands.unshift(makeBand(a.arr, state.hk));
+  if (bands.length > NB) bands.length = NB;
+  layers = []; anim = null; U.uSc.value = 1; U.uSh.value = 0; holdBury = false;
+  setLayerRange(0); paintBands();
+  setTimeout(() => spawnKouika(true), 350);
+}
+function advanceTo(N) {
+  finalizeGrow();
+  if (N.hk !== state.hk) { startCompaction(false); anim.next = N; }
+  else { state.m = N.m; grow = newGrow(state.hk, state.m); writeGrow(); if (N.m % 10 === 0) ashPulse = 1; }
+}
+function finalizeGrowPreview() { // a preview presses the hour as it is right now, half-finished layer included
+  if (grow) {
+    const top = Float32Array.from(grow.bottom, (b, id) => { const t = grow.top[id]; return b + (t - b) * sw(uAt(GX[id], frontLocal(sNow))); });
+    layers = layers.concat([{ top, hk: grow.hk, m: grow.m, ash: grow.ash, rgb: grow.rgb }]); grow = null;
+    uploadLayers();
+  }
+}
+function previewHour() {
+  if (anim || preview) return;
+  const snap = { layers: layers.slice(), grow, bands: bands.slice() };
+  preview = { t: 0, snap, stage: 'bury' };
+  if (kouika) { kouika.setMotion('bury'); holdBury = true; }
+  say('正時 — 一時間が石になる');
+}
+function finishPreview(instant) {
+  const p = preview; preview = null;
+  if (!p) return;
+  if (anim && anim.type === 'compact') { anim = null; U.uSc.value = 1; U.uSh.value = 0; }
+  bands = p.snap.bands; layers = p.snap.layers; grow = p.snap.grow;
+  holdBury = false; paintBands(); uploadLayers(); writeGrow();
+  if (instant || !layers.length) { anim = null; spawnKouika(false); return; }
+  anim = { type: 'reveal', t: 0, dur: 1.6, arr: layers, shown: 0 };
+  gMesh.visible = false; setLayerRange(0);
+  if (kouika) kouika.object.visible = false;
+}
+function onEventButton() {
+  if (previewStep === 0) { ashPulse = 1.4; say('10分 — 白い鍵層'); }
+  else previewHour();
+  previewStep = (previewStep + 1) % 2;
+}
+function scatterFish(x, y, z, power) {
+  for (const f of fish) { tmpV.set(f.p.x - x, f.p.y - y, f.p.z - z); const d = tmpV.length() + .06; f.v.addScaledVector(tmpV, power / d * .35); }
+}
+function doBlow(x, z) {
+  const sy = surfH(x, z);
+  crater(x, z);
+  burst(x, z, 46, .09, 1.1, (px, py, pz) => colorAtDepth(px, py, pz));
+  for (let i = 0; i < 16; i++) addP({ k: 3, x: x + (Math.random() - .5) * .05, y: sy + .3 + Math.random() * .12, z: z + (Math.random() - .5) * .05, vx: 0, vy: -1.5 - Math.random() * .6, vz: 0, sz: .004, life: 0, max: .25 + Math.random() * .12, rgb: [210, 236, 238] });
+  scatterFish(x, sy + .1, z, 1.2);
+  excite = 1;
+  if (aori) aori.brain.vel.y += .32;
+}
+function digAt(x, z) {
+  aoriT = { x: clamp(x, -BW / 2 + .15, .34), z: clamp(z, -BD / 2 + .15, BD / 2 - .15) };
+  pendingBlow = { x: aoriT.x, z: aoriT.z, t0: performance.now() };
+  aoriIdleAt = performance.now() + 26000;
+  if (!aori) { doBlow(aoriT.x, aoriT.z); pendingBlow = null; }
+}
+function layerAt(p) { // what the cut at point p (block coordinates) is made of
+  if (p.y < -.0005) {
+    const bi = clamp(Math.floor(-(p.y + (anim && anim.type === 'compact' ? BANDH * easeIO(clamp(anim.t / anim.dur, 0, 1)) : 0)) / BANDH), 0, NB - 1);
+    return bands[bi] ? { band: bi, text: `${bands[bi].label}:00 – ${bands[bi].label}:59  石` } : null;
+  }
+  if (anim) return null;
+  for (let i = layers.length - 1; i >= 0; i--) {
+    const top = samp(layers[i].top, p.x, p.z), bot = i ? samp(layers[i - 1].top, p.x, p.z) : 0;
+    if (p.y >= bot - .003 && p.y <= top + .003) return { m: i, text: `${pad(state.h)}:${pad(i)}` };
+  }
+  if (grow && p.y > samp(grow.bottom, p.x, p.z) - .003) return { m: -1, text: `${pad(state.h)}:${pad(grow.m)}  いま積もっている` };
+  return null;
+}
+let hiT = 0, hiKind = null;
+function readAt(p, q) {
+  const L = layerAt(p);
+  if (!L) return;
+  reading = { world: q.clone(), text: L.text, t: 0 };
+  hiT = 0; hiKind = L;
+  U.uHi.value = L.m !== undefined && L.m >= 0 ? L.m : -9;
+  for (const m of stoneMats) m.uniforms.uBandHi.value = L.band !== undefined ? L.band : -9;
+  if (L.m === -1) { gMat.uniforms.uGrowL.value = grow.m + (grow.ash ? .3 : 0); U.uHi.value = grow.m; }
+}
+
+// ---------- picking: march the view ray through the block ----------
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+function pick(cx, cy) {
+  ndc.set(cx / innerWidth * 2 - 1, 1 - cy / innerHeight * 2);
+  ray.setFromCamera(ndc, camera);
+  pivot.updateMatrixWorld(true);
+  const inv = pivot.matrixWorld.clone().invert(), o = ray.ray.origin.clone().applyMatrix4(inv), d = ray.ray.direction.clone().transformDirection(inv);
+  const p = new THREE.Vector3(); let prevIn = false;
+  for (let t = 1.5; t < 9; t += .008) {
+    p.copy(o).addScaledVector(d, t);
+    const inside = Math.abs(p.x) <= BW / 2 && Math.abs(p.z) <= BD / 2 && p.y > YBASE;
+    if (inside) {
+      const h = p.y >= 0 ? surfH(p.x, p.z) : 0;
+      if (p.y <= h || p.y < 0) {
+        const side = !prevIn && (Math.abs(Math.abs(p.x) - BW / 2) < .02 || Math.abs(Math.abs(p.z) - BD / 2) < .02);
+        return { p: p.clone(), side, world: p.clone().applyMatrix4(pivot.matrixWorld) };
+      }
+    }
+    prevIn = inside;
+  }
+  return null;
+}
+function handleTap(cx, cy) {
+  const h = pick(cx, cy);
+  if (!h) return;
+  if (h.side || h.p.y < 0) readAt(h.p, h.world); else digAt(h.p.x, h.p.z);
+}
+
+// ---------- view: auto orbit, finger, tilt, face ("window into a tank") ----------
+const ZW = .62, DIST = 3.6, WS = 1.52, TGY = .25;
+let HS = 3.8, aspect = 1, vw = 1, vh = 1;
+const view = { yawOff: 0, elOff: 0, yaw: 0, el: .4, lastTouch: -99, ex: 0, ey: 0, dz: 0, tiltYaw: 0, tiltEl: 0 };
+const head = { on: false, x: 0, y: 0, z: 1, tx: 0, ty: 0, tz: 1, seen: -99, base: null };
+function resize() {
+  vw = innerWidth; vh = innerHeight; aspect = vw / vh;
+  renderer.setSize(vw, vh, false);
+  HS = Math.max(WS / aspect, 2.7); pMat.uniforms.uHalfH.value = vh * DPR / 2;
+}
+const eye = new THREE.Vector3();
+function applyView(dt, t) {
+  const idle = t - view.lastTouch;
+  if (idle > 9) view.yawOff *= Math.exp(-.35 * dt), view.elOff *= Math.exp(-.35 * dt);
+  const sway = .44 * Math.sin(t * .13) * (head.on ? .35 : 1) + .05 * Math.sin(t * .071 + 1);
+  const tgtYaw = view.yawOff + sway + view.tiltYaw;
+  view.yaw += (tgtYaw - view.yaw) * (1 - Math.exp(-4 * dt));
+  const tgtEl = clamp(.4 + view.elOff + .03 * Math.sin(t * .11) + view.tiltEl, .08, .85);
+  view.el += (tgtEl - view.el) * (1 - Math.exp(-4 * dt));
+  pivot.rotation.y = view.yaw;
+  // the face moves the eye, not the block: the screen is a window and we look through it
+  const k = 1 - Math.exp(-7 * dt);
+  head.x += (head.tx - head.x) * k; head.y += (head.ty - head.y) * k; head.z += (head.tz - head.z) * k;
+  const dist = DIST * head.z;
+  eye.set(head.on ? head.x * 2.6 : 0, TGY + dist * Math.tan(view.el) + (head.on ? head.y * 1.5 : 0), ZW + dist);
+  camera.position.copy(eye); camera.rotation.set(0, 0, 0);
+  const near = .3, far = 16, d = eye.z - ZW, kk = near / d;
+  const f = d / (eye.z - BD * .42), yw = eye.y + (YBASE - eye.y) * f, wb = yw - .075 * HS;
+  camera.projectionMatrix.makePerspective((-WS / 2 - eye.x) * kk, (WS / 2 - eye.x) * kk, (wb + HS - eye.y) * kk, (wb - eye.y) * kk, near, far);
+  camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+  camera.updateMatrixWorld(true);
+  U.uCam.value.copy(camera.position);
+}
+
+// pointer: drag = look around, tap = dig / read
+let ptr = null;
+addEventListener('pointerdown', e => {
+  if (e.target.closest && e.target.closest('a,button,.apk-ctrl,.apk-sheet')) return;
+  if (window.APKit && APKit.isUI && APKit.isUI(e.clientX, e.clientY)) return;
+  ptr = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, t0: performance.now(), drag: false };
+  view.lastTouch = performance.now() / 1000;
+  requestWakeLock();
+}, { passive: true });
+addEventListener('pointermove', e => {
+  if (!ptr) return;
+  const dx = e.clientX - ptr.x, dy = e.clientY - ptr.y;
+  if (!ptr.drag && Math.hypot(e.clientX - ptr.x0, e.clientY - ptr.y0) > 8) ptr.drag = true;
+  if (ptr.drag) {
+    view.yawOff = clamp(view.yawOff + dx * .0062, -1.1, 1.1); view.elOff = clamp(view.elOff + dy * .0032, -.22, .5);
+    view.lastTouch = performance.now() / 1000;
+  }
+  ptr.x = e.clientX; ptr.y = e.clientY;
+}, { passive: true });
+const endPtr = e => { if (ptr && !ptr.drag && performance.now() - ptr.t0 < 600) handleTap(ptr.x0, ptr.y0); ptr = null; };
+addEventListener('pointerup', endPtr, { passive: true });
+addEventListener('pointercancel', () => { ptr = null; }, { passive: true });
+
+let awake = null;
+function requestWakeLock() {
+  if (!navigator.wakeLock || awake || document.visibilityState !== 'visible') return;
+  navigator.wakeLock.request('screen').then(l => { awake = l; l.addEventListener('release', () => { awake = null; }); }).catch(() => {});
+}
+document.addEventListener('visibilitychange', requestWakeLock);
+
+// tilt (sensor): a button, because the sensor has to be asked for
+const tiltBtn = $('tiltBtn'), tilt = { on: false, base: null, got: false, g: 0, b: 0 };
+function onTilt(e) {
+  if (e.beta == null || e.gamma == null) return;
+  tilt.got = true;
+  if (!tilt.base) tilt.base = { b: e.beta, g: e.gamma };
+  tilt.g += (clamp(e.gamma - tilt.base.g, -35, 35) - tilt.g) * .3; tilt.b += (clamp(e.beta - tilt.base.b, -30, 30) - tilt.b) * .3;
+  if (!head.on) { view.tiltYaw = -tilt.g / 35 * .75; view.tiltEl = tilt.b / 30 * .3; }
+}
+function setTilt(on) {
+  tilt.on = on; tiltBtn.classList.toggle('on', on); tiltBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  tiltBtn.querySelector('span').textContent = on ? '傾き ON' : '傾き OFF';
+  if (on) {
+    tilt.base = null; tilt.got = false;
+    addEventListener('deviceorientation', onTilt);
+    say('傾き ON。スマホを傾けると、塊を回り込める', 3600);
+    setTimeout(() => { if (tilt.on && !tilt.got) { setTilt(false); say('この端末では傾きセンサーが使えないみたい', 4200); } }, 2200);
+  } else { removeEventListener('deviceorientation', onTilt); view.tiltYaw = 0; view.tiltEl = 0; }
+}
+tiltBtn.addEventListener('click', () => {
+  requestWakeLock();
+  if (tilt.on) { setTilt(false); say('傾き OFF', 1600); return; }
+  const D = window.DeviceOrientationEvent;
+  if (!D) { say('この端末では傾きセンサーが使えないみたい', 4200); return; }
+  if (typeof D.requestPermission === 'function') D.requestPermission().then(r => { if (r === 'granted') setTilt(true); else say('傾きが許可されなかった。設定で許可すると使える', 4600); }).catch(() => say('傾きが許可されなかった。設定で許可すると使える', 4600));
+  else setTilt(true);
+});
+
+// ---------- frame ----------
+// slow phones render fewer pixels instead of stuttering
+let fAcc = 0, fN = 0, fWait = 1.5;
+function adaptRes(dt) {
+  if (document.visibilityState !== 'visible' || dt <= 0) return;
+  fWait -= dt; if (fWait > 0) return;
+  fAcc += dt; fN++;
+  if (fN < 40) return;
+  const avg = fAcc / fN; fAcc = 0; fN = 0;
+  let nd = DPR;
+  if (avg > .026 && DPR > 1) nd = Math.max(1, DPR - .25); else if (avg < .0155 && DPR < DPRMAX) nd = Math.min(DPRMAX, DPR + .25);
+  if (nd !== DPR) { DPR = nd; renderer.setPixelRatio(DPR); renderer.setSize(vw, vh, false); pMat.uniforms.uHalfH.value = vh * DPR / 2; fWait = 2; }
+}
+let last = performance.now() / 1000, elapsed = 0;
+const tmpP = new THREE.Vector3(), tmpM = new THREE.Matrix4(), tmpQ = new THREE.Quaternion(), tmpE = new THREE.Euler(), tmpS = new THREE.Vector3(), tmpC = new THREE.Color();
+function frame() {
+  const now = performance.now() / 1000, dt = Math.min(.05, Math.max(0, now - last)); last = now; elapsed += dt;
+  const N = nowInfo(); sNow = N.s;
+  U.uTime.value = elapsed;
+  adaptRes(dt);
+
+  // --- clock bookkeeping
+  const cur = N.hk * 60 + N.m, st = state.hk * 60 + state.m;
+  if (cur !== st && !preview && !(anim && anim.type === 'compact' && !anim.preview)) {
+    if (cur - st === 1) advanceTo(N); else fullSync();
+  }
+  if (N.m === 59 && N.s > 41 && !buryArmed && kouika && !preview) { buryArmed = true; kouika.setMotion('bury'); holdBury = true; }
+  if (N.m !== 59 && !(anim && anim.type === 'compact')) buryArmed = false;
+
+  if (preview) {
+    preview.t += dt;
+    if (preview.stage === 'bury' && preview.t > (kouika ? 5.4 : .3)) { preview.stage = 'compact'; finalizeGrowPreview(); startCompaction(true); }
+    if (preview.stage === 'after' && preview.t > preview.until) finishPreview(false);
+  }
+  if (anim) {
+    anim.t += dt;
+    if (anim.type === 'compact') {
+      const e = easeIO(clamp(anim.t / anim.dur, 0, 1));
+      U.uSc.value = compSc(e); U.uSh.value = BANDH * e;
+      if (anim.t >= anim.dur) {
+        const nx = anim.next, wasPreview = anim.preview;
+        endCompaction();
+        if (wasPreview && preview) { preview.stage = 'after'; preview.until = preview.t + 3.2; }
+        if (nx) { state = { hk: nx.hk, h: nx.h, m: nx.m }; layers = nx.m ? synthLayers(nx.hk, nx.m) : []; grow = newGrow(state.hk, state.m); ashPulse = 1; uploadLayers(); writeGrow(); }
+        else if (!wasPreview) { grow = newGrow(state.hk, state.m); writeGrow(); }
+      }
+    } else if (anim.type === 'reveal') {
+      anim.shown = Math.min(anim.arr.length, Math.ceil(anim.arr.length * easeIO(clamp(anim.t / anim.dur, 0, 1))));
+      setLayerRange(anim.shown);
+      if (anim.t >= anim.dur) { anim = null; setLayerRange(layers.length); writeGrow(); spawnKouika(false); }
+    }
+  }
+  state.h = N.h;
+
+  ashPulse = Math.max(0, ashPulse - dt / 5);
+  hourPulse = Math.max(0, hourPulse - dt / 3);
+  excite = Math.max(0, excite - dt / 1.6);
+  U.uGlow.value = anim && anim.type === 'compact' ? .55 * Math.sin(Math.PI * clamp(anim.t / anim.dur, 0, 1)) : 0;
+  if (hiKind) { hiT += dt; U.uHiA.value = hiT < .2 ? hiT / .2 : Math.max(0, 1 - (hiT - .2) / 2.2); if (hiT > 2.6) { hiKind = null; U.uHi.value = -9; for (const m of stoneMats) m.uniforms.uBandHi.value = -9; } }
+  const ashMinute = (grow && grow.ash) || ashPulse > .2;
+  const tintRGB = grow ? grow.rgb : ASH;
+  gMat.uniforms.uFront.value = frontLocal(N.s);
+
+  applyView(dt, elapsed);
+  updateFish(dt, N.s, ashMinute, tintRGB);
+  updateParticles(dt);
+  updateSquids(dt, tintRGB);
+  updateProps(N);
+  updateReading(dt);
+
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+
+// ---------- updates ----------
+function updateFish(dt, s, ash, tintRGB) {
+  const tg = schoolTarget(s, elapsed), emitting = !tg.dash && !anim;
+  let ac = null; if (aori) ac = centerLocal(aori, tmpW);
+  for (let i = 0; i < fish.length; i++) {
+    const f = fish[i];
+    f.a += f.w * dt;
+    const ox = Math.cos(f.a) * f.r, oy = Math.sin(f.a) * f.r * .45, oz = Math.sin(f.a * .7 + f.ph) * f.r * .8;
+    const kk = tg.dash ? 3.2 : 1.1;
+    let ax = (tg.x + ox - f.p.x) * kk, ay = (tg.y + oy - f.p.y) * 1.1, az = (tg.z + oz - f.p.z) * kk;
+    for (let q = 0; q < fish.length; q++) if (q !== i) {
+      const g = fish[q], dx = f.p.x - g.p.x, dy = f.p.y - g.p.y, dz = f.p.z - g.p.z, d2 = dx * dx + dy * dy + dz * dz, R = .05;
+      if (d2 < R * R && d2 > 1e-6) { const d = Math.sqrt(d2), w = (R - d) * 30; ax += dx / d * w; ay += dy / d * w; az += dz / d * w; }
+    }
+    if (ac) { const dx = f.p.x - ac.x, dy = f.p.y - ac.y, dz = f.p.z - ac.z, d = Math.hypot(dx, dy, dz), RA = .3; if (d < RA) { const w = (RA - d) * 2.2 / (d + .01); ax += dx * w; ay += dy * w; az += dz * w; } }
+    f.v.x += ax * dt; f.v.y += ay * dt; f.v.z += az * dt;
+    f.v.multiplyScalar(Math.exp(-1.3 * dt));
+    const sp = f.v.length(), mx = tg.dash ? .85 : .26;
+    if (sp > mx) f.v.multiplyScalar(mx / sp);
+    f.p.addScaledVector(f.v, dt);
+    f.p.y = clamp(f.p.y, HMAX + .06, 2.4); f.p.z = clamp(f.p.z, -BD / 2 + .04, BD / 2 - .04);
+    if (sp > .012) {
+      let dy = Math.atan2(-f.v.z, f.v.x) - f.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); f.yaw += dy * (1 - Math.exp(-7 * dt));
+      f.pit += (Math.atan2(f.v.y, Math.hypot(f.v.x, f.v.z)) - f.pit) * (1 - Math.exp(-5 * dt));
+    }
+    if (emitting && Math.random() < (ash ? 4.6 : 2.3) * dt) {
+      const c = ash ? mix(ASH, WHITE, .3) : mix(tintRGB, WHITE, .18);
+      addP({ k: 0, x: f.p.x, y: f.p.y - .01, z: f.p.z, vx: f.v.x * .15, vy: -.03, vz: f.v.z * .15, sz: (ash ? .0095 : .0075) * (.8 + Math.random() * .6), rgb: c, tw: Math.random() * 6, vt: .22 + Math.random() * .14, life: 0, max: 30 });
+    }
+    // instance matrices (body, tail)
+    tmpE.set(0, f.yaw, f.pit, 'YZX'); tmpQ.setFromEuler(tmpE); tmpS.set(f.L, f.L, f.L);
+    tmpM.compose(f.p, tmpQ, tmpS); fBody.setMatrixAt(i, tmpM);
+    const wag = Math.sin(elapsed * 11 + f.ph) * .45;
+    tmpM.multiply(new THREE.Matrix4().makeTranslation(-.38, 0, 0)).multiply(new THREE.Matrix4().makeRotationY(wag)); fTail.setMatrixAt(i, tmpM);
+    const gl = Math.pow(Math.max(0, Math.sin(elapsed * 1.6 + f.ph + f.yaw * 2)), 10) * 1.4 + (ash ? .5 : 0);
+    tmpC.setRGB(1 + gl, 1 + gl, 1 + gl); fBody.setColorAt(i, tmpC); fTail.setColorAt(i, tmpC);
+  }
+  fBody.instanceMatrix.needsUpdate = fTail.instanceMatrix.needsUpdate = true; fBody.instanceColor.needsUpdate = fTail.instanceColor.needsUpdate = true;
+}
+function updateParticles(dt) {
+  for (let i = P.length - 1; i >= 0; i--) {
+    const p = P[i]; p.life += dt;
+    if (p.k === 0) { // a scale sinking to the bottom
+      p.vy += (-p.vt - p.vy) * 1.4 * dt; p.vx *= Math.exp(-.8 * dt); p.vz *= Math.exp(-.8 * dt);
+      p.x += (p.vx + Math.sin(elapsed * .8 + p.tw) * .012) * dt; p.z += (p.vz + Math.cos(elapsed * .7 + p.tw) * .008) * dt; p.y += p.vy * dt;
+      const sy = surfH(p.x, p.z);
+      if (p.y <= sy + .002) { P.splice(i, 1); if (Math.random() < .35) addP({ k: 2, x: p.x, y: sy + .004, z: p.z, sz: p.sz * 1.6, rgb: p.rgb, life: 0, max: .45 }); continue; }
+    } else if (p.k === 1) { // silt thrown up, settling back
+      p.vy -= .85 * dt; const dr = Math.exp(-2.2 * dt); p.vx *= dr; p.vz *= dr; p.vy *= Math.exp(-1.2 * dt);
+      p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+      if ((p.vy < 0 && p.y <= surfH(p.x, p.z)) || p.life > p.max) { P.splice(i, 1); continue; }
+    } else if (p.k === 3) { p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt; if (p.life > p.max || p.y < surfH(p.x, p.z)) { P.splice(i, 1); continue; } }
+    else if (p.life > p.max) { P.splice(i, 1); continue; }
+    if (p.y < -.8 || Math.abs(p.x) > 1.4) P.splice(i, 1);
+  }
+  let n = 0;
+  const put = (x, y, z, c, a, sz) => { pPos[n * 3] = x; pPos[n * 3 + 1] = y; pPos[n * 3 + 2] = z; pCol[n * 4] = c[0] / 255; pCol[n * 4 + 1] = c[1] / 255; pCol[n * 4 + 2] = c[2] / 255; pCol[n * 4 + 3] = a; pSz[n] = sz; n++; };
+  for (const p of P) {
+    if (p.k === 0) { const tw = .55 + .45 * Math.sin(elapsed * 11 + p.tw); put(p.x, p.y, p.z, p.rgb, .5 + .5 * tw, p.sz * (.85 + .3 * tw)); }
+    else if (p.k === 1) { const a = Math.min(1, p.life * 4) * (1 - p.life / p.max); put(p.x, p.y, p.z, p.rgb, .9 * a, p.sz); }
+    else if (p.k === 2) { const a = 1 - p.life / p.max; put(p.x, p.y, p.z, mix(p.rgb, WHITE, .6), a, p.sz * (1 + p.life * 3)); }
+    else if (p.k === 3) { const a = 1 - p.life / p.max; for (let q = 0; q < 3; q++) put(p.x, p.y + q * .035, p.z, p.rgb, .5 * a, p.sz); }
+  }
+  pGeo.setDrawRange(0, n);
+  for (const a of Object.values(pGeo.attributes)) a.needsUpdate = true;
+  for (let i = 0; i < NSN; i++) { snPos[i * 3 + 1] -= snV[i] * dt; snPos[i * 3] += Math.sin(elapsed * .2 + i) * .004 * dt; if (snPos[i * 3 + 1] < -.6) { snPos[i * 3 + 1] = 2.9; snPos[i * 3] = (Math.random() - .5) * 2.1; } }
+  snGeo.attributes.position.needsUpdate = true;
+}
+function updateSquids(dt, tintRGB) {
+  tint.setRGB(tintRGB[0] / 255, tintRGB[1] / 255, tintRGB[2] / 255, THREE.SRGBColorSpace);
+  hemi.color.copy(neutral).lerp(tint, .18);
+  pivot.updateMatrixWorld(true);
+  if (aori) {
+    if (aoriIdleAt && performance.now() > aoriIdleAt && !pendingBlow) { aoriT = { x: -.28, z: .03 }; aoriIdleAt = 0; }
+    const ty = Math.max(surfH(aoriT.x, aoriT.z), HMAX * .5) + .46;
+    const want = kitPt(aoriT.x, ty, aoriT.z, tmpP);
+    aori.brain.home.copy(want);
+    const c = centerLocal(aori, tmpV), fy = surfH(c.x, c.z);
+    aori.brain.floorY = fy; aori.fx.floorY = fy + .005;
+    aori.update(dt);
+    // the fins can hold it still but not carry it far, so the page glides it to where it was sent
+    const r = aori.squid.root.position, mx = .42 * dt, k = 1 - Math.exp(-1.5 * dt);
+    r.x += clamp((want.x - r.x) * k, -mx, mx); r.z += clamp((want.z - r.z) * k, -mx, mx); r.y += clamp((want.y - r.y) * k, -mx, mx);
+    if (pendingBlow) {
+      const p = centerLocal(aori, tmpV);
+      if (Math.hypot(p.x - pendingBlow.x, p.z - pendingBlow.z) < .07 || performance.now() - pendingBlow.t0 > 4600) { doBlow(clamp(p.x, -BW / 2 + .12, .36), clamp(p.z, -.22, .22)); pendingBlow = null; }
+    }
+    const u = aori.squid.uniforms;
+    if (excite > 0) u.uDark.value = Math.min(1, u.uDark.value + .5 * excite);
+    if (hourPulse > 0) u.uPale.value = Math.max(u.uPale.value, .7 * hourPulse);
+  }
+  if (kouika) {
+    const fy = surfH(KX, KZ);
+    kouika.brain.home.copy(kitPt(KX, fy + .2, KZ, tmpP));
+    kouika.brain.floorY = fy; kouika.fx.floorY = fy + .005;
+    const b = kouika.brain;
+    if (holdBury && kouika.motion === 'bury' && b.phase === 'hidden' && b.pt > .6) b.pt = .6;
+    if (kouika.motion === 'bury' && b.phase === 'emerge' && kouPrev !== 'emerge') burst(KX, KZ, 30, .1, 1, colorAtDepth);
+    if (kouika.motion === 'bury' && kouPrev === 'emerge' && b.phase === 'settle') kouika.setMotion('rest');
+    kouPrev = kouika.motion === 'bury' ? b.phase : '';
+    kouika.update(dt);
+    if (ashPulse > 0) { const u = kouika.squid.uniforms; u.uCloud.value = Math.max(u.uCloud.value, 3.4 * ashPulse); u.uFlicker.value = Math.max(u.uFlicker.value, .8 * ashPulse); }
+  }
+}
+function updateProps(N) {
+  const sy = surfH(POLEX - .09, POLEZ - .06);
+  nowMark.position.set(POLEX - .02, sy, POLEZ);
+  clockSp.position.set(POLEX - .2, sy + .085, POLEZ);
+  const txt = `${pad(N.h)}:${pad(N.m)}`;
+  if (txt !== clockTxt) { clockTxt = txt; clockSp.userData.draw(txt); }
+}
+function updateReading(dt) {
+  if (!reading) { readEl.classList.remove('on'); return; }
+  reading.t += dt;
+  const a = reading.t < .2 ? reading.t / .2 : reading.t > 2.4 ? Math.max(0, 1 - (reading.t - 2.4) / .5) : 1;
+  if (a <= 0) { reading = null; readEl.classList.remove('on'); return; }
+  const p = reading.world.clone().project(camera);
+  readEl.textContent = reading.text;
+  readEl.style.left = clamp((p.x + 1) / 2 * vw, 60, vw - 60) + 'px'; readEl.style.top = ((1 - p.y) / 2 * vh) + 'px';
+  readEl.classList.add('on'); readEl.style.opacity = a;
+}
+
+// ---------- boot ----------
+resize();
+addEventListener('resize', () => { resize(); });
+makeFish();
+fullSync();
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') last = performance.now() / 1000; });
+if (test) { head.on = true; head.tx = head.x = parseFloat(test[1]); head.ty = head.y = parseFloat(test[2]); }
+requestWakeLock();
+requestAnimationFrame(frame);
+say('なぞると回り込める。上面をタップで穴を掘る', 3800);
+
+if (window.APKit) APKit.init({
+  canvas: renderer.domElement, gifName: 'time-scale-3d-loop', clockFormat: 'spec',
+  dock: true, autoHide: true, fullscreenButton: false,
+  buttons: [
+    { label: '✦', name: 'mutate', onClick: () => { pal = (pal + 1) % PALS.length; if (grow) { grow.rgb = colorFor(grow.hk, grow.m); writeGrow(); } say(PALS[pal].name); } }, // これから積もる泥の色を替える
+    { label: '⏭', name: 'event', onClick: onEventButton },  // 出来事をいま見る(10分 → 正時)
+    { label: '↻', name: 'reset', onClick: () => { if (preview) finishPreview(true); fullSync(); say('積もり直し'); } }
+  ]
+});
+if (test || /[?&]test\b/.test(location.search)) window.__ts = { get preview() { return preview; }, previewNow() { previewHour(); if (preview) preview.t = 5.5; }, previewHour, onEventButton, handleTap, digAt, head, view, get layers() { return layers; }, get bands() { return bands; }, get anim() { return anim; }, get aori() { return aori; }, get kouika() { return kouika; }, camera, pivot };
+
+try {
+  await loadSquids('../assets/squid-kit/');
+  kitReady = true;
+  aori = createSquid('aori', { detail: 'low', home: kitPt(aoriT.x, surfH(aoriT.x, aoriT.z) + .46, aoriT.z, new THREE.Vector3()) });
+  aori.setMotion('hover'); kitG.add(aori.object);
+  spawnKouika(false);
+  // the kit's floor stains assume a fixed sea floor; ours rises and is pressed into stone, so they would float in the water
+  aori.fx.group.remove(aori.fx.ground.mesh, aori.fx.wetStains.mesh);
+  for (let i = 0; i < 30; i++) { aori.update(1 / 60); kouika.update(1 / 60); }
+} catch (e) {
+  console.error(e); // the clock still works without the squids
+}
+</script>
+</body>
+</html>
