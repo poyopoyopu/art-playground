@@ -8,8 +8,8 @@
      魚(2026/11/13 おっちゃん「イカに固執するのはやめて、魚がいっぱいの方がいい」→イカはやめて、魚の3Dキット assets/fish-kit(CC0)の魚で満たす):
        秒をはこぶのはカタクチイワシの群れ。中層にマアジの群れ、奥をサバの群れ。底の少し上をマダイ・クロダイ・イサキ、底にカサゴとマゴチ。
        ときどき大きな魚(ブリ・ヒラマサ・サワラ・スズキ・タチウオ)が横切り、イワシの群れに突っ込むこともある。
-       水の中をタップ=クロダイがそこへ泳いでいって砂をつつき、穴をあける(穴は消えない)。マゴチは正時の少し前に砂に潜り、石になったあとの新しい海底から出てくる。
-     (以下の説明のうち、アオリイカ・コウイカ・エギは今は出ない。コードは残してある)
+       マゴチもコウイカと一緒に、正時の少し前に砂に潜り、石になったあとの新しい海底から出てくる。
+     イカも一緒(おっちゃん「イカも入れてよ！イカ大好き！」): アオリイカが泳ぎ回り、タップでアオリが穴を掘る(イカが読み込めないときはクロダイが掘る)。コウイカも正時に潜る。
      エギ: 数分おきに、上から糸でエギ(イカ釣りの疑似餌)が沈んでくる。アオリイカが後ろについて追い、抱きつくか見切る。
        抱いたら墨を吐いて離し、見切ったらエギは巻き上げられて帰っていく(イカ・エギは魚・イカ3Dキットの3Dデータ)。
      以下は元の TIME SCALE の説明。魚・イカ3Dキット(assets/squid-kit、CC0)を使う試作。
@@ -22,7 +22,7 @@
      - 触る: 水の中をタップ = アオリイカがそこへ泳いでいき、漏斗の噴射で泥に穴をあける。穴は消えない。
        あとから積もる層は穴を少しずつ埋めながら覆うので、地層に「掘った跡」が残る。石(過ぎた時間)は硬くて掘れない。
        地層をタップ = その層がいつ積もったかを読む。
-     ボタン: ✦ これから積もる泥の色を替える(積もった層の色は変わらない) / ⏭ 出来事をいま見る(10分の鍵層 → 正時 → 大きな魚) / ↻ 積もり直す
+     ボタン: ✦ これから積もる泥の色を替える(積もった層の色は変わらない) / ⏭ 出来事をいま見る(10分の鍵層 → 正時 → エギ → 大きな魚) / ↻ 積もり直す
      題名の SCALE は「鱗」と「目盛り」と「地質年代表(geologic time scale)」の掛け言葉。 -->
 <html lang="ja">
 <head>
@@ -123,7 +123,7 @@ function layout() {
   T = (Y0 - Y60) / 60;
   BAND = Math.max(9, Math.round(T * 2.6));
   COLS = Math.ceil(W / CW) + 1;
-  K = 1.2 / Math.min(W, H * 1.25); // 1 px = K metres (a 30 cm mackerel is about 100 px on a phone)
+  K = .86 / Math.min(W, H * 1.25); // 1 px = K metres: squids big (about 1.5x TIME SCALE). Fish are made at FS of their size so they still fit
   UI = clamp(Math.min(W, H) / 390, .85, 1.4);
   POLE = W - Math.max(22, W * .058);
   TAPER = 46 * UI;
@@ -389,6 +389,7 @@ function fitCamera() {
 let aoriX = 0, kitReady = false, aoriSP = null;
 // ---------- 3D fish (fish kit): the school of anchovies, and now and then a big fish ----------
 const FISHDIR = '../assets/fish-kit/fish/';
+const FS = .72; // fish are drawn at this share of their real size, so the squids can be big and the sea still holds many fish
 let fishReady = false, big = null, bigNext = 80 + Math.random() * 60;
 const fish3 = [];
 // a fish at screen point (x, y) and depth d: into the squid layer (which is shifted by GL_D), and pushed along the view
@@ -406,7 +407,7 @@ function faceTo(obj, st, vx, vy, dt) {
 async function initFish3() {
   await loadFish(FISHDIR, ['katakuchi']);
   for (const f of fish) {
-    const a = createFish('katakuchi', 8 + Math.random() * 2);
+    const a = createFish('katakuchi', (8 + Math.random() * 2) * FS);
     a.setDetail('low'); a.setMotion('swim'); scene.add(a.object);
     fish3.push({ a, yaw: f.vx > 0 ? Math.PI : 0, pitch: 0 });
   }
@@ -431,7 +432,7 @@ async function spawnBig(id, now) {
   bigLoading = true;
   const pick = id ? BIG.find(b => b[0] === id) : BIG[Math.floor(Math.random() * BIG.length)];
   try { await loadFish(FISHDIR, [pick[0]]); } catch (e) { bigLoading = false; return; }
-  const a = createFish(pick[0], pick[1] * (.9 + Math.random() * .2));
+  const a = createFish(pick[0], pick[1] * FS * (.9 + Math.random() * .2));
   a.setDetail('high'); a.setMotion('swim'); scene.add(a.object);
   const dir = Math.random() < .5 ? 1 : -1, Lpx = a.length / K, d = .5 + Math.random() * .25;
   big = { a, dir, d, Lpx, x: dir > 0 ? -Lpx : W + Lpx, y: lerp(waterTop + 60 * UI, Y60 - 50 * UI, Math.random()), sp: (W + Lpx * 2) / (22 + Math.random() * 10), t: 0, yaw: dir > 0 ? Math.PI : 0, pitch: 0, vy: 0, charge: pick[0] !== 'tachiuo' && Math.random() < .55 };
@@ -468,7 +469,7 @@ function bandY(kind, x) {
 }
 function newLeader(kind, speed) { const L = { kind, x: Math.random() * W, y: 0, tx: 0, ty: 0, next: 0, speed }; L.y = bandY(kind, L.x); LEADERS.push(L); return L; }
 function makeAgent(id, cm, kind, opt = {}) {
-  const a = createFish(id, cm);
+  const a = createFish(id, cm * FS);
   a.setDetail(opt.detail || 'low'); a.setMotion(kind === 'floor' ? 'hover' : 'swim'); scene.add(a.object);
   const x = opt.x != null ? opt.x : lerp(W * .1, W * .9, Math.random());
   const g = { id, a, kind, school: opt.school || null, x, y: bandY(kind, x), vx: 0, vy: 0, d: opt.d != null ? opt.d : .4, yaw: Math.random() < .5 ? 0 : Math.PI, pitch: 0,
@@ -484,8 +485,8 @@ async function initWorld() {
   makeAgent('madai', 36, 'low', { detail: 'high', d: .45, speed: 22 * UI });
   digger = makeAgent('kurodai', 32, 'low', { detail: 'high', d: .3, speed: 26 * UI });
   for (let i = 0; i < 2; i++) makeAgent('isaki', 22 + Math.random() * 4, 'low', { d: .5 + i * .15, speed: 30 * UI });
-  makeAgent('kasago', 24, 'floor', { detail: 'high', d: .25, x: W * .22 });
-  magochi = makeAgent('magochi', 42, 'floor', { detail: 'high', d: .35, x: W * .62 });
+  makeAgent('kasago', 24, 'floor', { detail: 'high', d: .25, x: W * .14 });
+  magochi = makeAgent('magochi', 42, 'floor', { detail: 'high', d: .35, x: W * .38 });
 }
 function sendDigger(x) {
   if (!digger) return false;
@@ -527,6 +528,7 @@ function stepAgent(g, dt) {
     const dx = g.x - o.x, dy = g.y - o.y, d2 = dx * dx + dy * dy, R = g.hgt * 4 + 8 * UI;
     if (d2 < R * R && d2 > .01) { const d = Math.sqrt(d2); ax += dx / d * (R - d) * 6; ay += dy / d * (R - d) * 6; }
   }
+  if (aoriSP && g.kind !== 'floor') { const R = 80 * UI, ex = g.x - aoriSP.x, ey = g.y - aoriSP.y, ed = Math.hypot(ex, ey); if (ed < R) { ax += ex / (ed + 1) * (R - ed) * 6; ay += ey / (ed + 1) * (R - ed) * 6; } }
   if (big && g.kind !== 'floor') { const R = big.Lpx * .75, ex = g.x - big.x, ey = g.y - big.y, ed = Math.hypot(ex, ey); if (ed < R) { ax += ex / (ed + 1) * (R - ed) * 7; ay += ey / (ed + 1) * (R - ed) * 7; } }
   g.vx += ax * dt; g.vy += ay * dt;
   const damp = Math.exp(-1.4 * dt); g.vx *= damp; g.vy *= damp;
@@ -726,8 +728,9 @@ function finishPreview(instant) {
 function onEventButton() {
   if (previewStep === 0) { ashPulse = 1.4; say('10分 — 白い鍵層'); }
   else if (previewStep === 1) previewHour();
+  else if (previewStep === 2 && aori) { if (!egiEv.on) { egiEv.next = 0; say('エギを落とす', 1600); } }
   else spawnBig(null, true);
-  previewStep = (previewStep + 1) % 3;
+  previewStep = (previewStep + 1) % (aori ? 4 : 3);
 }
 function scatterFish(x, y, power) {
   for (const f of fish) { const dx = f.x - x, dy = f.y - y, d = Math.hypot(dx, dy) + 20; f.vx += dx / d * power; f.vy += dy / d * power * .6; }
@@ -1354,8 +1357,15 @@ const testHead = /[?&]head=([-\d.]+),([-\d.]+)/.exec(location.search);
 if (testHead) { head.on = true; head.tx = parseFloat(testHead[1]); head.ty = parseFloat(testHead[2]); E.x = head.tx; E.y = head.ty; }
 if (testHead || /[?&]test\b/.test(location.search)) window.__ts = { E, head, drag, watch, RES, get digger() { return digger; }, get magochi() { return magochi; }, spawnBig, get big() { return big; }, get fish3() { return fish3; }, roam, get kouika() { return kouika; }, startEgi(f) { egiEv.next = 0; egiEv.force = f; }, get egi() { return egiEv; }, get aori() { return aori; }, fakeFace(x, y, z) { cam.on = true; head.on = true; cam.seen = performance.now() / 1000; head.tx = x; head.ty = y; head.tz = z; }, previewNow() { previewHour(); if (preview) preview.t = 5.5; }, get anim() { return anim; }, get preview() { return preview; } };
 
-// (2026/11/13) the squids are not loaded any more: the sea belongs to the fish
 try { await initFish3(); } catch (e) { console.error(e); } // without the kit the school stays drawn flat
+try {
+  await loadSquids('../assets/squid-kit/');
+  kitReady = true;
+  aori = makeAori();
+  spawnKouika(false);
+} catch (e) {
+  console.error(e); // without the squids the black seabream digs instead
+}
 try { await initWorld(); } catch (e) { console.error(e); }
 </script>
 </body>
