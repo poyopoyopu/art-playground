@@ -381,6 +381,49 @@ function fitCamera() {
   camera.getWorldDirection(camDir);
 }
 let aoriX = 0, kitReady = false, aoriSP = null;
+// ---------- the squids' own day: the aori roams, darts, chases the school, checks the floor; the cuttlefish shows its colours ----------
+const roam = { kind: '', t: 0, next: 4, speed: .14, mood: 0 };
+function roamIdle() { return !egiEv.on && !pendingBlow && watch.k < .05 && !anim && !preview && performance.now() > aoriIdleAt; }
+function updateRoam(dt) {
+  roam.t += dt;
+  if (roam.kind === 'chase' && roam.t < 6) { // keep after the school
+    let mx = 0, my = 0; for (const f of fish) { mx += f.x + shX(f.d); my += f.y + shY(f.d); } mx /= fish.length; my /= fish.length;
+    aoriX = clamp(mx - shX(GL_D), W * .1, POLE - 60 * UI); aoriYv = clamp(my + 30 * UI, waterTop + 40 * UI, waterBottom);
+  }
+  if (roam.kind === 'dart' && roam.t > 1.6 && roam.t - dt <= 1.6) { const p = toScreen(aori.getCenter(tmpV)); aoriX = clamp(p.x, W * .1, POLE - 60 * UI); aoriYv = clamp(p.y, waterTop + 30 * UI, waterBottom); }
+  if (roam.kind === 'floor' && roam.t > 4 && roam.t - dt <= 4) { const x = aoriX + shX(GL_D); burst(x, 16, 30 * UI, 60 * UI, colorAtDepth); aoriYv = lerp(waterTop, waterBottom, .55); }
+  if (!roamIdle()) { roam.next = Math.max(roam.next, elapsed + 3); if (!egiEv.on) roam.kind = ''; roam.speed = .42; return; }
+  if (elapsed < roam.next) return;
+  const r = Math.random();
+  roam.t = 0; roam.speed = .14;
+  if (r < .5) { // cruise somewhere else
+    roam.kind = 'cruise';
+    let x; do x = lerp(W * .14, POLE - 70 * UI, Math.random()); while (Math.abs(x - aoriX) < W * .22);
+    aoriX = x; aoriYv = lerp(waterTop + 50 * UI, waterBottom - 10 * UI, Math.random());
+    roam.next = elapsed + 7 + Math.random() * 7;
+  } else if (r < .68) { // a sudden jet, mantle first
+    roam.kind = 'dart'; roam.mood = 1; aori.brain.jet(.75 + Math.random() * .25);
+    roam.next = elapsed + 5 + Math.random() * 4;
+  } else if (r < .86) { // after the fish
+    roam.kind = 'chase'; roam.speed = .2; roam.mood = .7;
+    roam.next = elapsed + 7 + Math.random() * 3;
+  } else { // down to look at the sea floor
+    roam.kind = 'floor';
+    aoriX = clamp(aoriX + (Math.random() - .5) * W * .4, W * .15, POLE - 80 * UI);
+    aoriYv = surfAt(aoriX + shX(GL_D)) - 34 * UI;
+    roam.next = elapsed + 9 + Math.random() * 3;
+  }
+}
+const kouLife = { cloud: 8 + Math.random() * 6, bury: 100 + Math.random() * 60, c: 0 };
+function updateKouLife(dt, N) {
+  if (!kouika || anim || preview) return;
+  if (elapsed > kouLife.cloud) { kouLife.c = 1; kouLife.cloud = elapsed + 10 + Math.random() * 10; }
+  if (kouLife.c > 0) { // dark bands pass over its back, the cuttlefish's display
+    const u = kouika.squid.uniforms; u.uCloud.value = Math.max(u.uCloud.value, 3.2 * Math.sin(Math.PI * kouLife.c)); u.uFlicker.value = Math.max(u.uFlicker.value, .6 * kouLife.c);
+    kouLife.c = Math.max(0, kouLife.c - dt / 3.5);
+  }
+  if (elapsed > kouLife.bury && kouika.motion === 'rest' && N.m !== 59 && N.m !== 0) { kouika.setMotion('bury'); kouLife.bury = elapsed + 150 + Math.random() * 90; }
+}
 function makeAori() {
   const a = createSquid('aori', { detail: 'low', home: onPlane(aoriX, aoriY()) });
   a.setMotion('hover'); scene.add(a.object);
@@ -411,7 +454,7 @@ function updateEgi(dt) {
     if (elapsed > egiEv.next && !pendingBlow && watch.k < .05) {
       // first the squid moves to the open water on the right, so the lure sinks where it can be seen
       egiEv.on = true; egiEv.stage = 'prep'; egiEv.t = 0; egiEv.len = 7 + Math.random() * 3;
-      aoriX = W * .66; aoriIdleAt = performance.now() + 60000;
+      aoriX = W * .66; aoriYv = null; aoriIdleAt = performance.now() + 60000; roam.kind = '';
     }
     return;
   }
@@ -449,7 +492,8 @@ function spawnKouika(emerge) {
   for (let i = 0; i < 20; i++) kouika.update(1 / 60);
 }
 const KX = () => W * .64;
-const aoriY = () => lerp(waterTop, waterBottom, .64);
+let aoriYv = null;
+const aoriY = () => aoriYv != null ? aoriYv : lerp(waterTop, waterBottom, .64);
 
 // ---------- events ----------
 let ashPulse = 0, hourPulse = 0, excite = 0, sealT = -1, buryArmed = false, holdBury = false, kouPrev = '';
@@ -528,7 +572,7 @@ function handleTap(x, y) {
   if (egiEv.on) return; // the squid is busy with the lure; let it finish
   aoriX = clamp(x - shX(GL_D), W * .12, POLE - 70 * UI);
   pendingBlow = { x: aoriX, t0: performance.now() };
-  aoriIdleAt = performance.now() + 26000;
+  aoriIdleAt = performance.now() + 9000; aoriYv = null; roam.kind = '';
   if (!aori) { doBlow(aoriX); pendingBlow = null; }
 }
 function readStrata(x, y) {
@@ -742,6 +786,7 @@ function frame() {
   updateFish(dt, N.s, ashMinute, tintRGB);
   updateParticles(dt);
   updateSea(N); updateEgi(dt);
+  updateKouLife(dt, N);
   updateSquids(dt, tintRGB);
 
   drawBG(tintRGB, ashMinute);
@@ -819,15 +864,20 @@ function updateSquids(dt, tintRGB) {
   tint.setRGB(tintRGB[0] / 255, tintRGB[1] / 255, tintRGB[2] / 255, THREE.SRGBColorSpace);
   hemi.color.copy(neutral).lerp(tint, .18);
   if (aori) {
-    if (aoriIdleAt && performance.now() > aoriIdleAt && !pendingBlow) { aoriX = W * .4; aoriIdleAt = 0; }
+    updateRoam(dt);
     const want = onPlane(aoriX, aoriY(), tmpP);
     aori.brain.home.copy(want);
     const cx0 = toScreen(aori.getCenter(tmpV)).x, fy = onPlane(cx0, surfAt(cx0), tmpV).y;
     aori.brain.floorY = fy; aori.fx.floorY = fy + .005; aori.egi.floorY = fy;
     aori.update(dt);
     // the fins can hold it still but not carry it far, so the page glides it to where it was sent (not while it works a lure)
-    const r = aori.squid.root.position, mx = .42 * dt, k = 1 - Math.exp(-1.5 * dt);
-    if (!egiEv.on) { r.z += clamp((want.z - r.z) * k, -mx, mx); r.y += clamp((want.y - r.y) * k, -mx, mx); }
+    const r = aori.squid.root.position, mx = roam.speed * dt, k = 1 - Math.exp(-1.5 * dt);
+    if (!egiEv.on && !(roam.kind === 'dart' && roam.t < 1.6)) {
+      const dz = want.z - r.z, dy = want.y - r.y;
+      r.z += clamp(dz * k, -mx, mx); r.y += clamp(dy * k, -mx, mx);
+      // travelling: turn to face the way it goes (arms first). Screen left is world +z; the kit's yaw 0 faces +z
+      if (Math.abs(dz) > .06) { const b = aori.brain, goal = dz > 0 ? 0 : Math.PI; let d = goal - b.yaw; d = Math.atan2(Math.sin(d), Math.cos(d)); b.yaw += d * (1 - Math.exp(-4 * dt)); }
+    }
     aoriSP = toScreen(aori.getCenter(tmpV)); aoriSP.x += shX(GL_D); aoriSP.y += shY(GL_D);
     // if it ever ends up far off the screen, a fresh one swims in where it belongs
     if (!egiEv.on && (aoriSP.x < -80 * UI || aoriSP.x > W + 80 * UI || aoriSP.y < -80 * UI || aoriSP.y > Y0)) respawnAori();
@@ -837,6 +887,7 @@ function updateSquids(dt, tintRGB) {
     }
     const u = aori.squid.uniforms;
     if (excite > 0) u.uDark.value = Math.min(1, u.uDark.value + .5 * excite);
+    if (roam.mood > 0) { u.uCloud.value = Math.max(u.uCloud.value, 2.2 * roam.mood); u.uDark.value = Math.max(u.uDark.value, .45 * roam.mood); roam.mood = Math.max(0, roam.mood - dt / 3); }
     if (hourPulse > 0) u.uPale.value = Math.max(u.uPale.value, .7 * hourPulse);
   }
   if (kouika) {
@@ -1123,7 +1174,7 @@ tiltBtn = document.querySelector('.apk-btn[aria-label="tilt"]'); camBtn = docume
 
 const testHead = /[?&]head=([-\d.]+),([-\d.]+)/.exec(location.search);
 if (testHead) { head.on = true; head.tx = parseFloat(testHead[1]); head.ty = parseFloat(testHead[2]); E.x = head.tx; E.y = head.ty; }
-if (testHead || /[?&]test\b/.test(location.search)) window.__ts = { E, head, drag, watch, startEgi(f) { egiEv.next = 0; egiEv.force = f; }, get egi() { return egiEv; }, get aori() { return aori; }, fakeFace(x, y, z) { cam.on = true; head.on = true; cam.seen = performance.now() / 1000; head.tx = x; head.ty = y; head.tz = z; }, previewNow() { previewHour(); if (preview) preview.t = 5.5; }, get anim() { return anim; }, get preview() { return preview; } };
+if (testHead || /[?&]test\b/.test(location.search)) window.__ts = { E, head, drag, watch, roam, get kouika() { return kouika; }, startEgi(f) { egiEv.next = 0; egiEv.force = f; }, get egi() { return egiEv; }, get aori() { return aori; }, fakeFace(x, y, z) { cam.on = true; head.on = true; cam.seen = performance.now() / 1000; head.tx = x; head.ty = y; head.tz = z; }, previewNow() { previewHour(); if (preview) preview.t = 5.5; }, get anim() { return anim; }, get preview() { return preview; } };
 
 try {
   await loadSquids('../assets/squid-kit/');
