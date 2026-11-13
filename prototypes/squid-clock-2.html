@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#020b13">
+  <title>INK TIDE II — 出来事で時を告げる深海時計</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body, canvas { -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
+    html, body { position:fixed; inset:0; width:100%; height:100%; margin:0; overflow:hidden; background:#020b13; }
+    #sea { position:absolute; inset:0; overflow:hidden; background:radial-gradient(ellipse at 50% 44%,#102832 0%,#071821 42%,#020910 100%); }
+    #sea::before { content:""; position:absolute; z-index:1; inset:-28% -20% 55%; pointer-events:none; opacity:.28; background:repeating-conic-gradient(from 172deg at 50% 0%,transparent 0deg 5deg,rgba(172,218,212,.09) 5.6deg 6deg,transparent 7deg 12deg); filter:blur(16px); transform:scaleX(1.4); animation:shafts 17s ease-in-out infinite alternate; }
+    #sea::after { content:""; position:absolute; z-index:1; inset:0; pointer-events:none; background:linear-gradient(180deg,rgba(3,12,18,.05),transparent 28%,rgba(0,5,10,.28) 72%,rgba(0,4,8,.58)); }
+    @keyframes shafts { to { transform:translateX(3%) scaleX(1.65) rotate(3deg); opacity:.58; } }
+    canvas { display:block; width:100%; height:100%; touch-action:none; }
+    #back { position:fixed; z-index:4; top:max(17px,env(safe-area-inset-top)); left:max(17px,env(safe-area-inset-left)); color:rgba(225,241,237,.58); text-decoration:none; font:10px/1.2 Arial,sans-serif; letter-spacing:.15em; padding:9px 11px; border:1px solid rgba(218,241,238,.15); border-radius:20px; background:rgba(1,10,15,.2); backdrop-filter:blur(8px); }
+    #clock { position:fixed; z-index:3; top:max(24px,env(safe-area-inset-top)); left:0; right:0; text-align:center; color:rgba(231,244,239,.7); font:300 23px/1 Georgia,serif; letter-spacing:.13em; opacity:0; transition:opacity .5s; pointer-events:none; text-shadow:0 2px 15px #000; }
+    #clock.show { opacity:.7; }
+    #debug { position:fixed; z-index:4; right:max(18px,env(safe-area-inset-right)); bottom:max(20px,env(safe-area-inset-bottom)); width:31px; height:31px; padding:0; border:1px solid rgba(220,239,235,.13); border-radius:50%; background:rgba(225,240,236,.045); opacity:.35; color:rgba(231,244,239,.52); display:grid; place-items:center; touch-action:manipulation; }
+    #debug:active { opacity:.8; }
+    #debug svg { width:13px; height:13px; }
+    #error { display:none; position:fixed; z-index:5; inset:auto 20px 20px; color:#ffd8d2; font:13px/1.5 sans-serif; text-align:center; }
+  </style>
+  <script type="importmap">
+    { "imports": {
+      "three": "../assets/vendor/three/three.module.js",
+      "three/addons/": "../assets/vendor/three/examples/jsm/"
+    } }
+  </script>
+</head>
+<body>
+  <div id="sea" aria-hidden="true"></div>
+  <a id="back" href="../index.html">‹ ART PLAYGROUND</a>
+  <div id="clock" aria-live="off"></div>
+  <button id="debug" type="button" aria-label="出来事を順に再生">
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 1.7v2M8 12.3v2M1.7 8h2m8.6 0h2M3.55 3.55l1.42 1.42m6.06 6.06 1.42 1.42m0-8.9-1.42 1.42m-6.06 6.06-1.42 1.42" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/><circle cx="8" cy="8" r="2.15" stroke="currentColor" stroke-width="1.1"/></svg>
+  </button>
+  <div id="error" role="status"></div>
+  <script type="module">
+    import * as THREE from 'three';
+    import { loadSquids, createSquid } from '../assets/squid-kit/squid-kit.js';
+
+    const sea = document.getElementById('sea');
+    const clockEl = document.getElementById('clock');
+    const error = document.getElementById('error');
+    const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true, powerPreference:'high-performance' });
+    renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+    renderer.setSize(innerWidth, innerHeight, false);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.16;
+    sea.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(34, innerWidth / innerHeight, .1, 40);
+    camera.position.set(1.01, 1.31, 1.32);
+    camera.lookAt(0, 1, 0);
+    const camRight=new THREE.Vector3(), camUp=new THREE.Vector3(), camForward=new THREE.Vector3();
+    const crowdAnchor=new THREE.Vector3();
+    function updateCameraBasis() {
+      camera.updateMatrixWorld();
+      camRight.set(1,0,0).applyQuaternion(camera.quaternion).normalize();
+      camUp.set(0,1,0).applyQuaternion(camera.quaternion).normalize();
+      camera.getWorldDirection(camForward).normalize();
+      crowdAnchor.set(0,1,0).addScaledVector(camForward,-.28).add(new THREE.Vector3(0,-.36,0));
+    }
+    updateCameraBasis();
+    scene.add(new THREE.HemisphereLight(0xd6f0e8, 0x06131b, 1.65));
+    const key = new THREE.DirectionalLight(0xe7f4e9, 3.2);
+    key.position.set(-2.5, 4.5, 3.5); scene.add(key);
+    const rim = new THREE.DirectionalLight(0x75aab0, 1.6);
+    rim.position.set(2, 1.8, -3); scene.add(rim);
+
+    // Fine marine snow: a single low-cost point draw call, drifting at several depths.
+    const snowCount = 125;
+    const snowPositions = new Float32Array(snowCount * 3);
+    const snowDrift = new Float32Array(snowCount);
+    for (let i=0;i<snowCount;i++) {
+      snowPositions[i*3] = (Math.random()-.5)*4.8;
+      snowPositions[i*3+1] = Math.random()*3.6-.55;
+      snowPositions[i*3+2] = -1.5-Math.random()*5;
+      snowDrift[i] = .05+Math.random()*.12;
+    }
+    const snowGeo = new THREE.BufferGeometry();
+    snowGeo.setAttribute('position', new THREE.BufferAttribute(snowPositions,3));
+    const snowMat = new THREE.PointsMaterial({ color:0xd9e8e3, size:.012, transparent:true, opacity:.38, depthWrite:false, sizeAttenuation:true });
+    const snow = new THREE.Points(snowGeo,snowMat); scene.add(snow);
+
+    let aori, kouika, aoriFloat, kouFloat;
+    const crowd = [];
+    let awake = null;
+    function requestWakeLock() {
+      if (!navigator.wakeLock || awake || document.visibilityState!=='visible') return;
+      navigator.wakeLock.request('screen').then(lock=>{ awake=lock; lock.addEventListener('release',()=>{awake=null;}); }).catch(()=>{});
+    }
+    requestWakeLock();
+    document.addEventListener('visibilitychange', requestWakeLock);
+    addEventListener('pointerdown', requestWakeLock, {passive:true});
+
+    let elapsed = 0, lastT = performance.now()/1000;
+    let minutePulse=0, tenPulse=0, minuteMotion=0, swarmAge=0, clockTimer=0;
+    let debugStep=0, lastTen=-1, lastHour=-1;
+    const baseScale=1.05;
+    function showClock() {
+      const d=new Date();
+      clockEl.textContent=[d.getHours(),d.getMinutes(),d.getSeconds()].map(n=>String(n).padStart(2,'0')).join(':');
+      clockEl.classList.add('show'); clearTimeout(clockTimer);
+      clockTimer=setTimeout(()=>clockEl.classList.remove('show'),3200);
+    }
+    addEventListener('pointerdown', e=>{ if(e.target.closest('#debug, #back')) return; showClock(); requestWakeLock(); }, {passive:true});
+
+    function triggerMinute() {
+      minutePulse=1; minuteMotion=4.2;
+      // backward is the kit's non-fishing jet-swim; escape is deliberately never invoked.
+      aori.setMotion('backward');
+    }
+    function triggerTen() { tenPulse=1; }
+    function triggerHour() {
+      if (crowd.length) return;
+      const specs=[[-.22,-.09],[-.07,.09],[.07,-.09],[.22,.09]];
+      specs.forEach(([x,y],i)=>{
+        const actor=createSquid('aori',{detail:'low',home:new THREE.Vector3(0,1,0)});
+        actor.setMotion('forward');
+        actor.object.scale.setScalar(.36);
+        const group=new THREE.Group(); group.add(actor.object);
+        group.position.copy(crowdAnchor).addScaledVector(camRight,x).addScaledVector(camUp,y);
+        group.rotation.y = i%2 ? .08 : -.08;
+        scene.add(group);
+        crowd.push({actor,group,x,y,delay:i*.14});
+      });
+      swarmAge=0;
+    }
+    document.getElementById('debug').addEventListener('click',()=>{
+      if(debugStep===0) triggerMinute();
+      else if(debugStep===1) triggerTen();
+      else triggerHour();
+      debugStep=(debugStep+1)%3;
+    });
+
+    function applySkin(actor, daylight, cloud, t, dash, flicker) {
+      const u=actor.squid.uniforms;
+      u.uDark.value=THREE.MathUtils.lerp(1.88,1.42,daylight);
+      u.uPale.value=THREE.MathUtils.lerp(.015,.16,daylight);
+      u.uCloud.value=cloud;
+      u.uFlicker.value=flicker;
+      u.uDash.value=dash;
+      u.uDashS.value.x=-.72+Math.sin(t*.7)*.26;
+      u.uDashS.value.y=.84;
+      u.uTime.value=t;
+    }
+    function render() {
+      const now=performance.now()/1000, dt=Math.min(.05,Math.max(0,now-lastT));
+      lastT=now; elapsed+=dt;
+      const date=new Date();
+      const hour=date.getHours()+date.getMinutes()/60+date.getSeconds()/3600;
+      const solar=(Math.cos(hour/24*Math.PI*2-Math.PI/2)+1)*.5;
+      const daylight=THREE.MathUtils.smoothstep(solar,.2,.78);
+      const sec=date.getSeconds()+date.getMilliseconds()/1000;
+
+      if(aori) {
+        const minute=date.getMinutes(), hourKey=date.getHours();
+        if(sec<.12 && minute!==lastTen && minute%10===0) { lastTen=minute; triggerTen(); }
+        else if(sec>.3 && lastTen!==minute) lastTen=-1;
+        if(sec<.14 && hourKey!==lastHour && minute===0) { lastHour=hourKey; triggerHour(); }
+        else if(minute!==0 && lastHour!==hourKey) lastHour=-1;
+        // A single jet event per minute, edge-triggered through the second boundary.
+        if(sec<.12 && minute!==minuteEventKey) { minuteEventKey=minute; triggerMinute(); }
+
+        aori.update(dt);
+        minuteMotion=Math.max(0,minuteMotion-dt);
+        minutePulse=Math.max(0,minutePulse-dt/4.2);
+        tenPulse=Math.max(0,tenPulse-dt/4.8);
+        if(minuteMotion===0 && aori.motion==='backward') aori.setMotion('hover');
+        const shock=Math.sin((1-minuteMotion/4.2)*Math.PI);
+        const jet=minuteMotion>0 ? shock : 0;
+        aoriFloat.position.y=.03*Math.sin(elapsed*.62);
+        aoriFloat.position.x=.018*Math.sin(elapsed*.38+1);
+        aoriFloat.rotation.z=.035*Math.sin(elapsed*.45);
+        aoriFloat.position.z=jet*.32;
+        applySkin(aori,daylight,2.15+minutePulse*1.9,.1+elapsed*.18,.45+minutePulse*1.45,.06+minutePulse*.55);
+
+        kouika.update(dt);
+        kouFloat.position.x=-.56+.018*Math.sin(elapsed*.3);
+        kouFloat.position.y=-.62+.05*Math.sin(elapsed*.42+1.3);
+        kouFloat.rotation.z=.035*Math.sin(elapsed*.31);
+        const ten=tenPulse;
+        applySkin(kouika,daylight,1.45+ten*2.35,.4+elapsed*.16,.12+ten*1.35,.04+ten*.72);
+
+        for(let i=0;i<snowCount;i++) {
+          const j=i*3; snowPositions[j+1]-=snowDrift[i]*dt;
+          snowPositions[j]+=Math.sin(elapsed*.31+i*1.7)*dt*.012;
+          if(snowPositions[j+1]<-.65) { snowPositions[j+1]=3.15; snowPositions[j]=(Math.random()-.5)*4.8; }
+        }
+        snowGeo.attributes.position.needsUpdate=true;
+      }
+      if(crowd.length) {
+        swarmAge+=dt;
+        for(let i=crowd.length-1;i>=0;i--) {
+          const item=crowd[i]; item.actor.update(dt);
+          const p=Math.max(0,swarmAge-item.delay);
+          item.group.position.copy(crowdAnchor)
+            .addScaledVector(camRight,item.x+Math.sin(p*2.1+i)*.025+p*.55)
+            .addScaledVector(camUp,item.y+Math.sin(p*2.4+i*1.8)*.035);
+          applySkin(item.actor,daylight,2,.2+elapsed*.15,.3,.05);
+        }
+        if(swarmAge>3.6) { crowd.splice(0).forEach(item=>item.actor.dispose()); }
+      }
+      renderer.render(scene,camera);
+      requestAnimationFrame(render);
+    }
+    let minuteEventKey=-1;
+
+    function resize() {
+      const w=innerWidth,h=innerHeight;
+      renderer.setPixelRatio(Math.min(devicePixelRatio||1,2)); renderer.setSize(w,h,false);
+      camera.aspect=w/Math.max(1,h);
+      camera.position.set(1.01,1.31,h>w?1.32:1.78);
+      camera.updateProjectionMatrix(); camera.lookAt(0,1,0);
+      updateCameraBasis();
+    }
+    addEventListener('resize',resize,{passive:true});
+
+    try {
+      await loadSquids('../assets/squid-kit/');
+      aori=createSquid('aori',{detail:'low',home:new THREE.Vector3(0,1,0)});
+      aori.setMotion('hover'); aori.object.scale.setScalar(baseScale);
+      aoriFloat=new THREE.Group(); aoriFloat.add(aori.object); scene.add(aoriFloat);
+      kouika=createSquid('kouika',{detail:'low',home:new THREE.Vector3(0,1,0)});
+      kouika.setMotion('hover'); kouika.object.scale.setScalar(1.15);
+      kouFloat=new THREE.Group(); kouFloat.add(kouika.object); kouFloat.position.set(.12,-.65,-.65); kouFloat.rotation.y=-.24; scene.add(kouFloat);
+      for(let i=0;i<20;i++){aori.update(1/60);kouika.update(1/60);}
+      requestAnimationFrame(render);
+    } catch(e) {
+      console.error(e); error.textContent='イカを読み込めませんでした。ページを再読み込みしてください。'; error.style.display='block';
+    }
+  </script>
+</body>
+</html>
