@@ -26,6 +26,7 @@
   #bar{position:fixed;right:12px;top:calc(env(safe-area-inset-top,0px) + 72px);
     display:flex;flex-direction:column;gap:8px;transition:opacity .7s ease}
   #bar.dim{opacity:.4}
+  #bar{display:none} /* 2026/11/13 センサーのボタンは下の操作バー(dock)へ移した。元のボタンは処理用に残して隠す */
   .b{appearance:none;-webkit-appearance:none;border:1px solid rgba(255,230,200,.28);
     background:rgba(20,12,28,.55);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);
     color:rgba(255,236,214,.86);width:50px;height:50px;border-radius:50%;padding:0;cursor:pointer;
@@ -768,8 +769,15 @@ window.addEventListener('pagehide',()=>{ disableCam(); });
 
 APKit.init({canvas:cv,gifName:'28-shells-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,buttons:[
   {label:'✦',name:'mutate',onClick:mutate},
-  {label:'↻',name:'reset',onClick:resetWorld}
+  {label:'↻',name:'reset',onClick:resetWorld},
+  {label:'📷',name:'camera',onClick:()=>bCam.click()},
+  {label:'<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="8.5" y="3" width="7" height="18" rx="2"/><path d="M4.5 9c-1 2-1 4 0 6M19.5 9c1 2 1 4 0 6"/></svg>',name:'tilt',onClick:()=>bTilt.click()}
 ]});
+/* センサーのボタンは下の操作バーに並べる(全作品共通。ONは白く光る)。ON/OFFは元のボタンの状態を写す */
+for(const [src,name] of [[bCam,'camera'],[bTilt,'tilt']]){
+  const sync=()=>{const d=document.querySelector('.apk-btn[aria-label="'+name+'"]'); if(d)d.classList.toggle('apk-on',src.classList.contains('on'));};
+  new MutationObserver(sync).observe(src,{attributes:true,attributeFilter:['class']}); sync();
+}
 setTimeout(()=>{ if(!hintGone && window.self===window.top) hint.classList.add('on'); },1800); /* ギャラリー内(iframe)では、ギャラリー側の初回ヒントが出るので作品のヒントは出さない(重なるため) */
 setTimeout(hideHint,8500);
 poke();

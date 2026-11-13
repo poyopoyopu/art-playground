@@ -145,11 +145,13 @@ function reset(){initSeeds();setHint();hint.classList.remove('off')}
 
 /* ---- 傾き ---- */
 const tilt={x:0,y:0},target={x:0,y:0};
-let gyro=false,lastInput=-10,permAsked=false,permDenied=false;
+let gyro=false,lastInput=-10,permAsked=false,permDenied=false,tiltOn=true,tiltBtn=null;
+function setTiltUI(){if(tiltBtn)tiltBtn.classList.toggle('apk-on',tiltOn&&gyro)}
 const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
 function onOrient(e){
   if(e.gamma==null||e.beta==null)return;
-  if(!gyro){gyro=true;setHint()}
+  if(!tiltOn)return;
+  if(!gyro){gyro=true;setHint();setTiltUI()}
   target.x=clamp(e.gamma/30,-1.3,1.3);
   target.y=clamp((e.beta-45)/30,-1.3,1.3);
 }
@@ -228,8 +230,16 @@ function draw(){
 }
 APKit.init({canvas:canvas,gifName:'foil-law-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,buttons:[
   {label:'✦',name:'mutate',onClick:mutate},
-  {label:'↻',name:'reset',onClick:reset}
+  {label:'↻',name:'reset',onClick:reset},
+  {label:'<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="8.5" y="3" width="7" height="18" rx="2"/><path d="M4.5 9c-1 2-1 4 0 6M19.5 9c1 2 1 4 0 6"/></svg>',name:'tilt',onClick:()=>{   // センサーのボタンは下の操作バーに並べる(全作品共通。ONは白く光る)
+    if(needsPerm&&!permAsked){tiltOn=true;askMotion();return}
+    if(tiltOn&&gyro){tiltOn=false;gyro=false;target.x=0;target.y=0;setHint();setTiltUI();APKit.toast('傾き OFF',1600);return}
+    tiltOn=true;gyro=false;setTiltUI();
+    if(!DOE||permDenied)APKit.toast('この端末では傾きが使えないみたい。なぞっても光を動かせます',3600);
+    else{APKit.toast('傾き ON',1600);setTimeout(()=>{if(tiltOn&&!gyro)APKit.toast('この端末では傾きセンサーが使えないみたい',3600)},2200)}
+  }}
 ]});
+tiltBtn=document.querySelector('.apk-btn[aria-label="tilt"]');setTiltUI();
 requestAnimationFrame(draw);
 </script>
 </body>
