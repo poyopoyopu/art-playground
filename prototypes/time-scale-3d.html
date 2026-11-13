@@ -71,7 +71,7 @@
   <button id="camBtn" class="tbtn" type="button" aria-pressed="false"><span>📷 OFF</span></button>
 </div>
 <div id="note" aria-live="polite"></div>
-<video id="cam" playsinline muted autoplay style="position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none"></video>
+<video id="cam" playsinline muted autoplay style="position:fixed;left:0;top:0;width:160px;height:120px;opacity:0;pointer-events:none;z-index:-1"></video>
 <script type="module">
 import * as THREE from 'three';
 import { loadSquids, createSquid } from '../assets/squid-kit/squid-kit.js';
@@ -552,6 +552,16 @@ function loadMP() {
   if (window.FaceDetection) return Promise.resolve();
   return new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = MP + 'face_detection.js'; sc.onload = res; sc.onerror = () => rej(new Error('script')); document.head.appendChild(sc); });
 }
+const camDbg = /[?&]camdebug\b/.test(location.search) ? Object.assign(document.body.appendChild(document.createElement('div')), { style: 'position:fixed;z-index:9;left:8px;bottom:8px;font:11px/1.4 monospace;color:#8f8;background:rgba(0,0,0,.6);padding:4px 6px;pointer-events:none;white-space:pre' }) : null;
+const camStat = { sent: 0, res: 0, faces: 0, t0: 0, rate: '', err: '' };
+function camStatus() {
+  if (!cam.on) return;
+  const now = performance.now() / 1000, seen = now - cam.seen < .6;
+  camBtn.querySelector('span').textContent = seen ? '📷 顔 ●' : '📷 顔 ○';
+  if (now - camStat.t0 > 1) { camStat.rate = `send ${camStat.sent}/s res ${camStat.res}/s face ${camStat.faces}/s`; camStat.sent = camStat.res = camStat.faces = 0; camStat.t0 = now; }
+  if (camDbg) camDbg.textContent = `${camStat.rate}\nvideo ${camVideo.videoWidth}x${camVideo.videoHeight} rs${camVideo.readyState}\nhead ${head.tx.toFixed(2)} ${head.ty.toFixed(2)} z${head.tz.toFixed(2)}\nwatch ${watch.k.toFixed(2)} ${camStat.err}`;
+  if (cam.on && now - cam.startAt > 4 && now - cam.seen > 4 && !cam.hinted) { cam.hinted = true; say('顔が見つからない。画面の正面から、明るいところでのぞいてみて', 4200); }
+}
 function setCamUI(on) {
   camBtn.classList.toggle('on', on); camBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
   camBtn.querySelector('span').textContent = on ? '📷 ON' : '📷 OFF';
@@ -564,7 +574,7 @@ function camFail(msg) {
   if (D && typeof D.requestPermission !== 'function' && !tilt.on) setTilt(true);
 }
 function onFace(r) {
-  cam.busy = false;
+  cam.busy = false; camStat.res++;
   const d = r && r.detections && r.detections[0];
   const bb = d && (d.boundingBox || (d.locationData && d.locationData.relativeBoundingBox));
   if (!bb) return;
@@ -577,6 +587,7 @@ function onFace(r) {
   else if (cam.nb < 12) { cam.nb++; cam.base.x += (x - cam.base.x) * .25; cam.base.y += (y - cam.base.y) * .25; cam.base.w += (w - cam.base.w) * .25; }
   else { const a = now - cam.seen > 1.5 ? .5 : .0012; cam.base.x += (x - cam.base.x) * a; cam.base.y += (y - cam.base.y) * a; cam.base.w += (w - cam.base.w) * a; }
   if (now - cam.seen > 2.5) watch.greet = true;
+  camStat.faces++;
   cam.seen = now;
   head.tx = clamp((x - cam.base.x) * 5.5, -1, 1);
   head.ty = clamp((y - cam.base.y) * 5.5, -1, 1);
@@ -588,7 +599,8 @@ function camLoop() {
   const now = performance.now();
   if (cam.busy || now - cam.last < 45 || document.visibilityState !== 'visible' || camVideo.readyState < 2) return;
   cam.busy = true; cam.last = now;
-  cam.det.send({ image: camVideo }).catch(() => { cam.busy = false; });
+  camStat.sent++;
+  cam.det.send({ image: camVideo }).catch(e => { cam.busy = false; camStat.err = String(e).slice(0, 60); });
   if (performance.now() / 1000 - cam.seen > 1.2) { head.tx *= .98; head.ty *= .98; head.tz += (1 - head.tz) * .02; }
 }
 function stopCam() {
@@ -611,11 +623,11 @@ async function startCam() {
     await camVideo.play();
     await loadMP();
     cam.det = new window.FaceDetection({ locateFile: f => MP + f });
-    cam.det.setOptions({ model: 'short', minDetectionConfidence: .55 });
+    cam.det.setOptions({ model: 'short', minDetectionConfidence: .4 });
     cam.det.onResults(onFace);
     await cam.det.initialize();
   } catch (e) { camFail('顔の検出を始められなかった。傾きか、指なぞりで見られる'); return; }
-  cam.on = true; head.on = true; cam.seen = -99; cam.base = null; cam.nb = 0;
+  cam.on = true; head.on = true; cam.seen = -99; cam.startAt = performance.now() / 1000; cam.hinted = false; cam.base = null; cam.nb = 0;
   if (tilt.on) setTilt(false);
   setCamUI(true);
   say('📷 ON。顔を動かすと、窓から覗くように奥行きが見える(映像は保存も送信もしない)', 4800);
@@ -676,7 +688,7 @@ function frame() {
   const ashMinute = (grow && grow.ash) || ashPulse > .2;
   const tintRGB = grow ? grow.rgb : ASH;
 
-  updateEye(dt, elapsed);
+  updateEye(dt, elapsed); camStatus();
   updateFish(dt, N.s, ashMinute, tintRGB);
   updateParticles(dt);
   updateSquids(dt, tintRGB);
