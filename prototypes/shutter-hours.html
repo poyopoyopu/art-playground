@@ -72,7 +72,12 @@ function hsv(h, s, v) { h = ((h % 1) + 1) % 1; const i = Math.floor(h * 6), f = 
 
 // ───────── 描画の用意 ─────────
 const canvas = document.getElementById('c');
-const forceGL = /[?&]gl=1/.test(location.search) || sessionStorage.getItem('sh-gl') === '1';
+const forceGL = /[?&]gl=1/.test(location.search);
+try { sessionStorage.removeItem('sh-gl'); } catch (e) {}   // 以前の版が残した「ずっとWebGL2」の印を消す
+// エラーは画面に文字で出す(iPhoneでは開発ツールが見られないため)
+function showErr(msg) { const er = document.getElementById('err'); er.style.display = 'flex'; er.textContent = msg; }
+addEventListener('error', e => showErr('エラー: ' + (e.message || e)));
+addEventListener('unhandledrejection', e => showErr('エラー: ' + ((e.reason && e.reason.message) || e.reason)));
 let renderer;
 try {
   renderer = new THREE.WebGPURenderer({ canvas, antialias: true, alpha: true, forceWebGL: forceGL });
@@ -80,12 +85,16 @@ try {
   renderer.setSize(innerWidth, innerHeight, false);
   renderer.toneMapping = THREE.NeutralToneMapping;
   renderer.toneMappingExposure = 1.05;
-  // WebGPUが途中で落ちたら、WebGL2で開き直す(1回だけ)
-  renderer.onDeviceLost = () => { if (!forceGL && !sessionStorage.getItem('sh-gl')) { sessionStorage.setItem('sh-gl', '1'); location.replace(location.pathname + '?gl=1'); } };
+  // 描画が落ちたら(iPhoneはアプリを切り替えると落とすことがある)、画面に戻ったときに普通に読み込み直す
+  let lostHidden = false;
+  const reloadOnce = () => { let t = 0; try { t = +sessionStorage.getItem('sh-rl') || 0; } catch (e) {}
+    if (Date.now() - t < 15000) { showErr('描画が止まったみたい。読み込み直してね'); return; }
+    try { sessionStorage.setItem('sh-rl', Date.now()); } catch (e) {} location.reload(); };
+  renderer.onDeviceLost = () => { if (document.visibilityState === 'visible') reloadOnce(); else lostHidden = true; };
+  document.addEventListener('visibilitychange', () => { if (lostHidden && document.visibilityState === 'visible') reloadOnce(); });
   await renderer.init();
 } catch (e) {
-  const er = document.getElementById('err'); er.style.display = 'flex';
-  er.textContent = 'この端末では3Dの描画が使えないみたい'; throw e;
+  showErr('この端末では3Dの描画が使えないみたい(' + (e && e.message) + ')'); throw e;
 }
 const BACKEND = renderer.backend && renderer.backend.isWebGPUBackend ? 'WebGPU' : 'WebGL2';
 
