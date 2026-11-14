@@ -8,11 +8,10 @@
      世界のルール: 塔の外壁の鎧戸(約1万2千枚)は、みな指でともした灯りのほうへ向く。向き直りは触れた所から波で広がる。
      時計: 開いた鎧戸の奥の明かりで、左の面=時・右の面=分。秒=角を昇るエレベーター。毎分=上からめくれて数字が替わる。毎正時=塔じゅうの板が一回転。
      技術: three.js r187 の WebGPURenderer(WebGPUが無い端末は自動でWebGL2)、TSLのブルーム、InstancedMesh。板の色は毎フレームJSで
-     「灯りの当たり・空の映り込み(空の画像/📷のカメラ映像)・きらめき」から計算する。 -->
+     「灯りの当たり・空の映り込み・きらめき」から計算する。 -->
 <script src="../ap-kit.js"></script>
 <style>
 html,body{margin:0;height:100%;background:#130e0b;overflow:hidden;touch-action:none;overscroll-behavior:none}
-#cam{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;display:none;background:#000}
 #c{position:fixed;inset:0;width:100%;height:100%;display:block}
 #hint{position:fixed;left:50%;bottom:calc(86px + env(safe-area-inset-bottom));transform:translateX(-50%);
   max-width:86vw;text-align:center;color:rgba(255,236,214,.88);font:500 13px/1.7 -apple-system,"Hiragino Sans",sans-serif;
@@ -29,9 +28,8 @@ html,body{margin:0;height:100%;background:#130e0b;overflow:hidden;touch-action:n
 </script>
 </head>
 <body>
-<video id="cam" playsinline muted></video>
 <canvas id="c"></canvas>
-<div id="hint">タップした所に灯りがともり、塔の鎧戸がみなそちらへ向く<br>下のスマホの絵で傾き・📷で景色を映す</div>
+<div id="hint">タップした所に灯りがともり、塔の鎧戸がみなそちらへ向く<br>下のスマホの絵で傾けると、塔のまわりを回れる</div>
 <div id="err"></div>
 <script type="module">
 import * as THREE from 'three/webgpu';
@@ -190,24 +188,6 @@ function paintSky(h) {
 }
 let skyDrift = 0;
 
-// ───────── カメラ映像(📷)を映り込みに ─────────
-const camEl = document.getElementById('cam');
-const CAMW = 48, CAMH = 32;
-const camCv = document.createElement('canvas'); camCv.width = CAMW; camCv.height = CAMH;
-const camCtx = camCv.getContext('2d', { willReadFrequently: true });
-const camLin = new Float32Array(CAMW * CAMH * 3);
-let camOn = false, camStream = null, camAmb = [0.1, 0.1, 0.1], camGrabAt = 0;
-function grabCam() {
-  if (!camOn || camEl.readyState < 2) return;
-  camCtx.drawImage(camEl, 0, 0, CAMW, CAMH);
-  const d = camCtx.getImageData(0, 0, CAMW, CAMH).data; let ar = 0, ag = 0, ab = 0;
-  for (let i = 0; i < CAMW * CAMH; i++) {
-    const r = Math.pow(d[i * 4] / 255, 2.2), g = Math.pow(d[i * 4 + 1] / 255, 2.2), b = Math.pow(d[i * 4 + 2] / 255, 2.2);
-    camLin[i * 3] = r; camLin[i * 3 + 1] = g; camLin[i * 3 + 2] = b; ar += r; ag += g; ab += b;
-  }
-  const n = CAMW * CAMH; camAmb = [ar / n, ag / n, ab / n];
-}
-
 // ───────── 地面と塔の骨組み ─────────
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(1200, 1200), new THREE.MeshBasicMaterial({ color: 0x0b0806 }));
 ground.rotation.x = -Math.PI / 2; scene.add(ground);
@@ -316,13 +296,6 @@ function pushLight(L, O, t) {
   events.push({ L: L.slice(), O: O.slice(), t }); if (events.length > 40) events.shift();
   lamp.target = L.slice();
 }
-const glowCv = document.createElement('canvas'); glowCv.width = glowCv.height = 128;
-{ const g = glowCv.getContext('2d'), gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
-  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(.12, 'rgba(255,230,190,.9)'); gr.addColorStop(.35, 'rgba(255,170,90,.32)'); gr.addColorStop(1, 'rgba(255,120,40,0)');
-  g.fillStyle = gr; g.fillRect(0, 0, 128, 128); }
-const glowTex = new THREE.CanvasTexture(glowCv); glowTex.colorSpace = THREE.SRGBColorSpace;
-const lampSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: new THREE.Color(2.4, 1.6, 1.0), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
-lampSprite.scale.set(7, 7, 1); scene.add(lampSprite);
 const LAMP_COL = [1.0, 0.68, 0.38];
 
 // ───────── 時計 ─────────
@@ -395,23 +368,6 @@ function toggleTilt() {
   } else { setTilt(true); toast('傾けると塔のまわりを回れる'); }
 }
 
-// ───────── 📷 ─────────
-let camBtn = null;
-async function toggleCam() {
-  if (camOn) { stopCam(); toast('📷 OFF'); return; }
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast('この端末ではカメラが使えないみたい'); return; }
-  try {
-    camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } }, audio: false });
-    camEl.srcObject = camStream; await camEl.play();
-    camOn = true; camEl.style.display = 'block'; skyMesh.visible = false; ground.visible = false; scene.background = null;
-    if (camBtn) camBtn.classList.add('apk-on');
-    toast('塔の板に、まわりの景色が映る');
-  } catch (e) { toast('カメラが許可されなかった'); }
-}
-function stopCam() {
-  camOn = false; if (camStream) camStream.getTracks().forEach(t => t.stop()); camStream = null;
-  camEl.style.display = 'none'; skyMesh.visible = true; ground.visible = true; if (camBtn) camBtn.classList.remove('apk-on');
-}
 function toast(s) { if (window.APKit && APKit.toast) APKit.toast(s); }
 
 // ───────── ブルーム(光のにじみ) ─────────
@@ -550,17 +506,12 @@ function frame() {
   camPos.set(Math.sin(view.yaw) * camDist, Math.max(1.2, view.ty), Math.cos(view.yaw) * camDist);
   camera.position.copy(camPos); camera.lookAt(0, lookY, 0);
   const cx = camPos.x, cy = camPos.y, cz = camPos.z;
-  // カメラの向き(📷の映り込み用)
-  const e = camera.matrixWorld.elements, rX = [e[0], e[1], e[2]], rY = [e[4], e[5], e[6]];
 
   // 灯り
   for (let k = 0; k < 3; k++) lamp.p[k] += (lamp.target[k] - lamp.p[k]) * Math.min(1, dt * 8);
-  lampSprite.position.set(lamp.p[0], lamp.p[1], lamp.p[2]);
-  const pulse = 1 + Math.sin(now * 2.1) * 0.06; lampSprite.scale.set(7 * pulse, 7 * pulse, 1);
 
   skyDrift = (skyDrift + dt * 0.0035) % 1; skyTex.offset.x = skyDrift;
-  if (camOn && now - camGrabAt > 0.12) { camGrabAt = now; grabCam(); }
-  const amb = camOn ? camAmb : skyAmb;
+  const amb = skyAmb;
   const ambK = 0.55, mixAim = 1 - Math.exp(-dt * 5), mixOpen = 1 - Math.exp(-dt * 4);
   const nev = events.length;
 
@@ -622,16 +573,10 @@ function frame() {
       const diff = Math.max(0, fx * qx + fy * qy + fz * qz) * 3.0 / (1 + (qd / 10.5) * (qd / 10.5));
       const rx = 2 * ndv * fx - vx, ry = 2 * ndv * fy - vy, rz = 2 * ndv * fz - vz;   // 映り込みの向き
       let sr, sg, sb;
-      if (camOn) {
-        const ux = rx * rX[0] + ry * rX[1] + rz * rX[2], uy = rx * rY[0] + ry * rY[1] + rz * rY[2];
-        const ix = Math.max(0, Math.min(CAMW - 1, Math.floor((0.5 - ux * 0.5) * CAMW))), iy = Math.max(0, Math.min(CAMH - 1, Math.floor((0.5 - uy * 0.5) * CAMH)));
-        const o = (iy * CAMW + ix) * 3; sr = camLin[o] * 1.3; sg = camLin[o + 1] * 1.3; sb = camLin[o + 2] * 1.3;
-      } else {
-        let u = Math.atan2(rz, -rx) / (Math.PI * 2); u = u - Math.floor(u); u = (u + skyDrift) % 1;
-        const v = 0.5 - Math.asin(Math.max(-1, Math.min(1, ry))) / Math.PI;
-        const ix = Math.min(SKL_W - 1, Math.floor(u * SKL_W)), iy = Math.min(SKL_H - 1, Math.floor(v * SKL_H)), o = (iy * SKL_W + ix) * 3;
-        sr = skyLin[o]; sg = skyLin[o + 1]; sb = skyLin[o + 2];
-      }
+      let u = Math.atan2(rz, -rx) / (Math.PI * 2); u = u - Math.floor(u); u = (u + skyDrift) % 1;
+      const v = 0.5 - Math.asin(Math.max(-1, Math.min(1, ry))) / Math.PI;
+      const ix = Math.min(SKL_W - 1, Math.floor(u * SKL_W)), iy = Math.min(SKL_H - 1, Math.floor(v * SKL_H)), o = (iy * SKL_W + ix) * 3;
+      sr = skyLin[o]; sg = skyLin[o + 1]; sb = skyLin[o + 2];
       const fres = 0.32 + 0.6 * Math.pow(1 - ndv, 3);
       const gl = Math.max(0, rx * qx + ry * qy + rz * qz), glint = gl > 0.9 ? Math.pow(gl, 90) * 3.2 / (1 + qd * qd / 400) : 0;
       const tr = tint[k3], tg = tint[k3 + 1], tb = tint[k3 + 2];
@@ -645,7 +590,7 @@ function frame() {
   tileMesh.instanceMatrix.needsUpdate = true; tileMesh.instanceColor.needsUpdate = true;
 
   jsMs = jsMs * 0.95 + (performance.now() - t0) * 0.05;
-  if (pipeline && !camOn) pipeline.render(); else renderer.render(scene, camera);
+  if (pipeline) pipeline.render(); else renderer.render(scene, camera);
 }
 let jsMs = 0;
 
@@ -667,11 +612,10 @@ APKit.init({
   buttons: [
     { label: '✦', name: 'mutate', onClick: mutate },   // 配色と雲を替え、塔じゅうの板を一回転、灯りも別の場所へ
     { label: '↻', name: 'reset', onClick: reset },
-    { label: TILT_SVG, name: 'tilt', onClick: toggleTilt },
-    { label: '📷', name: 'camera', onClick: toggleCam }
+    { label: TILT_SVG, name: 'tilt', onClick: toggleTilt }
   ]
 });
-setTimeout(() => { tiltBtn = document.querySelector('.apk-btn[aria-label="tilt"]'); camBtn = document.querySelector('.apk-btn[aria-label="camera"]'); }, 0);
+setTimeout(() => { tiltBtn = document.querySelector('.apk-btn[aria-label="tilt"]'); }, 0);
 
 // テスト用
 window.__sh = { BACKEND, ms: () => jsMs, hour: v => { hourOverride = v; }, setTime: (hh, mm) => { setDigits(hh, mm, true, performance.now() / 1000); curMin = mm; curHour = hh; },
