@@ -3,53 +3,71 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-<title>SHUTTER HOURS — 塔の鎧戸は、指でともした灯りへ向き直る</title>
-<!-- SHUTTER HOURS — クロちゃん作(2026/11/14)。brice_deg氏の「shutters」(three.js + WebGPU)の投稿から着想。ap-kit.js統合: クロちゃん
-     世界のルール: 塔の外壁の鎧戸(約1万2千枚)は、みな指でともした灯りのほうへ向く。向き直りは触れた所から波で広がる。
-     時計: 開いた鎧戸の奥の明かりで、上の段=時・下の段=分(壁1面を真正面から見る)。秒=角を昇るエレベーター。毎分=上からめくれて数字が替わる。毎正時=塔じゅうの板が一回転。
-     技術: three.js r187 の WebGPURenderer(ふだんはWebGL2で描く。?gpu=1 でWebGPU)、TSLのブルーム、InstancedMesh。板の色は毎フレームJSで
-     「灯りの当たり・空の映り込み・きらめき」から計算する。 -->
+<title>SHUTTER HOURS — 羽根を押し広げると、外の時刻がのぞく</title>
+<!-- SHUTTER HOURS — クロちゃん作(2026/11/14)。brice_deg氏の「shutters」の投稿から着想。ap-kit.js統合: クロちゃん
+     2026/11/14 作り直し(おっちゃん「ビルにこだわる必要もない」「ブラインドをリアルに滑らかに」「タップ効果も変えて」)。
+     世界のルール: 窓のブラインドの向こう、向かいのビルの電光掲示板に今の時刻が出ている。見えるのは羽根のすき間からだけ。
+       ・指で押さえて動かす = 羽根を押し広げて外をのぞく。離すと羽根はしなりながら戻るが、押し広げた所は少し曲がったまま残る(アルミの羽根の癖)。
+       ・タップ = その辺りの羽根がパタパタ揺れ、揺れが上下の羽根へ伝わる。
+       ・傾き = 見る角度が変わり、すき間の見え方と外の景色の位置が変わる。
+     描き方: 画面の全ピクセルを1本のフラグメントシェーダー(WebGL2)で計算。羽根の傾き・上下のずれは横48点×羽根の枚数の
+       小さなテクスチャでJSから渡し、羽根の曲面の光沢・すき間の外の景色・漏れる光のにじみはシェーダーで描く。three.jsは使わない。 -->
 <script src="../ap-kit.js"></script>
 <style>
-html,body{margin:0;height:100%;background:#130e0b;overflow:hidden;touch-action:none;overscroll-behavior:none}
+html,body{margin:0;height:100%;background:#0d0b09;overflow:hidden;touch-action:none;overscroll-behavior:none}
 #c{position:fixed;inset:0;width:100%;height:100%;display:block}
 #hint{position:fixed;left:50%;bottom:calc(86px + env(safe-area-inset-bottom));transform:translateX(-50%);
-  max-width:86vw;text-align:center;color:rgba(255,236,214,.88);font:500 13px/1.7 -apple-system,"Hiragino Sans",sans-serif;
-  letter-spacing:.04em;text-shadow:0 1px 8px rgba(0,0,0,.8);pointer-events:none;transition:opacity 1.2s}
+  width:84vw;max-width:420px;text-align:center;color:rgba(255,240,222,.9);font:500 13px/1.75 -apple-system,"Hiragino Sans",sans-serif;
+  letter-spacing:.04em;text-shadow:0 1px 8px rgba(0,0,0,.9);pointer-events:none;transition:opacity 1.2s}
 #err{position:fixed;inset:0;display:none;align-items:center;justify-content:center;color:#eee;font:14px/1.8 sans-serif;text-align:center;padding:24px}
 </style>
-<script type="importmap">
-  { "imports": {
-    "three": "../assets/vendor/three/three.module.js",
-    "three/webgpu": "../assets/vendor/three/three.webgpu.js",
-    "three/tsl": "../assets/vendor/three/three.tsl.js",
-    "three/addons/": "../assets/vendor/three/examples/jsm/"
-  } }
-</script>
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hint">タップした所に灯りがともり、塔の鎧戸がみなそちらへ向く<br>下のスマホの絵で傾けると、少し斜めから覗ける</div>
+<div id="hint">指で押さえると、羽根を押し広げて外がのぞける<br>タップで揺れる・下のスマホの絵で傾き</div>
 <div id="err"></div>
-<script type="module">
-import * as THREE from 'three/webgpu';
-import { pass } from 'three/tsl';
-import { bloom } from 'three/addons/tsl/display/BloomNode.js';
+<script>
+(function () {
+'use strict';
+function showErr(msg) { const er = document.getElementById('err'); er.style.display = 'flex'; er.textContent = msg; }
+addEventListener('error', e => showErr('エラー: ' + (e.message || e)));
 
-// ───────── 塔の寸法 ─────────
-const COLS = 15, ROWS = 38, FACES = 1;   // 壁1面を真正面から見る
-const BAY_W = 1.0, BAY_H = 1.2, BASE = 2.4;
-const W = COLS * BAY_W, HW = W / 2;
-const TOP = BASE + ROWS * BAY_H;            // 外壁のてっぺん
-const TPB = 6;                               // 1区画あたりの板(横2×縦3)
-const NBAY = FACES * COLS * ROWS, NT = NBAY * TPB;
-const TW = BAY_W / 2 - 0.05, TH = BAY_H / 3 - 0.04;
+const canvas = document.getElementById('c');
+const gl = canvas.getContext('webgl2', { antialias: false, premultipliedAlpha: false, preserveDrawingBuffer: true });
+if (!gl) { showErr('この端末では描画が使えないみたい'); return; }
 
-// 面 f の外向き法線と右向き
-const FN = [], FT = [];
-for (let f = 0; f < FACES; f++) { const a = f * Math.PI / 2; FN.push([Math.sin(a), 0, Math.cos(a)]); FT.push([Math.cos(a), 0, -Math.sin(a)]); }
+// ───────── 寸法 ─────────
+let W = innerWidth, H = innerHeight, DPR = Math.min(devicePixelRatio || 1, 2);
+let PITCH = 22, TOP = 20, N = 40;
+const K = 48;                          // 羽根1枚あたりの横の点の数
+let dy, vdy, ph, vph, dent, dentPh;    // 上下のずれ(ピッチ単位)・傾きのずれ(rad)とその速さ・曲がったままの癖
+const stateBuf = { data: null };
+function layout() {
+  W = innerWidth; H = innerHeight; DPR = Math.min(devicePixelRatio || 1, 2);
+  canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
+  PITCH = Math.max(16, Math.min(26, H / 38));
+  TOP = Math.max(14, PITCH * 0.9);
+  const n = Math.ceil((H - TOP) / PITCH) + 1;
+  if (n !== N || !dy) {
+    N = n; const L = N * K;
+    dy = new Float32Array(L); vdy = new Float32Array(L); ph = new Float32Array(L); vph = new Float32Array(L);
+    dent = new Float32Array(L); dentPh = new Float32Array(L); stateBuf.data = new Float32Array(L * 4);
+  }
+  makeOutside();
+}
 
-// ───────── 数字(5×7) ─────────
+// ───────── 窓の外(向かいのビルの電光掲示板) ─────────
+const OUTW = 540;
+const outCv = document.createElement('canvas'), outCtx = outCv.getContext('2d');
+const blurCv = document.createElement('canvas'), blurCtx = blurCv.getContext('2d');
+let city = null, seed = 1;
+function rnd() { seed = (seed * 16807) % 2147483647; return seed / 2147483647; }
+function makeCity() {
+  seed = 1 + Math.floor(Math.random() * 1e6);
+  city = { far: [], win: [] };
+  let x = -20; while (x < OUTW + 20) { const w = 30 + rnd() * 70; city.far.push({ x, w, h: 0.12 + rnd() * 0.22 }); x += w + rnd() * 6; }
+  for (let i = 0; i < 400; i++) city.win.push({ x: rnd(), y: rnd(), on: rnd(), tint: rnd() });
+}
 const FONT = {
   0:['01110','10001','10011','10101','11001','10001','01110'], 1:['00100','01100','00100','00100','00100','00100','01110'],
   2:['01110','10001','00001','00110','01000','10000','11111'], 3:['11110','00001','00001','01110','00001','00001','11110'],
@@ -57,565 +75,336 @@ const FONT = {
   6:['00110','01000','10000','11110','10001','10001','01110'], 7:['11111','00001','00010','00100','01000','01000','01000'],
   8:['01110','10001','10001','01110','10001','10001','01110'], 9:['01110','10001','10001','01111','00001','00010','01100']
 };
-const DIGIT_TOP = 27, MIN_TOP = 18;   // 時の数字・分の数字のいちばん上の階(上に時、下に分)
-const DIGIT_C0 = Math.floor((COLS - 11) / 2);
-
-// ───────── 配色(✦で巡る) ─────────
-const PALS = [
-  { name:'EMBER',  base:[.30,.27,.24], patch:[[1.0,.52,.22],[.92,.30,.20],[1.0,.70,.33],[.72,.66,.58],[.55,.38,.28]], digit:[2.8,1.45,.6], apt:[1.0,.72,.45] },
-  { name:'PRISM',  base:[.28,.28,.30], patch:null, digit:null, apt:[.95,.85,.75] },
-  { name:'NOCTURNE', base:[.16,.20,.27], patch:[[.25,.75,.85],[.35,.45,.95],[.70,.40,.95],[.60,.80,.90],[.20,.35,.50]], digit:[.9,2.0,2.9], apt:[.70,.85,1.0] },
-  { name:'BRASS',  base:[.34,.29,.20], patch:[[.95,.78,.38],[.80,.60,.30],[1.0,.88,.55],[.60,.50,.35],[.45,.40,.30]], digit:[2.9,2.0,.75], apt:[1.0,.85,.55] }
+// 時刻ごとの空 [時, 上, 下, 太陽のにじみ, 明るさ]
+const SKY = [
+  [0, '#05070f', '#141a2c', '#1a1830', 0.05], [5, '#0b1022', '#3a3550', '#6a4a5a', 0.12], [6.5, '#3a5a8c', '#e7a77e', '#ffc890', 0.55],
+  [9, '#4b86c8', '#bcd8ec', '#fff3dc', 1.0], [15.5, '#4a82c2', '#c6dbe8', '#fff0d0', 0.95], [17.3, '#3b3f66', '#f0a070', '#ffb070', 0.6],
+  [18.6, '#1c1c38', '#7a4a5c', '#c0705a', 0.25], [20, '#070a18', '#1a1e34', '#2a2034', 0.07], [24, '#05070f', '#141a2c', '#1a1830', 0.05]
 ];
-let pal = 0;
-function hsv(h, s, v) { h = ((h % 1) + 1) % 1; const i = Math.floor(h * 6), f = h * 6 - i, p = v * (1 - s), q = v * (1 - f * s), t = v * (1 - (1 - f) * s);
-  return [[v,t,p],[q,v,p],[p,v,t],[p,q,v],[t,p,v],[v,p,q]][i % 6]; }
-
-// ───────── 描画の用意 ─────────
-const canvas = document.getElementById('c');
-// iPhoneのWebGPUは絵が真っ黒になることがあった(2026/11/14)ので、ふだんはWebGL2で描く。WebGPUは ?gpu=1 のときだけ
-const forceGL = !/[?&]gpu=1/.test(location.search);
-try { sessionStorage.removeItem('sh-gl'); } catch (e) {}   // 以前の版が残した「ずっとWebGL2」の印を消す
-// エラーは画面に文字で出す(iPhoneでは開発ツールが見られないため)
-function showErr(msg) { const er = document.getElementById('err'); er.style.display = 'flex'; er.textContent = msg; }
-addEventListener('error', e => showErr('エラー: ' + (e.message || e)));
-addEventListener('unhandledrejection', e => showErr('エラー: ' + ((e.reason && e.reason.message) || e.reason)));
-let renderer;
-try {
-  renderer = new THREE.WebGPURenderer({ canvas, antialias: true, alpha: true, forceWebGL: forceGL });
-  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
-  renderer.setSize(innerWidth, innerHeight, false);
-  renderer.toneMapping = THREE.NeutralToneMapping;
-  renderer.toneMappingExposure = 1.05;
-  // 描画が落ちたら(iPhoneはアプリを切り替えると落とすことがある)、画面に戻ったときに普通に読み込み直す
-  let lostHidden = false;
-  const reloadOnce = () => { let t = 0; try { t = +sessionStorage.getItem('sh-rl') || 0; } catch (e) {}
-    if (Date.now() - t < 15000) { showErr('描画が止まったみたい。読み込み直してね'); return; }
-    try { sessionStorage.setItem('sh-rl', Date.now()); } catch (e) {} location.reload(); };
-  renderer.onDeviceLost = () => { if (document.visibilityState === 'visible') reloadOnce(); else lostHidden = true; };
-  document.addEventListener('visibilitychange', () => { if (lostHidden && document.visibilityState === 'visible') reloadOnce(); });
-  await renderer.init();
-} catch (e) {
-  showErr('この端末では3Dの描画が使えないみたい(' + (e && e.message) + ')'); throw e;
+function hex(h) { return [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]; }
+function mixc(a, b, t) { return a.map((v, i) => Math.round(v + (b[i] - v) * t)); }
+function skyAt(h) {
+  let i = 0; while (i < SKY.length - 2 && SKY[i + 1][0] <= h) i++;
+  const A = SKY[i], B = SKY[i + 1], t = (h - A[0]) / (B[0] - A[0]);
+  return { top: mixc(hex(A[1]), hex(B[1]), t), bot: mixc(hex(A[2]), hex(B[2]), t), sun: mixc(hex(A[3]), hex(B[3]), t), lum: A[4] + (B[4] - A[4]) * t };
 }
-const BACKEND = renderer.backend && renderer.backend.isWebGPUBackend ? 'WebGPU' : 'WebGL2';
+let skyLum = 0.5, skyCol = [1, 1, 1], hourOverride = null;
+function hourNow() { if (hourOverride != null) return hourOverride; const d = new Date(); return d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600; }
+function rgb(c, a) { return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + (a == null ? 1 : a) + ')'; }
 
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, 0.5, 900);
-
-// ───────── 空(正距円筒の絵。背景と映り込みの両方に使う) ─────────
-const SKW = 384, SKH = 192;
-const skyCv = document.createElement('canvas'); skyCv.width = SKW; skyCv.height = SKH;
-const skyCtx = skyCv.getContext('2d');
-const skyTex = new THREE.CanvasTexture(skyCv);
-skyTex.colorSpace = THREE.SRGBColorSpace; skyTex.wrapS = THREE.RepeatWrapping;
-const skyMesh = new THREE.Mesh(new THREE.SphereGeometry(500, 48, 24), new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, depthWrite: false }));
-skyMesh.material.toneMapped = false;
-scene.add(skyMesh);
-
-// 横につながる雲のノイズ(起動時に1回)
-function hash3(x, y, z) { let h = (x * 374761393 + y * 668265263 + z * 1274126177) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967295; }
-function vnoise(x, y, z) {
-  const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z), xf = x - xi, yf = y - yi, zf = z - zi;
-  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf), w = zf * zf * (3 - 2 * zf);
-  const L = (a, b, t) => a + (b - a) * t;
-  return L(L(L(hash3(xi,yi,zi),hash3(xi+1,yi,zi),u),L(hash3(xi,yi+1,zi),hash3(xi+1,yi+1,zi),u),v),
-           L(L(hash3(xi,yi,zi+1),hash3(xi+1,yi,zi+1),u),L(hash3(xi,yi+1,zi+1),hash3(xi+1,yi+1,zi+1),u),v),w);
+function makeOutside() {
+  const OH = Math.round(OUTW * H / W);
+  if (outCv.width !== OUTW || outCv.height !== OH) { outCv.width = OUTW; outCv.height = OH; blurCv.width = 54; blurCv.height = Math.max(8, Math.round(54 * H / W)); }
+  drawOutside();
 }
-const cloud = new Float32Array(SKW * SKH);
-let cloudSeed = 1;
-function makeClouds() {
-  cloudSeed = Math.random() * 100;
-  for (let y = 0; y < SKH; y++) {
-    const el = (0.5 - y / SKH) * Math.PI;              // 高度
-    const band = Math.max(0, Math.sin(Math.min(Math.max((el - 0.02) / 0.9, 0), 1) * Math.PI)); // 地平線近くと天頂は薄め
-    for (let x = 0; x < SKW; x++) {
-      const a = x / SKW * Math.PI * 2, R = 3.2;
-      const px = Math.cos(a) * R, pz = Math.sin(a) * R, py = el * 5 + cloudSeed;
-      let n = 0, amp = .55, fr = 1;
-      for (let o = 0; o < 4; o++) { n += amp * vnoise(px * fr + 11, py * fr, pz * fr + 7); amp *= .5; fr *= 2.1; }
-      cloud[y * SKW + x] = Math.max(0, Math.min(1, (n - 0.47) * 3.2)) * band;
-    }
+let colonOn = true;
+function drawOutside() {
+  const c = outCtx, w = outCv.width, h = outCv.height, hr = hourNow(), S = skyAt(hr);
+  skyLum = S.lum; skyCol = mixc(S.top, S.bot, 0.6).map(v => v / 255);
+  const night = 1 - Math.min(1, S.lum * 1.6);
+  // 空
+  const g = c.createLinearGradient(0, 0, 0, h * 0.55); g.addColorStop(0, rgb(S.top)); g.addColorStop(1, rgb(S.bot));
+  c.fillStyle = g; c.fillRect(0, 0, w, h);
+  const sg = c.createRadialGradient(w * 0.82, h * 0.12, 0, w * 0.82, h * 0.12, w * 0.7);
+  sg.addColorStop(0, rgb(S.sun, 0.75)); sg.addColorStop(1, rgb(S.sun, 0)); c.fillStyle = sg; c.fillRect(0, 0, w, h * 0.6);
+  // 遠くの街
+  const farY = h * 0.48;
+  c.fillStyle = rgb(mixc(S.bot, [20, 22, 30], 0.7));
+  for (const b of city.far) c.fillRect(b.x, farY - b.h * h * 0.5, b.w, b.h * h * 0.5 + 4);
+  // 向かいのビル(手前・大きい)
+  const by = h * 0.30;
+  const wallC = mixc([62, 60, 62], [16, 16, 22], night);
+  c.fillStyle = rgb(wallC); c.fillRect(0, by, w, h - by);
+  // 窓
+  const cols = 9, rows = Math.ceil((h - by) / 46);
+  for (let r = 0; r < rows; r++) for (let q = 0; q < cols; q++) {
+    const x = 14 + q * (w - 28) / cols, y = by + 18 + r * 46, ww = (w - 28) / cols - 14, wh = 26;
+    const wn = city.win[(r * cols + q) % city.win.length];
+    const lit = wn.on < 0.15 + night * 0.45;
+    c.fillStyle = lit ? rgb(wn.tint < 0.7 ? [255, 214, 150] : [190, 220, 255], 0.55 + night * 0.4) : rgb(mixc([120, 140, 160], [20, 24, 34], night), 0.9);
+    c.fillRect(x, y, ww, wh);
   }
-}
-// 時刻ごとの空の色(sRGB)。[時, 天頂, 中ほど, 地平, 雲の影, 雲の明るい所, 太陽のにじみ]
-const SKY_KEYS = [
-  [0,   [6,8,18],    [12,16,34],   [26,30,50],   [16,18,28],  [40,44,64],   [40,36,50]],
-  [4.5, [8,10,24],   [16,20,40],   [40,38,60],   [20,22,34],  [60,58,80],   [80,60,70]],
-  [6,   [30,38,70],  [90,80,110],  [230,150,110],[70,60,80],  [250,180,140],[255,170,110]],
-  [8,   [55,100,165],[120,160,205],[190,210,225],[150,160,175],[245,245,248],[255,240,210]],
-  [15.5,[50,95,160], [115,155,200],[200,215,225],[150,158,170],[245,243,240],[255,235,200]],
-  [17.2,[48,44,62],  [120,82,76],  [215,130,80], [90,62,60],  [240,150,90], [255,150,70]],
-  [18.4,[30,26,40],  [80,52,54],   [170,92,60],  [60,40,42],  [200,110,70], [230,110,60]],
-  [20,  [10,12,26],  [20,22,42],   [44,40,58],   [22,22,34],  [60,56,76],   [70,50,60]],
-  [24,  [6,8,18],    [12,16,34],   [26,30,50],   [16,18,28],  [40,44,64],   [40,36,50]]
-];
-function skyKey(h) {
-  let i = 0; while (i < SKY_KEYS.length - 2 && SKY_KEYS[i + 1][0] <= h) i++;
-  const A = SKY_KEYS[i], B = SKY_KEYS[i + 1], t = (h - A[0]) / (B[0] - A[0]);
-  const out = []; for (let k = 1; k < 7; k++) out.push(A[k].map((v, j) => v + (B[k][j] - v) * t));
-  return out;
-}
-const SKL_W = 96, SKL_H = 48;
-const skyLin = new Float32Array(SKL_W * SKL_H * 3);   // 映り込み用(リニア)
-let skyAmb = [0.1, 0.1, 0.1];                         // 空の平均(環境光)
-let skyHour = -1;
-const SUN_U = 0.62;                                   // 夕日・朝日のにじみの方角
-function paintSky(h) {
-  skyHour = h;
-  const [zen, mid, hor, cD, cL, glow] = skyKey(h);
-  const img = skyCtx.createImageData(SKW, SKH), d = img.data;
-  const dusk = Math.max(0, 1 - Math.min(Math.abs(h - 17.8), Math.abs(h - 6.2)) / 1.6);  // 夕焼け・朝焼けの強さ
-  for (let y = 0; y < SKH; y++) {
-    const el = (0.5 - y / SKH) * Math.PI;
-    for (let x = 0; x < SKW; x++) {
-      let c;
-      if (el < 0) { const t = Math.min(1, -el / 0.25); c = hor.map((v, j) => v * (1 - t) * .55 + 8 * t); }
-      else { const t = Math.min(1, el / 1.2); const t1 = Math.min(1, t * 2), t2 = Math.max(0, t * 2 - 1);
-        c = t < .5 ? hor.map((v, j) => v + (mid[j] - v) * t1) : mid.map((v, j) => v + (zen[j] - v) * t2); }
-      // 太陽のにじみ
-      let du = Math.abs(x / SKW - SUN_U); du = Math.min(du, 1 - du);
-      const g = Math.exp(-(du * du) / 0.012 - (el * el) / 0.06) * (0.35 + dusk * 0.9);
-      c = c.map((v, j) => v + (glow[j] - v) * Math.min(1, g));
-      // 雲
-      const cl = cloud[y * SKW + x];
-      if (cl > 0 && el > -0.02) {
-        const lit = Math.min(1, 0.35 + Math.exp(-(du * du) / 0.05) * (0.4 + dusk * 0.6) + (1 - Math.min(1, el)) * 0.2);
-        const cc = cD.map((v, j) => v + (cL[j] - v) * lit);
-        c = c.map((v, j) => v + (cc[j] - v) * Math.min(1, cl * 1.15));
+  // 電光掲示板(縦長の画面は「時」と「分」を2段に)
+  const d = new Date(), hh = d.getHours(), mm = d.getMinutes();
+  const two = h > w * 1.25;
+  const lines = two ? [[Math.floor(hh / 10), hh % 10], [Math.floor(mm / 10), mm % 10]]
+                    : [[Math.floor(hh / 10), hh % 10, -1, Math.floor(mm / 10), mm % 10]];
+  const cellsW = two ? 11 : 26;   // 数字(5+1)・コロン(2+1)
+  const pw = w * 0.92, dot = pw / (cellsW + 2);
+  const lineH = dot * 8, ph = lineH * lines.length + dot * (two ? 2 : 1);
+  const px = (w - pw) / 2, py = Math.max(by + 16, h * (two ? 0.56 : 0.5) - ph / 2);
+  c.fillStyle = '#060504'; c.fillRect(px - 6, py - 6, pw + 12, ph + 12);
+  c.fillStyle = '#1b1a18'; c.fillRect(px - 6, py + ph + 6, pw + 12, 5);
+  lines.forEach((ln, li) => {
+    let cx = px + dot * (two ? 1.5 : 1);
+    const ly = py + dot * (two ? 1 : 0.5) + li * (lineH + dot);
+    for (const dg of ln) {
+      if (dg < 0) {
+        for (const ry of [2, 4]) { c.fillStyle = colonOn ? '#ffb347' : 'rgba(255,140,40,.12)'; c.beginPath(); c.arc(cx + dot * 0.5, ly + dot * (ry + 0.5), dot * 0.36, 0, 7); c.fill(); }
+        cx += dot * 3; continue;
       }
-      const o = (y * SKW + x) * 4; d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2]; d[o + 3] = 255;
+      const f = FONT[dg];
+      for (let r = 0; r < 7; r++) for (let q = 0; q < 5; q++) {
+        const on = f[r][q] === '1';
+        c.fillStyle = on ? '#ffb347' : 'rgba(255,140,40,.07)';
+        c.beginPath(); c.arc(cx + q * dot + dot * 0.5, ly + dot * (r + 0.5), dot * (on ? 0.4 : 0.3), 0, 7); c.fill();
+      }
+      cx += dot * 6;
+    }
+  });
+  // 縦2段のときは秒の代わりに、掲示板の右下の点が1秒ごとに点滅
+  if (two) { c.fillStyle = colonOn ? '#ffb347' : 'rgba(255,140,40,.12)'; c.beginPath(); c.arc(px + pw - dot * 0.9, py + ph - dot * 0.9, dot * 0.3, 0, 7); c.fill(); }
+  // にじみ用(縮めるとぼける)
+  blurCtx.clearRect(0, 0, blurCv.width, blurCv.height);
+  blurCtx.drawImage(outCv, 0, 0, blurCv.width, blurCv.height);
+  outDirty = true;
+}
+let outDirty = true;
+
+// ───────── シェーダー ─────────
+const VS = `#version 300 es
+in vec2 a; void main(){ gl_Position = vec4(a, 0., 1.); }`;
+const FS = `#version 300 es
+precision highp float;
+uniform sampler2D uState, uOut, uBlur;
+uniform vec2 uRes; uniform float uDpr, uPitch, uTop, uN, uTheta, uView, uTime, uSkyLum;
+uniform vec3 uSlat, uSlat2, uSky; uniform vec2 uPar; uniform float uGrain;
+out vec4 o;
+float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+vec3 outside(vec2 uv){ return texture(uOut, clamp(uv + uPar, vec2(0.001), vec2(0.999))).rgb; }
+void main(){
+  vec2 p = vec2(gl_FragCoord.x, uRes.y * uDpr - gl_FragCoord.y) / uDpr;   // CSS px, y下向き
+  float u = p.x / uRes.x;
+  vec2 ouv = p / uRes;
+  vec3 col = outside(ouv);
+  vec3 glow = texture(uBlur, clamp(ouv + uPar, vec2(0.001), vec2(0.999))).rgb;
+  float pa = 1.0 / uDpr;            // 1ピクセル(CSS px)
+  // ── 羽根 ──
+  if (p.y > uTop) {
+    float fi = (p.y - uTop) / uPitch;
+    int i0 = int(floor(fi));
+    vec3 sc = vec3(0); float cov = 0.;
+    for (int j = 2; j >= -2; j--) {          // 下の羽根を先に(上の羽根が手前に重なる)
+      int i = i0 + j; if (i < 0 || float(i) >= uN) continue;
+      vec4 st = texture(uState, vec2(u, (float(i) + .5) / uN));
+      float th = uTheta + st.y - uView;      // 見る角度込みの傾き(0=閉じて正面向き)
+      float yc = uTop + (float(i) + .5) * uPitch + st.x * uPitch;
+      float half_ = 0.6 * uPitch * abs(cos(th)) + 0.05 * uPitch * abs(sin(th)) + 0.3;
+      float s = (yc - p.y) / half_;          // +1=羽根の上の縁, -1=下の縁
+      float a = 1. - smoothstep(1. - 1.6 * pa / half_, 1., abs(s));
+      if (a <= 0.) continue;
+      // 羽根の曲面(断面がゆるく反っている)
+      float cur = 0.42 * s;
+      float t2 = th + cur * sign(cos(th));
+      vec3 n = normalize(vec3(0., sin(t2), cos(t2)));       // y上・z手前
+      // 上を向いた面は空(窓の外)の光を受け、下を向いた面は部屋の暗さ
+      float up = max(n.y, 0.), down = max(-n.y, 0.);
+      vec3 base = mix(uSlat, uSlat2, h21(vec2(float(i), 3.)) * .25);
+      float grain = uGrain * (h21(vec2(floor(p.x * .5), float(i))) - .5) * (0.5 + 0.5 * sin(p.x * .07 + float(i) * 1.7));
+      vec3 lit = base * (0.10 + 0.95 * up * (0.25 + uSkyLum) * uSky + 0.06 * down + 0.10 * n.z);
+      lit *= 1. + grain;
+      // 鏡のような光沢(反射した先の空の明るさ)
+      vec3 r = reflect(vec3(0, 0, -1), n);
+      float spec = pow(max(r.y, 0.), 6.) * (0.18 + 0.5 * uSkyLum);
+      lit += spec * uSky * 0.8;
+      // 縁が光る(逆光)
+      float rim = smoothstep(0.78, 1., abs(s)) * (0.35 + glow.r * 0.8);
+      lit += rim * glow * 0.6;
+      // 上の羽根の影
+      float shade = 0.6 + 0.48 * smoothstep(-1., 0.9, s);
+      lit *= shade;
+      lit += uSky * exp(-pow((s - 0.72) / 0.13, 2.)) * (0.12 + 0.35 * uSkyLum) * up;   // 上の縁の照り返し
+      sc = mix(sc, lit, a); cov = max(cov, a);
+    }
+    col = mix(col * 0.92, sc, cov);
+    // ── ラダーコード(羽根を吊る糸)と昇降ひも ──
+    for (int k = 0; k < 3; k++) {
+      float lx = uRes.x * (k == 0 ? 0.14 : (k == 1 ? 0.5 : 0.86));
+      if (k == 1 && uRes.x < 560.) continue;
+      float dxa = abs(p.x - (lx - 2.2)), dxb = abs(p.x - (lx + 2.2));
+      float fa = 1. - smoothstep(0.35, 0.35 + 1.2 * pa, dxa);
+      float fb = 1. - smoothstep(0.35, 0.35 + 1.2 * pa, dxb);
+      vec3 cord = uSlat * (0.55 + 0.6 * uSkyLum) + glow * 0.3;
+      col = mix(col, cord, fa * 0.85);                  // 手前の糸
+      col = mix(col, cord * 0.7, fb * 0.6 * (1. - cov)); // 奥の糸(すき間だけ)
+      float dl = abs(p.x - lx);                          // 昇降ひも(すき間だけ・羽根には穴)
+      col = mix(col, uSlat * 0.6 + glow * 0.2, (1. - smoothstep(0.7, 0.7 + 1.2 * pa, dl)) * (1. - cov));
+      col = mix(col, col * 0.55, (1. - smoothstep(1.2, 2.4, dl)) * cov * 0.6);
+    }
+  } else {
+    // ── ヘッドレール ──
+    float t = p.y / uTop;
+    col = uSlat * (0.55 + 0.45 * smoothstep(0.1, 0.5, t) - 0.35 * smoothstep(0.6, 1., t)) * (0.4 + 0.8 * uSkyLum);
+  }
+  // 漏れる光のにじみ
+  vec3 g2 = max(glow - 0.45, 0.);
+  col += g2 * g2 * 1.6 + glow * 0.06;
+  // 部屋の中の暗さ(四隅を少し落とす)
+  vec2 q = ouv - .5; col *= 1. - dot(q, q) * 0.55;
+  o = vec4(max(col, 0.), 1.);
+}`;
+function sh(type, src) { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) { showErr('シェーダーのエラー: ' + gl.getShaderInfoLog(s)); throw new Error(gl.getShaderInfoLog(s)); } return s; }
+const prog = gl.createProgram(); gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS)); gl.linkProgram(prog);
+if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) { showErr('シェーダーのエラー: ' + gl.getProgramInfoLog(prog)); return; }
+gl.useProgram(prog);
+const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+const al = gl.getAttribLocation(prog, 'a'); gl.enableVertexAttribArray(al); gl.vertexAttribPointer(al, 2, gl.FLOAT, false, 0, 0);
+const U = {}; ['uState', 'uOut', 'uBlur', 'uRes', 'uDpr', 'uPitch', 'uTop', 'uN', 'uTheta', 'uView', 'uTime', 'uSkyLum', 'uSlat', 'uSlat2', 'uSky', 'uPar', 'uGrain'].forEach(n => U[n] = gl.getUniformLocation(prog, n));
+function mkTex(unit, filter) { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; }
+const texState = mkTex(0, gl.LINEAR), texOut = mkTex(1, gl.LINEAR), texBlur = mkTex(2, gl.LINEAR);
+gl.uniform1i(U.uState, 0); gl.uniform1i(U.uOut, 1); gl.uniform1i(U.uBlur, 2);
+gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+
+// ───────── 羽根の色(✦で替わる) ─────────
+const PALS = [
+  { name: 'ALUMINUM', a: [0.86, 0.85, 0.82], b: [0.80, 0.80, 0.80], grain: 0.03, theta: 1.2 },
+  { name: 'WALNUT', a: [0.42, 0.26, 0.15], b: [0.55, 0.36, 0.22], grain: 0.22, theta: 1.15 },
+  { name: 'MATTE BLACK', a: [0.16, 0.16, 0.17], b: [0.20, 0.19, 0.18], grain: 0.02, theta: 1.25 },
+  { name: 'SAND', a: [0.82, 0.72, 0.58], b: [0.78, 0.66, 0.52], grain: 0.06, theta: 1.1 },
+  { name: 'MINT', a: [0.62, 0.80, 0.74], b: [0.70, 0.84, 0.80], grain: 0.03, theta: 1.2 }
+];
+let pal = 0, theta = PALS[0].theta, thetaT = theta;
+
+// ───────── 触る ─────────
+const touch = { on: false, x: 0, y: 0, x0: 0, y0: 0, t0: 0, moved: 0, peek: 0 };
+function slatsNear(y) { return (y - TOP) / PITCH - 0.5; }
+// 指が押し広げるときの、羽根 i・点 k の目標のずれ
+function peekField(i, k, fx, fy, amt) {
+  const x = (k + 0.5) / K * W, gx = Math.exp(-Math.pow((x - fx) / (W * 0.16), 2));
+  const d = (i - slatsNear(fy));                        // 指より下なら+、上なら-
+  const fall = Math.exp(-Math.abs(d) / 1.6);
+  return { dy: Math.sign(d || 1) * 1.15 * fall * gx * amt, ph: 0.55 * fall * gx * amt };
+}
+canvas.addEventListener('pointerdown', e => {
+  if (window.APKit && APKit.isUI(e.clientX, e.clientY)) return;
+  touch.on = true; touch.x = touch.x0 = e.clientX; touch.y = touch.y0 = e.clientY; touch.t0 = performance.now(); touch.moved = 0;
+  hideHint(); wake(); canvas.setPointerCapture && canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener('pointermove', e => {
+  if (!touch.on) return;
+  touch.x = e.clientX; touch.y = e.clientY; touch.moved = Math.max(touch.moved, Math.hypot(touch.x - touch.x0, touch.y - touch.y0));
+});
+function release() {
+  if (!touch.on) return; touch.on = false;
+  const quick = performance.now() - touch.t0 < 260 && touch.moved < 12;
+  if (quick) flutter(touch.x, touch.y, 1);
+  else if (touch.peek > 0.3) {   // 押し広げた所は少し曲がったまま残る
+    for (let i = 0; i < N; i++) for (let k = 0; k < K; k++) {
+      const f = peekField(i, k, touch.x, touch.y, touch.peek), j = i * K + k;
+      dent[j] = Math.max(-0.45, Math.min(0.45, dent[j] + f.dy * 0.16));
+      dentPh[j] = Math.min(0.35, dentPh[j] + f.ph * 0.12);
     }
   }
-  skyCtx.putImageData(img, 0, 0); skyTex.needsUpdate = true;
-  // 映り込み用に縮めてリニアへ
-  const sx = SKW / SKL_W, sy = SKH / SKL_H; let ar = 0, ag = 0, ab = 0;
-  for (let y = 0; y < SKL_H; y++) for (let x = 0; x < SKL_W; x++) {
-    const o = (Math.floor(y * sy + sy / 2) * SKW + Math.floor(x * sx + sx / 2)) * 4, k = (y * SKL_W + x) * 3;
-    skyLin[k] = Math.pow(d[o] / 255, 2.2); skyLin[k + 1] = Math.pow(d[o + 1] / 255, 2.2); skyLin[k + 2] = Math.pow(d[o + 2] / 255, 2.2);
-    if (y < SKL_H / 2) { ar += skyLin[k]; ag += skyLin[k + 1]; ab += skyLin[k + 2]; }
-  }
-  const n = SKL_W * SKL_H / 2; skyAmb = [ar / n, ag / n, ab / n];
 }
-let skyDrift = 0;
-
-// ───────── 地面と塔の骨組み ─────────
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(1200, 1200), new THREE.MeshBasicMaterial({ color: 0x0b0806 }));
-ground.rotation.x = -Math.PI / 2; scene.add(ground);
-const core = new THREE.Mesh(new THREE.BoxGeometry(W - 0.7, TOP + 1.4, W - 0.7), new THREE.MeshBasicMaterial({ color: 0x070505 }));
-core.position.y = (TOP + 1.4) / 2; scene.add(core);
-// 1階(ロビー)と屋上の帯
-const plinth = new THREE.Mesh(new THREE.BoxGeometry(W + 0.3, BASE, W + 0.3), new THREE.MeshBasicMaterial({ color: 0x15100d }));
-plinth.position.y = BASE / 2; scene.add(plinth);
-const crown = new THREE.Mesh(new THREE.BoxGeometry(W + 0.4, 1.4, W + 0.4), new THREE.MeshBasicMaterial({ color: 0x1a1410 }));
-crown.position.y = TOP + 0.7; scene.add(crown);
-// 方立(縦)と階の梁(横)
-{
-  const bars = [];
-  for (let f = 0; f < FACES; f++) {
-    const n = FN[f], t = FT[f];
-    for (let c = 0; c <= COLS; c++) { const s = c * BAY_W - HW, corner = (c === 0 || c === COLS);
-      bars.push({ p: [n[0] * (HW + .12) + t[0] * s, BASE + ROWS * BAY_H / 2, n[2] * (HW + .12) + t[2] * s], sx: corner ? .34 : .09, sy: ROWS * BAY_H, f }); }
-    for (let r = 0; r <= ROWS; r++)
-      bars.push({ p: [n[0] * (HW + .1), BASE + r * BAY_H, n[2] * (HW + .1)], sx: W, sy: (r % 6 === 0) ? .16 : .07, f });
-  }
-  const g = new THREE.BoxGeometry(1, 1, 0.3);
-  const m = new THREE.InstancedMesh(g, new THREE.MeshBasicMaterial({ color: 0x1c1612 }), bars.length);
-  const q = new THREE.Quaternion(), M = new THREE.Matrix4(), Y = new THREE.Vector3(0, 1, 0);
-  bars.forEach((b, i) => { q.setFromAxisAngle(Y, b.f * Math.PI / 2); M.compose(new THREE.Vector3(...b.p), q, new THREE.Vector3(b.sx, b.sy, 1)); m.setMatrixAt(i, M); });
-  scene.add(m);
+canvas.addEventListener('pointerup', release); canvas.addEventListener('pointercancel', release);
+function flutter(x, y, s) {
+  const c = slatsNear(y);
+  for (let i = 0; i < N; i++) { const fd = Math.exp(-Math.abs(i - c) / 1.3); if (fd < 0.02) continue;
+    for (let k = 0; k < K; k++) { const xx = (k + 0.5) / K * W, gx = Math.exp(-Math.pow((xx - x) / (W * 0.22), 2)), j = i * K + k;
+      vph[j] += 9 * s * fd * gx * (i >= c ? 1 : 0.8); vdy[j] += 1.6 * s * fd * gx * Math.sign(i - c || 1); } }
 }
-
-// ───────── 区画(奥の部屋の明かり) ─────────
-const bayP = new Float32Array(NBAY * 3), bayF = new Uint8Array(NBAY), bayC = new Uint8Array(NBAY), bayR = new Uint8Array(NBAY);
-const bayIdx = (f, c, r) => (f * ROWS + r) * COLS + c;
-const roomMesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(BAY_W * 0.97, BAY_H * 0.95), new THREE.MeshBasicMaterial({ color: 0xffffff }), NBAY);
-{
-  const q = new THREE.Quaternion(), M = new THREE.Matrix4(), Y = new THREE.Vector3(0, 1, 0), S = new THREE.Vector3(1, 1, 1);
-  for (let f = 0; f < FACES; f++) for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
-    const b = bayIdx(f, c, r), n = FN[f], t = FT[f], s = (c + .5) * BAY_W - HW, y = BASE + (r + .5) * BAY_H;
-    bayP[b * 3] = n[0] * HW + t[0] * s; bayP[b * 3 + 1] = y; bayP[b * 3 + 2] = n[2] * HW + t[2] * s;
-    bayF[b] = f; bayC[b] = c; bayR[b] = r;
-    q.setFromAxisAngle(Y, f * Math.PI / 2);
-    M.compose(new THREE.Vector3(n[0] * (HW - .3) + t[0] * s, y, n[2] * (HW - .3) + t[2] * s), q, S);
-    roomMesh.setMatrixAt(b, M); roomMesh.setColorAt(b, new THREE.Color(0, 0, 0));
-  }
-}
-scene.add(roomMesh);
-const roomCol = roomMesh.instanceColor.array;
-
-// 区画の役割: 0=空き 1=数字 2=住人の明かり 3=エレベーター
-const role = new Uint8Array(NBAY);
-const openT = new Float32Array(NBAY);      // いまの開き目標
-const openNext = new Float32Array(NBAY);   // 予約された開き目標
-const openAt = new Float64Array(NBAY);     // 予約が効く時刻
-const aptLevel = new Float32Array(NBAY);   // 住人の明かりの強さ
-const aptUntil = new Float64Array(NBAY);
-const tint = new Float32Array(NBAY * 3);   // 板の地の色
-
-// ───────── 板(鎧戸) ─────────
-const tileGeo = new THREE.BoxGeometry(TW, TH, 0.035);
-const tileMesh = new THREE.InstancedMesh(tileGeo, new THREE.MeshBasicMaterial({ color: 0xffffff }), NT);
-tileMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-tileMesh.setColorAt(0, new THREE.Color(1, 1, 1));
-tileMesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
-tileMesh.frustumCulled = false;
-scene.add(tileMesh);
-const MAT = tileMesh.instanceMatrix.array, COL = tileMesh.instanceColor.array;
-
-const tP = new Float32Array(NT * 3), tBay = new Uint32Array(NT);
-const tN = new Float32Array(NT * 3);       // いまの向き(灯りを向く成分)
-const tO = new Float32Array(NT);           // いまの開き
-const tL = new Float32Array(NT * 3);       // その板が知っている灯りの位置
-const tLt = new Float64Array(NT);          // その灯りを知った時刻
-const tArr = new Float64Array(NT).fill(-9); // 知らせが届いた時刻(波の光)
-const tSpin0 = new Float64Array(NT).fill(-1);
-const tMove = new Uint8Array(NT).fill(1);
-for (let b = 0; b < NBAY; b++) {
-  const f = bayF[b], n = FN[f], t = FT[f];
-  for (let k = 0; k < TPB; k++) {
-    const i = b * TPB + k, ox = ((k % 2) - .5) * BAY_W / 2, oy = (Math.floor(k / 2) - 1) * BAY_H / 3;
-    tP[i * 3] = bayP[b * 3] + n[0] * .06 + t[0] * ox; tP[i * 3 + 1] = bayP[b * 3 + 1] + oy; tP[i * 3 + 2] = bayP[b * 3 + 2] + n[2] * .06 + t[2] * ox;
-    tBay[i] = b; tN[i * 3] = n[0]; tN[i * 3 + 2] = n[2];
-  }
-}
-
-// ───────── 板の地の色(パッチ) ─────────
-function paintTints() {
-  const P = PALS[pal];
-  for (let b = 0; b < NBAY; b++) { const j = (bayR[b] * 7 + bayC[b] * 3 + bayF[b]) % 5; const w = 0.85 + 0.15 * hash3(b, 3, 9);
-    tint[b * 3] = P.base[0] * w; tint[b * 3 + 1] = P.base[1] * w; tint[b * 3 + 2] = P.base[2] * w; }
-  const nPatch = 70;
-  for (let p = 0; p < nPatch; p++) {
-    const f = Math.floor(Math.random() * FACES), w = 1 + Math.floor(Math.random() * 4), h = 2 + Math.floor(Math.random() * 6);
-    const c0 = Math.floor(Math.random() * (COLS - w + 1)), r0 = Math.floor(Math.random() * (ROWS - h + 1));
-    let col;
-    if (P.patch) col = P.patch[Math.floor(Math.random() * P.patch.length)];
-    else col = hsv((r0 + h / 2) / ROWS * 0.9 + f * 0.25 + Math.random() * .08, .75, 1.0);
-    for (let r = r0; r < r0 + h; r++) for (let c = c0; c < c0 + w; c++) {
-      const b = bayIdx(f, c, r), w2 = 0.8 + 0.2 * Math.random();
-      tint[b * 3] = col[0] * w2; tint[b * 3 + 1] = col[1] * w2; tint[b * 3 + 2] = col[2] * w2;
-    }
-  }
-}
-
-// ───────── 灯り(タップで置く)と向き直りの波 ─────────
-const WAVE = 36;                            // 波の速さ(単位/秒)
-const events = [];                          // {L:[x,y,z], O:[x,y,z], t}
-const LAMP0 = [-HW * 0.3, BASE + 31 * BAY_H, HW + 1.4];
-const lamp = { p: LAMP0.slice(), target: LAMP0.slice() };
-function pushLight(L, O, t) {
-  events.push({ L: L.slice(), O: O.slice(), t }); if (events.length > 40) events.shift();
-  lamp.target = L.slice();
-}
-const LAMP_COL = [1.0, 0.68, 0.38];
-const KEY = (() => { const k = [-0.45, 0.75, 0.5], l = Math.hypot(...k); return k.map(v => v / l); })();   // 板を照らす空の光の向き
-
-// ───────── 時計 ─────────
-let curMin = -1, curHour = -1, digitColor = [];
-function digitMask(h, m) {
-  const mask = new Uint8Array(NBAY);
-  const put = (top, d0, d1) => {
-    [d0, d1].forEach((dg, di) => { const g = FONT[dg];
-      for (let fr = 0; fr < 7; fr++) for (let fc = 0; fc < 5; fc++) if (g[fr][fc] === '1')
-        mask[bayIdx(0, DIGIT_C0 + di * 6 + fc, top - fr)] = 1; });
-  };
-  const H0 = Math.floor(h / 10), H1 = h % 10, M0 = Math.floor(m / 10), M1 = m % 10;
-  put(DIGIT_TOP, H0, H1); put(MIN_TOP, M0, M1);
-  return mask;
-}
-function setDigits(h, m, animate, now) {
-  const mask = digitMask(h, m);
-  for (let b = 0; b < NBAY; b++) {
-    const was = role[b] === 1, is = mask[b] === 1;
-    if (is && !was) { role[b] = 1; aptLevel[b] = 0; schedule(b, 1, animate ? now + (DIGIT_TOP - bayR[b]) * 0.07 + bayC[b] * 0.025 : 0); }
-    else if (!is && was) { role[b] = 0; schedule(b, 0, animate ? now + (DIGIT_TOP - bayR[b]) * 0.07 + bayC[b] * 0.025 + 0.35 : 0); }
-  }
-}
-function schedule(b, v, at) { openNext[b] = v; openAt[b] = at; if (!at) openT[b] = v; }
-let elevRow = -1;
-function digitRGB(b) {
-  const P = PALS[pal];
-  if (P.digit) return P.digit;
-  const c = hsv(bayC[b] / COLS * 0.8 + (bayR[b] - 12) / 16 * 0.35, .8, 1); return [c[0] * 2.7, c[1] * 2.7, c[2] * 2.7];
-}
-
-// 毎正時と✦: 塔じゅうの板が一回転
-function spinWave(now, fromTop) {
-  for (let i = 0; i < NT; i++) { const b = tBay[i], r = bayR[b];
-    tSpin0[i] = now + (fromTop ? (ROWS - r) : r) * 0.075 + bayC[b] * 0.02 + bayF[b] * 0.15 + (i % 6) * 0.01; tMove[i] = 1; }
-}
-
-// ───────── 視点 ─────────
-const view = { yaw: 0, tx: 0, ty: 0, tiltX: 0, tiltY: 0 };
-const camPos = new THREE.Vector3();
-let camDist = 68, lookY = BASE + 20 * BAY_H;
-function fitCamera() {   // 縦画面は壁の幅いっぱい、横画面は高さで合わせる
-  const asp = innerWidth / innerHeight, t = Math.tan(15 * Math.PI / 180);
-  camera.fov = 30;
-  camDist = asp < 0.75 ? (W * 0.56) / (t * asp) : 18.5 / t;
-  view.ty = lookY;
-  camera.aspect = asp; camera.updateProjectionMatrix();
-}
-fitCamera();
 
 // ───────── 傾き ─────────
-let tiltOn = false, tiltBtn = null;
+let tiltOn = false, tiltBtn = null, tiltX = 0, tiltY = 0, viewX = 0, viewY = 0;
 function onOri(e) {
   if (e.gamma == null) return;
   const ang = (screen.orientation && screen.orientation.angle) || window.orientation || 0;
   let x = e.gamma, y = e.beta - 45;
   if (ang === 90) { x = e.beta; y = -e.gamma - 45; } else if (ang === -90 || ang === 270) { x = -e.beta; y = e.gamma - 45; }
-  view.tiltX = Math.max(-45, Math.min(45, x)); view.tiltY = Math.max(-40, Math.min(40, y));
+  tiltX = Math.max(-40, Math.min(40, x)); tiltY = Math.max(-40, Math.min(40, y));
 }
-function setTilt(on) {
-  tiltOn = on; if (tiltBtn) tiltBtn.classList.toggle('apk-on', on);
-  if (on) addEventListener('deviceorientation', onOri); else { removeEventListener('deviceorientation', onOri); view.tiltX = view.tiltY = 0; }
-}
+function setTilt(on) { tiltOn = on; if (tiltBtn) tiltBtn.classList.toggle('apk-on', on);
+  if (on) addEventListener('deviceorientation', onOri); else { removeEventListener('deviceorientation', onOri); tiltX = tiltY = 0; } }
 function toggleTilt() {
   if (tiltOn) { setTilt(false); toast('傾き OFF'); return; }
-  const D = window.DeviceOrientationEvent;
-  if (!D) { toast('この端末では傾きセンサーが使えないみたい'); return; }
+  const D = window.DeviceOrientationEvent; if (!D) { toast('この端末では傾きセンサーが使えないみたい'); return; }
   if (typeof D.requestPermission === 'function') {
-    D.requestPermission().then(r => { if (r !== 'denied') { setTilt(true); toast('傾けると、少し斜めから覗ける'); } else toast('傾きが許可されなかった'); })
+    D.requestPermission().then(r => { if (r !== 'denied') { setTilt(true); toast('傾けると、羽根のすき間の見え方が変わる'); } else toast('傾きが許可されなかった'); })
       .catch(() => toast('傾きが許可されなかった'));
-  } else { setTilt(true); toast('傾けると、少し斜めから覗ける'); }
+  } else { setTilt(true); toast('傾けると、羽根のすき間の見え方が変わる'); }
 }
-
 function toast(s) { if (window.APKit && APKit.toast) APKit.toast(s); }
 
-// ───────── ブルーム(光のにじみ) ─────────
-let pipeline = null;
-try {
-  pipeline = new THREE.RenderPipeline(renderer);
-  const sp = pass(scene, camera);
-  const col = sp.getTextureNode('output');
-  const bs = +(new URLSearchParams(location.search).get('bloom') || 0.8);
-  pipeline.outputNode = col.add(bloom(col, bs, 0.45, 1.0));
-} catch (e) { pipeline = null; }
-
-// ───────── 触る ─────────
-const ray = new THREE.Raycaster();
-function hitTower(o, d) {   // 塔の箱との交点
-  let tmin = -Infinity, tmax = Infinity, nAxis = -1, nSign = 0;
-  const lo = [-HW, BASE, -HW], hi = [HW, TOP, HW], oo = [o.x, o.y, o.z], dd = [d.x, d.y, d.z];
-  for (let a = 0; a < 3; a++) {
-    if (Math.abs(dd[a]) < 1e-9) { if (oo[a] < lo[a] || oo[a] > hi[a]) return null; continue; }
-    let t1 = (lo[a] - oo[a]) / dd[a], t2 = (hi[a] - oo[a]) / dd[a], s = -1;
-    if (t1 > t2) { const tt = t1; t1 = t2; t2 = tt; s = 1; }
-    if (t1 > tmin) { tmin = t1; nAxis = a; nSign = s; }
-    if (t2 < tmax) tmax = t2;
-    if (tmin > tmax) return null;
-  }
-  if (tmin < 0 || nAxis === 1) return null;
-  const p = [oo[0] + dd[0] * tmin, oo[1] + dd[1] * tmin, oo[2] + dd[2] * tmin], n = [0, 0, 0]; n[nAxis] = nSign;
-  return { p, n };
+// ───────── ✦ ↻ ─────────
+function mutate() {
+  pal = (pal + 1) % PALS.length; thetaT = PALS[pal].theta + (Math.random() - 0.5) * 0.16; makeCity(); drawOutside();
+  for (let i = 0; i < N; i++) for (let k = 0; k < K; k++) vph[i * K + k] += 3.5 * (0.8 + 0.4 * Math.sin(i * 0.7));
+  toast(PALS[pal].name);
 }
-let lastPush = 0, downAt = 0;
-function touchAt(x, y, now) {
-  const ndc = new THREE.Vector2(x / innerWidth * 2 - 1, -(y / innerHeight) * 2 + 1);
-  ray.setFromCamera(ndc, camera);
-  const o = ray.ray.origin, d = ray.ray.direction, h = hitTower(o, d);
-  let L, O;
-  if (h) { L = [h.p[0] + h.n[0] * 1.4, h.p[1], h.p[2] + h.n[2] * 1.4]; O = h.p; }
-  else {
-    const dist = camPos.distanceTo(new THREE.Vector3(0, lookY, 0)) * 0.9;
-    L = [o.x + d.x * dist, Math.max(BASE + 1, o.y + d.y * dist), o.z + d.z * dist];
-    O = [Math.max(-HW, Math.min(HW, L[0])), Math.max(BASE, Math.min(TOP, L[1])), Math.max(-HW, Math.min(HW, L[2]))];
-    if (Math.abs(O[0]) < HW && Math.abs(O[2]) < HW) { if (Math.abs(O[0]) > Math.abs(O[2])) O[0] = Math.sign(O[0]) * HW; else O[2] = Math.sign(O[2]) * HW; }
-  }
-  pushLight(L, O, now);
-}
-canvas.addEventListener('pointerdown', e => {
-  if (window.APKit && APKit.isUI(e.clientX, e.clientY)) return;
-  const now = performance.now() / 1000; downAt = now; lastPush = now; touchAt(e.clientX, e.clientY, now); hideHint(); wake();
-  canvas.setPointerCapture && canvas.setPointerCapture(e.pointerId);
-});
-canvas.addEventListener('pointermove', e => {
-  if (!(e.buttons & 1) && e.pointerType === 'mouse') return;
-  if (e.pointerType !== 'mouse' && e.pressure === 0) return;
-  const now = performance.now() / 1000; if (now - lastPush < 0.05) return; lastPush = now; touchAt(e.clientX, e.clientY, now);
-});
-const hintEl = document.getElementById('hint');
-let hintGone = false; function hideHint() { if (hintGone) return; hintGone = true; hintEl.style.opacity = 0; }
-setTimeout(hideHint, 9000);
+function reset() { pal = 0; thetaT = PALS[0].theta; dent.fill(0); dentPh.fill(0); makeCity(); drawOutside(); flutter(W / 2, H / 2, 0.6); }
 
-// 画面を消さない
+// ───────── 画面を消さない・ヒント ─────────
 let wl = null;
 async function wake() { try { if ('wakeLock' in navigator && !wl) { wl = await navigator.wakeLock.request('screen'); wl.addEventListener('release', () => { wl = null; }); } } catch (e) {} }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') wake(); });
 wake();
-
-// ───────── ✦ ↻ ─────────
-function mutate() {
-  const now = performance.now() / 1000;
-  pal = (pal + 1) % PALS.length; paintTints(); makeClouds(); paintSky(hourNow());
-  spinWave(now, true);
-  const f = 0, side = Math.random() * 2 - 1;
-  const n = FN[f], t = FT[f], y = BASE + 6 + Math.random() * (ROWS * BAY_H - 12);
-  const O = [n[0] * HW + t[0] * side * HW * .8, y, n[2] * HW + t[2] * side * HW * .8];
-  pushLight([O[0] + n[0] * 6, y, O[2] + n[2] * 6], O, now);
-  toast(PALS[pal].name);
-}
-function reset() {
-  const now = performance.now() / 1000; pal = 0; paintTints(); paintSky(hourNow());
-  pushLight(LAMP0, [LAMP0[0], LAMP0[1], HW], now); spinWave(now, false);
-}
-let hourOverride = null;
-function hourNow() { if (hourOverride != null) return hourOverride; const d = new Date(); return d.getHours() + d.getMinutes() / 60; }
+const hintEl = document.getElementById('hint'); let hintGone = false;
+function hideHint() { if (hintGone) return; hintGone = true; hintEl.style.opacity = 0; }
+setTimeout(hideHint, 9000);
 
 // ───────── 毎フレーム ─────────
-const qTmp = [0, 0, 0, 1];
-function quatFromTo(ax, ay, az, bx, by, bz) {  // a→b の最小回転
-  let r = ax * bx + ay * by + az * bz + 1, x, y, z;
-  if (r < 1e-6) { r = 0; if (Math.abs(ax) > Math.abs(az)) { x = -ay; y = ax; z = 0; } else { x = 0; y = -az; z = ay; } }
-  else { x = ay * bz - az * by; y = az * bx - ax * bz; z = ax * by - ay * bx; }
-  const l = Math.hypot(x, y, z, r); qTmp[0] = x / l; qTmp[1] = y / l; qTmp[2] = z / l; qTmp[3] = r / l;
+let last = performance.now() / 1000, lastSec = -1, breezeAt = 3;
+function step(dt) {
+  const kP = 70, dP = 3.2, kD = 110, dD = 9, cY = 60;
+  if (touch.on && !(performance.now() - touch.t0 < 120 && touch.moved < 6)) touch.peek = Math.min(1, touch.peek + dt * 5); else touch.peek = Math.max(0, touch.peek - dt * 6);
+  const pk = touch.peek > 0.001, fx = touch.x, fy = touch.y, c = slatsNear(fy);
+  for (let i = 0; i < N; i++) {
+    const near = pk && Math.abs(i - c) < 9;
+    for (let k = 0; k < K; k++) {
+      const j = i * K + k;
+      let tDy = dent[j], tPh = dentPh[j];
+      if (near) { const f = peekField(i, k, fx, fy, touch.peek); tDy += f.dy; tPh += f.ph; }
+      const up = i > 0 ? ph[j - K] : ph[j], dn = i < N - 1 ? ph[j + K] : ph[j];
+      vph[j] += (kP * (tPh - ph[j]) - dP * vph[j] + cY * (up + dn - 2 * ph[j])) * dt;
+      vdy[j] += (kD * (tDy - dy[j]) - dD * vdy[j]) * dt;
+    }
+  }
+  for (let j = 0; j < N * K; j++) { ph[j] += vph[j] * dt; dy[j] += vdy[j] * dt; }
+  // 羽根は横方向には硬い(なめらかにつなぐ)
+  for (let pass = 0; pass < 2; pass++) for (let i = 0; i < N; i++) {
+    const o = i * K; let pd = dy[o], pp = ph[o];
+    for (let k = 1; k < K - 1; k++) { const j = o + k, nd = dy[j], np = ph[j];
+      dy[j] = nd + 0.3 * ((pd + dy[j + 1]) * 0.5 - nd); ph[j] = np + 0.3 * ((pp + ph[j + 1]) * 0.5 - np); pd = nd; pp = np; }
+  }
 }
-const FQ = FN.map((n, f) => [0, Math.sin(f * Math.PI / 4), 0, Math.cos(f * Math.PI / 4)]);  // 面の向き(Y軸まわり)
-let last = performance.now() / 1000, frameN = 0, apartmentAt = 0;
-
 function frame() {
-  const t0 = performance.now();
-  const now = performance.now() / 1000, dt = Math.min(0.05, now - last); last = now; frameN++;
-  const date = new Date(), h = date.getHours(), m = date.getMinutes(), s = date.getSeconds() + date.getMilliseconds() / 1000;
+  const now = performance.now() / 1000; const dt = Math.min(0.05, now - last); last = now;
+  const sec = Math.floor(Date.now() / 1000);
+  if (sec !== lastSec) { lastSec = sec; colonOn = sec % 2 === 0; drawOutside(); }
+  // ときどき窓のすき間から風(ほんの少し揺れる)
+  if (now > breezeAt) { breezeAt = now + 6 + Math.random() * 10; flutter(Math.random() * W, TOP + Math.random() * (H - TOP), 0.18); }
+  const sub = 3; for (let s = 0; s < sub; s++) step(dt / sub);
+  theta += (thetaT - theta) * Math.min(1, dt * 2);
+  viewX += (tiltX - viewX) * Math.min(1, dt * 4); viewY += (tiltY - viewY) * Math.min(1, dt * 4);
 
-  // 時計
-  if (m !== curMin) { const anim = curMin >= 0; setDigits(h, m, anim, now); if (anim && h !== curHour) spinWave(now, false); curMin = m; curHour = h; }
-  const hf = hourNow(); if (Math.abs(hf - skyHour) > 0.08) paintSky(hf);
-  // 秒: 角のエレベーター(面0の右端・面1の左端)
-  const er = Math.min(ROWS - 1, Math.floor(s / 60 * ROWS));
-  if (er !== elevRow) {
-    for (const f of [0]) { const c = COLS - 1;
-      for (let r = 0; r < ROWS; r++) { const b = bayIdx(f, c, r); if (role[b] === 1) continue;
-        if (r === er) { role[b] = 3; schedule(b, 0.85, now); } else if (role[b] === 3) { role[b] = 0; schedule(b, 0, now + 0.4); } } }
-    elevRow = er;
+  // 状態をテクスチャへ
+  const sd = stateBuf.data;
+  for (let j = 0; j < N * K; j++) { sd[j * 4] = dy[j]; sd[j * 4 + 1] = ph[j]; sd[j * 4 + 2] = 0; sd[j * 4 + 3] = 1; }
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texState);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, K, N, 0, gl.RGBA, gl.FLOAT, sd);
+  if (outDirty) {
+    outDirty = false;
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texOut); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, outCv);
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, texBlur); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, blurCv);
   }
-  // 住人がときどき鎧戸を開ける
-  if (now > apartmentAt) {
-    apartmentAt = now + 1.5 + Math.random() * 3;
-    const night = (h >= 18 || h < 6) ? 2 : 1;
-    for (let k = 0; k < night; k++) { const b = Math.floor(Math.random() * NBAY); if (role[b] === 0) { role[b] = 2; aptLevel[b] = 0.4 + Math.random() * 0.6; aptUntil[b] = now + 8 + Math.random() * 20; schedule(b, 0.55 + Math.random() * .35, now); } }
-  }
-
-  // 部屋の明かり
   const P = PALS[pal];
-  for (let b = 0; b < NBAY; b++) {
-    if (openAt[b] && now >= openAt[b]) { openT[b] = openNext[b]; openAt[b] = 0; }
-    if (role[b] === 2 && now > aptUntil[b]) { role[b] = 0; schedule(b, 0, now); }
-    let c0 = .012, c1 = .009, c2 = .008;
-    if (role[b] === 1) { const c = digitRGB(b); c0 = c[0]; c1 = c[1]; c2 = c[2]; }
-    else if (role[b] === 3) { c0 = 1.5; c1 = 1.55; c2 = 1.6; }
-    else if (role[b] === 2) { const a = aptLevel[b]; c0 = P.apt[0] * a; c1 = P.apt[1] * a; c2 = P.apt[2] * a; }
-    const k = b * 3; roomCol[k] += (c0 - roomCol[k]) * 0.12; roomCol[k + 1] += (c1 - roomCol[k + 1]) * 0.12; roomCol[k + 2] += (c2 - roomCol[k + 2]) * 0.12;
-  }
-  roomMesh.instanceColor.needsUpdate = true;
-
-  // 視点(ゆっくり揺れる+傾き)
-  const sway = Math.sin(now * 0.07) * 0.025 + Math.sin(now * 0.031 + 1) * 0.012;   // ほんの少しだけ揺れる
-  const tgtYaw = sway + view.tiltX * Math.PI / 180 * 0.4;                           // 傾き=少し斜めから覗く
-  view.yaw += (tgtYaw - view.yaw) * Math.min(1, dt * 3);
-  const tgtH = lookY + view.tiltY * 0.5;
-  view.ty += (tgtH - view.ty) * Math.min(1, dt * 3);
-  camPos.set(Math.sin(view.yaw) * camDist, view.ty, Math.cos(view.yaw) * camDist);
-  camera.position.copy(camPos); camera.lookAt(0, lookY, 0);
-  const cx = camPos.x, cy = camPos.y, cz = camPos.z;
-
-  // 灯り
-  for (let k = 0; k < 3; k++) lamp.p[k] += (lamp.target[k] - lamp.p[k]) * Math.min(1, dt * 8);
-
-  skyDrift = (skyDrift + dt * 0.0035) % 1; skyTex.offset.x = skyDrift;
-  const amb = skyAmb;
-  const ambK = 0.55, mixAim = 1 - Math.exp(-dt * 5), mixOpen = 1 - Math.exp(-dt * 4);
-  const nev = events.length;
-
-  for (let i = 0; i < NT; i++) {
-    const i3 = i * 3, b = tBay[i], f = bayF[b], fn = FN[f], ft = FT[f];
-    const px = tP[i3], py = tP[i3 + 1], pz = tP[i3 + 2];
-    // 灯りの知らせが届いたか(新しい順に見る)
-    for (let k = nev - 1; k >= 0; k--) { const ev = events[k]; if (ev.t <= tLt[i]) break;
-      const dx = px - ev.O[0], dy = py - ev.O[1], dz = pz - ev.O[2];
-      if ((now - ev.t) * WAVE >= Math.sqrt(dx * dx + dy * dy + dz * dz)) { tL[i3] = ev.L[0]; tL[i3 + 1] = ev.L[1]; tL[i3 + 2] = ev.L[2]; tLt[i] = ev.t; tArr[i] = now; tMove[i] = 1; break; } }
-    // 灯りのほうへ向く
-    let lx = tL[i3] - px, ly = tL[i3 + 1] - py, lz = tL[i3 + 2] - pz; const ld = Math.hypot(lx, ly, lz) || 1; lx /= ld; ly /= ld; lz /= ld;
-    let ax = fn[0] * 0.12 + lx, ay = ly, az = fn[2] * 0.12 + lz;   // 灯りをまっすぐ向く(壁の向きはほんの少しだけ残す)
-    let dn = ax * fn[0] + az * fn[2]; const al = Math.hypot(ax, ay, az) || 1; ax /= al; ay /= al; az /= al; dn /= al;
-    if (dn < 0.3) { // 壁の裏へは向けない
-      const k2 = (0.3 - dn); ax += fn[0] * k2; az += fn[2] * k2; const l2 = Math.hypot(ax, ay, az); ax /= l2; ay /= l2; az /= l2; }
-    const ox = tN[i3], oy = tN[i3 + 1], oz = tN[i3 + 2];
-    let nx = ox + (ax - ox) * mixAim, ny = oy + (ay - oy) * mixAim, nz = oz + (az - oz) * mixAim;
-    const nl = Math.hypot(nx, ny, nz); nx /= nl; ny /= nl; nz /= nl;
-    const moved = Math.abs(nx - ox) + Math.abs(ny - oy) + Math.abs(nz - oz);
-    tN[i3] = nx; tN[i3 + 1] = ny; tN[i3 + 2] = nz;
-    const o0 = tO[i], o1 = o0 + (openT[b] - o0) * mixOpen; tO[i] = o1;
-    // 開き: 水平(上向き)へ倒す
-    let fx = nx * (1 - o1), fy = ny * (1 - o1) + o1 * 1.0, fz = nz * (1 - o1);
-    const fl = Math.hypot(fx, fy, fz); fx /= fl; fy /= fl; fz /= fl;
-    // 一回転(右向きの軸まわり)
-    let spin = 0;
-    if (tSpin0[i] >= 0) { const u = (now - tSpin0[i]) / 1.4; if (u >= 1) { tSpin0[i] = -1; } else if (u > 0) { spin = (u * u * (3 - 2 * u)) * Math.PI * 2; } }
-    if (moved > 2e-5 || Math.abs(o1 - o0) > 1e-4 || spin || tMove[i]) {
-      tMove[i] = (moved > 2e-5 || Math.abs(o1 - o0) > 1e-4 || spin) ? 1 : 0;
-      quatFromTo(fn[0], 0, fn[2], fx, fy, fz);
-      let qx = qTmp[0], qy = qTmp[1], qz = qTmp[2], qw = qTmp[3];
-      const F = FQ[f];   // q = qAim * qFace
-      let x = qw * F[0] + qx * F[3] + qy * F[2] - qz * F[1], y = qw * F[1] - qx * F[2] + qy * F[3] + qz * F[0],
-          z = qw * F[2] + qx * F[1] - qy * F[0] + qz * F[3], w = qw * F[3] - qx * F[0] - qy * F[1] - qz * F[2];
-      if (spin) { const sh = Math.sin(spin / 2), S = [ft[0] * sh, 0, ft[2] * sh, Math.cos(spin / 2)];
-        const x2 = S[3] * x + S[0] * w + S[1] * z - S[2] * y, y2 = S[3] * y - S[0] * z + S[1] * w + S[2] * x,
-              z2 = S[3] * z + S[0] * y - S[1] * x + S[2] * w, w2 = S[3] * w - S[0] * x - S[1] * y - S[2] * z; x = x2; y = y2; z = z2; w = w2;
-        // 色の計算にも回った向きを使う
-        const c = Math.cos(spin), sn = Math.sin(spin), d0 = fx * ft[0] + fz * ft[2];
-        const cxv = ft[1] * fz - ft[2] * fy, cyv = ft[2] * fx - ft[0] * fz, czv = ft[0] * fy - ft[1] * fx;
-        fx = fx * c + cxv * sn + ft[0] * d0 * (1 - c); fy = fy * c + cyv * sn; fz = fz * c + czv * sn + ft[2] * d0 * (1 - c);
-      }
-      const o16 = i * 16, x2 = x + x, y2 = y + y, z2 = z + z, xx = x * x2, xy = x * y2, xz = x * z2, yy = y * y2, yz = y * z2, zz = z * z2, wx = w * x2, wy = w * y2, wz = w * z2;
-      const sc = 1 - o1 * 0.72;   // 開いた板は細く畳む(奥の明かりがよく見える)
-      MAT[o16] = 1 - (yy + zz); MAT[o16 + 1] = xy + wz; MAT[o16 + 2] = xz - wy; MAT[o16 + 3] = 0;
-      MAT[o16 + 4] = (xy - wz) * sc; MAT[o16 + 5] = (1 - (xx + zz)) * sc; MAT[o16 + 6] = (yz + wx) * sc; MAT[o16 + 7] = 0;
-      MAT[o16 + 8] = xz + wy; MAT[o16 + 9] = yz - wx; MAT[o16 + 10] = 1 - (xx + yy); MAT[o16 + 11] = 0;
-      MAT[o16 + 12] = px; MAT[o16 + 13] = py; MAT[o16 + 14] = pz; MAT[o16 + 15] = 1;
-    }
-    // ── 色: 灯りの当たり + 空(景色)の映り込み + きらめき ──
-    let vx = cx - px, vy = cy - py, vz = cz - pz; const vl = Math.hypot(vx, vy, vz); vx /= vl; vy /= vl; vz /= vl;
-    let ndv = fx * vx + fy * vy + fz * vz;
-    const k3 = b * 3; let r, g, bl;
-    if (ndv <= 0) { // 板の裏(暗い)
-      r = 0.035 + roomCol[k3] * 0.3; g = 0.028 + roomCol[k3 + 1] * 0.3; bl = 0.024 + roomCol[k3 + 2] * 0.3;
-    } else {
-      let qx = lamp.p[0] - px, qy = lamp.p[1] - py, qz = lamp.p[2] - pz; const qd = Math.hypot(qx, qy, qz); qx /= qd; qy /= qd; qz /= qd;
-      const diff = Math.max(0, fx * qx + fy * qy + fz * qz) * 1.5 / (1 + (qd / 10.5) * (qd / 10.5));
-      const rx = 2 * ndv * fx - vx, ry = 2 * ndv * fy - vy, rz = 2 * ndv * fz - vz;   // 映り込みの向き
-      let sr, sg, sb;
-      let u = Math.atan2(rz, -rx) / (Math.PI * 2); u = u - Math.floor(u); u = (u + skyDrift) % 1;
-      const v = 0.5 - Math.asin(Math.max(-1, Math.min(1, ry))) / Math.PI;
-      const ix = Math.min(SKL_W - 1, Math.floor(u * SKL_W)), iy = Math.min(SKL_H - 1, Math.floor(v * SKL_H)), o = (iy * SKL_W + ix) * 3;
-      sr = skyLin[o] * 0.7; sg = skyLin[o + 1] * 0.7; sb = skyLin[o + 2] * 0.7;
-      const fres = 0.22 + 0.6 * Math.pow(1 - ndv, 3);
-      const gl = Math.max(0, rx * qx + ry * qy + rz * qz), glint = gl > 0.985 ? Math.pow(gl, 400) * 0.6 : 0;   // 灯りが手前にあるので、きらめきは控えめに
-      const tr = tint[k3], tg = tint[k3 + 1], tb = tint[k3 + 2];
-      // 左上の空から光が来るとして、上を向いた板は明るく、下を向いた板は暗い(向きの違いが浮き彫りのような濃淡で見える)
-      const kd = Math.max(0, fx * KEY[0] + fy * KEY[1] + fz * KEY[2]), key = 0.05 + kd * kd * kd * 1.25;
-      r = tr * (amb[0] * ambK * 0.6 + diff * 0.25 * LAMP_COL[0] + key * 0.9) * (1 - fres) + sr * fres + glint * LAMP_COL[0];
-      g = tg * (amb[1] * ambK * 0.6 + diff * 0.25 * LAMP_COL[1] + key * 0.85) * (1 - fres) + sg * fres + glint * LAMP_COL[1];
-      bl = tb * (amb[2] * ambK * 0.6 + diff * 0.25 * LAMP_COL[2] + key * 0.8) * (1 - fres) + sb * fres + glint * LAMP_COL[2];
-    }
-    const wa = now - tArr[i]; if (wa < 0.9) { const fl = Math.exp(-wa * 5) * 1.3; r += fl * LAMP_COL[0]; g += fl * LAMP_COL[1]; bl += fl * LAMP_COL[2]; }  // 向き直る瞬間にきらっと
-    COL[i3] = r; COL[i3 + 1] = g; COL[i3 + 2] = bl;
-  }
-  tileMesh.instanceMatrix.needsUpdate = true; tileMesh.instanceColor.needsUpdate = true;
-
-  jsMs = jsMs * 0.95 + (performance.now() - t0) * 0.05;
-  if (pipeline) pipeline.render(); else renderer.render(scene, camera);
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  gl.uniform2f(U.uRes, W, H); gl.uniform1f(U.uDpr, canvas.width / W);
+  gl.uniform1f(U.uPitch, PITCH); gl.uniform1f(U.uTop, TOP); gl.uniform1f(U.uN, N);
+  gl.uniform1f(U.uTheta, theta); gl.uniform1f(U.uView, viewY * Math.PI / 180 * 0.6); gl.uniform1f(U.uTime, now);
+  gl.uniform1f(U.uSkyLum, skyLum); gl.uniform3f(U.uSky, 0.55 + skyCol[0] * 0.6, 0.55 + skyCol[1] * 0.6, 0.55 + skyCol[2] * 0.6);
+  gl.uniform3fv(U.uSlat, P.a); gl.uniform3fv(U.uSlat2, P.b); gl.uniform1f(U.uGrain, P.grain);
+  gl.uniform2f(U.uPar, -viewX / 40 * 0.04, -viewY / 40 * 0.05);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  requestAnimationFrame(frame);
 }
-let jsMs = 0;
 
-// ───────── はじまり ─────────
-makeClouds(); paintSky(hourNow()); paintTints();
-{ const now = performance.now() / 1000;
-  for (let i = 0; i < NT; i++) { tL[i * 3] = lamp.p[0]; tL[i * 3 + 1] = lamp.p[1]; tL[i * 3 + 2] = lamp.p[2]; } }
-addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight, false); fitCamera(); });
-renderer.setAnimationLoop(frame);
+makeCity(); layout();
+addEventListener('resize', layout);
+requestAnimationFrame(frame);
 
 const TILT_SVG = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="8.5" y="3" width="7" height="18" rx="2"/><path d="M4.5 9c-1 2-1 4 0 6M19.5 9c1 2 1 4 0 6"/></svg>';
 APKit.init({
@@ -626,17 +415,15 @@ APKit.init({
   autoHide: true,
   fullscreenButton: false,
   buttons: [
-    { label: '✦', name: 'mutate', onClick: mutate },   // 配色と雲を替え、塔じゅうの板を一回転、灯りも別の場所へ
-    { label: '↻', name: 'reset', onClick: reset },
+    { label: '✦', name: 'mutate', onClick: mutate },   // 羽根の色と開き具合、外の街を替える
+    { label: '↻', name: 'reset', onClick: reset },     // 曲がった羽根を新品に戻す
     { label: TILT_SVG, name: 'tilt', onClick: toggleTilt }
   ]
 });
 setTimeout(() => { tiltBtn = document.querySelector('.apk-btn[aria-label="tilt"]'); }, 0);
-
 // テスト用
-window.__sh = { BACKEND, ms: () => jsMs, hour: v => { hourOverride = v; }, setTime: (hh, mm) => { setDigits(hh, mm, true, performance.now() / 1000); curMin = mm; curHour = hh; },
-  touch: (x, y) => touchAt(x, y, performance.now() / 1000), spin: () => spinWave(performance.now() / 1000, false), mutate, paintSky };
-console.log('SHUTTER HOURS backend:', BACKEND);
+window.__sh = { hour: v => { hourOverride = v; drawOutside(); }, flutter: (x, y) => flutter(x, y, 1), state: () => ({ N, K, PITCH }) };
+})();
 </script>
 </body>
 </html>
