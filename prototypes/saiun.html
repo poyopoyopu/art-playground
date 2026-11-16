@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- SAIUN(彩雲) — クロちゃん(Claude)作。おっちゃんが持ち込んだ彩雲の写真7枚から(「代表作にしたい」)。ap-kit.js統合: クロちゃん -->
 <!-- 世界のルール: 雲は、薄い縁だけが虹色に光る。厚い所は白〜灰色のまま。なぞって薄くした所も、同じ法則で虹色になる -->
-<!-- 頭巾雲の形と色は描かず、法則から出す: 育つ頭が湿った層を押し上げた所にだけ膜ができ、色は「水滴の大きさ×太陽からの角度」の回折の式で決まる -->
+<!-- 頭巾雲の形と色は描かず、法則から出す: 育つ頭が湿った層を突き上げると、層が頭の上で帽子のように持ち上がって膜になる(立体の殻なので輪郭が濃い)。色は「水滴の大きさ×太陽からの角度」の回折の式で決まり、水滴の小さい膜の縁で分かれる -->
 <!-- 2026/11/16 改良(おっちゃん「雲をもっとリアルに/動き・展開を増やす」): 輪郭をカリフラワー状のこぶに・縁取りは太陽の側だけ細く・こぶの谷間を暗く / こぶが湧く動き・湿った層を流れてくる薄い雲のかけら・遠くの白い雲の帯・1日の流れ(昼→夕方→次の天気) -->
 <!-- 乱数で決めるのは天気だけ(雲の並び・湿った層・風・太陽の位置・見上げる向き)。開くたび・✦で別の天気。1日は4分前後: 昼→日が傾いて夕方→雲が消えて次の天気の朝。傾きは外した(おっちゃん「傾きとかも要らない/自然現象ってすげーって思いたい」) -->
 <html lang="ja">
@@ -32,7 +32,7 @@ var VS='#version 300 es\nvoid main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&
 // ---- 1段目: 雲の「厚みの地図」を作る。R=手前の面の高さ(陰影用) G=頭巾雲(薄い膜)の濃さ B=膜の水滴の大きさ(色を決める) A=雲の厚み
 var FS1=`#version 300 es
 precision highp float;precision highp sampler3D;
-uniform vec2 R,CA;uniform float ASP,T,SEED,KD,WX,WS;uniform sampler3D N3;uniform vec4 CAM;uniform vec3 BS;
+uniform vec2 R,CA;uniform float ASP,T,SEED,KD,WX;uniform sampler3D N3;uniform vec4 CAM;uniform vec3 BS;
 uniform vec4 TA[${NT}];uniform vec4 TB[${NT}];uniform vec4 TP[${MAXP}];uniform int NP;
 uniform vec4 LY[${NL}];
 out vec4 o;
@@ -90,24 +90,24 @@ void main(){
  float yf=BS.z+.03*sin(p.x*5.+SEED*2.)+.018*sin(p.x*13.+1.);
  comp(yf-p.y,p*1.2+vec2(-WX*.4,7.),SEED+9.,.45,0.,0.,z,th,v,sp);
  // 頭巾雲は描かない。法則から出す:
- //  1) 育つ塔の頭は、上の空気を押し上げる(lift)。押し上げは頭の真上で強く、横と上へ行くほど弱い
- //  2) 空には湿った薄い層が何枚かある。層の空気が、その場所の湿り気で決まる高さ(need)より多く押し上げられると、水滴になって見える
- //  3) 水滴は、できたて(膜の縁・風上)ほど小さく、押し上げが大きい所・風下ほど大きい
- float dl=0.,cxw=0.;
- for(int i=0;i<${NT};i++){vec4 a=TA[i];float A=TB[i].z;if(A<1e-4)continue;float h=p.y-a.y,dx=p.x-a.x,xx=dx/(1.5*a.z);
-  float hs=h-a.z*exp(-dx*dx/(1.3*a.z*a.z));   // 頭の丸い面からの高さ。押し上げは面のすぐ上で強いので、膜は頭の丸みに沿ってかぶさる
-  float di=A*exp(-xx*xx)*smoothstep(-.8*a.z,.5*a.z,h)*exp(-max(hs,0.)/.13);dl+=di;cxw+=di*a.x;}
- cxw=dl>1e-4?cxw/dl:p.x;
- float yo=p.y-dl,um=9.;   // yo=押し上げられる前の高さ。風で流れる湿り気と繊維は、この高さに沿う
- for(int k=0;k<${NL};k++)um=min(um,abs(yo-LY[k].x)/LY[k].y);
- if(um<2.6){vec2 pa=vec2(p.x-WX,yo);
+ //  1) 空には湿った薄い層が何枚かある。育つ塔の頭が下から突き上げると、層は頭の上で帽子のように持ち上がる(頭が層を越えた分だけ。越えすぎると突き破って、塔のわきに襟のように残る)
+ //  2) 層の空気は、その場所の湿り気で決まる高さ(need)より上まで持ち上げられた所だけ水滴になる=帽子の上のほうだけが膜になり、下の縁で切れる
+ //  3) 膜は立体の殻なので、横から見ると輪郭(殻を斜めに長く見通す所)がいちばん濃く、内側は薄い
+ //  4) 水滴は、高く持ち上げられた所ほど大きい。膜の下の縁ほど小さいので、色は縁で分かれ、てっぺんは白い
+ for(int k=0;k<${NL};k++){vec4 L=LY[k];if(p.y<L.x-.05)continue;
+  float H=0.,W=0.;
+  for(int i=0;i<${NT};i++){vec4 a=TA[i];float xx=(p.x-a.x)/(1.55*a.z);
+   float ps=min(.03*log(1.+exp(min((a.y+a.z+.03-L.x)/.03,20.))),1.3*a.z)*exp(-xx*xx);H+=ps;W+=ps*TB[i].z;}
+  float wl=.5*L.y,e=L.x+H-p.y;if(e<-3.*wl)continue;   // e=膜の輪郭(殻のへり)からの内側の深さ
+  vec2 pa=vec2(p.x-WX,p.y-H);   // 湿り気のむらと筋は、持ち上げられた面に沿う(筋が膜の形をなぞる)
   // 湿り気はむらになって風で流れる。とくに湿った所(hmが大きい)は、押し上げがなくても水滴になっている=流れてくる薄い雲のかけら
-  float hm=sN(vec3(pa*vec2(1.6,2.6),SEED+T*.004)).g;
-  float fa=sN(vec3(pa.x*2.2,yo*9.,SEED+3.+T*.006)).g,fb=sN(vec3(pa.x*5.,yo*46.,SEED+5.+T*.009)).g;
-  for(int k=0;k<${NL};k++){vec4 L=LY[k];float u=(yo-L.x)/L.y;if(abs(u)>2.6)continue;
-   float c=dl-L.z*(1.22-1.72*hm)-(fa-.5)*.004;if(c<=0.)continue;
-   float vk=L.w*.55*exp(-u*u)*smoothstep(0.,.009,c)*(.62+.76*fa*(.55+.9*fb));
-   v+=vk;sp+=vk*(1.2+46.*c+1.6*clamp(.5+2.5*(p.x-cxw)*WS,0.,1.)+2.2*fa+1.4*hm);}}   // 水滴の大きさは湿り気のむらと筋ごとにも違う(色の帯が、太陽を囲む同心円ではなく雲の筋に沿う)
+  float hm=sN(vec3(pa.x*1.6,L.x*2.6+float(k)*.37,SEED+T*.004)).g;
+  float need=L.z*(1.22-1.6*hm),c=p.y-L.x-need;if(c<=0.)continue;
+  float fa=sN(vec3(pa.x*2.2,pa.y*9.,SEED+3.+T*.006)).g,fb=sN(vec3(pa.x*5.,pa.y*46.,SEED+5.+T*.009)).g;
+  float cap=smoothstep(.008,.04,H)*(H>1e-4?W/H:0.)*smoothstep(-3.*wl,wl,e)/sqrt(1.+max(e,0.)/wl);   // 持ち上げられた膜(殻)。塔が育つのをやめると消えていく
+  float wis=smoothstep(0.,.006,-need)*exp(-e*e/(L.y*L.y))*.8;   // 押し上げなしで浮かぶ、薄い雲のかけら(レンズ形)
+  float vk=L.w*.5*max(cap,wis)*smoothstep(0.,.008,c)*(.62+.76*fa*(.55+.9*fb));
+  v+=vk;sp+=vk*(1.2+60.*c+1.1*fa+.7*hm);}
 // 遠くの雲の帯(下のほうに、やわらかく白く)。厚くて水滴が大きいので、色は分かれず白いまま
  {vec2 pb=vec2(p.x-WX*.5,p.y);float bk=sN(vec3(pb*vec2(1.3,2.6)+7.,SEED*.7+T*.003)).g*.68+sN(vec3(pb*vec2(3.6,6.4)+3.,SEED+T*.006)).g*.32;
   float b0=bk;bk=smoothstep(.40,.74,bk+(BS.x+.10-p.y)*1.7);v+=bk*.8;sp+=bk*.8*(7.+8.*b0);}
@@ -200,7 +200,7 @@ void main(){
 function sh(t,s){var x=gl.createShader(t);gl.shaderSource(x,s);gl.compileShader(x);if(!gl.getShaderParameter(x,gl.COMPILE_STATUS))throw gl.getShaderInfoLog(x);return x;}
 function prog(fs,names){var pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,VS));gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,fs));gl.linkProgram(pr);
   if(!gl.getProgramParameter(pr,gl.LINK_STATUS))throw gl.getProgramInfoLog(pr);var U={};names.forEach(function(n){U[n]=gl.getUniformLocation(pr,n);});return {p:pr,U:U};}
-var P1=prog(FS1,['R','CA','ASP','T','SEED','KD','WX','WS','N3','CAM','BS','TA','TB','TP','NP','LY']);
+var P1=prog(FS1,['R','CA','ASP','T','SEED','KD','WX','N3','CAM','BS','TA','TB','TP','NP','LY']);
 var P2=prog(FS2,['F','R','FR','S','UP','ASP','T','DUSK','DARK','ZM']);
 gl.bindVertexArray(gl.createVertexArray());
 
@@ -316,8 +316,8 @@ function frame(now){
   // 塔を育てる。頭が昇る速さ=上の空気を押し上げる強さ(昇るのをやめると、数秒で押し上げは消える)
   for(i=0;i<NT;i++){var tr=tur[i];tr.age+=dt;if(tr.age>tr.D){var n=roll(0);for(var k in n)tr[k]=n[k];}
     var s=state(tr),a0={age:tr.age-.3,D:tr.D,ht:tr.ht,r:tr.r},a1={age:tr.age+.3,D:tr.D,ht:tr.ht,r:tr.r};
-    var vel=(state(a1).top-state(a0).top)/.6,At=.10*Math.max(0,Math.min(1,vel/.008))*(1-s.er)*tr.r/.11;
-    tr.A=tr.A===undefined?At:tr.A+(At-tr.A)*(1-Math.exp(-dt/3.5));
+    var vel=(state(a1).top-state(a0).top)/.6,At=Math.max(0,Math.min(1,vel/.008))*(1-s.er);
+    tr.A=tr.A===undefined?At:tr.A+(At-tr.A)*(1-Math.exp(-dt/5));
     TA.set([tr.cx,s.yh,s.r,s.er],i*4);TB.set([tr.lean,tr.seed,tr.A,0],i*4);}
   for(i=0;i<NL;i++)LY.set(sc.ly[i],i*4);
   // 太陽は空の決まった場所にあって、ゆっくり動く
@@ -335,7 +335,7 @@ function frame(now){
   gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);gl.viewport(0,0,FW,FH);gl.useProgram(P1.p);
   gl.uniform2f(P1.U.R,FW,FH);gl.uniform1f(P1.U.ASP,asp);gl.uniform1f(P1.U.T,t);gl.uniform1f(P1.U.SEED,sc.sd);gl.uniform1i(P1.U.N3,1);
   gl.uniform2f(P1.U.CA,cam.ax,cam.ay);gl.uniform4f(P1.U.CAM,HX,HY,cam.rot,cam.zoom);gl.uniform3f(P1.U.BS,sc.yb,sc.hump,sc.bank);
-  gl.uniform1f(P1.U.KD,ke);gl.uniform1f(P1.U.WX,sc.wind*t);gl.uniform1f(P1.U.WS,sc.wind>0?1:-1);
+  gl.uniform1f(P1.U.KD,ke);gl.uniform1f(P1.U.WX,sc.wind*t);
   gl.uniform4fv(P1.U.TA,TA);gl.uniform4fv(P1.U.TB,TB);gl.uniform4fv(P1.U.TP,TP);gl.uniform1i(P1.U.NP,pts.length);
   gl.uniform4fv(P1.U.LY,LY);
   gl.drawArrays(gl.TRIANGLES,0,3);
