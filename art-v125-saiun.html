@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<!-- SAIUN(彩雲) — クロちゃん(Claude)作。2026/11/16 採用・art-v125(元は prototypes/saiun.html)。おっちゃんが持ち込んだ彩雲の写真7枚から(「代表作にしたい」)。ap-kit.js統合: クロちゃん -->
+<!-- 世界のルール: 雲は、薄い縁だけが虹色に光る。厚い所は白〜灰色のまま。なぞって薄くした所も、同じ法則で虹色になる -->
+<!-- 頭巾雲の形と色は描かず、法則から出す: 育つ頭が湿った層を突き上げると、層が頭の上で帽子のように持ち上がって膜になる(立体の殻なので輪郭が濃い)。色は「水滴の大きさ×太陽からの角度」の回折の式で決まり、水滴の小さい膜の縁で分かれる -->
+<!-- 2026/11/16 改良(おっちゃん「雲をもっとリアルに/動き・展開を増やす」): 輪郭をカリフラワー状のこぶに・縁取りは太陽の側だけ細く・こぶの谷間を暗く / こぶが湧く動き・湿った層を流れてくる薄い雲のかけら・遠くの白い雲の帯・1日の流れ(昼→夕方→次の天気) -->
+<!-- 乱数で決めるのは天気だけ(雲の並び・湿った層・風・太陽の位置・見上げる向き)。開くたび・✦で別の天気。1日は4分前後: 昼→日が傾いて夕方→雲が消えて次の天気の朝。傾きは外した(おっちゃん「傾きとかも要らない/自然現象ってすげーって思いたい」) -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>SAIUN — 雲は、薄い縁だけが虹色に光る</title>
+<script src="ap-kit.js"></script>
+<style>
+html,body{margin:0;height:100%;background:#0a1c3c;overflow:hidden}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#hint{position:fixed;left:0;right:0;bottom:16%;text-align:center;color:rgba(255,255,255,.9);font:13px/1.8 -apple-system,"Hiragino Sans",sans-serif;letter-spacing:.06em;pointer-events:none;opacity:0;transition:opacity 1.2s;text-shadow:0 0 10px rgba(0,10,30,.95),0 0 4px rgba(0,10,30,.95),0 1px 2px rgba(0,10,30,.9)}
+#hint.on{opacity:1}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint"></div>
+<script>
+(function(){
+var cv=document.getElementById('c'), hint=document.getElementById('hint');
+var gl=cv.getContext('webgl2',{preserveDrawingBuffer:true,antialias:false,alpha:false});   // preserveDrawingBuffer=ギャラリーの録画・静止画に映すため
+if(!gl){hint.textContent='この端末では表示できないみたい(WebGL2が必要)';hint.classList.add('on');return;}
+
+var NT=3, MAXP=24, NL=3;
+var VS='#version 300 es\nvoid main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2.-1.,0.,1.);}';
+
+// ---- 1段目: 雲の「厚みの地図」を作る。R=手前の面の高さ(陰影用) G=頭巾雲(薄い膜)の濃さ B=膜の水滴の大きさ(色を決める) A=雲の厚み
+var FS1=`#version 300 es
+precision highp float;precision highp sampler3D;
+uniform vec2 R,CA;uniform float ASP,T,SEED,KD,WX;uniform sampler3D N3;uniform vec4 CAM;uniform vec3 BS;
+uniform vec4 TA[${NT}];uniform vec4 TB[${NT}];uniform vec4 TP[${MAXP}];uniform int NP;
+uniform vec4 LY[${NL}];
+out vec4 o;
+vec2 h22(vec2 p){vec3 q=fract(vec3(p.xyx)*vec3(.1031,.1030,.0973));q+=dot(q,q.yzx+33.33);return fract((q.xx+q.yz)*q.zy);}
+// 3Dテクスチャをなめらかに読む(拡大したときに格子の角が出ないように)
+vec4 sN(vec3 c){c=c*64.+.5;vec3 i=floor(c),f=fract(c);f=f*f*(3.-2.*f);return textureLod(N3,(i+f-.5)/64.,0.);}
+// 丸いこぶ(セルごとに1つ)。こぶの中心がゆっくり動き、大きさも息をする=もくもく
+float wor(vec2 p,float sp){vec2 i=floor(p),f=fract(p);float m=1.;
+ for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){vec2 g=vec2(x,y),h=h22(i+g);
+  vec2 r=g+.5+.36*sin(T*sp*(.5+h.yx)+6.2832*h)-f;
+  m=min(m,dot(r,r)/(1.+.34*sin(T*sp*(.6+h.x)+6.2832*h.y)));}   // こぶは膨らんでは、となりのこぶに呑まれる(湧く動き)
+ return 1.-min(m*2.,1.);}
+// こぶの中にこぶ、を5階層(大きい3つは計算、小さい2つは3Dテクスチャ)。x=面の高さ、y=輪郭の出入り(同じこぶが輪郭と陰影の両方を作る)
+vec3 billow(vec2 q,float sd){
+ vec2 wv=vec2(sN(vec3(q*1.7,sd*.13+T*.004)).g,sN(vec3(q*1.7+.37,sd*.13+.5)).g);   // ゆがみ(こぶの大きさをそろえない)と、場所ごとの細かさ
+ q+=(wv-.5)*.045;
+ float b1=wor(q*5.6+sd,.05);
+ float b2=wor(q*12.5+sd*1.7+b1*.5,.07);
+ float b3=wor(q*29.+sd*2.3+b2*.6,.09);
+ float b4=texture(N3,vec3(q*21.+b3*.02,T*.008+sd*.37)).r;
+ float b5=texture(N3,vec3(q*55.+b3*.03,T*.012+sd*.11)).r;
+ float k=.55+.9*wv.x;
+ return vec3(b1*.50+(b2*.27+b3*.12+b4*.05+b5*.025)*k+.02,b1*.30+b2*.40+b3*.23+clamp(b4*2.2-1.2,0.,1.)*.07,wv.y);}
+// 雲のかたまり1つ。d=輪郭からの内側の距離、zo=手前に出す量、er=消えていく量
+void comp(float d,vec2 q,float sd,float zo,float er,float ms,inout float z,inout float th,inout float v,inout float sp){
+ if(d<-.1)return;
+ vec3 nn=billow(q,sd);float n=nn.x;
+ float nz=nn.y-.45;if(nz<0.)nz*=.55;   // へこみは浅めに(穴だらけにしない)
+ float f=d/(d<0.?.07:.10)+1.8*nz*clamp(1.+d/.036,0.,1.)-er*.9;   // 輪郭は、こぶの出入りで決まる(本体から離れた所に粒が飛ばないよう、外へ行くほど出入りを弱める)
+ // かたまりのまわりの薄いもや(ちぎれ雲)。ここも薄いので法則どおり虹色になる
+ if(ms>0.&&f<.25){float w=sN(vec3(q*2.6,T*.02+sd)).g*sN(vec3(q*7.+.3,T*.03+sd)).g;
+  float mi=ms*smoothstep(-.5,.1,f+w*1.1-.4)*smoothstep(.25,-.05,f)*w*1.5;v+=mi;sp+=mi*(2.+2.5*clamp(f+.6,0.,1.));}
+ if(f<=0.)return;
+ float e=pow(min(f*mix(1.1,9.,smoothstep(.36,.6,nn.z)),1.),.5);   // 輪郭の切れ味は場所で違う(育っている所はくっきり、古い所はけば立って薄い)
+ float hd=clamp(d/.13+.12,0.,1.);
+ float h=e*(.20+.42*sqrt(hd*(2.-hd))+.38*n);   // かたまり1つ1つは丸く盛り上がる(円い断面)。その上に細かいこぶ
+ h*=1.-smoothstep(.7,1.,er);   // 役目を終えた塔は、縁から消えながら沈み、最後は薄れる
+ z=max(z,h+zo*smoothstep(0.,.3,f));th=max(th,h);}
+void main(){
+ // 画面→空の座標(場面ごとにカメラの向き・寄り・位置が違う)
+ vec2 uv=gl_FragCoord.xy/R;vec2 d0=((uv-.5)*vec2(ASP,1.)-CA)*CAM.w;float cr=cos(CAM.z),sr=sin(CAM.z);
+ vec2 p=CAM.xy+vec2(cr*d0.x-sr*d0.y,sr*d0.x+cr*d0.y);
+ float z=0.,th=0.,v=0.,sp=0.;
+ // 育つ塔(ターレット)。模様は塔の頭といっしょに昇る
+ for(int i=0;i<${NT};i++){vec4 a=TA[i],b=TB[i];float d=-1.;
+  // 塔は丸いかたまりを積んだ形(頭が1つ、その下に左右へずれた5つ)。頭といっしょに昇る
+  for(int j=0;j<6;j++){float fj=float(j);vec2 h=h22(vec2(fj*7.3+b.y*3.1,b.y+.7));
+   vec2 c=vec2(a.x+b.x*fj*.2+(j==0?0.:(h.x-.5)*a.z*1.5),a.y-fj*a.z*.6-(h.y-.5)*a.z*.3);
+   float dj=a.z*(j==0?1.:.7+.4*h.y+.08*fj)-length(p-c),k=max(.035-abs(d-dj),0.)/.035;
+   d=max(d,dj)+k*k*.035*.25;}
+  comp(d,p-vec2(a.x,mix(BS.x,a.y,.9)),b.y,0.,a.w,.3,z,th,v,sp);}   // 模様は頭より少しだけ遅く昇る=頭のてっぺんから新しいこぶがゆっくり湧く(差が大きいと、育つあいだ輪郭が1〜2秒ごとに変わって落ち着かない)
+ // 土台の雲と、手前の暗い雲
+ float yb=BS.x+.035*sin(p.x*7.+SEED)+.03*sin(p.x*2.3+SEED*1.3)+BS.y*exp(-p.x*p.x/.035);
+ comp(yb-p.y,p-vec2(WX*.25,0.),SEED+3.,.10,0.,.35,z,th,v,sp);
+ float yf=BS.z+.03*sin(p.x*5.+SEED*2.)+.018*sin(p.x*13.+1.);
+ comp(yf-p.y,p*1.2+vec2(-WX*.4,7.),SEED+9.,.45,0.,0.,z,th,v,sp);
+ // 頭巾雲は描かない。法則から出す:
+ //  1) 空には湿った薄い層が何枚かある。育つ塔の頭が下から突き上げると、層は頭の上で帽子のように持ち上がる(頭が層を越えた分だけ。越えすぎると突き破って、塔のわきに襟のように残る)
+ //  2) 層の空気は、その場所の湿り気で決まる高さ(need)より上まで持ち上げられた所だけ水滴になる=帽子の上のほうだけが膜になり、下の縁で切れる
+ //  3) 膜は立体の殻なので、横から見ると輪郭(殻を斜めに長く見通す所)がいちばん濃く、内側は薄い
+ //  4) 水滴は、高く持ち上げられた所ほど大きい。膜の下の縁ほど小さいので、色は縁で分かれ、てっぺんは白い
+ for(int k=0;k<${NL};k++){vec4 L=LY[k];if(p.y<L.x-.05)continue;
+  float H=0.,W=0.;
+  for(int i=0;i<${NT};i++){vec4 a=TA[i];float xx=(p.x-a.x)/(1.55*a.z);
+   float ps=min(.03*log(1.+exp(min((a.y+a.z+.03-L.x)/.03,20.))),1.3*a.z)*exp(-xx*xx);H+=ps;W+=ps*TB[i].z;}
+  float wl=.5*L.y,e=L.x+H-p.y;if(e<-3.*wl)continue;   // e=膜の輪郭(殻のへり)からの内側の深さ
+  vec2 pa=vec2(p.x-WX,p.y-H);   // 湿り気のむらと筋は、持ち上げられた面に沿う(筋が膜の形をなぞる)
+  // 湿り気はむらになって風で流れる。とくに湿った所(hmが大きい)は、押し上げがなくても水滴になっている=流れてくる薄い雲のかけら
+  float hm=sN(vec3(pa.x*1.6,L.x*2.6+float(k)*.37,SEED+T*.004)).g;
+  float need=L.z*(1.22-1.6*hm),c=p.y-L.x-need;if(c<=0.)continue;
+  float fa=sN(vec3(pa.x*2.2,pa.y*9.,SEED+3.+T*.006)).g,fb=sN(vec3(pa.x*5.,pa.y*46.,SEED+5.+T*.009)).g;
+  float cap=smoothstep(.008,.04,H)*(H>1e-4?W/H:0.)*smoothstep(-3.*wl,wl,e)/sqrt(1.+max(e,0.)/wl);   // 持ち上げられた膜(殻)。塔が育つのをやめると消えていく
+  float wis=smoothstep(0.,.006,-need)*exp(-e*e/(L.y*L.y))*.8;   // 押し上げなしで浮かぶ、薄い雲のかけら(レンズ形)
+  float vk=L.w*.5*max(cap,wis)*smoothstep(0.,.008,c)*(.62+.76*fa*(.55+.9*fb));
+  v+=vk;sp+=vk*(1.2+60.*c+1.1*fa+.7*hm);}
+// 遠くの雲の帯(下のほうに、やわらかく白く)。厚くて水滴が大きいので、色は分かれず白いまま
+ {vec2 pb=vec2(p.x-WX*.5,p.y);float bk=sN(vec3(pb*vec2(1.3,2.6)+7.,SEED*.7+T*.003)).g*.68+sN(vec3(pb*vec2(3.6,6.4)+3.,SEED+T*.006)).g*.32;
+  float b0=bk;bk=smoothstep(.40,.74,bk+(BS.x+.10-p.y)*1.7);v+=bk*.8;sp+=bk*.8*(7.+8.*b0);}
+ sp=v>1e-4?sp/v:2.;   // 水滴の半径(マイクロメートル)
+ // なぞった所は雲が薄くなる。場面が替わるときは、空ぜんたいの雲が同じように薄れて消える
+ float E=0.,Eg=1.-KD;
+ for(int i=0;i<${MAXP};i++){if(i>=NP)break;vec2 dd=p-TP[i].xy;E=max(E,TP[i].z*exp(-dot(dd,dd)/(.0042*CAM.w*CAM.w)));}
+ if(E>.002||Eg>.002){float en=sN(vec3(p*4.5,T*.04)).g,en2=sN(vec3(p.x*3.,p.y*14.,T*.03+.4)).g;
+  E=max(smoothstep(.12,.8,E*(.7+.7*en)),smoothstep(0.,.55,Eg*(.6+.9*en)));
+  // 厚い雲は、うすい膜のような雲に変わる。薄くなった所は法則どおり虹色に光る
+  float thin=min(th,.012+.13*en*en2);th=mix(th,thin,E);z*=1.-.75*E;
+  float fo=1.-smoothstep(.5,1.,Eg);th*=fo;v*=fo;}
+ o=vec4(z*.4,v,sp/12.,th);}`;
+
+// ---- 2段目: 厚みの地図に光を当てる
+var FS2=`#version 300 es
+precision highp float;
+uniform sampler2D F;uniform vec2 R,FR,S,UP;uniform float ASP,T,DUSK,DARK,ZM;
+out vec4 o;
+float h1(vec2 p){vec3 q=fract(vec3(p.xyx)*.1031);q+=dot(q,q.yzx+33.33);return fract((q.x+q.y)*q.z);}
+// 色は絵の具の表ではなく、回折の式から出す。小さな水滴のまわりで光が回り込む強さ(エアリーの式 (2J1(x)/x)^2)を、
+// 赤・緑・青の波長ごとに計算する。x=2π×水滴の半径×太陽からの角度÷波長。波長で輪の位置がずれるので、色が分かれる
+float j1(float x){if(x<3.6){float q=x*x;return x*(.5-q*(.0625-q*(.0026042-q*(.00005425-q*6.78e-7))));}float s=x-2.35619;return sqrt(.63662/x)*(cos(s)-.375/x*sin(s));}
+vec3 corona(float a,float th){
+ vec3 x=6.2832*a*th/vec3(.64,.54,.455)+1e-3;
+ vec3 A=2.*vec3(j1(x.r),j1(x.g),j1(x.b))/x;A*=A;
+ A*=1.+.3927*x*x*x;                    // 外側の輪ほど暗くなる分を、写真の露出のように持ち上げる
+ A=mix(vec3(.5),A,.50*exp(-x*x*.0055));    // 水滴の大きさは少しばらつくので、太陽から遠い(xが大きい)ほど色は混ざって白に戻る
+ return A/(dot(A,vec3(.3333))+.2)*1.02;}
+vec2 grad(vec2 uv,vec2 e,float lod){return vec2(textureLod(F,uv+vec2(e.x,0.),lod).r-textureLod(F,uv-vec2(e.x,0.),lod).r,textureLod(F,uv+vec2(0.,e.y),lod).r-textureLod(F,uv-vec2(0.,e.y),lod).r);}
+void main(){
+ vec2 uv=gl_FragCoord.xy/R;vec2 p=(uv-.5)*vec2(ASP,1.);
+ vec4 c=texture(F,uv);float z=c.r/.4,v=c.g,sp=c.b*12.,th=c.a;
+ // 面の向き(細かいこぶ+中くらい+大きなこぶ)
+ float st=1.25/FR.y;vec2 e=vec2(st/ASP,st);
+ vec2 g=grad(uv,e*1.6,.7)/(.8*st*1.6)*.24+grad(uv,e*5.,2.3)/(.8*st*5.)*.75+grad(uv,e*18.,4.3)/(.8*st*18.)*1.2;
+ g*=min(1.,13./max(length(g),1e-4));
+ vec3 n=normalize(vec3(-g*.14,1.));
+ // 太陽は雲の向こう。太陽へ向かって雲の厚みをたどり、届く光を決める
+ vec2 ds=S-p;float rs=length(ds);vec2 dir=ds/max(rs,1e-4);
+ float occ=0.,pd=0.,shd=0.;
+ vec2 ld=normalize(dir*.6+UP);   // こぶの影は、太陽と真上のあいだの向きから
+ for(int i=0;i<6;i++){float fi=float(i);float d=min(.008+.008*fi+.0012*fi*fi*fi,rs);
+  occ+=textureLod(F,uv+dir*d*vec2(1./ASP,1.),fi*.8).a*(d-pd);pd=d;
+  float dd=.006+.008*fi+.0005*fi*fi*fi;
+  shd+=max(0.,textureLod(F,uv+ld*dd*vec2(1./ASP,1.),fi*.85+.8).r/.4-z-dd*.6)*(1.-fi*.1);}
+ float light=exp(-occ*11.-th*(.9+2.6*exp(-rs*12.)));
+ float shade=exp(-shd*2.0);   // 上にあるこぶの影(こぶの下側や谷が暗くなる)
+ vec3 sunC=mix(vec3(1.,.955,.87),vec3(1.2,.72,.46),DUSK);
+ vec3 L=normalize(vec3(dir*.55+UP*.55,-.22));
+ float dif=smoothstep(-.35,.85,dot(n,L));
+ float cav=clamp((z-textureLod(F,uv,5.).r/.4)*1.5+.5,0.,1.);
+ float crs=clamp((z-textureLod(F,uv,2.4).r/.4)*7.+.62,0.,1.);crs*=crs;   // こぶとこぶの谷間は、空の光が届かず暗い
+ float far=exp(-rs*1.9);   // 太陽から遠い(下の)雲ほど暗い
+ vec3 ambT=mix(vec3(.57,.61,.72),vec3(.34,.32,.58),DUSK),ambB=mix(vec3(.19,.20,.25),vec3(.10,.09,.20),DUSK);
+ vec3 amb=mix(ambB,ambT,.5+.5*dot(n.xy,UP))*(.35+.65*cav)*(.30+.70*far)*(.68+.32*shade)*(.58+.42*crs+.14*(1.-DARK)*(1.-crs));
+ float glow=min(exp(-rs*2.4)*1.6,1.15)*(.35+.65*dif)*(.3+.7*shade)*(1.-.55*DUSK);   // 太陽に近い雲は、中で散った光でほんのり明るい
+ float thb=textureLod(F,uv,2.6).a,rim=exp(-th*7.)*(1.-exp(-th*40.))*1.6+.25*(1.-smoothstep(.16,.5,textureLod(F,uv,3.9).a));   // 輪郭の近く
+ float ang=rs*ZM*.75;   // 太陽からの角度(ラジアン)
+ vec3 Cc=(sunC*(light*(.15+1.05*dif)*1.5+glow*(.6+.4*crs)+dif*shade*far*.6*(1.-.8*DARK))+amb)*mix(1.12,.30+.80*exp(-rs*rs*6.5),.45+.55*DARK);   // 順光ぎみの日は、太陽から離れた所も明るい
+ Cc*=mix(vec3(1.),mix(vec3(.235,.27,.37),vec3(.21,.20,.33),DUSK),DARK);   // 逆光の場面: 雲の本体は暗い青灰色に沈む
+ Cc+=sunC*mix(vec3(1.),corona(3.,ang),.2)*rim*light*(.25+1.3*exp(-rs*3.5))*(1.+1.4*DARK);   // 太陽の側の輪郭は白く光る(銀の縁)
+ // 薄い雲は光を通して明るく、虹色に分かれる(法則)。広く薄い所ほど色がはっきり出る
+ float fw=.10+.7*(1.-DARK)*(1.-DARK)+1.5*exp(-rs*5.)+.8*exp(-rs*rs*45.);
+ float wide=1.-smoothstep(.03,.30,thb);
+ vec3 Ct=sunC*fw*mix(vec3(1.),corona(3.2+9.*th,ang),.1+.8*wide);   // 積雲の水滴は大きめ。薄い所ほど小さい
+ vec3 Ccl=mix(Ct,Cc,smoothstep(.02,.17,th));
+ float ac=1.-exp(-th*18.);
+ // 空
+ vec3 sky=mix(mix(vec3(.105,.29,.58),vec3(.36,.24,.39),DUSK),mix(vec3(.028,.095,.285),vec3(.03,.05,.20),DUSK),smoothstep(-.4,.52,dot(p,UP)));
+ sky+=DUSK*vec3(.50,.24,.07)*exp(-rs*2.1);   // 夕方は、太陽のまわりの空が橙に染まる
+ sky+=sunC*(.16*exp(-rs*5.5)+.05*exp(-rs*1.6))*mix(vec3(.6,.8,1.),vec3(1.,.7,.5),DUSK);
+ // 頭巾雲(薄い膜)
+ float av=1.-exp(-v*3.2);
+ vec3 Cv=sunC*(.30+1.35*exp(-rs*3.2)+1.6*exp(-rs*rs*220.))*mix(vec3(1.),corona(sp,ang),.9-.36*DUSK);   // 夕日は青や緑の光が減っているので、色の分かれ方は弱くなる
+ vec3 col=sky*(1.-av*.45)+Cv*av;
+ col+=sunC*textureLod(F,uv,4.5).g*exp(-rs*4.)*.5;   // 膜のまわりのにじみ
+ col+=sunC*(exp(-rs*rs*2600.)*7.+exp(-rs*15.)*.55)*exp(-v*4.5);   // 雲が切れると太陽そのものが見える
+ col=mix(col,Ccl,ac);
+ vec4 cS=textureLod(F,(S/vec2(ASP,1.))+.5,2.);float tS=exp(-cS.a*9.-cS.g*2.2);   // 太陽が雲の切れ間から出たら、にじんだ強い光
+ col+=sunC*tS*(exp(-rs*8.)*.45+exp(-rs*rs*500.)*2.2);
+ col+=Cv*av*ac*.06*(.3+.7*light);   // 膜は雲の手前にも薄くかかる
+ // 写真らしさ: 周辺を少し落とす、階調、粒
+ col*=1.-.35*dot(p,p)/(.25+.25*ASP*ASP);
+ float mx=max(col.r,max(col.g,col.b));col=mix(1.-exp(-col*1.45),col*(1.-exp(-mx*1.45))/max(mx,1e-4),.6);   // 明るい所でも色が白く抜けないように
+ col=mix(col,col*col*(3.-2.*col),.38);col=mix(vec3(dot(col,vec3(.3,.55,.15))),col,1.1);
+ col+=(h1(gl_FragCoord.xy+fract(T)*61.)-.5)*.014;
+ o=vec4(col,1.);}`;
+
+function sh(t,s){var x=gl.createShader(t);gl.shaderSource(x,s);gl.compileShader(x);if(!gl.getShaderParameter(x,gl.COMPILE_STATUS))throw gl.getShaderInfoLog(x);return x;}
+function prog(fs,names){var pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,VS));gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,fs));gl.linkProgram(pr);
+  if(!gl.getProgramParameter(pr,gl.LINK_STATUS))throw gl.getProgramInfoLog(pr);var U={};names.forEach(function(n){U[n]=gl.getUniformLocation(pr,n);});return {p:pr,U:U};}
+var P1=prog(FS1,['R','CA','ASP','T','SEED','KD','WX','N3','CAM','BS','TA','TB','TP','NP','LY']);
+var P2=prog(FS2,['F','R','FR','S','UP','ASP','T','DUSK','DARK','ZM']);
+gl.bindVertexArray(gl.createVertexArray());
+
+// ---- 3Dテクスチャ(64^3・くり返し)。R=丸いこぶ、G=なめらかなむら(膜の繊維用)
+(function(){
+  var N=64,C=4,cs=N/C,d=new Uint8Array(N*N*N*2),pts=new Float32Array(C*C*C*3),i,x,y,z;
+  for(i=0;i<pts.length;i++)pts[i]=Math.random();
+  function lat(n){var a=new Float32Array(n*n*n);for(var j=0;j<a.length;j++)a[j]=Math.random();return a;}
+  var L4=lat(4),L8=lat(8);
+  function sm(t){return t*t*(3-2*t);}
+  function vn(a,n,x,y,z){var xi=Math.floor(x),yi=Math.floor(y),zi=Math.floor(z),fx=sm(x-xi),fy=sm(y-yi),fz=sm(z-zi),r=0;
+    for(var k=0;k<8;k++){var ax=k&1,ay=(k>>1)&1,az=k>>2;
+      r+=a[((xi+ax)%n)+n*(((yi+ay)%n)+n*((zi+az)%n))]*(ax?fx:1-fx)*(ay?fy:1-fy)*(az?fz:1-fz);}return r;}
+  for(z=0;z<N;z++)for(y=0;y<N;y++)for(x=0;x<N;x++){
+    var px=(x+.5)/cs,py=(y+.5)/cs,pz=(z+.5)/cs,cx=Math.floor(px),cy=Math.floor(py),cz=Math.floor(pz),m=9;
+    for(var dz=-1;dz<=1;dz++)for(var dy=-1;dy<=1;dy++)for(var dx=-1;dx<=1;dx++){
+      var gx=cx+dx,gy=cy+dy,gz=cz+dz,id=(((gx%C)+C)%C+C*((((gy%C)+C)%C)+C*(((gz%C)+C)%C)))*3;
+      var ex=gx+pts[id]-px,ey=gy+pts[id+1]-py,ez=gz+pts[id+2]-pz,q=ex*ex+ey*ey+ez*ez;if(q<m)m=q;}
+    var o=(x+N*(y+N*z))*2;
+    d[o]=255*Math.max(0,1-m*1.25);
+    d[o+1]=255*(.62*vn(L4,4,px,py,pz)+.38*vn(L8,8,px*2,py*2,pz*2));}
+  var t=gl.createTexture();gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_3D,t);
+  gl.texImage3D(gl.TEXTURE_3D,0,gl.RG8,N,N,N,0,gl.RG,gl.UNSIGNED_BYTE,d);gl.generateMipmap(gl.TEXTURE_3D);
+  gl.texParameteri(gl.TEXTURE_3D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);gl.texParameteri(gl.TEXTURE_3D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_3D,gl.TEXTURE_WRAP_S,gl.REPEAT);gl.texParameteri(gl.TEXTURE_3D,gl.TEXTURE_WRAP_T,gl.REPEAT);gl.texParameteri(gl.TEXTURE_3D,gl.TEXTURE_WRAP_R,gl.REPEAT);
+})();
+
+// ---- 画面と、厚みの地図を描く先(半精度の小数。使えない端末は8bit)
+var W=1,H=1,FW=1,FH=1,scale=Math.min(window.devicePixelRatio||1,2),FSC=.7;
+var half=!!(gl.getExtension('EXT_color_buffer_float')||gl.getExtension('EXT_color_buffer_half_float')),mipOK=false;
+var ftex=gl.createTexture(),fbo=gl.createFramebuffer();
+function resize(){
+  W=innerWidth;H=innerHeight;cv.width=Math.round(W*scale);cv.height=Math.round(H*scale);
+  FW=Math.max(2,Math.round(cv.width*FSC));FH=Math.max(2,Math.round(cv.height*FSC));
+  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,ftex);
+  if(half)gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA16F,FW,FH,0,gl.RGBA,gl.HALF_FLOAT,null);
+  else gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,FW,FH,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,ftex,0);
+  if(half&&gl.checkFramebufferStatus(gl.FRAMEBUFFER)!==gl.FRAMEBUFFER_COMPLETE){half=false;resize();}
+}
+addEventListener('resize',resize);resize();
+
+// ---- 天気。乱数で決めるのは天気だけ(雲の並びと育つ速さ、湿った層の高さと湿り気、風、太陽の位置、見上げる向き、1日の長さ)。
+//      頭巾雲の形と色は、ここでは決めない(シェーダーの中で法則から出る)。開くたび・✦で別の天気になる
+var Y0=-.36, HX=0, HY=.03, scene=null, tur=[], kd=1, fade=0, nextSeed=0;
+function rnd(a,b){return a+Math.random()*(b-a);}
+function prng(a){return function(){a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+function newSeed(){return Math.floor(Math.random()*1e9);}
+function roll(age){var s=scene,near=Math.random()<.5;   // 半分は太陽の手前で育つ
+  return {cx:near?s.sun[0]+rnd(-.06,.06):rnd(-.24,.24),lean:rnd(-.07,.07),r:rnd(.075,.125),ht:near?s.sun[1]+rnd(-.05,.06):rnd(-.14,.07),D:rnd(46,60),age:age,seed:rnd(0,40)};}
+function makeScene(sd){
+  var R=prng(sd),rr=function(a,b){return a+R()*(b-a);},pm=function(){return R()<.5?-1:1;},s={seed:sd,t:0,ph:[]};
+  for(var i=0;i<5;i++)s.ph.push(rr(0,6.283));   // 見上げる向き・寄り・位置は、ゆっくり変わり続ける(その始まりの位置)
+  s.dark=R()<.72?rr(.55,1):rr(.1,.4);s.day=rr(210,260);s.sd=rr(0,60);   // day=この天気の1日の長さ(秒)。後半は日が傾いて夕方になる
+  s.yb=rr(-.36,-.24);s.hump=rr(.03,.11);s.bank=s.yb-rr(.08,.14);
+  s.sun=[rr(-.06,.06),rr(0,.09)];s.wind=pm()*rr(.006,.02);
+  // 湿った薄い層を3枚(高さ・厚み・水滴になるのに要る押し上げ・濃さ)。塔の頭が下から近づくと、その上に頭巾雲ができる
+  var y=s.sun[1]+rr(.0,.06);s.ly=[];
+  for(i=0;i<3;i++){s.ly.push([y,rr(.016,.032),rr(.024,.04),rr(.75,1.25)]);y+=rr(.055,.10);}
+  var sg=pm(),D0=rr(60,75);
+  s.tur=[{cx:s.sun[0]+rr(-.04,.04),lean:rr(-.06,.06),r:rr(.095,.13),ht:s.sun[1]+rr(.0,.07),D:D0,age:D0*rr(.24,.33),seed:rr(0,40)},
+         {cx:-sg*rr(.10,.26),lean:rr(-.06,.06),r:rr(.07,.11),ht:rr(-.16,-.02),D:rr(50,66),age:rr(0,50),seed:rr(0,40)},
+         {cx:sg*rr(.10,.26),lean:rr(-.06,.06),r:rr(.07,.11),ht:rr(-.16,-.02),D:rr(50,66),age:rr(0,50),seed:rr(0,40)}];
+  return s;}
+function setScene(sd){scene=makeScene(sd);tur=scene.tur;pts=[];}
+function change(sd,speed){nextSeed=sd;fade=speed;}   // ✦↻を押したとき: 今の雲が薄れて消え、次の天気の雲が現れる
+function sstep(a,b,x){x=Math.max(0,Math.min(1,(x-a)/(b-a)));return x*x*(3-2*x);}
+function state(t){var u=t.age/t.D,g=Math.min(1,u/.56);g=1-Math.pow(1-g,2.2);
+  var yh=Y0+(t.ht-Y0)*g+.02*sstep(.56,.8,u),r=t.r*(.68+.32*g)*(1+.14*sstep(.5,.8,u));
+  var er=sstep(.74,1,u);yh-=(yh-Y0)*.7*Math.pow(er,1.5);r*=1-.3*er;
+  er=Math.max(er,1-sstep(0,.07,u));   // 生まれたては土台の中から少しずつ現れる
+  return {yh:yh,r:r,er:er,top:yh+r};}
+// カメラ(見上げる向き・寄り・位置が、数分かけてゆっくり変わり続ける)
+var cam={rot:0,zoom:1,ax:0,ay:0};
+function toWorld(x,y){var dx=((x/W-.5)*W/H-cam.ax)*cam.zoom,dy=(.5-y/H-cam.ay)*cam.zoom,c=Math.cos(cam.rot),s=Math.sin(cam.rot);return [HX+c*dx-s*dy,HY+s*dx+c*dy];}
+function toScreen(wx,wy){var dx=wx-HX,dy=wy-HY,c=Math.cos(cam.rot),s=Math.sin(cam.rot);return [cam.ax+(c*dx+s*dy)/cam.zoom,cam.ay+(-s*dx+c*dy)/cam.zoom];}
+var pts=[],ptr=null;
+var m=location.search.match(/[?&]seed=(\d+)/);   // 確認用: ?seed=数字 で同じ天気、?t=秒 でその秒数だけ進んだ所から、?dark=0〜1 で逆光の強さ
+setScene(m?parseInt(m[1],10):newSeed());
+m=location.search.match(/[?&]dark=([\d.]+)/);if(m)scene.dark=parseFloat(m[1]);
+m=location.search.match(/[?&]t=([\d.]+)/);
+if(m)scene.t+=parseFloat(m[1]);
+if(m)tur.forEach(function(t){t.age+=parseFloat(m[1]);while(t.age>t.D){var n=roll(t.age-t.D);for(var k in n)t[k]=n[k];}});
+
+// ---- なぞる=雲を薄くする(数秒で戻る)
+function addPt(x,y){var p=toWorld(x,y);if(pts.length>=MAXP)pts.shift();pts.push({x:p[0],y:p[1],t:simT});}
+cv.addEventListener('pointerdown',function(e){if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  ptr={id:e.pointerId,x:e.clientX,y:e.clientY};cv.setPointerCapture(e.pointerId);addPt(e.clientX,e.clientY);});
+cv.addEventListener('pointermove',function(e){if(!ptr||e.pointerId!==ptr.id)return;
+  if(Math.hypot(e.clientX-ptr.x,e.clientY-ptr.y)>H*.024){ptr.x=e.clientX;ptr.y=e.clientY;addPt(e.clientX,e.clientY);}});
+function up(e){if(ptr&&e.pointerId===ptr.id)ptr=null;}
+cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
+
+var hintT=0;
+function showHint(s,ms){hint.innerHTML=s;hint.classList.add('on');clearTimeout(hintT);hintT=setTimeout(function(){hint.classList.remove('on');},ms);}
+
+// ---- 描画
+var last=performance.now(),simT=0,frames=0,acc=0,dusk=-1,sunS=null;
+var TA=new Float32Array(NT*4),TB=new Float32Array(NT*4),TP=new Float32Array(MAXP*4),LY=new Float32Array(NL*4);
+function frame(now){
+  var dt=Math.min(.05,(now-last)/1000);last=now;simT+=dt;var t=simT,ts=simT,i;
+  // ✦↻を押したときの入れ替え: 雲が薄れて消える→次の天気→雲が現れる
+  var sc=scene;sc.t+=dt;
+  var du=sc.t/sc.day;if(!fade&&du>=1)change(newSeed(),.45);   // 1日が終わると、雲はゆっくり消えて、次の天気の朝になる
+  if(fade){kd-=dt*fade/3.5;if(kd<=0){kd=0;fade=0;setScene(nextSeed);sc=scene;du=0;}}
+  else if(kd<1)kd=Math.min(1,kd+dt/4.5);
+  var ph=sc.ph,ra=Math.abs(cam.rot=1.2*(.6*Math.sin(sc.t/97+ph[0])+.4*Math.sin(sc.t/61+ph[1])))/1.2;
+  cam.zoom=(.98+.2*Math.sin(sc.t/71+ph[2]))*(1-.14*ra);
+  var kk=.02+.05*Math.sin(sc.t/113+ph[3])-.07*ra,mm=.045*Math.sin(sc.t/89+ph[4])*Math.min(1,W/H/.46);
+  cam.ax=-Math.sin(cam.rot)*kk+Math.cos(cam.rot)*mm;cam.ay=-Math.cos(cam.rot)*kk-Math.sin(cam.rot)*mm;
+  // 塔を育てる。頭が昇る速さ=上の空気を押し上げる強さ(昇るのをやめると、数秒で押し上げは消える)
+  for(i=0;i<NT;i++){var tr=tur[i];tr.age+=dt;if(tr.age>tr.D){var n=roll(0);for(var k in n)tr[k]=n[k];}
+    var s=state(tr),a0={age:tr.age-.3,D:tr.D,ht:tr.ht,r:tr.r},a1={age:tr.age+.3,D:tr.D,ht:tr.ht,r:tr.r};
+    var vel=(state(a1).top-state(a0).top)/.6,At=Math.max(0,Math.min(1,vel/.008))*(1-s.er);
+    tr.A=tr.A===undefined?At:tr.A+(At-tr.A)*(1-Math.exp(-dt/5));
+    TA.set([tr.cx,s.yh,s.r,s.er],i*4);TB.set([tr.lean,tr.seed,tr.A,0],i*4);}
+  for(i=0;i<NL;i++)LY.set(sc.ly[i],i*4);
+  // 太陽は空の決まった場所にあって、ゆっくり動く
+  var sp=toScreen(sc.sun[0]+.07*Math.sin(sc.t/127+ph[1]),sc.sun[1]+.04*Math.sin(sc.t/83+ph[3])-.17*sstep(.3,1,du));   // 1日の後半は日が傾く
+  if(!sunS)sunS=sp.slice();var ks=1-Math.exp(-dt*1.2);sunS[0]+=(sp[0]-sunS[0])*ks;sunS[1]+=(sp[1]-sunS[1])*ks;   // 天気を替えても太陽は飛ばず、すべるように移る
+  var dk=sstep(.5,.93,du);if(dusk<0)dusk=dk;dusk+=(dk-dusk)*(1-Math.exp(-dt*.4));
+  var sx=sunS[0],sy=sunS[1];
+  var ke=kd*kd*(3-2*kd);
+  // なぞった点: すぐ薄くなり、少し保って、ゆっくり戻る
+  while(pts.length&&ts-pts[0].t>4.6)pts.shift();
+  if(ptr&&pts.length)pts[pts.length-1].t=Math.max(pts[pts.length-1].t,ts-.15);   // 押さえている間は戻らない
+  for(i=0;i<pts.length;i++){var a=ts-pts[i].t,st=Math.min(1,a/.15)*(a<1.5?1:Math.max(0,1-(a-1.5)/3.1));st=st*st*(3-2*st);TP.set([pts[i].x,pts[i].y,st,0],i*4);}
+  var asp=cv.width/cv.height;
+  // 1段目
+  gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);gl.viewport(0,0,FW,FH);gl.useProgram(P1.p);
+  gl.uniform2f(P1.U.R,FW,FH);gl.uniform1f(P1.U.ASP,asp);gl.uniform1f(P1.U.T,t);gl.uniform1f(P1.U.SEED,sc.sd);gl.uniform1i(P1.U.N3,1);
+  gl.uniform2f(P1.U.CA,cam.ax,cam.ay);gl.uniform4f(P1.U.CAM,HX,HY,cam.rot,cam.zoom);gl.uniform3f(P1.U.BS,sc.yb,sc.hump,sc.bank);
+  gl.uniform1f(P1.U.KD,ke);gl.uniform1f(P1.U.WX,sc.wind*t);
+  gl.uniform4fv(P1.U.TA,TA);gl.uniform4fv(P1.U.TB,TB);gl.uniform4fv(P1.U.TP,TP);gl.uniform1i(P1.U.NP,pts.length);
+  gl.uniform4fv(P1.U.LY,LY);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,ftex);gl.generateMipmap(gl.TEXTURE_2D);
+  if(!mipOK){mipOK=true;if(half&&gl.getError()!==gl.NO_ERROR){half=false;resize();}}   // 半精度でぼかし(ミップ)が作れない端末は8bitに切り替える
+  // 2段目
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.viewport(0,0,cv.width,cv.height);gl.useProgram(P2.p);
+  gl.uniform1i(P2.U.F,0);gl.uniform2f(P2.U.R,cv.width,cv.height);gl.uniform2f(P2.U.FR,FW,FH);
+  gl.uniform2f(P2.U.S,sx,sy);gl.uniform2f(P2.U.UP,Math.sin(cam.rot),Math.cos(cam.rot));gl.uniform1f(P2.U.ASP,asp);gl.uniform1f(P2.U.T,t);
+  gl.uniform1f(P2.U.DUSK,dusk);gl.uniform1f(P2.U.DARK,sc.dark);gl.uniform1f(P2.U.ZM,cam.zoom);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+  // 重い端末では解像度を少し下げる
+  frames++;acc+=dt;if(frames===60){if(acc/60>.024&&scale>.8){scale*=.85;resize();}frames=0;acc=0;}
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+APKit.init({
+  canvas:cv, gifName:'saiun-loop', clockFormat:'spec',
+  dock:true, autoHide:true, fullscreenButton:false,
+  buttons:[
+    {label:'✦',name:'mutate',onClick:function(){change(newSeed(),2.6);}},   // 別の天気へ
+    {label:'↻',name:'reset',onClick:function(){change(scene.seed,2.6);}}   // 今の天気を最初からやり直す
+  ]
+});
+showHint('育つ雲が、上の湿った空気を押し上げると頭巾雲が生まれる<br>薄い雲は、太陽の近くで虹色に分かれる<br>なぞると雲が薄くなる / ✦で別の天気',7500);
+})();
+</script>
+</body>
+</html>
