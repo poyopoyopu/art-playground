@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<!-- TIME SHEETS — クロちゃん(Claude)作。2026/11/21 試作。
+     題材の種: MUTEK.JP で観た Max Cooper の 3D/AV Live(透過スクリーンを前後に重ねた奥行き)。
+     28枚の透明なスクリーンを前後に並べ、泳ぐ魚(assets/fish-kit の3Dモデル、CC0)を薄く輪切りにして、
+     1枚に1つずつ断面の輪郭をネオンの線で映す。正面からは輪郭が重なった魚、視点を回すと層が離れて空中に立体の魚が浮かぶ。
+     世界のルール: 「奥のスクリーンほど過去を映す」。はじめは全部の層が「いま」で、1匹の魚になっている。
+       長押しすると層ごとの時間のずれが広がり、手前=いま・奥=何秒も前になって、魚は泳いだ道すじのトンネルに伸びる。
+       ずれは戻らない(端末に保存され、次に開いても残る)。
+     なぞる=視点を回す(手前の層ほど大きく速く動く)。2本指=スクリーンの間隔(広げるほど魚が層ごとにばらける)。
+     手前の層はくっきり・奥の層は太く淡くぼける。各層の細かい粒はきらめきで面に見せる。
+     ✦=別の魚に替える(ずれはそのまま)。↻=ずれと間隔を元に戻す。音なし・常駐テキストなし(ヒント1行だけ)。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>TIME SHEETS — 奥の層ほど、少し前の魚を映す</title>
+<script src="../ap-kit.js"></script>
+<script type="importmap">{"imports":{"three":"../assets/vendor/three/three.module.js"}}</script>
+<style>
+html,body{margin:0;height:100%;background:#000;overflow:hidden;touch-action:none}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#hint{position:fixed;left:0;right:0;bottom:calc(96px + env(safe-area-inset-bottom));text-align:center;
+  color:#fff;font:600 15px/1.5 system-ui,-apple-system,"Hiragino Sans",sans-serif;letter-spacing:.04em;
+  text-shadow:0 0 8px #000,0 0 8px #000;pointer-events:none;opacity:0;transition:opacity .8s}
+#hint.on{opacity:.85}
+</style>
+</head>
+<body>
+<div id="hint">なぞる=視点　長押し=時間をずらす　2本指=間隔</div>
+<script type="module">
+import * as THREE from 'three';
+
+const hint = document.getElementById('hint');
+const KEY = 'time-sheets-v1';
+const FISH = ['madai','saba','buri','kasago','aji','isaki','kurodai','mebaru','kamasu','hiramasa','kihada','magochi','onagagure','shibudai','sawara','suzuki','kuchibuto','katakuchi','tachiuo','isaki_young'];
+const N = 28, DPHYS = 0.9;                       // スクリーンの枚数・輪切りにする厚み(実寸)
+const MAXSEG = 9000;
+
+// 状態(保存される)
+let st = {sp:'madai', lag:0, spread:3.2, yaw:0.38, pitch:0.1};
+try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s) Object.assign(st, s); } catch (e) {}
+if (FISH.indexOf(st.sp) < 0) st.sp = 'madai';
+function save() { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {} }
+
+// レンダラー
+const DPR = Math.min(2, window.devicePixelRatio || 1);
+const renderer = new THREE.WebGLRenderer({antialias:false, preserveDrawingBuffer:true, powerPreference:'high-performance'});
+renderer.setPixelRatio(DPR);
+renderer.setClearColor(0x000000, 1);
+document.body.prepend(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(40, 1, .1, 100);
+
+let W, H, AX, AY, RW, RH, camR;
+function layout() {
+  W = innerWidth; H = innerHeight;
+  renderer.setSize(W, H, false);
+  camera.aspect = W / H;
+  const t = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+  camR = Math.max(2.75 / (2 * t * camera.aspect), 3.6 / (2 * t), 4.6);
+  camera.updateProjectionMatrix();
+  const vh = 2 * camR * t, vw = vh * camera.aspect;
+  AX = Math.max(.12, vw / 2 - 1.2) * .72;
+  AY = Math.max(.2, vh / 2 - .7) * .62;
+  RW = 2 * (AX + 1.25); RH = 2 * (AY + .8);
+  lineMat.uniforms.uRes.value.set(W * DPR, H * DPR);
+  buildScreens();
+}
+
+// 光る線(1本の断面線=画面に向けた細長い四角。芯+にじみ)
+const quad = new THREE.InstancedBufferGeometry();
+quad.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0,-1,0, 1,-1,0, 1,1,0, 0,1,0]), 3));
+quad.setIndex([0,1,2, 0,2,3]);
+const aA = new THREE.InstancedBufferAttribute(new Float32Array(MAXSEG * 3), 3).setUsage(THREE.DynamicDrawUsage);
+const aB = new THREE.InstancedBufferAttribute(new Float32Array(MAXSEG * 3), 3).setUsage(THREE.DynamicDrawUsage);
+const aC = new THREE.InstancedBufferAttribute(new Float32Array(MAXSEG * 4), 4).setUsage(THREE.DynamicDrawUsage);
+const aW = new THREE.InstancedBufferAttribute(new Float32Array(MAXSEG), 1).setUsage(THREE.DynamicDrawUsage);
+quad.setAttribute('aA', aA); quad.setAttribute('aB', aB); quad.setAttribute('aC', aC); quad.setAttribute('aW', aW);
+quad.instanceCount = 0;
+const lineMat = new THREE.ShaderMaterial({
+  uniforms: {uRes: {value: new THREE.Vector2(1, 1)}},
+  vertexShader: `
+    attribute vec3 aA; attribute vec3 aB; attribute vec4 aC; attribute float aW;
+    uniform vec2 uRes; varying vec4 vC; varying float vU;
+    void main(){
+      vec4 ca = projectionMatrix * modelViewMatrix * vec4(aA,1.);
+      vec4 cb = projectionMatrix * modelViewMatrix * vec4(aB,1.);
+      vec2 d = (cb.xy/cb.w - ca.xy/ca.w) * uRes; float L = length(d);
+      vec2 dir = L > 1e-4 ? d / L : vec2(1.,0.); vec2 n = vec2(-dir.y, dir.x);
+      vec4 c = mix(ca, cb, position.x);
+      vec2 off = (n * position.y * aW + dir * (position.x * 2. - 1.) * aW * .5) * 2. / uRes * c.w;
+      gl_Position = c + vec4(off, 0., 0.);
+      vC = aC; vU = position.y;
+    }`,
+  fragmentShader: `
+    varying vec4 vC; varying float vU;
+    void main(){
+      float u2 = vU * vU;
+      float a = exp(-u2 * 9.) + .35 * exp(-u2 * 2.2);
+      gl_FragColor = vec4(vC.rgb * a * vC.a, 1.);
+    }`,
+  transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending
+});
+const lines = new THREE.Mesh(quad, lineMat);
+lines.frustumCulled = false;
+scene.add(lines);
+
+// スクリーン(うすい板・ふち・きらめく粒)
+const screenGroup = new THREE.Group(); scene.add(screenGroup);
+const screens = [];
+const dustMat = new THREE.ShaderMaterial({
+  uniforms: {uT: {value: 0}, uSpread: {value: st.spread}, uPx: {value: DPR}},
+  vertexShader: `
+    attribute float aPh; attribute float aZ; attribute vec3 aCol;
+    uniform float uT, uSpread, uPx; varying float vA; varying vec3 vCol;
+    void main(){
+      vec3 p = position; p.z = aZ * uSpread;
+      vec4 mv = modelViewMatrix * vec4(p,1.);
+      gl_Position = projectionMatrix * mv;
+      float tw = .5 + .5 * sin(uT * (1.3 + fract(aPh * 7.) * 2.) + aPh * 40.);
+      vA = .06 + .55 * tw * tw * tw;
+      vCol = aCol;
+      gl_PointSize = uPx * (1.4 + 2.2 * tw) * 6. / -mv.z;
+    }`,
+  fragmentShader: `
+    varying float vA; varying vec3 vCol;
+    void main(){ vec2 q = gl_PointCoord - .5; float a = exp(-dot(q,q) * 14.); gl_FragColor = vec4(vCol * a * vA, 1.); }`,
+  transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending
+});
+let dust = null;
+function screenColor(i) {        // 手前=水色 → 奥=マゼンタ
+  const f = i / (N - 1);
+  return new THREE.Color().setHSL((.52 + (1 - f) * .36) % 1, .95, .6);
+}
+function zPhys(i) { return (i / (N - 1) - .5) * DPHYS; }
+function buildScreens() {
+  while (screenGroup.children.length) { const c = screenGroup.children.pop(); c.geometry && c.geometry.dispose(); }
+  screens.length = 0;
+  const frameGeo = new THREE.EdgesGeometry(new THREE.PlaneGeometry(RW, RH));
+  for (let i = 0; i < N; i++) {
+    const col = screenColor(i);
+    const fm = new THREE.LineBasicMaterial({color: col, transparent: true, opacity: .1, blending: THREE.AdditiveBlending, depthTest: false, depthWrite: false});
+    const frame = new THREE.LineSegments(frameGeo, fm);
+    screenGroup.add(frame);
+    screens.push({frame, col, z: zPhys(i)});
+  }
+  const M = 70, pos = new Float32Array(N * M * 3), ph = new Float32Array(N * M), az = new Float32Array(N * M), ac = new Float32Array(N * M * 3);
+  for (let i = 0, k = 0; i < N; i++) {
+    const c = screens[i].col;
+    for (let j = 0; j < M; j++, k++) {
+      pos[k*3] = (Math.random() - .5) * RW; pos[k*3+1] = (Math.random() - .5) * RH; pos[k*3+2] = 0;
+      ph[k] = Math.random(); az[k] = screens[i].z; ac[k*3] = c.r; ac[k*3+1] = c.g; ac[k*3+2] = c.b;
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('aPh', new THREE.BufferAttribute(ph, 1));
+  g.setAttribute('aZ', new THREE.BufferAttribute(az, 1));
+  g.setAttribute('aCol', new THREE.BufferAttribute(ac, 3));
+  dust = new THREE.Points(g, dustMat); dust.frustumCulled = false;
+  screenGroup.add(dust);
+}
+
+// 魚の模型(GLBから形だけ読む)
+let model = null;   // {v: Float32Array(nv*3), idx: Uint32Array, nv, s: snout側からの位置0..1}
+const cache = {};
+async function loadModel(name) {
+  if (cache[name]) return cache[name];
+  const buf = await (await fetch('../assets/fish-kit/fish/' + name + '_lo.glb')).arrayBuffer();
+  const dv = new DataView(buf);
+  const jl = dv.getUint32(12, true);
+  const json = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 20, jl)));
+  const binStart = 20 + jl + 8;
+  const prim = json.meshes[0].primitives[0];
+  function acc(i) {
+    const a = json.accessors[i], bv = json.bufferViews[a.bufferView];
+    const off = binStart + (bv.byteOffset || 0) + (a.byteOffset || 0);
+    const comps = {SCALAR:1, VEC2:2, VEC3:3, VEC4:4}[a.type];
+    const stride = bv.byteStride || 0;
+    const T = a.componentType === 5126 ? Float32Array : a.componentType === 5125 ? Uint32Array : a.componentType === 5123 ? Uint16Array : Uint8Array;
+    const out = new (T === Float32Array ? Float32Array : Uint32Array)(a.count * comps);
+    const bytes = T.BYTES_PER_ELEMENT, step = stride || bytes * comps;
+    for (let k = 0; k < a.count; k++) for (let c = 0; c < comps; c++) {
+      const p = off + k * step + c * bytes;
+      out[k * comps + c] = T === Float32Array ? dv.getFloat32(p, true) : T === Uint32Array ? dv.getUint32(p, true) : T === Uint16Array ? dv.getUint16(p, true) : dv.getUint8(p);
+    }
+    return out;
+  }
+  const P = acc(prim.attributes.POSITION), idx = acc(prim.indices);
+  const nv = P.length / 3;
+  let mn = [1e9,1e9,1e9], mx = [-1e9,-1e9,-1e9];
+  for (let i = 0; i < nv; i++) for (let c = 0; c < 3; c++) { mn[c] = Math.min(mn[c], P[i*3+c]); mx[c] = Math.max(mx[c], P[i*3+c]); }
+  const S = 2.1 / (mx[0] - mn[0]);
+  const v = new Float32Array(nv * 3), s = new Float32Array(nv);
+  for (let i = 0; i < nv; i++) {
+    v[i*3] = (P[i*3] - (mn[0] + mx[0]) / 2) * S;
+    v[i*3+1] = (P[i*3+1] - (mn[1] + mx[1]) / 2) * S;
+    v[i*3+2] = (P[i*3+2] - (mn[2] + mx[2]) / 2) * S;
+    s[i] = (1.05 - v[i*3]) / 2.1;            // 鼻先(+x)=0 → 尾=1
+  }
+  return (cache[name] = {v, idx, nv, s});
+}
+
+// 泳ぎ(道すじ・向き・尾の振り)を時間で記録して、層ごとに過去を引く
+let simT = Math.random() * 100, yaw = 0, ph = 0, facing = 0;
+const HZ = 30, HIST = HZ * 16;
+const hist = new Float32Array(HIST * 6); let hHead = 0, hCount = 0, hAcc = 0;
+function pathAt(t) {
+  return [AX * (.72 * Math.sin(.21 * t) + .28 * Math.sin(.53 * t + 1.3)),
+          AY * (.68 * Math.sin(.16 * t + 2) + .32 * Math.sin(.43 * t))];
+}
+function pushState(t, x, y, yw, pt, p) {
+  const o = hHead * 6; hist[o] = t; hist[o+1] = x; hist[o+2] = y; hist[o+3] = yw; hist[o+4] = pt; hist[o+5] = p;
+  hHead = (hHead + 1) % HIST; hCount = Math.min(HIST, hCount + 1);
+}
+const cur = new Float32Array(5);
+function stateAgo(ago, out) {
+  if (ago <= 0 || hCount < 2) { out.set(cur); return out; }
+  let k = ago * HZ; const k0 = Math.floor(k), f = k - k0;
+  const a = Math.min(hCount - 1, k0), b = Math.min(hCount - 1, k0 + 1);
+  const ia = ((hHead - 1 - a) % HIST + HIST) % HIST * 6, ib = ((hHead - 1 - b) % HIST + HIST) % HIST * 6;
+  for (let c = 0; c < 5; c++) out[c] = hist[ia + 1 + c] * (1 - f) + hist[ib + 1 + c] * f;
+  return out;
+}
+function stepSim(dt) {
+  simT += dt * 1.5;
+  const [x, y] = pathAt(simT), [x2, y2] = pathAt(simT + .05);
+  const vx = (x2 - x) / .05, vy = (y2 - y) / .05, sp = Math.hypot(vx, vy);
+  if (vx > .12) facing = 0; else if (vx < -.12) facing = Math.PI;
+  const target = facing;
+  yaw += Math.max(-dt * 1.5, Math.min(dt * 1.5, target - yaw));
+  const pitch = Math.max(-.45, Math.min(.45, Math.atan2(vy, Math.abs(vx) + .2) * .55));
+  ph += dt * (5.2 + sp * 2.2);
+  cur[0] = x; cur[1] = y; cur[2] = yaw; cur[3] = pitch; cur[4] = ph;
+  hAcc += dt; while (hAcc >= 1 / HZ) { hAcc -= 1 / HZ; pushState(simT, x, y, yaw, pitch, ph); }
+}
+
+// 状態から頂点を動かす(尾を振る→上下の向き→左右の向き→位置)
+let TV = null;
+function transform(stv, out) {
+  const {v, nv, s} = model, cy = Math.cos(stv[2]), sy = Math.sin(stv[2]), cp = Math.cos(stv[3]), sp = Math.sin(stv[3]);
+  for (let i = 0; i < nv; i++) {
+    let x = v[i*3], y = v[i*3+1], z = v[i*3+2];
+    const si = s[i];
+    z += .2 * (.08 + si * si) * Math.sin(stv[4] - si * 5.2);
+    const x1 = x * cp - y * sp, y1 = x * sp + y * cp;
+    out[i*3] = x1 * cy + z * sy + stv[0];
+    out[i*3+1] = y1 + stv[1];
+    out[i*3+2] = -x1 * sy + z * cy;
+  }
+}
+
+// 輪切り: 三角形とスクリーンの面の交わる線を集める
+let nSeg = 0;
+const scrW = new Float32Array(N), scrA = new Float32Array(N);
+function emit(i, x0, y0, x1, y1) {
+  if (nSeg >= MAXSEG) return;
+  const zd = screens[i].z * st.spread, c = screens[i].col, k = nSeg;
+  aA.array[k*3] = x0; aA.array[k*3+1] = y0; aA.array[k*3+2] = zd;
+  aB.array[k*3] = x1; aB.array[k*3+1] = y1; aB.array[k*3+2] = zd;
+  aC.array[k*4] = c.r; aC.array[k*4+1] = c.g; aC.array[k*4+2] = c.b; aC.array[k*4+3] = scrA[i];
+  aW.array[k] = scrW[i];
+  nSeg++;
+}
+function cutTri(T, a, b, c, i, zp) {
+  const za = T[a*3+2] - zp, zb = T[b*3+2] - zp, zc = T[c*3+2] - zp;
+  const pts = [];
+  function e(p, q, zp1, zq1) {
+    if ((zp1 > 0) !== (zq1 > 0)) { const f = zp1 / (zp1 - zq1); pts.push(T[p*3] + (T[q*3] - T[p*3]) * f, T[p*3+1] + (T[q*3+1] - T[p*3+1]) * f); }
+  }
+  e(a, b, za, zb); e(b, c, zb, zc); e(c, a, zc, za);
+  if (pts.length === 4) emit(i, pts[0], pts[1], pts[2], pts[3]);
+}
+const tmpS = new Float32Array(5);
+function sliceAll() {
+  nSeg = 0;
+  if (!model) return;
+  const idx = model.idx, nt = idx.length / 3;
+  if (!TV || TV.length !== model.nv * 3) TV = new Float32Array(model.nv * 3);
+  const z0 = zPhys(0), dz = zPhys(1) - z0;
+  if (st.lag < .002) {
+    transform(cur, TV);
+    for (let t = 0; t < nt; t++) {
+      const a = idx[t*3], b = idx[t*3+1], c = idx[t*3+2];
+      const za = TV[a*3+2], zb = TV[b*3+2], zc = TV[c*3+2];
+      const lo = Math.max(0, Math.ceil((Math.min(za, zb, zc) - z0) / dz)), hi = Math.min(N - 1, Math.floor((Math.max(za, zb, zc) - z0) / dz));
+      for (let i = lo; i <= hi; i++) cutTri(TV, a, b, c, i, zPhys(i));
+    }
+  } else {
+    for (let i = 0; i < N; i++) {
+      const front = camFrontIsPlus ? N - 1 - i : i;      // 手前の層が「いま」
+      transform(stateAgo(front * st.lag, tmpS), TV);
+      const zp = zPhys(i);
+      for (let t = 0; t < nt; t++) cutTri(TV, idx[t*3], idx[t*3+1], idx[t*3+2], i, zp);
+    }
+  }
+}
+
+// 入力: なぞる=視点 / 長押し=時間をずらす / 2本指=間隔
+const ptrs = new Map(); let pinch0 = 0, spread0 = st.spread, downT = 0, moved = 0, holding = false, vYaw = 0, vPitch = 0, lastTouch = -10;
+let camFrontIsPlus = true, down0 = {x: 0, y: 0};
+const cv = renderer.domElement;
+cv.addEventListener('pointerdown', e => {
+  if (window.APKit && APKit.isUI(e.clientX, e.clientY)) return;
+  try { cv.setPointerCapture(e.pointerId); } catch (_) {}
+  ptrs.set(e.pointerId, {x: e.clientX, y: e.clientY});
+  hint.classList.remove('on');
+  if (ptrs.size === 1) { downT = performance.now(); moved = 0; holding = false; vYaw = vPitch = 0; down0 = {x: e.clientX, y: e.clientY}; }
+  if (ptrs.size === 2) { const [p, q] = [...ptrs.values()]; pinch0 = Math.hypot(p.x - q.x, p.y - q.y); spread0 = st.spread; holding = false; moved = 99; }
+});
+cv.addEventListener('pointermove', e => {
+  const p = ptrs.get(e.pointerId); if (!p) return;
+  const dx = e.clientX - p.x, dy = e.clientY - p.y;
+  p.x = e.clientX; p.y = e.clientY;
+  if (ptrs.size === 1) {
+    moved = Math.max(moved, Math.hypot(e.clientX - down0.x, e.clientY - down0.y));
+    if (holding && moved > 24) holding = false;
+    if (moved > 10 && !holding) {
+      st.yaw = Math.max(-1.5, Math.min(1.5, st.yaw - dx * .004));
+      st.pitch = Math.max(-.7, Math.min(.7, st.pitch + dy * .003));
+      vYaw = -dx * .0025; vPitch = dy * .0016;
+    }
+  } else if (ptrs.size >= 2) {
+    const [a, b] = [...ptrs.values()], d = Math.hypot(a.x - b.x, a.y - b.y);
+    if (pinch0 > 10) st.spread = Math.max(.6, Math.min(9, spread0 * Math.pow(d / pinch0, 1.3)));
+  }
+});
+function up(e) {
+  if (!ptrs.has(e.pointerId)) return;
+  ptrs.delete(e.pointerId);
+  if (ptrs.size === 0) { holding = false; lastTouch = performance.now() / 1000; save(); }
+}
+cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+
+// 描画ループ
+const camPos = new THREE.Vector3(), tmpV = new THREE.Vector3();
+let last = performance.now(), T = 0, swayT = 0;
+function frame(now) {
+  const dt = Math.min(.05, (now - last) / 1000); last = now; T += dt;
+  if (ptrs.size === 1 && !holding && moved <= 10 && performance.now() - downT > 420) holding = true;
+  if (holding) st.lag = Math.min(.42, st.lag + dt * (.025 + st.lag * .5));   // 長押しのあいだ、ずれが広がる(戻らない)
+  if (!ptrs.size) {                                   // 指を離した後の惰性と、ゆるい揺れ
+    st.yaw = Math.max(-1.5, Math.min(1.5, st.yaw + vYaw)); st.pitch = Math.max(-.7, Math.min(.7, st.pitch + vPitch));
+    vYaw *= .85; vPitch *= .85;
+    if (T - lastTouch > 3) swayT += dt;
+  }
+  const yawV = st.yaw + Math.sin(swayT * .23) * .08, pitchV = st.pitch + Math.sin(swayT * .17 + 1) * .03;
+  camPos.set(Math.sin(yawV) * Math.cos(pitchV), Math.sin(pitchV), Math.cos(yawV) * Math.cos(pitchV)).multiplyScalar(camR);
+  camera.position.copy(camPos); camera.lookAt(0, 0, 0);
+  camFrontIsPlus = camPos.z >= 0;
+
+  // 層ごとのくっきり/ぼけ: カメラに近い層ほど細く明るく、遠い層ほど太く淡い
+  let dmin = 1e9, dmax = -1e9;
+  for (let i = 0; i < N; i++) { const d = camPos.distanceTo(tmpV.set(0, 0, screens[i].z * st.spread)); screens[i].d = d; dmin = Math.min(dmin, d); dmax = Math.max(dmax, d); }
+  for (let i = 0; i < N; i++) {
+    const f = dmax > dmin ? (screens[i].d - dmin) / (dmax - dmin) : 0;
+    scrW[i] = DPR * (2.2 + f * f * 7);
+    scrA[i] = 1.25 - f * .9;
+    const s = screens[i], zd = s.z * st.spread;
+    s.frame.position.z = zd;
+    s.frame.material.opacity = .025 + .07 * (1 - f) + (holding ? .1 : 0);
+  }
+  dustMat.uniforms.uT.value = T; dustMat.uniforms.uSpread.value = st.spread;
+
+  stepSim(dt);
+  sliceAll();
+  quad.instanceCount = nSeg;
+  aA.needsUpdate = aB.needsUpdate = aC.needsUpdate = aW.needsUpdate = true;
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+
+async function setFish(name) { const m = await loadModel(name); model = m; st.sp = name; }
+
+layout();
+addEventListener('resize', () => { clearTimeout(layout.t); layout.t = setTimeout(layout, 120); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
+await setFish(st.sp);
+for (let i = 0; i < HZ * 2; i++) stepSim(1 / HZ);      // 少し泳がせてから始める
+requestAnimationFrame(n => { last = n; frame(n); });
+hint.classList.add('on'); setTimeout(() => hint.classList.remove('on'), 8000);
+
+APKit.init({
+  canvas: renderer.domElement, gifName: 'time-sheets-loop', clockFormat: 'spec',
+  dock: true, autoHide: true, fullscreenButton: false,
+  buttons: [
+    {label: '✦', name: 'mutate', onClick: () => {      // 別の魚に替える(時間のずれはそのまま)
+      let n; do { n = FISH[(Math.random() * FISH.length) | 0]; } while (n === st.sp);
+      setFish(n).then(save);
+    }},
+    {label: '↻', name: 'reset', onClick: () => { st.lag = 0; st.spread = 3.2; save(); }}   // ずれと間隔を元に戻す
+  ]
+});
+</script>
+</body>
+</html>
