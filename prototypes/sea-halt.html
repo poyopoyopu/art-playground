@@ -380,12 +380,12 @@ function windy(mat, amp) {
   for (let i = 0; i < fp.count; i++) { v.fromBufferAttribute(fp, i); const k = 1 + .22 * (vnoise(v.x * 2.3 + 5, v.y * 2.3 + v.z * 1.7) - .5) * 2; v.multiplyScalar(k); fp.setXYZ(i, v.x, v.y, v.z); }
   fg.computeVertexNormals();
   const blobs = [];
-  for (let t = 0; t < 900 && blobs.length < 620; t++) {
+  for (let t = 0; t < 900 && blobs.length < 900; t++) {
     const x = lerp(ROAD1 + .4, X1 - .3, R()), z = lerp(Z0 + .3, -2.4, R()), d = hillD(x, z);
     if (d < .5 || (Math.abs(x - (STAIR.x0 + STAIR.x1) / 2) < 1.0 && z < STAIR.z0)) continue;
     if (R() > smooth(.4, 2.2, d) * .9 + .1) continue;
-    const big = d > 1.6, s = big ? lerp(.45, .85, R()) : lerp(.28, .5, R()), y = H(x, z);
-    const parts = big ? 2 + (R() * 3 | 0) : 1;
+    const big = d > 1.6, s = big ? lerp(.34, .66, R()) : lerp(.22, .42, R()), y = H(x, z);
+    const parts = big ? 2 + (R() * 4 | 0) : 1;
     for (let k = 0; k < parts; k++) blobs.push([x + (R() - .5) * s * 1.2, y + s * (.55 + k * .55) + R() * .2, z + (R() - .5) * s * 1.2, s * lerp(.7, 1, R()), R()]);
   }
   // 道ばた・ホームの裏の草むら
@@ -667,6 +667,8 @@ function buildTrain(L) {
   }
 }
 buildTrain(LIVERIES[0]);
+let builtIdx = 0;
+const VPASS = 7;
 train.position.set(0, 0, TZ); train.visible = false;
 
 // 走り方(停車位置からの距離)
@@ -681,6 +683,67 @@ function runS(t) {
 const STOPX = 3.2;
 const centerAt = (t, dir) => STOPX + dir * runS(t);
 const onBoard = (c) => c > X0 - TL / 2 - .5 && c < X1 + TL / 2 + .5;
+
+// ---------- 人(乗客) ----------
+const PEOPLE = [];
+const COATS = [0x3b4a6b, 0x8a3b32, 0x5b6b3a, 0x2f2f33, 0xb88a3a, 0x6b4a7a, 0xd8d2c4, 0x2f6f8f];
+const bodyG = new THREE.CylinderGeometry(.085, .1, .42, 8); bodyG.translate(0, .55, 0);
+const legG = new THREE.CylinderGeometry(.07, .06, .34, 6); legG.translate(0, .17, 0);
+const headG = new THREE.SphereGeometry(.085, 10, 8); headG.translate(0, .86, 0);
+const hairG = new THREE.SphereGeometry(.09, 10, 6, 0, Math.PI * 2, 0, Math.PI * .5); hairG.translate(0, .875, 0);
+const skinM = std({color: 0xe0b896}), legM = std({color: 0x2a2a30}), hairM = std({color: 0x2a221c});
+const P_IN = [[CROSSX + .7, .16, Z0 + .1], [CROSSX + .7, .16, -3.15], [-8.3, .16, -3.15], [-7.5, PLAT, -3.15], [-4.6, PLAT, -2.6], [-3.4, PLAT, -1.6]];
+function person(path, out) {
+  const g = new THREE.Group();
+  const coat = std({color: COATS[Math.random() * COATS.length | 0]});
+  for (const [geo, m] of [[bodyG, coat], [legG, legM], [headG, skinM], [hairG, hairM]]) { const me = new THREE.Mesh(geo, m); me.castShadow = true; g.add(me); }
+  g.scale.setScalar(.92 + Math.random() * .16);
+  g.position.set(path[0][0], path[0][1], path[0][2]); scene.add(g);
+  PEOPLE.push({g, path, i: 1, out, state: 'walk', speed: .5 + Math.random() * .15, ph: Math.random() * 6, base: path[0][1]});
+}
+const spawnQ = []; let spawnedK = -1, lastAlight = null, boardT = 0;
+function updatePeople(dt) {
+  for (const p of PEOPLE) {
+    if (p.state !== 'walk') continue;
+    const tg = p.path[p.i], pos = p.g.position, dx = tg[0] - pos.x, dz = tg[2] - pos.z, d = Math.hypot(dx, dz), step = p.speed * dt;
+    if (d <= step) {
+      pos.x = tg[0]; pos.z = tg[2]; p.base = tg[1]; p.i++;
+      if (p.i >= p.path.length) { if (p.out) { p.state = 'gone'; scene.remove(p.g); } else { p.state = 'wait'; p.g.rotation.y = (Math.random() - .5) * .8; } }
+    } else {
+      pos.x += dx / d * step; pos.z += dz / d * step; p.g.rotation.y = Math.atan2(dx, dz);
+      const pr = p.path[p.i - 1], seg = Math.hypot(tg[0] - pr[0], tg[2] - pr[2]) || 1; p.base = lerp(pr[1], tg[1], 1 - d / seg);
+    }
+    pos.y = p.base + Math.abs(Math.sin(simT * 9 + p.ph)) * .025;
+  }
+  for (let i = PEOPLE.length - 1; i >= 0; i--) if (PEOPLE[i].state === 'gone') PEOPLE.splice(i, 1);
+}
+function clearPeople() { for (const p of PEOPLE) scene.remove(p.g); PEOPLE.length = 0; spawnQ.length = 0; }
+
+// ---------- 沖を通る船 ----------
+const boat = new THREE.Group(); boat.visible = false; scene.add(boat);
+{
+  const bm = (c) => std({color: c, clippingPlanes: clipPlanes, clipShadows: true});
+  const add = (geo, m, x, y, z) => { const me = new THREE.Mesh(geo, m); me.position.set(x, y, z); me.castShadow = true; boat.add(me); return me; };
+  add(new THREE.BoxGeometry(1.5, .26, .52), bm(0xf1efe8), 0, 0, 0);
+  const prow = add(new THREE.CylinderGeometry(.26, .26, .52, 3), bm(0xf1efe8), .82, 0, 0); prow.rotation.x = Math.PI / 2; prow.scale.set(1.2, 1, 1); prow.rotation.z = Math.PI / 2;
+  add(new THREE.BoxGeometry(1.52, .06, .54), bm(0x2f6fb3), 0, -.08, 0);
+  add(new THREE.BoxGeometry(.5, .32, .4), bm(0xf7f7f2), -.25, .29, 0);
+  add(new THREE.BoxGeometry(.06, .14, .3), bm(0x2a333b), .01, .33, 0);
+  add(new THREE.CylinderGeometry(.015, .015, .5, 5), bm(0x666666), -.3, .7, 0);
+}
+const boatGlow = addGlow(new THREE.Vector3(), 0xfff3d0, .55); scene.remove(boatGlow); boat.add(boatGlow); boatGlow.position.set(-.3, .96, 0);
+let boatS = null, nextBoat = 15 + Math.random() * 40;
+
+// ---------- 寝ている猫 ----------
+const cat = new THREE.Group(); cat.position.set(.7, PLAT, -2.75); cat.rotation.y = .6; scene.add(cat);
+const catBody = new THREE.Mesh(new THREE.SphereGeometry(.16, 14, 10), std({color: 0xd98a3e}));
+catBody.scale.set(1.3, .6, .95); catBody.position.y = .1; catBody.castShadow = true; cat.add(catBody);
+{
+  const cm2 = std({color: 0xd98a3e});
+  const h = new THREE.Mesh(new THREE.SphereGeometry(.085, 12, 8), cm2); h.position.set(.18, .1, .07); cat.add(h);
+  for (const z of [.03, .11]) { const e = new THREE.Mesh(new THREE.ConeGeometry(.028, .06, 4), cm2); e.position.set(.2, .19, z); cat.add(e); }
+  const t = new THREE.Mesh(new THREE.TorusGeometry(.17, .025, 6, 14, Math.PI * .9), std({color: 0xc47a32})); t.rotation.x = Math.PI / 2; t.position.y = .04; t.rotation.z = Math.PI * .1; cat.add(t);
+}
 
 // ---------- 太陽(東京・今日) ----------
 function sunPos(date) {
@@ -877,7 +940,7 @@ cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
 let extra = null;
 function callTrain() {
   liveryIdx = (liveryIdx + 1 + (Math.random() * (LIVERIES.length - 1) | 0)) % LIVERIES.length;
-  buildTrain(LIVERIES[liveryIdx]);
+  buildTrain(LIVERIES[liveryIdx]); builtIdx = liveryIdx;
   seaAmp = [.6, 1, 1.5, 2.1][Math.random() * 4 | 0];
   extra = {t0: performance.now(), dir: Math.random() < .5 ? 1 : -1};
   APKit.toast && APKit.toast('臨時列車がまいります');
@@ -906,20 +969,25 @@ function frame(nowMs) {
   const fast = holding || (Math.abs(offset) > 60000 && !fixedOffset);
   if (!fast) {
     const k = Math.round(secs / 600), t = secs - k * 600, dir = k % 2 ? -1 : 1;
-    if (onBoard(centerAt(t, dir)) || (t > -12 && t < RUN.dwell)) tr = {t, dir};
+    if (onBoard(centerAt(t, dir)) || (t > -12 && t < RUN.dwell)) tr = {kind: 'stop', t, dir};
+    else { const k5 = Math.round((secs - 300) / 600), tp = secs - 300 - k5 * 600, dp = k5 % 2 ? 1 : -1;     // 毎時05・15…分は通過列車
+      if (onBoard(STOPX + dp * VPASS * tp)) tr = {kind: 'pass', t: tp, dir: dp}; }
   }
   if (extra) {
     const t = (nowMs - extra.t0) / 1000 - 12;
-    if (t > 60) extra = null; else if (!tr && (onBoard(centerAt(t, extra.dir)) || t < RUN.dwell)) tr = {t, dir: extra.dir};
+    if (t > 60) extra = null; else if (!tr && (onBoard(centerAt(t, extra.dir)) || t < RUN.dwell)) tr = {kind: 'stop', t, dir: extra.dir};
   }
+  const posAt = (r, t) => r.kind === 'pass' ? STOPX + r.dir * VPASS * t : centerAt(t, r.dir);
   if (tr) {
-    const c = centerAt(tr.t, tr.dir);
+    const want = tr.kind === 'pass' ? (liveryIdx + 2) % LIVERIES.length : liveryIdx;
+    if (want !== builtIdx) { buildTrain(LIVERIES[want]); builtIdx = want; }
+    const c = posAt(tr, tr.t);
     train.visible = true; train.position.x = c; train.rotation.y = tr.dir > 0 ? 0 : Math.PI;
     for (const g of [...headGlows, ...tailGlows]) { g.getWorldPosition(vTmp); g.visible = vTmp.x > X0 && vTmp.x < X1; }
   } else train.visible = false;
   // 踏切
   let active = false;
-  if (tr) for (let s = 0; s <= 7; s += .5) { if (Math.abs(centerAt(tr.t + s, tr.dir) - CROSSX) < TL / 2 + 1.6) { active = true; break; } }
+  if (tr) for (let s = 0; s <= 7; s += .5) { if (Math.abs(posAt(tr, tr.t + s) - CROSSX) < TL / 2 + 1.6) { active = true; break; } }
   CROSS.activeFor = active ? CROSS.activeFor + dt : 0;
   const target = CROSS.activeFor > 2.2 ? 0 : Math.PI / 2 - .05;
   CROSS.angle += clamp(target - CROSS.angle, -1.1 * dt, 1.1 * dt); CROSS.pivot.rotation.z = CROSS.angle;
@@ -928,6 +996,33 @@ function frame(nowMs) {
   CROSS.reds[0].material.opacity = blink === 0 ? .95 : 0; CROSS.reds[1].material.opacity = blink === 1 ? .95 : 0;
   CROSS.light.intensity = active ? 5 : 0; CROSS.streak.material.opacity = active ? .25 + .45 * lampF : 0;
 
+  // 乗客: 停車の2分ほど前から歩いてきて待つ。停車したら乗り、降りた人は帰る
+  if (fast) { if (PEOPLE.length || spawnQ.length) clearPeople(); }
+  else {
+    const kN = Math.ceil(secs / 600), toN = kN * 600 - secs;
+    if (toN < 150 && toN > 45 && spawnedK !== kN) { spawnedK = kN; const n = 1 + (Math.random() * 2.6 | 0); for (let j = 0; j < n; j++) spawnQ.push(simT + j * (6 + Math.random() * 22)); }
+    while (spawnQ.length && spawnQ[0] <= simT) { spawnQ.shift(); person([...P_IN, [lerp(-1.5, 9, Math.random()), PLAT, lerp(-1.75, -.95, Math.random())]], false); }
+    if (tr && tr.kind === 'stop' && tr.t > 3 && tr.t < RUN.dwell - 3) {
+      boardT -= dt;
+      if (boardT <= 0) { const w = PEOPLE.find(p => p.state === 'wait'); if (w) { scene.remove(w.g); w.state = 'gone'; } boardT = .9; }
+      const id = Math.round(secs - tr.t);
+      if (tr.t > 6 && lastAlight !== id) {
+        lastAlight = id; const c = posAt(tr, tr.t), n = Math.random() * 2.4 | 0;
+        for (let j = 0; j < n; j++) { const dx = (j % 2 ? 3.3 : -3.3) * tr.dir; person([[c + dx, PLAT, -.5], ...P_IN.slice().reverse()], true); }
+      }
+    }
+  }
+  updatePeople(dt);
+  // 船
+  if (!boatS && simT > nextBoat) { const d = Math.random() < .5 ? 1 : -1; boatS = {d, x: -15 * d, z: lerp(5.2, 7.6, Math.random())}; boat.rotation.y = d > 0 ? 0 : Math.PI; }
+  if (boatS) {
+    boatS.x += boatS.d * .5 * dt;
+    boat.visible = true; boat.position.set(boatS.x, wave(boatS.x, boatS.z, simT) + .04, boatS.z);
+    boat.rotation.x = Math.sin(simT * 1.3) * .05; boat.rotation.z = Math.sin(simT * 1.7 + 1) * .04;
+    boatGlow.visible = Math.abs(boatS.x) < X1 - .4; boatGlow.material.opacity = .9 * lampF;
+    if (Math.abs(boatS.x) > 16) { boatS = null; boat.visible = false; nextBoat = simT + 50 + Math.random() * 130; }
+  }
+  catBody.scale.y = .6 * (1 + .045 * Math.sin(simT * 1.6));
   // 海・しぶき・風・カモメ
   updateSea(simT); updateSpray(simT, dt); sway.value = simT; updateGulls(simT, dayF);
   // 水面の映り込みは見ている方向へ伸ばす
@@ -962,7 +1057,7 @@ APKit.init({
     {label: '↻', name: 'reset', onClick: () => { Object.assign(view, {az: 0, el: 0, zoom: 1, tx: .5, tz: 0}); if (!fixedOffset) offset = 0; }}
   ]
 });
-window.__sea = {scene, view, get offset() { return offset; }, set offset(v) { offset = v; }, callTrain, train};
+window.__sea = {scene, view, people: PEOPLE, get offset() { return offset; }, set offset(v) { offset = v; }, callTrain, train};
 </script>
 </body>
 </html>
