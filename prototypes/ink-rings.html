@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<!-- INK RINGS(仮) — クロちゃん(Claude)作の試作。2026/11/25 おっちゃん依頼「水に落ちたインクの輪」。ap-kit.js統合: クロちゃん -->
+<!-- 世界の法則: 水に落ちたインクは輪になり、沈みながら分かれて、また輪になる(渦輪が不安定になって小さな渦輪に分かれる、実在する現象) -->
+<!-- 形は乱数で描かない。輪は閉じた渦糸で、水のどの点の流れも全部の渦糸からのビオ・サバールの和で決まる。インクの粒はその流れに乗って巻き上がる。
+     インクは水より重いので、輪に沿ったインクの偏りのうち、芯の太さで決まる波長だけが育ち(σ=A·k²−B·k⁴)、重い所が垂れて房になる。
+     房が育ちきると、房の一つ一つが小さな輪として巻き直す。それをもう一度くり返し、最後は自分と同じ重さの層まで沈んで、霞の層になる -->
+<!-- 時計: 1分ごとに1滴(毎分00秒)。色はその分の色で、1時間で虹を一周。古い分は底に霞の層として溜まり、層の色の並びが過ぎた1時間になる。
+     触る: なぞると水がそっと揺れる(弱い流れを足すだけ)。✦=いま1滴落とす(滴の大きさと落ちる位置が変わる)。↻=水を入れ替える(層も消える)。
+     物理はふだん0.8倍速(スロー映像のように。1滴の一生=約85秒で、次の1滴と少し重なる)。
+     確認用: ?fast=1 で5秒ごとに1滴(1滴=1分として色と層が進む。物理は3倍速)。WebGL2・音なし・Wake Lock・録画用にpreserveDrawingBuffer -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>INK RINGS — インクは輪になり、分かれて、また輪になる</title>
+<script src="../ap-kit.js"></script>
+<style>
+html,body{margin:0;height:100%;background:#020309;overflow:hidden}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#hint{position:fixed;left:0;right:0;bottom:22%;text-align:center;color:rgba(255,255,255,.85);font:13px/1.8 -apple-system,"Hiragino Sans",sans-serif;letter-spacing:.08em;pointer-events:none;opacity:0;transition:opacity 1.4s;text-shadow:0 0 10px #000,0 0 4px #000}
+#hint.on{opacity:1}
+#time{position:fixed;left:max(5vw,env(safe-area-inset-left));bottom:calc(max(3.4vh,env(safe-area-inset-bottom)) + 14px);color:#fff;opacity:.3;font:500 11px/1 ui-monospace,"SF Mono",Menlo,monospace;letter-spacing:.32em;font-variant-numeric:tabular-nums;pointer-events:none;transition:opacity 1s}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="time"></div>
+<div id="hint"></div>
+<script>
+// ===== 渦の物理(CPU) =====
+// 輪(渦輪)は閉じた渦糸。どの点の流れも、全部の渦糸の小片からのビオ・サバールの和で決まる(芯はRosenhead-Mooreの式でならす)。
+// インクは水より重い: 渦糸に沿ったインクの偏りは、短すぎず長すぎない波だけが育つ(σ(k)=A·k²−B·k⁴、いちばん育つ波長は芯の太さで決まる)。
+// 重い所ほど速く沈むので房が垂れ、房が十分に育つと、房の一つ一つが小さな輪として巻き直す(つなぎ替え)。それをもう一度くり返す。
+var SIM=(function(){
+var FOUR_PI=4*Math.PI;
+var GEN=[ // 世代ごとの性質(数字は物理量。形はここからは決めない)
+  {N:64, ratio:4.4, alpha:.10, W:.050, grow:.40},   // 最初の輪: 半径/芯の太さ=4.4 → いちばん育つ房はだいたい5つ
+  {N:30, ratio:3.4, alpha:.07, W:.045, grow:.46},   // 子の輪: 芯が相対的に太い → 房は3〜4つ
+  {N:16, ratio:2.8, alpha:.05, W:0,    grow:0}      // 孫の輪: もう分かれず、ほどけて沈む
+];
+var MODES=12;
+
+function gammaFor(U,R,a){return U*FOUR_PI*R/(Math.log(8*R/a)-.55);}   // 渦輪の速さの式(Kelvin)を、この芯の式に合わせて係数を校正
+
+// 渦輪を1つ作る。c=中心, d=進む向き(単位), R=半径
+function makeRing(gen,c,d,R,U,mass,phaseSeed,parentVel){
+  var g=GEN[gen], N=g.N;
+  // d に直交する e1,e2 (e1×e2=d のとき、Γ>0 で d の向きに進む)
+  var ax=Math.abs(d[0])<.9?[1,0,0]:[0,0,1];
+  var e1=norm(sub(ax,scale(d,dot(ax,d))));
+  var e2=cross(d,e1);
+  var a=R/g.ratio;
+  var pos=new Float32Array(N*3);
+  for(var i=0;i<N;i++){var th=2*Math.PI*i/N,cs=Math.cos(th),sn=Math.sin(th);
+    for(var k=0;k<3;k++)pos[i*3+k]=c[k]+R*(cs*e1[k]+sn*e2[k]);}
+  // インクの偏りのわずかな種(決まった位相。乱数ではない)。どの房が勝つかは物理(育ち方)が決める
+  var amp=new Float32Array(MODES+1), phi=new Float32Array(MODES+1);
+  for(var n=1;n<=MODES;n++){amp[n]=n===1?0:.006;phi[n]=((phaseSeed*0.6180339887+n*0.7548776662)%1)*2*Math.PI;}
+  return {gen:gen,N:N,pos:pos,vel:new Float32Array(N*3),drift:new Float32Array(N*3),tdrift:new Float32Array(N*3),m:new Float32Array(N),mp:null,
+    gamma:gammaFor(U,R,a),R:R,a:a,mass:mass,amp:amp,phi:phi,fade:0,fadeIn:gen===0?.25:1.1,out:-1,age:0,
+    c:c.slice(),d:d.slice(),U:U,dead:false,cull:R*5.5,
+    v0:parentVel?parentVel.slice():[0,0,0]};
+}
+
+function sub(a,b){return [a[0]-b[0],a[1]-b[1],a[2]-b[2]];}
+function scale(a,s){return [a[0]*s,a[1]*s,a[2]*s];}
+function dot(a,b){return a[0]*b[0]+a[1]*b[1]+a[2]*b[2];}
+function cross(a,b){return [a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];}
+function norm(a){var l=Math.hypot(a[0],a[1],a[2])||1;return [a[0]/l,a[1]/l,a[2]/l];}
+
+// 1つの滴 = 渦輪の家系(最初の輪とその子孫)
+function Drop(x,z,phaseSeed,strength){
+  this.rings=[];this.t=0;this.phase=phaseSeed;
+  var R=.10*strength, U=.15*Math.sqrt(strength);
+  this.rings.push(makeRing(0,[x,.78,z],[0,-1,0],R,U,1,phaseSeed));
+  this.center=[x,.78,z];this.lastRing=0;this.settle=0;this.splits=0;
+}
+
+// 点 p での流れ(ビオ・サバール)。rings の全部の小片から
+function induced(rings,px,py,pz,out){
+  var ux=0,uy=0,uz=0;
+  for(var r=0;r<rings.length;r++){var R=rings[r];var G=R.gamma*R.fade/FOUR_PI;if(G===0)continue;
+    var dx=px-R.c[0],dy=py-R.c[1],dz=pz-R.c[2];var d2=dx*dx+dy*dy+dz*dz;if(d2>R.cull*R.cull)continue;
+    var fw=1-smooth(.45*R.cull*R.cull,R.cull*R.cull,d2);
+    var P=R.pos,N=R.N,a2=R.a*R.a,j0=(N-1)*3;
+    var sx=0,sy=0,sz=0;
+    for(var j=0;j<N;j++){var j1=j*3;
+      var lx=P[j1]-P[j0],ly=P[j1+1]-P[j0+1],lz=P[j1+2]-P[j0+2];
+      var rx=px-(P[j1]+P[j0])*.5,ry=py-(P[j1+1]+P[j0+1])*.5,rz=pz-(P[j1+2]+P[j0+2])*.5;
+      var q=rx*rx+ry*ry+rz*rz+a2;var iq=1/(q*Math.sqrt(q));
+      sx+=(ly*rz-lz*ry)*iq;sy+=(lz*rx-lx*rz)*iq;sz+=(lx*ry-ly*rx)*iq;
+      j0=j1;}
+    var k=G*fw;ux+=sx*k;uy+=sy*k;uz+=sz*k;}
+  out[0]=ux;out[1]=uy;out[2]=uz;
+}
+function smooth(e0,e1,x){var t=Math.min(1,Math.max(0,(x-e0)/(e1-e0)));return t*t*(3-2*t);}
+
+var tmp=[0,0,0];
+// かき混ぜ(触ったとき、水をそっと揺らす)
+function stirAt(stirs,px,py,pz,out){
+  for(var i=0;i<stirs.length;i++){var s=stirs[i];if(s.k<.002)continue;
+    var dx=px-s.x,dy=py-s.y,dz=pz*.5;var e=Math.exp(-(dx*dx+dy*dy+dz*dz)/(s.r*s.r))*s.k;
+    out[0]+=s.vx*e;out[1]+=s.vy*e;}
+}
+
+Drop.prototype.step=function(dt,stirs,yL){
+  if(yL===undefined)yL=-.7;
+  var rings=this.rings;this.t+=dt;
+  // --- 1. 輪ごとの形(中心・半径・軸)と、インクの偏り・浮力・巻き込み
+  for(var r=0;r<rings.length;r++){var R=rings[r];var g=GEN[R.gen];R.age+=dt;
+    if(R.out<0)R.fade=Math.min(1,R.fade+dt/R.fadeIn);else{R.fade=Math.max(0,R.fade-dt/1.3);if(R.fade<=0)R.dead=true;}
+    var P=R.pos,N=R.N,cx=0,cy=0,cz=0;
+    for(var i=0;i<N;i++){cx+=P[i*3];cy+=P[i*3+1];cz+=P[i*3+2];}
+    cx/=N;cy/=N;cz/=N;
+    var nx=0,ny=0,nz=0,rr=0,j=N-1; // Newellの法線
+    for(var i2=0;i2<N;i2++){var x0=P[j*3]-cx,y0=P[j*3+1]-cy,z0=P[j*3+2]-cz,x1=P[i2*3]-cx,y1=P[i2*3+1]-cy,z1=P[i2*3+2]-cz;
+      nx+=y0*z1-z0*y1;ny+=z0*x1-x0*z1;nz+=x0*y1-y0*x1;rr+=Math.hypot(x1,y1,z1);j=i2;}
+    var nl=Math.hypot(nx,ny,nz)||1;R.n=[nx/nl,ny/nl,nz/nl];   // 進む向き(Γ>0)
+    var Rn=rr/N;
+    var oc=R.c;R.vc=[(cx-oc[0])/Math.max(dt,1e-4),(cy-oc[1])/Math.max(dt,1e-4),(cz-oc[2])/Math.max(dt,1e-4)];
+    R.c=[cx,cy,cz];R.R=Rn;R.cull=Rn*5.5+R.a*3;
+    R.a=Rn/g.ratio;                        // 芯は輪と一緒に太る(巻き込んだ水で)
+    var spd=Math.hypot(R.vc[0],R.vc[1],R.vc[2]);R.U=R.U*.95+spd*.05;
+    // 循環: 最初は滴の勢い、だんだん「重いインクが沈む」勢いに落ち着く。孫はほどけていく
+    var Ub;
+    if(R.gen===0)Ub=.050;else if(R.gen===1)Ub=.050;else Ub=R.age<3?.045:0;
+    var tau=R.gen===2?(R.age<3?4:5):5.5;
+    var Gb=gammaFor(Ub,Rn,R.a)*Math.sqrt(R.mass/(R.gen===0?1:R.gen===1?.2:.05));
+    if(R.gen>0&&R.age<1.5)Gb=Math.max(Gb,R.gamma); // 生まれたては房の勢いのまま
+    var near=smooth(yL+.14,yL+.01,cy);              // 自分と同じ重さの層に近づくと、沈む勢いを失う(中立浮力)
+    Gb*=1-near;tau=tau*(1-near)+1.2*near;
+    R.gamma+=(Gb-R.gamma)*(1-Math.exp(-dt/tau));
+    if((R.gen===2&&R.age>6||near>.9)&&R.gamma<gammaFor(.004,Rn,R.a)&&R.out<0){R.out=0;}
+    // インクの偏り: 波ごとに σ(k)=A·k²−B·k⁴ で育つ(kは輪に沿った波数=n/R)。いちばん育つのは k*≈1.1/a
+    if(g.grow>0){var ks=1.1/R.a, A=2*g.grow/(ks*ks), B=A/(2*ks*ks);
+      for(var n=1;n<=MODES;n++){var k=n/Rn;var s=A*k*k-B*k*k*k*k;R.amp[n]*=Math.exp(s*dt*R.fade);}}
+    if(!R.mp)R.mp=new Float32Array(N);R.mp.set(R.m);
+    var tot=0;
+    for(var i3=0;i3<N;i3++){var th=2*Math.PI*i3/N,v=1;
+      for(var n2=1;n2<=MODES;n2++)v+=R.amp[n2]*Math.cos(n2*th+R.phi[n2]);
+      v=Math.max(.01,v);R.m[i3]=v;tot+=v;}
+    for(var i4=0;i4<N;i4++)R.m[i4]*=N/tot;   // 平均1
+    // 寄り道の速さ(ビオ・サバール以外): 重い所が沈む + 巻き込みで広がる。インクの粒も芯の近くではこれに乗る
+    var al=g.alpha*R.U;
+    for(var i5=0;i5<N;i5++){var px=P[i5*3]-cx,py=P[i5*3+1]-cy,pz=P[i5*3+2]-cz;
+      var pn=px*R.n[0]+py*R.n[1]+pz*R.n[2];px-=pn*R.n[0];py-=pn*R.n[1];pz-=pn*R.n[2];
+      var pl=Math.hypot(px,py,pz)||1;
+      var w=g.W*(R.m[i5]-1)*R.fade;
+      R.drift[i5*3]=al*px/pl;R.drift[i5*3+1]=al*py/pl-w;R.drift[i5*3+2]=al*pz/pl;}
+    // インクは輪に沿って房へ流れ込む(連続の式 ∂m/∂t+∂(m·v)/∂s=0 から速さを出す)。粒だけが乗る(渦糸の点は動かさない)
+    var F=R.F||(R.F=new Float32Array(N)),fm=0,f=0,first=R.age<=dt*1.5;
+    for(var i6=0;i6<N;i6++){var j6=(i6+1)%N;var ds=Math.hypot(P[j6*3]-P[i6*3],P[j6*3+1]-P[i6*3+1],P[j6*3+2]-P[i6*3+2]);
+      f-=first?0:(R.m[i6]-R.mp[i6])/dt*ds;F[i6]=f;fm+=f;}
+    fm/=N;
+    for(var i7=0;i7<N;i7++){var a7=(i7+N-1)%N,b7=(i7+1)%N;
+      var vs=((F[a7]-fm)/Math.max(.15,(R.m[a7]+R.m[i7])*.5)+(F[i7]-fm)/Math.max(.15,(R.m[i7]+R.m[b7])*.5))*.5*R.fade;
+      var tx=P[b7*3]-P[a7*3],ty=P[b7*3+1]-P[a7*3+1],tz=P[b7*3+2]-P[a7*3+2],tl=Math.hypot(tx,ty,tz)||1;
+      R.tdrift[i7*3]=R.drift[i7*3]+vs*tx/tl;R.tdrift[i7*3+1]=R.drift[i7*3+1]+vs*ty/tl;R.tdrift[i7*3+2]=R.drift[i7*3+2]+vs*tz/tl;}
+  }
+  // --- 2. 渦糸を流す(ビオ・サバール + 寄り道 + かき混ぜ)。2段のルンゲ=クッタ
+  var all=rings;
+  for(var r2=0;r2<rings.length;r2++){var R2=rings[r2],P2=R2.pos,V=R2.vel,N2=R2.N;
+    for(var i6=0;i6<N2;i6++){var b=i6*3;
+      induced(all,P2[b],P2[b+1],P2[b+2],tmp);stirAt(stirs,P2[b],P2[b+1],P2[b+2],tmp);
+      V[b]=tmp[0]+R2.drift[b];V[b+1]=tmp[1]+R2.drift[b+1];V[b+2]=tmp[2]+R2.drift[b+2];}}
+  // 中間点
+  var half=[];
+  for(var r3=0;r3<rings.length;r3++){var R3=rings[r3];half.push(R3.pos.slice());
+    for(var i7=0;i7<R3.N*3;i7++)R3.pos[i7]+=R3.vel[i7]*dt*.5;}
+  for(var r4=0;r4<rings.length;r4++){var R4=rings[r4],P4=R4.pos,N4=R4.N,H=half[r4];
+    var V4=new Float32Array(N4*3);
+    for(var i8=0;i8<N4;i8++){var b2=i8*3;
+      induced(all,P4[b2],P4[b2+1],P4[b2+2],tmp);stirAt(stirs,P4[b2],P4[b2+1],P4[b2+2],tmp);
+      V4[b2]=tmp[0]+R4.drift[b2];V4[b2+1]=tmp[1]+R4.drift[b2+1];V4[b2+2]=tmp[2]+R4.drift[b2+2];}
+    for(var i9=0;i9<N4*3;i9++){P4[i9]=H[i9]+V4[i9]*dt;R4.vel[i9]=V4[i9];}
+    resample(R4);
+  }
+  // --- 3. 房が育ちきった輪は、房ごとに小さな輪として巻き直す
+  for(var r5=rings.length-1;r5>=0;r5--){var R5=rings[r5];
+    if(R5.out>=0||R5.gen>=2||R5.fade<1)continue;
+    var mx=0;for(var i10=0;i10<R5.N;i10++)mx=Math.max(mx,R5.m[i10]);
+    if(mx>2.7)this.split(R5);}
+  // 終わった輪を外す
+  for(var r6=rings.length-1;r6>=0;r6--)if(rings[r6].dead)rings.splice(r6,1);
+  if(rings.length)this.lastRing=this.t;
+};
+
+// 渦糸の点の間隔をならす(伸びた所に点を足すのではなく、弧長で等分し直す。インクの偏りは点に付いたまま)
+function resample(R){
+  var P=R.pos,N=R.N,L=0,seg=new Float32Array(N);
+  for(var i=0;i<N;i++){var j=(i+1)%N;var l=Math.hypot(P[j*3]-P[i*3],P[j*3+1]-P[i*3+1],P[j*3+2]-P[i*3+2]);seg[i]=l;L+=l;}
+  var mn=1e9,mxl=0;for(var k=0;k<N;k++){mn=Math.min(mn,seg[k]);mxl=Math.max(mxl,seg[k]);}
+  if(mxl<mn*2)return;
+  // 弧長で等分し直す(点0は動かさない)
+  var Q=P.slice(),acc=0,si=0,h=L/N;
+  for(var i2=1;i2<N;i2++){var target=i2*h;
+    while(si<N-1&&acc+seg[si]<target){acc+=seg[si];si++;}
+    var f=(target-acc)/(seg[si]||1),a=si,b=(si+1)%N;
+    for(var c=0;c<3;c++)P[i2*3+c]=Q[a*3+c]+(Q[b*3+c]-Q[a*3+c])*f;}
+}
+
+Drop.prototype.split=function(R){
+  var N=R.N,m=R.m,peaks=[];
+  for(var i=0;i<N;i++){var v=m[i];var ok=v>1.2;
+    for(var k=1;k<=2&&ok;k++){if(m[(i+k)%N]>v||m[(i-k+N)%N]>=v)ok=false;}
+    if(ok)peaks.push(i);}
+  if(peaks.length<2){ // 房が1つだけ: その房ごと1つの輪として落ちる
+    if(peaks.length===0)return;
+  }
+  // 房と房の間の谷で切る
+  var L=peaks.length,regions=[];
+  for(var p=0;p<L;p++){var a=peaks[p],b=peaks[(p+1)%L];if(b<=a)b+=N;
+    var mi=a,mv=1e9;for(var q=a;q<=b;q++){var vv=m[q%N];if(vv<mv){mv=vv;mi=q;}}regions.push(mi%N);}
+  var tot=0;for(var t=0;t<N;t++)tot+=m[t];
+  var kids=[];
+  for(var p2=0;p2<L;p2++){var s=regions[(p2+L-1)%L],e=regions[p2];if(e<=s)e+=N;
+    var M=0,c=[0,0,0],v=[0,0,0];
+    for(var q2=s;q2<e;q2++){var ii=q2%N,w=m[ii];M+=w;
+      for(var c3=0;c3<3;c3++){c[c3]+=R.pos[ii*3+c3]*w;v[c3]+=(R.vel[ii*3+c3])*w;}}
+    if(M<=0)continue;
+    for(var c4=0;c4<3;c4++){c[c4]/=M;v[c4]/=M;}
+    var f=M/tot;
+    kids.push({c:c,v:v,f:f});}
+  if(this.rings.length-1+kids.length>32)return;
+  var self=this;
+  kids.forEach(function(K,idx){
+    var spd=Math.hypot(K.v[0],K.v[1],K.v[2]);
+    var d=norm([K.v[0]*.6,K.v[1]-spd*.4,K.v[2]*.6]);   // 房が動いていた向き(下向き寄り)に進む
+    var Rc=R.R*.40*Math.cbrt(K.f*kids.length);
+    var U=Math.max(.05,Math.min(.12,spd));
+    var ring=makeRing(R.gen+1,K.c,d,Rc,U,R.mass*K.f,self.phase*7.31+idx*3.17+R.gen*11.7,K.v);
+    self.rings.push(ring);});
+  R.out=0;this.splits++;
+};
+
+return {Drop:Drop,induced:induced,GEN:GEN,gammaFor:gammaFor};
+})();
+
+(function(){
+'use strict';
+var cv=document.getElementById('c'),hint=document.getElementById('hint'),timeEl=document.getElementById('time');
+var Q=new URLSearchParams(location.search),FAST=Q.get('fast')==='1';
+var gl=cv.getContext('webgl2',{preserveDrawingBuffer:true,antialias:false,alpha:false,depth:false,stencil:false});   // preserveDrawingBuffer=ギャラリーの録画・静止画に映すため
+function showHint(s,ms){hint.innerHTML=s;hint.classList.add('on');setTimeout(function(){hint.classList.remove('on');},ms);}
+if(!gl){showHint('この端末では表示できないみたい(WebGL2が必要)',1e9);return;}
+var FRT=!!(gl.getExtension('EXT_color_buffer_float')||gl.getExtension('EXT_color_buffer_half_float'));
+
+// ---------- 定数 ----------
+var H=1.06, CAMD=2.6, SURF=.9;          // 画面の縦は z=0 の面で y∈[-H,H]。水面は y=0.9
+var SLOTS=FAST?6:4, NP=49152, NPU=NP, MAXR=32, NW=512;
+var TS=FAST?3:.8;                      // 物理の速さ(ふだんは少しゆっくり=スロー映像のように。1滴の一生が次の1滴と少し重なる)
+var PERIOD=FAST?5000:60000;
+
+// ---------- シェーダー ----------
+function sh(type,src){var s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s)+'\n'+src.split('\n').slice(0,4).join('\n'));return s;}
+function prog(vs,fs,tf){var p=gl.createProgram();gl.attachShader(p,sh(gl.VERTEX_SHADER,vs));gl.attachShader(p,sh(gl.FRAGMENT_SHADER,fs));
+  gl.bindAttribLocation(p,0,'aP');if(tf)gl.transformFeedbackVaryings(p,tf,gl.SEPARATE_ATTRIBS);gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(p));
+  var u={},n=gl.getProgramParameter(p,gl.ACTIVE_UNIFORMS);for(var i=0;i<n;i++){var a=gl.getActiveUniform(p,i),nm=a.name.replace(/\[0\]$/,'');u[nm]=gl.getUniformLocation(p,a.name);}
+  return {p:p,u:u};}
+
+// インクの粒を流す(transform feedback)。流れ = 渦糸のビオ・サバール + 芯の近くの寄り道 + かき混ぜ + 重さで沈む
+var ADV_VS=`#version 300 es
+precision highp float;precision highp int;
+layout(location=0) in vec4 aP;
+uniform highp sampler2D uN;
+uniform vec4 uRA[${MAXR}];uniform vec4 uRB[${MAXR}];uniform int uRN;
+uniform vec4 uSt[4];uniform vec4 uSv[4];
+uniform vec4 uSet;uniform vec2 uSc;uniform float uDt;uniform float uFr;
+out vec4 vP;
+float gks;
+vec3 vel(vec3 p){
+  vec3 u=vec3(0),ds=vec3(0);float ks=0.;
+  for(int r=0;r<${MAXR};r++){if(r>=uRN)break;
+    vec4 A=uRA[r];vec3 dc=p-A.xyz;float d2=dot(dc,dc),c2=A.w*A.w;if(d2>c2)continue;
+    vec4 B=uRB[r];int s=int(B.x),n=int(B.y);float a2=B.z;
+    vec3 pv=texelFetch(uN,ivec2(s+n-1,0),0).xyz,acc=vec3(0);
+    for(int j=0;j<64;j++){if(j>=n)break;int id=s+j;vec3 cu=texelFetch(uN,ivec2(id,0),0).xyz;
+      vec3 dl=cu-pv,rr=p-(cu+pv)*.5;float q=dot(rr,rr)+a2,iq=inversesqrt(q);acc+=cross(dl,rr)*(iq*iq*iq);
+      float k=a2/q;k*=k;if(k>.012){ds+=k*texelFetch(uN,ivec2(id,1),0).xyz;ks+=k;}
+      pv=cu;}
+    u+=acc*B.w*(1.-smoothstep(.45*c2,c2,d2));}
+  u+=ds/max(ks,1e-5)*min(1.,ks*1.5);gks=ks;
+  for(int i=0;i<4;i++){vec3 d=p-uSt[i].xyz;d.z*=.5;u+=uSv[i].xyz*exp(-dot(d,d)/(uSt[i].w*uSt[i].w))*uSv[i].w;}
+  float dy=p.y-uSet.x;
+  u.y-=(.006+uSet.y*.06)*tanh(dy/.06);                       // インクは重い: 自分と同じ重さの層まで沈む
+  u.xz+=uSet.y*uSet.w*exp(-dy*dy/.006)*(p.xz-uSc);             // その層に着くと横に広がる(薄い層になる)
+  return u;}
+float hh(float n){return fract(sin(n)*43758.5453);}
+void main(){
+  vec3 p=aP.xyz;
+  vec3 u1=vel(p);float k1=gks;vec3 u2=vel(p+u1*uDt*.5);p+=u2*uDt;
+  float w=aP.w*mix(exp(-uDt/9.),1.,min(1.,k1*3.));                // 芯から外れたインクは引き伸ばされて薄まる
+  float id=float(gl_VertexID);
+  p+=(vec3(hh(id*.37+uFr*1.3),hh(id*.71+uFr*2.1),hh(id*.13+uFr*.7))-.5)*.0004*sqrt(uDt*60.);   // 分子の拡散(ごく小さく)
+  p.y=min(p.y,${SURF.toFixed(3)}-.004);
+  vP=vec4(p,max(w,.06));}`;
+var NULL_FS=`#version 300 es
+precision mediump float;out vec4 o;void main(){o=vec4(0);}`;
+
+// 粒を描く(密度を溜める)
+var PT_VS=`#version 300 es
+precision highp float;
+layout(location=0) in vec4 aP;
+uniform mat4 uVP;uniform float uPS;uniform vec3 uC1;uniform vec3 uC2;uniform float uA;uniform float uG;
+out vec4 vC;
+float hh(float n){return fract(sin(n)*43758.5453);}
+void main(){vec4 c=uVP*vec4(aP.xyz,1.);gl_Position=c;
+  gl_PointSize=uPS*uG*${CAMD.toFixed(1)}/c.w;
+  float id=float(gl_VertexID);float m=pow(hh(id*.173),3.);
+  float att=exp(-(c.w-${CAMD.toFixed(1)})*.5);
+  float a=uA*aP.w*att/(uG*uG);
+  vC=vec4(mix(uC1,uC2,m)*a,a);}`;
+var PT_FS=`#version 300 es
+precision mediump float;in vec4 vC;out vec4 o;
+void main(){vec2 d=gl_PointCoord*2.-1.;float r=dot(d,d);if(r>1.)discard;o=vC*exp(-r*3.2);}`;
+
+var QUAD_VS=`#version 300 es
+precision highp float;layout(location=0) in vec4 aP;out vec2 vU;void main(){vU=aP.xy*.5+.5;gl_Position=vec4(aP.xy,0,1);}`;
+var BLUR_FS=`#version 300 es
+precision mediump float;in vec2 vU;uniform sampler2D uT;uniform vec2 uD;out vec4 o;
+void main(){vec4 s=texture(uT,vU)*.2270;
+  s+=(texture(uT,vU+uD*1.3846)+texture(uT,vU-uD*1.3846))*.3162;
+  s+=(texture(uT,vU+uD*3.2308)+texture(uT,vU-uD*3.2308))*.0703;o=s;}`;
+
+// 合成: 水(深い藍〜黒)・水面(下から見ると鏡)・霞の層・インク(煙のように透けて重なる)
+var COMP_FS=`#version 300 es
+precision highp float;in vec2 vU;
+uniform sampler2D uDen;uniform sampler2D uBl;uniform sampler2D uHz;uniform sampler2D uSm;
+uniform vec2 uRes;uniform float uT;uniform float uAsp;uniform vec4 uDrop;uniform vec3 uDropC;uniform vec4 uRip;uniform float uSlosh;uniform float uGain;
+out vec4 o;
+const float H=${H.toFixed(3)},D=${CAMD.toFixed(1)},S=${SURF.toFixed(3)},Z=.25;
+float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+float vn(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
+  return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);}
+float fbm(vec2 p){float s=0.,a=.5;for(int i=0;i<4;i++){s+=a*vn(p);p=p*2.03+vec2(1.7,9.2);a*=.5;}return s;}
+vec3 ink(vec2 uv,out float op){
+  vec4 d0=texture(uDen,uv),sm=texture(uSm,uv),b=texture(uBl,uv);
+  vec4 d=mix(sm,d0,smoothstep(.25,1.8,sm.a*uGain)*.85);             // 薄い所はなめらかに、濃い所はくっきり
+  float A=d.a*uGain,Ab=b.a*uGain;
+  vec3 c=d.rgb/max(d.a,1e-5),cb=b.rgb/max(b.a,1e-5);
+  // 上からの光: 密度が下へ増える所(上を向いた面)が明るい
+  float e=1.5/uRes.y;float up=texture(uBl,uv+vec2(0,e*2.)).a,dn=texture(uBl,uv-vec2(0,e*2.)).a;
+  float shd=clamp(1.+(dn-up)*uGain*.9,.55,1.7);
+  float o1=1.-exp(-A*.7),o2=1.-exp(-Ab*.8);
+  float det=max(0.,A-Ab*.85);                                   // 薄い膜の縁(細かい筋)を少し立てる
+  vec3 pale=mix(c,vec3(dot(c,vec3(.3,.5,.2)))+.03,.2);     // 薄い所は淡く、濃い所は色が深い
+  vec3 cc=mix(pale,c*1.12,smoothstep(.1,1.2,A));
+  op=max(o1,o2*.6);
+  return cc*o1*shd+c*(1.-exp(-det*.9))*.35+cb*o2*.24;}
+void main(){
+  vec2 uv=vU;float ny=uv.y*2.-1.,nx=(uv.x*2.-1.)*uAsp;
+  float wy=ny*H,wx=nx*H;
+  float yF=S/(H*(D-Z))*D,yB=S/(H*(D+Z))*D;           // 水面の手前の縁・奥の縁(画面のy、-1..1)
+  // 水
+  float gy=clamp(uv.y,0.,1.);
+  vec3 col=mix(vec3(.00035,.0005,.0016),vec3(.0024,.0042,.0175),pow(gy,1.5));
+  col*=.75+.25*exp(-pow(nx/(uAsp+.6),2.)*1.4);
+  col+=vec3(.0012,.0025,.008)*exp(-(1.-gy)*6.);          // 水面からの光
+  // 霞の層(過ぎた分のインク)。内部波でゆっくりうねる
+  float wv=.010*sin(wx*2.3+uT*.21)+.006*sin(wx*5.1-uT*.37+1.3)+uSlosh*sin(wx*3.4-uT*2.2);
+  float hzv=(wy+wv+H)/(2.*H);
+  vec4 hz=texture(uHz,vec2(.5,hzv));
+  if(hz.a>.002){
+  float wisp=.35+1.2*fbm(vec2(wx*1.6+uT*.015,wy*7.+wx*.3))*fbm(vec2(wx*4.+wy*2.-uT*.01,wy*22.));
+  float hd=hz.a*wisp;
+  vec3 hc=hz.rgb/max(hz.a,1e-5);
+  float hop=1.-exp(-hd*.8);
+  col=col*(1.-hop*.35)+hc*hop*.13;}
+  // インク
+  float op;vec3 ic=ink(uv,op);
+  col=col*(1.-op*.6)+ic;
+  // 水面の下側(下から見上げると全反射で鏡になる): 水面のすぐ下のインクが映る
+  if(ny>yB){
+    float t=clamp((ny-yB)/(yF-yB),0.,1.);
+    float sy=2.*S/H-ny;                                 // 鏡映し(z=0の面)
+    vec2 mu=vec2(uv.x,(min(sy,yB-.002)*.5+.5));
+    float mop;vec3 mc=ink(mu,mop);
+    // さざなみ: 水面上の位置(奥行き)を戻して、着水点からの同心円
+    float zz=D-S*D/(max(ny,1e-3)*H);float xs=wx*(D-zz)/D;
+    float rho=length(vec2(xs-uRip.x,zz));
+    float rip=uRip.z*sin(rho*95.-uRip.w*14.)*exp(-rho*7.)*smoothstep(uRip.w*.7+.05,uRip.w*.7-.05,rho)*exp(-uRip.w*.9);
+    vec3 sheen=vec3(.0035,.006,.014)*(.4+.9*t*t)*(1.+rip*2.2);
+    col=mix(col,col*.7+mc*.4+sheen,smoothstep(0.,.08,t)*(1.-smoothstep(.96,1.,t)));
+  }
+  if(ny>yF){col=mix(vec3(.0009,.0011,.0022),vec3(.0016,.0019,.0032),smoothstep(yF,1.,ny));}
+  col+=vec3(.025,.035,.055)*exp(-pow((ny-yF)*uRes.y*.5,2.)*.6)*.9;   // メニスカス(手前の水面の縁)
+  // 空中を落ちてくる滴
+  if(uDrop.w>0.){vec2 dp=vec2(uDrop.x/uAsp,uDrop.y);vec2 pp=vec2(uv.x*2.-1.,ny);vec2 dd=(pp-dp)*vec2(uAsp,1.)*uRes.y*.5;
+    float r=length(dd*vec2(1.,.82));float rad=uDrop.z;
+    float m=smoothstep(rad,rad-1.2,r);vec3 dc=uDropC*(.7+.6*smoothstep(rad,0.,length(dd-vec2(-rad*.35,rad*.35))));
+    col=mix(col,dc,m*uDrop.w);}
+  col=pow(max(col,0.),vec3(1./2.2));
+  col+=(hash(gl_FragCoord.xy+fract(uT)*61.)-.5)/255.;
+  o=vec4(col,1);}`;
+
+var advP=prog(ADV_VS,NULL_FS,['vP']), ptP=prog(PT_VS,PT_FS), blP=prog(QUAD_VS,BLUR_FS), cpP=prog(QUAD_VS,COMP_FS);
+
+// ---------- バッファ ----------
+var quad=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,quad);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+var qvao=gl.createVertexArray();gl.bindVertexArray(qvao);gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+var tfo=gl.createTransformFeedback();
+var slots=[];
+for(var si=0;si<SLOTS;si++){var sl={buf:[],vao:[],cur:0,drop:null,age:0,on:false,tex:gl.createTexture(),nodes:new Float32Array(NW*2*4),ra:new Float32Array(MAXR*4),rb:new Float32Array(MAXR*4),rn:0};
+  for(var k=0;k<2;k++){var b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,NP*16,gl.DYNAMIC_COPY);
+    var v=gl.createVertexArray();gl.bindVertexArray(v);gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,4,gl.FLOAT,false,0,0);
+    sl.buf.push(b);sl.vao.push(v);}
+  gl.bindTexture(gl.TEXTURE_2D,sl.tex);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA32F,NW,2,0,gl.RGBA,gl.FLOAT,null);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
+  slots.push(sl);}
+gl.bindVertexArray(null);gl.bindBuffer(gl.ARRAY_BUFFER,null);
+// 霞の層の縦の並び(1×512)
+var HZN=512,hzTex=gl.createTexture(),hzData=new Float32Array(HZN*4);
+gl.bindTexture(gl.TEXTURE_2D,hzTex);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA16F,1,HZN,0,gl.RGBA,gl.FLOAT,hzData);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+
+function rt(w,h){var t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);
+  if(FRT)gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA16F,w,h,0,gl.RGBA,gl.HALF_FLOAT,null);else gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  var f=gl.createFramebuffer();gl.bindFramebuffer(gl.FRAMEBUFFER,f);gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,t,0);
+  return {t:t,f:f,w:w,h:h};}
+function freeRT(r){if(r){gl.deleteTexture(r.t);gl.deleteFramebuffer(r.f);}}
+var W=0,Hpx=0,dpr=1,qscale=1,den=null,sA=null,sB=null,bA=null,bB=null,needRes=true;
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2)*qscale;
+  W=Math.max(2,Math.round(innerWidth*dpr));Hpx=Math.max(2,Math.round(innerHeight*dpr));
+  cv.width=W;cv.height=Hpx;
+  freeRT(den);freeRT(sA);freeRT(sB);freeRT(bA);freeRT(bB);
+  var dw=Math.round(W*.5),dh=Math.round(Hpx*.5);
+  den=rt(dw,dh);sA=rt(dw,dh);sB=rt(dw,dh);bA=rt(Math.round(dw*.5),Math.round(dh*.5));bB=rt(bA.w,bA.h);
+  needRes=false;}
+addEventListener('resize',function(){needRes=true;});
+
+// ---------- 色: OKLCH(L,C,h) → 線形sRGB ----------
+function oklch(L,C,h){var a=C*Math.cos(h),b=C*Math.sin(h);
+  var l=L+.3963377774*a+.2158037573*b,m=L-.1055613458*a-.0638541728*b,s=L-.0894841775*a-1.291485548*b;
+  l=l*l*l;m=m*m*m;s=s*s*s;
+  return [Math.max(0,4.0767416621*l-3.3077115913*m+.2309699292*s),Math.max(0,-1.2684380046*l+2.6097574011*m-.3413193965*s),Math.max(0,-.0041960863*l-.7034186147*m+1.707614701*s)];}
+function minuteColor(mi,sh){var h=((mi%60+60)%60)/60*2*Math.PI+.45+(sh||0);var c=oklch(.76,.15,h);var mx=Math.max(c[0],c[1],c[2]);if(mx>1)c=c.map(function(v){return v/mx;});return c;}
+
+// ---------- 時間 ----------
+var t0=performance.now(),vmin=0,lastDropKey=null,fastStart=0,vOff=0;
+var tBase=null,pBase=null;
+function nowMs(){return (tBase!==null?tBase:Date.now())+vOff;}
+function perfNow(){return (pBase!==null?pBase:performance.now())+vOff;}
+function nowMinuteKey(){ // 今の「分」(normal: 実時間、fast: 5秒=1分)
+  if(!FAST)return Math.floor(nowMs()/60000);
+  return vmin+Math.floor((perfNow()-fastStart)/PERIOD);}
+function minuteFloat(){if(!FAST)return nowMs()/60000;return vmin+(perfNow()-fastStart)/PERIOD;}
+function minuteOfHour(key){if(!FAST){var d=new Date(key*60000);return d.getMinutes();}return ((key%60)+60)%60;}
+
+// ---------- 霞の層 ----------
+var layers=[];   // {key,c,merge}
+var H0=.0105;
+function layerThick(age){return H0*(.35+.65*Math.exp(-age/20));}
+var hzTop=-H,layerY={};
+function updateHaze(){
+  var mf=minuteFloat(),y=-H;
+  for(var i=layers.length-1;i>=0;i--)if(mf-layers[i].key>82)layers.splice(i,1);
+  hzData.fill(0);
+  for(var j=0;j<layers.length;j++){var L=layers[j],age=Math.max(0,mf-L.key),h=layerThick(age);
+    var yc=y+h*.5;layerY[L.key]=yc;
+    var a=L.merge*(1-smoothJS(58,80,age));
+    if(a>0.001){var wdt=Math.max(h*.9,.006+.0007*age)+.035*Math.exp(-age/2.5);
+      var y0=Math.max(0,Math.floor((yc-h*.5-wdt*2+H)/(2*H)*HZN)),y1=Math.min(HZN-1,Math.ceil((yc+h*.5+wdt*2+H)/(2*H)*HZN));
+      for(var r=y0;r<=y1;r++){var yy=(r+.5)/HZN*2*H-H;
+        var e=smoothJS(yc-h*.5-wdt,yc-h*.5+wdt,yy)*(1-smoothJS(yc+h*.5-wdt,yc+h*.5+wdt,yy));
+        var dd=e*a*.55*(.7+.3*Math.exp(-age/12));
+        hzData[r*4]+=L.c[0]*dd;hzData[r*4+1]+=L.c[1]*dd;hzData[r*4+2]+=L.c[2]*dd;hzData[r*4+3]+=dd;}}
+    y+=h;}
+  hzTop=y;
+  gl.bindTexture(gl.TEXTURE_2D,hzTex);gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,1,HZN,gl.RGBA,gl.FLOAT,hzData);}
+function smoothJS(e0,e1,x){var t=Math.min(1,Math.max(0,(x-e0)/(e1-e0)));return t*t*(3-2*t);}
+
+// ---------- 滴 ----------
+var pinit=new Float32Array(NP*4);
+function halton(i,b){var f=1,r=0;while(i>0){f/=b;r+=f*(i%b);i=Math.floor(i/b);}return r;}
+var HAL=new Float32Array(NP*4);
+for(var hi=0;hi<NP;hi++){HAL[hi*4]=halton(hi+1,2);HAL[hi*4+1]=halton(hi+1,3);HAL[hi*4+2]=halton(hi+1,5);HAL[hi*4+3]=halton(hi+1,7);}
+var pending=[];   // 空中を落ちている滴
+function queueDrop(key,strength,dx){
+  var mi=minuteOfHour(key);
+  var x=.11*Math.sin(key*2.39996)+(dx||0),z=.07*Math.cos(key*3.1199);
+  pending.push({key:key,x:x,z:z,str:strength,c:minuteColor(mi),c2:minuteColor(mi,.42),t:0});}
+function spawn(P){
+  // 空いている枠、なければいちばん古い枠
+  var sl=null,old=null;
+  for(var i=0;i<slots.length;i++){if(!slots[i].on){sl=slots[i];break;}if(!old||slots[i].age>old.age)old=slots[i];}
+  if(!sl)sl=old;
+  var d=new SIM.Drop(P.x,P.z,P.key*1.618+P.str*7.1,P.str);
+  sl.drop=d;sl.age=0;sl.on=true;sl.n=NPU;sl.c=P.c;sl.c2=P.c2;sl.key=P.key;sl.cx=P.x;sl.cz=P.z;
+  if(!layers.some(function(L){return L.key===P.key;}))layers.push({key:P.key,c:P.c,merge:0});
+  sl.layerKey=P.key;
+  var R0=d.rings[0],R=R0.R,a=R0.a,y0=.78;
+  for(var k=0;k<NP;k++){var u=HAL[k*4],v=HAL[k*4+1],w=HAL[k*4+2],q=HAL[k*4+3],b=k*4;
+    if(q<.5){ // 渦の芯のまわり(滴のインクは輪ができるときに芯へ巻き込まれる)
+      var th=w*6.2831853,rc=a*.6*Math.sqrt(-2*Math.log(1-u*.96)),ps=v*6.2831853;
+      var rr=R+rc*Math.cos(ps);
+      pinit[b]=P.x+rr*Math.cos(th);pinit[b+1]=y0+rc*Math.sin(ps)*.9;pinit[b+2]=P.z+rr*Math.sin(th);pinit[b+3]=.6+.4*q/.5;}
+    else if(q<.92){ // 滴の体(まだ巻き込まれていない分。輪の真ん中を押し出されて、外側から芯へ巻きつく)
+      var r2=Math.cbrt(u),ct=2*v-1,st=Math.sqrt(1-ct*ct),ph=w*6.2831853;
+      pinit[b]=P.x+R*.62*r2*st*Math.cos(ph);pinit[b+1]=y0+R*.25+R*.5*r2*ct;pinit[b+2]=P.z+R*.62*r2*st*Math.sin(ph);pinit[b+3]=.8;}
+    else{ // 水面から続く細い尾
+      var yy=y0+R*.4+(SURF-y0-R*.4)*Math.pow(u,1.4),rad=R*.12*Math.sqrt(v)*(1-.6*(yy-y0)/(SURF-y0)),ph2=w*6.2831853;
+      pinit[b]=P.x+rad*Math.cos(ph2);pinit[b+1]=yy;pinit[b+2]=P.z+rad*Math.sin(ph2);pinit[b+3]=.12;}}
+  gl.bindBuffer(gl.ARRAY_BUFFER,sl.buf[sl.cur]);gl.bufferSubData(gl.ARRAY_BUFFER,0,pinit);gl.bindBuffer(gl.ARRAY_BUFFER,null);
+  rip={x:P.x,t:0,a:1};}
+var rip={x:0,t:9,a:0};
+
+// ---------- かき混ぜ(なぞる) ----------
+var stirs=[0,1,2,3].map(function(){return {x:0,y:0,r:.25,vx:0,vy:0,k:0};}),stirI=0,slosh=0;
+var ptr=null;
+function toWorld(e){var r=cv.getBoundingClientRect();var nx=((e.clientX-r.left)/r.width*2-1)*(r.width/r.height),ny=1-(e.clientY-r.top)/r.height*2;return [nx*H,ny*H];}
+cv.addEventListener('pointerdown',function(e){if(window.APKit&&APKit.isUI&&APKit.isUI(e.clientX,e.clientY))return;var p=toWorld(e);ptr={x:p[0],y:p[1],t:performance.now()};});
+cv.addEventListener('pointermove',function(e){if(!ptr)return;var p=toWorld(e),t=performance.now(),dt=Math.max(8,t-ptr.t)/1000;
+  var vx=(p[0]-ptr.x)/dt,vy=(p[1]-ptr.y)/dt,sp=Math.hypot(vx,vy),cap=.10;if(sp>0){var f=Math.min(1,cap/(sp*.22))*.22;vx*=f;vy*=f;}
+  var s=stirs[stirI];
+  if(s.k>.3&&Math.hypot(s.x-p[0],s.y-p[1])<.12){s.vx=s.vx*.6+vx*.4;s.vy=s.vy*.6+vy*.4;s.x=p[0];s.y=p[1];s.k=1;}
+  else{stirI=(stirI+1)%4;s=stirs[stirI];s.x=p[0];s.y=p[1];s.vx=vx;s.vy=vy;s.k=1;s.r=.24;}
+  slosh=Math.min(.02,slosh+Math.hypot(vx,vy)*.01);
+  ptr={x:p[0],y:p[1],t:t};});
+['pointerup','pointercancel','pointerleave'].forEach(function(n){cv.addEventListener(n,function(){ptr=null;});});
+
+// ---------- 1コマ ----------
+var VP=new Float32Array(16);
+function persp(){var asp=W/Hpx,f=CAMD/H,n=.1,fa=20,A=(fa+n)/(n-fa),B=2*fa*n/(n-fa);VP.fill(0);
+  VP[0]=f/asp;VP[5]=f;VP[10]=A;VP[11]=-1;VP[14]=A*-CAMD+B;VP[15]=CAMD;}   // 投影 × カメラ(z=CAMDから-z向き)
+var frames=0,acc=0,last=performance.now(),fr=0;
+function uploadSlot(sl){
+  var d=sl.drop,rn=0,idx=0,N=sl.nodes,RA=sl.ra,RB=sl.rb;
+  for(var r=0;r<d.rings.length&&rn<MAXR;r++){var R=d.rings[r];if(idx+R.N>NW)break;if(R.fade<=0)continue;
+    for(var i=0;i<R.N;i++){var o=(idx+i)*4,o2=(NW+idx+i)*4;N[o]=R.pos[i*3];N[o+1]=R.pos[i*3+1];N[o+2]=R.pos[i*3+2];
+      N[o2]=R.tdrift[i*3];N[o2+1]=R.tdrift[i*3+1];N[o2+2]=R.tdrift[i*3+2];}
+    RA[rn*4]=R.c[0];RA[rn*4+1]=R.c[1];RA[rn*4+2]=R.c[2];RA[rn*4+3]=R.cull;
+    RB[rn*4]=idx;RB[rn*4+1]=R.N;RB[rn*4+2]=R.a*R.a;RB[rn*4+3]=R.gamma*R.fade/(4*Math.PI);
+    idx+=R.N;rn++;}
+  sl.rn=rn;
+  gl.bindTexture(gl.TEXTURE_2D,sl.tex);gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,NW,2,gl.RGBA,gl.FLOAT,N);}
+var stU=new Float32Array(16),svU=new Float32Array(16);
+
+function simStep(dtReal){
+  var dt=Math.min(dtReal,1/30)*TS;
+  // 時刻: 分が変わったら1滴(見ていなかった分は層だけ足す)
+  var key=nowMinuteKey();
+  if(lastDropKey===null)lastDropKey=key-1;
+  if(key>lastDropKey){
+    var miss=Math.min(80,key-lastDropKey-1);
+    for(var m=key-miss;m<key;m++)if(!layers.some(function(L){return L.key===m;}))layers.push({key:m,c:minuteColor(minuteOfHour(m)),merge:1});
+    layers.sort(function(a,b){return a.key-b.key;});
+    queueDrop(key,1);lastDropKey=key;}
+  // 空中の滴
+  for(var i=pending.length-1;i>=0;i--){var P=pending[i];P.t+=dtReal;if(P.t>=.42){spawn(P);pending.splice(i,1);}}
+  rip.t+=dtReal;
+  for(var s=0;s<4;s++){var S=stirs[s];S.k*=Math.exp(-dtReal/1.4);}
+  slosh*=Math.exp(-dtReal/2.5);
+  for(var k=0;k<4;k++){var S2=stirs[k];stU[k*4]=S2.x;stU[k*4+1]=S2.y;stU[k*4+2]=0;stU[k*4+3]=S2.r;svU[k*4]=S2.vx;svU[k*4+1]=S2.vy;svU[k*4+2]=0;svU[k*4+3]=S2.k;}
+  // 物理
+  for(var j=0;j<slots.length;j++){var sl=slots[j];if(!sl.on)continue;sl.age+=dt;
+    var yL=layerY[sl.layerKey]!==undefined?layerY[sl.layerKey]:hzTop;sl.yL=yL;
+    sl.drop.step(dt,stirs,yL);
+    var Ly=null;for(var q=0;q<layers.length;q++)if(layers[q].key===sl.layerKey){Ly=layers[q];break;}
+    var since=sl.drop.rings.length?0:sl.drop.t-sl.drop.lastRing;
+    sl.settle=Math.min(1,Math.max(sl.settle||0,since>0?Math.min(1,since/4):0,smoothJS(26,36,sl.age)));
+    sl.alpha=1-smoothJS(46,68,sl.age);
+    if(Ly)Ly.merge=Math.max(Ly.merge,smoothJS(42,66,sl.age));
+    if(sl.age>69){sl.on=false;if(Ly)Ly.merge=1;}
+    if(sl.on)uploadSlot(sl);
+    sl.dt=dt;}
+}
+function render(){
+  if(needRes)resize();
+  persp();
+  // 1) 粒を流す
+  gl.useProgram(advP.p);gl.enable(gl.RASTERIZER_DISCARD);
+  gl.uniform4fv(advP.u.uSt,stU);gl.uniform4fv(advP.u.uSv,svU);gl.uniform1f(advP.u.uFr,fr%1000);gl.uniform1i(advP.u.uN,0);gl.activeTexture(gl.TEXTURE0);
+  for(var j=0;j<slots.length;j++){var sl=slots[j];if(!sl.on)continue;
+    gl.bindTexture(gl.TEXTURE_2D,sl.tex);
+    gl.uniform4fv(advP.u.uRA,sl.ra);gl.uniform4fv(advP.u.uRB,sl.rb);gl.uniform1i(advP.u.uRN,sl.rn);
+    gl.uniform4f(advP.u.uSet,sl.yL,sl.settle,0,.07);gl.uniform2f(advP.u.uSc,sl.cx,sl.cz);gl.uniform1f(advP.u.uDt,sl.dt);
+    var src=sl.cur,dst=1-src;
+    gl.bindVertexArray(sl.vao[src]);gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK,tfo);gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER,0,sl.buf[dst]);
+    gl.beginTransformFeedback(gl.POINTS);gl.drawArrays(gl.POINTS,0,sl.n);gl.endTransformFeedback();
+    gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER,0,null);gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK,null);
+    sl.cur=dst;}
+  gl.disable(gl.RASTERIZER_DISCARD);
+  // 2) 密度を溜める
+  gl.bindFramebuffer(gl.FRAMEBUFFER,den.f);gl.viewport(0,0,den.w,den.h);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.enable(gl.BLEND);gl.blendFunc(gl.ONE,gl.ONE);
+  var hs=den.h/422,ps=2.2*Math.sqrt(hs);   // 解像度が変わっても同じ濃さに見えるように(粒の大きさ²×濃さ÷画素の面積を一定に)
+  gl.useProgram(ptP.p);gl.uniformMatrix4fv(ptP.u.uVP,false,VP);gl.uniform1f(ptP.u.uPS,ps);
+  for(var j2=0;j2<slots.length;j2++){var s2=slots[j2];if(!s2.on||s2.alpha<=0)continue;
+    gl.uniform1f(ptP.u.uG,Math.min(4,1+s2.age/70+s2.settle*1.8));gl.uniform3fv(ptP.u.uC1,s2.c);gl.uniform3fv(ptP.u.uC2,s2.c2);gl.uniform1f(ptP.u.uA,s2.alpha*(FRT?.05:.035)*hs*NP/s2.n);
+    gl.bindVertexArray(s2.vao[s2.cur]);gl.drawArrays(gl.POINTS,0,s2.n);}
+  gl.disable(gl.BLEND);
+  // 3) ぼかし(煙のにじみ)
+  gl.bindVertexArray(qvao);gl.useProgram(blP.p);gl.uniform1i(blP.u.uT,0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,sA.f);gl.viewport(0,0,sA.w,sA.h);gl.bindTexture(gl.TEXTURE_2D,den.t);gl.uniform2f(blP.u.uD,1/den.w,0);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,sB.f);gl.bindTexture(gl.TEXTURE_2D,sA.t);gl.uniform2f(blP.u.uD,0,1/den.h);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);   // 少しだけぼかした密度(薄い所の粒を膜にする)
+  gl.bindFramebuffer(gl.FRAMEBUFFER,bA.f);gl.viewport(0,0,bA.w,bA.h);gl.bindTexture(gl.TEXTURE_2D,sB.t);gl.uniform2f(blP.u.uD,1/sB.w,0);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,bB.f);gl.bindTexture(gl.TEXTURE_2D,bA.t);gl.uniform2f(blP.u.uD,0,1/bA.h);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,bA.f);gl.bindTexture(gl.TEXTURE_2D,bB.t);gl.uniform2f(blP.u.uD,2/bA.w,0);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,bB.f);gl.bindTexture(gl.TEXTURE_2D,bA.t);gl.uniform2f(blP.u.uD,0,2/bA.h);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  // 4) 合成
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.viewport(0,0,W,Hpx);gl.useProgram(cpP.p);
+  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,den.t);gl.uniform1i(cpP.u.uDen,0);
+  gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,bB.t);gl.uniform1i(cpP.u.uBl,1);
+  gl.activeTexture(gl.TEXTURE2);gl.bindTexture(gl.TEXTURE_2D,hzTex);gl.uniform1i(cpP.u.uHz,2);
+  gl.activeTexture(gl.TEXTURE3);gl.bindTexture(gl.TEXTURE_2D,sB.t);gl.uniform1i(cpP.u.uSm,3);
+  gl.uniform2f(cpP.u.uRes,W,Hpx);gl.uniform1f(cpP.u.uT,(performance.now()-t0)/1000);gl.uniform1f(cpP.u.uAsp,W/Hpx);
+  gl.uniform1f(cpP.u.uGain,1);gl.uniform1f(cpP.u.uSlosh,slosh);
+  var P=pending[0];
+  if(P){var ft=Math.min(1,P.t/.42),yN=1.08-(1.08-SURF/H)*ft*ft;gl.uniform4f(cpP.u.uDrop,P.x/H*(CAMD/(CAMD-P.z)),yN,Math.max(2.5,4.2*Hpx/1688*2),1);gl.uniform3fv(cpP.u.uDropC,P.c);}
+  else gl.uniform4f(cpP.u.uDrop,0,0,0,0);
+  gl.uniform4f(cpP.u.uRip,rip.x,0,rip.a,rip.t);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  gl.activeTexture(gl.TEXTURE0);
+}
+var hzCount=0;
+function frame(now){
+  if(window.__ink&&__ink.paused){last=now;requestAnimationFrame(frame);return;}
+  var dt=Math.min(.1,(now-last)/1000);last=now;fr++;
+  simStep(dt);
+  if((hzCount++&3)===0)updateHaze();
+  render();
+  // 重い端末では解像度を少し下げる
+  frames++;acc+=dt;if(frames===90){if(acc/90>.021){if(qscale>.62){qscale*=.85;needRes=true;}else NPU=Math.max(24576,NPU-8192);}frames=0;acc=0;}   // まず解像度、それでも重ければ次の滴から粒を減らす
+  requestAnimationFrame(frame);}
+
+// ---------- 小さな時刻 ----------
+function pad(n){return (n<10?'0':'')+n;}
+function tick(){var d=new Date();timeEl.textContent=pad(d.getHours())+':'+pad(d.getMinutes());
+  timeEl.style.opacity=(window.APKit&&APKit.isClockOn&&APKit.isClockOn())?0:'';}
+setInterval(tick,1000);tick();
+
+// ---------- 画面を消さない(Wake Lock)。別のアプリから戻ったときと、触れたときに取り直す ----------
+var wl=null;
+function wake(){if(navigator.wakeLock&&!wl&&document.visibilityState==='visible')navigator.wakeLock.request('screen').then(function(l){wl=l;l.addEventListener('release',function(){wl=null;});}).catch(function(){});}
+wake();document.addEventListener('visibilitychange',wake);addEventListener('pointerdown',wake);
+
+// ---------- はじめ: 過ぎた分の層を敷いて、いまの1滴を落とす ----------
+function start(){
+  layers=[];slots.forEach(function(s){s.on=false;});pending=[];
+  if(FAST){vmin=new Date().getMinutes()+60*1000;fastStart=performance.now();}
+  var key=nowMinuteKey();
+  for(var m=key-78;m<key;m++)layers.push({key:m,c:minuteColor(minuteOfHour(m)),merge:1});
+  lastDropKey=key;queueDrop(key,1);}
+start();updateHaze();
+requestAnimationFrame(function(n){last=n;frame(n);});
+
+// 確認用(画面には出ない): ヘッドレスで時間を進める
+window.__ink={paused:false,align:function(){tBase=Date.now();pBase=performance.now();vOff=60000-(tBase%60000)+300;},info:function(){return slots.filter(function(s){return s.on;}).map(function(s){return [s.key,s.age.toFixed(1),(s.settle||0).toFixed(2),(s.alpha||0).toFixed(2),(s.yL||0).toFixed(2),s.drop.rings.length].join(' ');}).join(' | ');},advance:function(sec,sps){sps=sps||60;for(var i=0;i<sec*sps;i++){vOff+=1000/sps;simStep(1/sps);if(i%4===0)updateHaze();if(i%2===0||i===sec*sps-1)render();}updateHaze();render();},slots:slots,layers:function(){return layers;}};
+
+APKit.init({
+  canvas:cv, gifName:'ink-rings-loop', clockFormat:'spec',
+  dock:true, autoHide:true, fullscreenButton:false,
+  buttons:[
+    {label:'✦',name:'mutate',onClick:function(){queueDrop(nowMinuteKey(),.8+Math.random()*.45,(Math.random()-.5)*.3);}},   // いま1滴(大きさと位置が変わる)
+    {label:'↻',name:'reset',onClick:function(){layers=[];slots.forEach(function(s){s.on=false;});pending=[];lastDropKey=nowMinuteKey();queueDrop(lastDropKey,1);updateHaze();}}   // 水を入れ替える
+  ]
+});
+showHint('1分ごとに1滴<br>なぞると、水がそっと揺れる',5000);
+})();
+</script>
+</body>
+</html>
