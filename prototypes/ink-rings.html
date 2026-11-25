@@ -4,10 +4,10 @@
 <!-- 形は乱数で描かない。輪は閉じた渦糸で、水のどの点の流れも全部の渦糸からのビオ・サバールの和で決まる。インクの粒はその流れに乗って巻き上がる。
      インクは水より重いので、輪に沿ったインクの偏りのうち、芯の太さで決まる波長だけが育ち(σ=A·k²−B·k⁴)、重い所が垂れて房になる。
      房が育ちきると、房の一つ一つが小さな輪として巻き直す。それをもう一度くり返し、最後は自分と同じ重さの層まで沈んで、霞の層になる -->
-<!-- 時計: 1分ごとに1滴(毎分00秒)。色はその分の色で、1時間で虹を一周。古い分は底に霞の層として溜まり、層の色の並びが過ぎた1時間になる。
+<!-- 時計: 30秒ごとに1滴(毎分00秒と30秒)。色は1滴ごとに少しずつ進み、30分で虹を一周(1時間に2周。2026/11/25 おっちゃん「30秒に1滴で色の変化も倍で」)。古い滴は底に霞の層として溜まり、層の色の並びが過ぎた時間になる。
      触る: なぞると水がそっと揺れる(弱い流れを足すだけ)。✦=いま1滴落とす(滴の大きさと落ちる位置が変わる)。↻=水を入れ替える(層も消える)。
      物理はふだん0.8倍速(スロー映像のように。1滴の一生=約85秒で、次の1滴と少し重なる)。
-     確認用: ?fast=1 で5秒ごとに1滴(1滴=1分として色と層が進む。物理は3倍速)。WebGL2・音なし・Wake Lock・録画用にpreserveDrawingBuffer -->
+     確認用: ?fast=1 で5秒ごとに1滴(1滴=30秒ぶんとして色と層が進む。物理は3倍速)。WebGL2・音なし・Wake Lock・録画用にpreserveDrawingBuffer -->
 <html lang="ja">
 <head>
 <meta charset="utf-8">
@@ -249,7 +249,7 @@ var FRT=!!(gl.getExtension('EXT_color_buffer_float')||gl.getExtension('EXT_color
 var H=1.06, CAMD=2.6, SURF=.9;          // 画面の縦は z=0 の面で y∈[-H,H]。水面は y=0.9
 var SLOTS=FAST?6:4, NP=49152, NPU=NP, MAXR=32, NW=512;
 var TS=FAST?3:.8;                      // 物理の速さ(ふだんは少しゆっくり=スロー映像のように。1滴の一生が次の1滴と少し重なる)
-var PERIOD=FAST?5000:60000;
+var PERIOD=FAST?5000:30000;
 
 // ---------- シェーダー ----------
 function sh(type,src){var s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s)+'\n'+src.split('\n').slice(0,4).join('\n'));return s;}
@@ -445,11 +445,11 @@ var t0=performance.now(),vmin=0,lastDropKey=null,fastStart=0,vOff=0;
 var tBase=null,pBase=null;
 function nowMs(){return (tBase!==null?tBase:Date.now())+vOff;}
 function perfNow(){return (pBase!==null?pBase:performance.now())+vOff;}
-function nowMinuteKey(){ // 今の「分」(normal: 実時間、fast: 5秒=1分)
-  if(!FAST)return Math.floor(nowMs()/60000);
+function nowMinuteKey(){ // 今の「滴の番号」(normal: 実時間で30秒ごと、fast: 5秒ごと)
+  if(!FAST)return Math.floor(nowMs()/PERIOD);
   return vmin+Math.floor((perfNow()-fastStart)/PERIOD);}
-function minuteFloat(){if(!FAST)return nowMs()/60000;return vmin+(perfNow()-fastStart)/PERIOD;}
-function minuteOfHour(key){if(!FAST){var d=new Date(key*60000);return d.getMinutes();}return ((key%60)+60)%60;}
+function minuteFloat(){if(!FAST)return nowMs()/PERIOD;return vmin+(perfNow()-fastStart)/PERIOD;}
+function minuteOfHour(key){if(!FAST){var d=new Date(key*PERIOD);return d.getMinutes()%30*2+(d.getSeconds()>=30?1:0);}return ((key%60)+60)%60;}   // 30分(=60滴)で虹を一周。00分と30分が同じ色
 
 // ---------- 霞の層 ----------
 var layers=[];   // {key,c,merge}
@@ -490,7 +490,8 @@ function spawn(P){
   for(var i=0;i<slots.length;i++){if(!slots[i].on){sl=slots[i];break;}if(!old||slots[i].age>old.age)old=slots[i];}
   if(!sl)sl=old;
   var d=new SIM.Drop(P.x,P.z,P.key*1.618+P.str*7.1,P.str);
-  sl.drop=d;sl.age=0;sl.on=true;sl.n=NPU;sl.c=P.c;sl.c2=P.c2;sl.key=P.key;sl.cx=P.x;sl.cz=P.z;
+  sl.drop=d;sl.age=0;sl.on=true;sl.n=NPU;sl.settle=0;sl.alpha=1;   // 使い回す枠の沈み具合を戻す
+  sl.c=P.c;sl.c2=P.c2;sl.key=P.key;sl.cx=P.x;sl.cz=P.z;
   if(!layers.some(function(L){return L.key===P.key;}))layers.push({key:P.key,c:P.c,merge:0});
   sl.layerKey=P.key;
   var R0=d.rings[0],R=R0.R,a=R0.a,y0=.78;
@@ -650,7 +651,7 @@ start();updateHaze();
 requestAnimationFrame(function(n){last=n;frame(n);});
 
 // 確認用(画面には出ない): ヘッドレスで時間を進める
-window.__ink={paused:false,align:function(){tBase=Date.now();pBase=performance.now();vOff=60000-(tBase%60000)+300;},info:function(){return slots.filter(function(s){return s.on;}).map(function(s){return [s.key,s.age.toFixed(1),(s.settle||0).toFixed(2),(s.alpha||0).toFixed(2),(s.yL||0).toFixed(2),s.drop.rings.length].join(' ');}).join(' | ');},advance:function(sec,sps){sps=sps||60;for(var i=0;i<sec*sps;i++){vOff+=1000/sps;simStep(1/sps);if(i%4===0)updateHaze();if(i%2===0||i===sec*sps-1)render();}updateHaze();render();},slots:slots,layers:function(){return layers;}};
+window.__ink={paused:false,align:function(){tBase=Date.now();pBase=performance.now();vOff=PERIOD-(tBase%PERIOD)+300;},info:function(){return slots.filter(function(s){return s.on;}).map(function(s){return [s.key,s.age.toFixed(1),(s.settle||0).toFixed(2),(s.alpha||0).toFixed(2),(s.yL||0).toFixed(2),s.drop.rings.length].join(' ');}).join(' | ');},advance:function(sec,sps){sps=sps||60;for(var i=0;i<sec*sps;i++){vOff+=1000/sps;simStep(1/sps);if(i%4===0)updateHaze();if(i%2===0||i===sec*sps-1)render();}updateHaze();render();},slots:slots,layers:function(){return layers;}};
 
 APKit.init({
   canvas:cv, gifName:'ink-rings-loop', clockFormat:'spec',
@@ -660,7 +661,7 @@ APKit.init({
     {label:'↻',name:'reset',onClick:function(){layers=[];slots.forEach(function(s){s.on=false;});pending=[];lastDropKey=nowMinuteKey();queueDrop(lastDropKey,1);updateHaze();}}   // 水を入れ替える
   ]
 });
-showHint('1分ごとに1滴<br>なぞると、水がそっと揺れる',5000);
+showHint('30秒ごとに1滴<br>なぞると、水がそっと揺れる',5000);
 })();
 </script>
 </body>
