@@ -5,7 +5,9 @@
      インクは水より重いので、輪に沿ったインクの偏りのうち、芯の太さで決まる波長だけが育ち(σ=A·k²−B·k⁴)、重い所が垂れて房になる。
      房が育ちきると、房の一つ一つが小さな輪として巻き直す。それをもう一度くり返し、最後は自分と同じ重さの層まで沈んで、霞の層になる -->
 <!-- 時計: 30秒ごとに1滴(毎分00秒と30秒)。色は1滴ごとに少しずつ進み、30分で虹を一周(1時間に2周。2026/11/25 おっちゃん「30秒に1滴で色の変化も倍で」)。古い滴は底に霞の層として溜まり、層の色の並びが過ぎた時間になる。
-     触る: なぞると水がそっと揺れる(弱い流れを足すだけ)。✦=いま1滴落とす(滴の大きさと落ちる位置が変わる)。↻=水を入れ替える(層も消える)。
+     見る角度(2026/11/25 おっちゃん「見る角度が欲しい、DEEP HOURSと同じ感じ」): 画面=水槽のガラス。視点はガラスの外にあり、触らなくてもゆっくり揺れる。
+     なぞると指の位置からのぞき込む角度が変わる。下の📷を押すと、インカメラで顔の位置を読み、顔を動かした分だけのぞく角度が変わる(DEEP HOURSと同じ lib/face_mesh。映像は端末の外に出ない)。
+     横画面では、滴の落ちる位置を横幅いっぱいに散らす(おっちゃん「横にした時に広がりがない」)。✦=いま1滴落とす(滴の大きさと落ちる位置が変わる)。↻=水を入れ替える(層も消える)。
      物理はふだん0.8倍速(スロー映像のように。1滴の一生=約85秒で、次の1滴と少し重なる)。
      確認用: ?fast=1 で5秒ごとに1滴(1滴=30秒ぶんとして色と層が進む。物理は3倍速)。WebGL2・音なし・Wake Lock・録画用にpreserveDrawingBuffer -->
 <html lang="ja">
@@ -19,6 +21,7 @@ html,body{margin:0;height:100%;background:#020309;overflow:hidden}
 canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
 #hint{position:fixed;left:0;right:0;bottom:22%;text-align:center;color:rgba(255,255,255,.85);font:13px/1.8 -apple-system,"Hiragino Sans",sans-serif;letter-spacing:.08em;pointer-events:none;opacity:0;transition:opacity 1.4s;text-shadow:0 0 10px #000,0 0 4px #000}
 #hint.on{opacity:1}
+video{position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none}
 #time{position:fixed;left:max(5vw,env(safe-area-inset-left));bottom:calc(max(3.4vh,env(safe-area-inset-bottom)) + 14px);color:#fff;opacity:.3;font:500 11px/1 ui-monospace,"SF Mono",Menlo,monospace;letter-spacing:.32em;font-variant-numeric:tabular-nums;pointer-events:none;transition:opacity 1s}
 </style>
 </head>
@@ -26,6 +29,7 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:
 <canvas id="c"></canvas>
 <div id="time"></div>
 <div id="hint"></div>
+<video id="v" playsinline muted></video>
 <script>
 // ===== 渦の物理(CPU) =====
 // 輪(渦輪)は閉じた渦糸。どの点の流れも、全部の渦糸の小片からのビオ・サバールの和で決まる(芯はRosenhead-Mooreの式でならす)。
@@ -96,14 +100,7 @@ function induced(rings,px,py,pz,out){
 function smooth(e0,e1,x){var t=Math.min(1,Math.max(0,(x-e0)/(e1-e0)));return t*t*(3-2*t);}
 
 var tmp=[0,0,0];
-// かき混ぜ(触ったとき、水をそっと揺らす)
-function stirAt(stirs,px,py,pz,out){
-  for(var i=0;i<stirs.length;i++){var s=stirs[i];if(s.k<.002)continue;
-    var dx=px-s.x,dy=py-s.y,dz=pz*.5;var e=Math.exp(-(dx*dx+dy*dy+dz*dz)/(s.r*s.r))*s.k;
-    out[0]+=s.vx*e;out[1]+=s.vy*e;}
-}
-
-Drop.prototype.step=function(dt,stirs,yL){
+Drop.prototype.step=function(dt,yL){
   if(yL===undefined)yL=-.7;
   var rings=this.rings;this.t+=dt;
   // --- 1. 輪ごとの形(中心・半径・軸)と、インクの偏り・浮力・巻き込み
@@ -161,7 +158,7 @@ Drop.prototype.step=function(dt,stirs,yL){
   var all=rings;
   for(var r2=0;r2<rings.length;r2++){var R2=rings[r2],P2=R2.pos,V=R2.vel,N2=R2.N;
     for(var i6=0;i6<N2;i6++){var b=i6*3;
-      induced(all,P2[b],P2[b+1],P2[b+2],tmp);stirAt(stirs,P2[b],P2[b+1],P2[b+2],tmp);
+      induced(all,P2[b],P2[b+1],P2[b+2],tmp);
       V[b]=tmp[0]+R2.drift[b];V[b+1]=tmp[1]+R2.drift[b+1];V[b+2]=tmp[2]+R2.drift[b+2];}}
   // 中間点
   var half=[];
@@ -170,7 +167,7 @@ Drop.prototype.step=function(dt,stirs,yL){
   for(var r4=0;r4<rings.length;r4++){var R4=rings[r4],P4=R4.pos,N4=R4.N,H=half[r4];
     var V4=new Float32Array(N4*3);
     for(var i8=0;i8<N4;i8++){var b2=i8*3;
-      induced(all,P4[b2],P4[b2+1],P4[b2+2],tmp);stirAt(stirs,P4[b2],P4[b2+1],P4[b2+2],tmp);
+      induced(all,P4[b2],P4[b2+1],P4[b2+2],tmp);
       V4[b2]=tmp[0]+R4.drift[b2];V4[b2+1]=tmp[1]+R4.drift[b2+1];V4[b2+2]=tmp[2]+R4.drift[b2+2];}
     for(var i9=0;i9<N4*3;i9++){P4[i9]=H[i9]+V4[i9]*dt;R4.vel[i9]=V4[i9];}
     resample(R4);
@@ -265,7 +262,6 @@ precision highp float;precision highp int;
 layout(location=0) in vec4 aP;
 uniform highp sampler2D uN;
 uniform vec4 uRA[${MAXR}];uniform vec4 uRB[${MAXR}];uniform int uRN;
-uniform vec4 uSt[4];uniform vec4 uSv[4];
 uniform vec4 uSet;uniform vec2 uSc;uniform float uDt;uniform float uFr;
 out vec4 vP;
 float gks;
@@ -281,7 +277,6 @@ vec3 vel(vec3 p){
       pv=cu;}
     u+=acc*B.w*(1.-smoothstep(.45*c2,c2,d2));}
   u+=ds/max(ks,1e-5)*min(1.,ks*1.5);gks=ks;
-  for(int i=0;i<4;i++){vec3 d=p-uSt[i].xyz;d.z*=.5;u+=uSv[i].xyz*exp(-dot(d,d)/(uSt[i].w*uSt[i].w))*uSv[i].w;}
   float dy=p.y-uSet.x;
   u.y-=(.006+uSet.y*.06)*tanh(dy/.06);                       // インクは重い: 自分と同じ重さの層まで沈む
   u.xz+=uSet.y*uSet.w*exp(-dy*dy/.006)*(p.xz-uSc);             // その層に着くと横に広がる(薄い層になる)
@@ -327,9 +322,9 @@ void main(){vec4 s=texture(uT,vU)*.2270;
 var COMP_FS=`#version 300 es
 precision highp float;in vec2 vU;
 uniform sampler2D uDen;uniform sampler2D uBl;uniform sampler2D uHz;uniform sampler2D uSm;
-uniform vec2 uRes;uniform float uT;uniform float uAsp;uniform vec4 uDrop;uniform vec3 uDropC;uniform vec4 uRip;uniform float uSlosh;uniform float uGain;
+uniform vec2 uRes;uniform float uT;uniform float uAsp;uniform vec4 uDrop;uniform vec3 uDropC;uniform vec4 uRip;uniform float uGain;uniform vec3 uEye;
 out vec4 o;
-const float H=${H.toFixed(3)},D=${CAMD.toFixed(1)},S=${SURF.toFixed(3)},Z=.25;
+const float H=${H.toFixed(3)},S=${SURF.toFixed(3)},Z=.3;
 float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
 float vn(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
   return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);}
@@ -351,14 +346,15 @@ vec3 ink(vec2 uv,out float op){
 void main(){
   vec2 uv=vU;float ny=uv.y*2.-1.,nx=(uv.x*2.-1.)*uAsp;
   float wy=ny*H,wx=nx*H;
-  float yF=S/(H*(D-Z))*D,yB=S/(H*(D+Z))*D;           // 水面の手前の縁・奥の縁(画面のy、-1..1)
+  float ex=uEye.x,ey=uEye.y,ez=uEye.z;
+  float yF=(ey+(S-ey)*ez/(ez-Z))/H,yB=(ey+(S-ey)*ez/(ez+Z))/H;   // 水面の手前の縁・奥の縁(画面のy、-1..1)。視点の高さで変わる
   // 水
   float gy=clamp(uv.y,0.,1.);
   vec3 col=mix(vec3(.00035,.0005,.0016),vec3(.0024,.0042,.0175),pow(gy,1.5));
   col*=.75+.25*exp(-pow(nx/(uAsp+.6),2.)*1.4);
   col+=vec3(.0012,.0025,.008)*exp(-(1.-gy)*6.);          // 水面からの光
   // 霞の層(過ぎた分のインク)。内部波でゆっくりうねる
-  float wv=.010*sin(wx*2.3+uT*.21)+.006*sin(wx*5.1-uT*.37+1.3)+uSlosh*sin(wx*3.4-uT*2.2);
+  float wv=.010*sin(wx*2.3+uT*.21)+.006*sin(wx*5.1-uT*.37+1.3);
   float hzv=(wy+wv+H)/(2.*H);
   vec4 hz=texture(uHz,vec2(.5,hzv));
   if(hz.a>.002){
@@ -377,7 +373,7 @@ void main(){
     vec2 mu=vec2(uv.x,(min(sy,yB-.002)*.5+.5));
     float mop;vec3 mc=ink(mu,mop);
     // さざなみ: 水面上の位置(奥行き)を戻して、着水点からの同心円
-    float zz=D-S*D/(max(ny,1e-3)*H);float xs=wx*(D-zz)/D;
+    float zz=ez-(S-ey)*ez/max(wy-ey,1e-3);float xs=ex+(wx-ex)*(ez-zz)/ez;
     float rho=length(vec2(xs-uRip.x,zz));
     float rip=uRip.z*sin(rho*95.-uRip.w*14.)*exp(-rho*7.)*smoothstep(uRip.w*.7+.05,uRip.w*.7-.05,rho)*exp(-uRip.w*.9);
     vec3 sheen=vec3(.0035,.006,.014)*(.4+.9*t*t)*(1.+rip*2.2);
@@ -480,9 +476,10 @@ function halton(i,b){var f=1,r=0;while(i>0){f/=b;r+=f*(i%b);i=Math.floor(i/b);}r
 var HAL=new Float32Array(NP*4);
 for(var hi=0;hi<NP;hi++){HAL[hi*4]=halton(hi+1,2);HAL[hi*4+1]=halton(hi+1,3);HAL[hi*4+2]=halton(hi+1,5);HAL[hi*4+3]=halton(hi+1,7);}
 var pending=[];   // 空中を落ちている滴
-function queueDrop(key,strength,dx){
-  var mi=minuteOfHour(key);
-  var x=.11*Math.sin(key*2.39996)+(dx||0),z=.07*Math.cos(key*3.1199);
+function dropRange(){return Math.max(.11,H*innerWidth/innerHeight-.45);}   // 横画面では横幅いっぱいに散らす
+function queueDrop(key,strength,xAbs){
+  var mi=minuteOfHour(key),f=(key*.6180339887)%1;
+  var x=xAbs!==undefined?xAbs:dropRange()*(2*f-1)*.9,z=.2*Math.cos(key*3.1199);
   pending.push({key:key,x:x,z:z,str:strength,c:minuteColor(mi),c2:minuteColor(mi,.42),t:0});}
 function spawn(P){
   // 空いている枠、なければいちばん古い枠
@@ -510,24 +507,90 @@ function spawn(P){
   rip={x:P.x,t:0,a:1};}
 var rip={x:0,t:9,a:0};
 
-// ---------- かき混ぜ(なぞる) ----------
-var stirs=[0,1,2,3].map(function(){return {x:0,y:0,r:.25,vx:0,vy:0,k:0};}),stirI=0,slosh=0;
-var ptr=null;
-function toWorld(e){var r=cv.getBoundingClientRect();var nx=((e.clientX-r.left)/r.width*2-1)*(r.width/r.height),ny=1-(e.clientY-r.top)/r.height*2;return [nx*H,ny*H];}
-cv.addEventListener('pointerdown',function(e){if(window.APKit&&APKit.isUI&&APKit.isUI(e.clientX,e.clientY))return;var p=toWorld(e);ptr={x:p[0],y:p[1],t:performance.now()};});
-cv.addEventListener('pointermove',function(e){if(!ptr)return;var p=toWorld(e),t=performance.now(),dt=Math.max(8,t-ptr.t)/1000;
-  var vx=(p[0]-ptr.x)/dt,vy=(p[1]-ptr.y)/dt,sp=Math.hypot(vx,vy),cap=.10;if(sp>0){var f=Math.min(1,cap/(sp*.22))*.22;vx*=f;vy*=f;}
-  var s=stirs[stirI];
-  if(s.k>.3&&Math.hypot(s.x-p[0],s.y-p[1])<.12){s.vx=s.vx*.6+vx*.4;s.vy=s.vy*.6+vy*.4;s.x=p[0];s.y=p[1];s.k=1;}
-  else{stirI=(stirI+1)%4;s=stirs[stirI];s.x=p[0];s.y=p[1];s.vx=vx;s.vy=vy;s.k=1;s.r=.24;}
-  slosh=Math.min(.02,slosh+Math.hypot(vx,vy)*.01);
-  ptr={x:p[0],y:p[1],t:t};});
-['pointerup','pointercancel','pointerleave'].forEach(function(n){cv.addEventListener(n,function(){ptr=null;});});
+// ---------- 視点(画面=水槽のガラス。視点はガラスの外で、のぞく角度が変わる。DEEP HOURSと同じオフアクシス投影) ----------
+var eye={x:0,y:0,z:CAMD},eyeT={x:0,y:0,z:CAMD},tNow=0,lastInput=-99,ptr={has:false,nx:0,ny:0};
+function peek(e){if(window.APKit&&APKit.isUI&&APKit.isUI(e.clientX,e.clientY))return;
+  ptr.has=true;ptr.nx=e.clientX/innerWidth*2-1;ptr.ny=e.clientY/innerHeight*2-1;lastInput=tNow;}
+cv.addEventListener('pointerdown',peek);
+cv.addEventListener('pointermove',function(e){if(e.pointerType==='mouse'||e.buttons)peek(e);});
+var isTouch=matchMedia('(pointer:coarse)').matches;
+// インカメラ(顔の位置)。DEEP HOURSの方式そのまま
+var video=document.getElementById('v');
+var cam={on:false,stream:null,fm:null,busy:false,lastFace:-99,loading:false,base:null};
+function OneEuro(minC,beta){this.minC=minC;this.beta=beta;this.x=null;this.dx=0;}
+OneEuro.prototype.alpha=function(c,dt){var tau=1/(2*Math.PI*c);return 1/(1+tau/dt);};
+OneEuro.prototype.f=function(v,dt){if(this.x===null){this.x=v;return v;}
+  var d=(v-this.x)/dt;this.dx+=(d-this.dx)*this.alpha(1,dt);
+  var c=this.minC+this.beta*Math.abs(this.dx);this.x+=(v-this.x)*this.alpha(c,dt);return this.x;};
+var fx=new OneEuro(1.2,6),fy=new OneEuro(1.2,6),fz=new OneEuro(.8,3);
+var HFOV=65*Math.PI/180,EYE_SPAN_CM=8.8;
+function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+function unitsPerCm(){return 2/((isTouch||innerWidth<820)?14:19);}
+function onFace(res){
+  var L=res.multiFaceLandmarks&&res.multiFaceLandmarks[0];if(!L)return;
+  var vw=video.videoWidth||640,vh=video.videoHeight||480;
+  cam.lastFace=performance.now()/1000;
+  var spanPx=Math.hypot((L[263].x-L[33].x)*vw,(L[263].y-L[33].y)*vh)||1;   // 目の外側の端の距離 → 顔までの距離
+  var fpx=vw/2/Math.tan(HFOV/2),distCm=fpx*EYE_SPAN_CM/spanPx;
+  var cx=(L[33].x+L[263].x)/2,cy=(L[33].y+L[263].y)/2;
+  var xCm=(.5-cx)*vw*distCm/fpx,yCm=(.5-cy)*vh*distCm/fpx;
+  if(!cam.base)cam.base={x:xCm,y:yCm,d:distCm};
+  else{var k=.0015;cam.base.x+=(xCm-cam.base.x)*k;cam.base.y+=(yCm-cam.base.y)*k;cam.base.d+=(distCm-cam.base.d)*k;}
+  var u=unitsPerCm();
+  eyeT.x=clamp((xCm-cam.base.x)*u*.85,-1.2,1.2);eyeT.y=clamp((yCm-cam.base.y)*u*.85,-.7,.7);
+  eyeT.z=clamp(CAMD+(distCm-cam.base.d)*u,1.6,4.5);}
+function loadScript(src){return new Promise(function(ok,ng){var s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=function(){ng(Error('load '+src));};document.head.appendChild(s);});}
+var camBtn=null;
+function setCamButton(on){if(camBtn)camBtn.classList.toggle('apk-on',on);}
+function startCamera(){
+  if(cam.on||cam.loading)return;cam.loading=true;
+  (async function(){try{
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw Error('no getUserMedia');
+    cam.stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:640},height:{ideal:480}},audio:false});
+    video.srcObject=cam.stream;await video.play();
+    showHint('顔の読み取りを準備中…',8000);
+    if(!window.FaceMesh)await loadScript('../lib/face_mesh/face_mesh.js');
+    if(!cam.fm){cam.fm=new window.FaceMesh({locateFile:function(f){return '../lib/face_mesh/'+f;}});
+      cam.fm.setOptions({maxNumFaces:1,refineLandmarks:false,minDetectionConfidence:.5,minTrackingConfidence:.5});
+      cam.fm.onResults(onFace);await cam.fm.initialize();}
+    if(!cam.stream)return;
+    cam.on=true;cam.base=null;cam.lastFace=-99;
+    showHint('顔を動かすと、のぞく角度が変わる<br>映像は端末の外に出ません',4500);
+    pumpCamera();
+  }catch(err){
+    console.error(err);stopCamera();
+    var denied=err&&(err.name==='NotAllowedError'||err.name==='SecurityError');
+    if(window.APKit)APKit.toast(denied?'カメラが許可されませんでした。なぞると角度を変えられます':'この端末ではカメラ追跡を始められませんでした');
+    setCamButton(false);
+  }finally{cam.loading=false;}})();}
+function stopCamera(){cam.on=false;if(cam.stream){cam.stream.getTracks().forEach(function(t){t.stop();});cam.stream=null;}video.srcObject=null;lastInput=tNow-99;}
+function pumpCamera(){
+  if(!cam.on)return;
+  if(!cam.busy&&video.readyState>=2){cam.busy=true;cam.fm.send({image:video}).catch(function(e){console.error(e);}).then(function(){cam.busy=false;});}
+  if(video.requestVideoFrameCallback)video.requestVideoFrameCallback(pumpCamera);else requestAnimationFrame(pumpCamera);}
+function updateEye(dt){
+  tNow+=dt;
+  var asp=innerWidth/innerHeight,exm=Math.min(Math.max(asp,1),1.3)*.8;
+  var camLive=cam.on&&(performance.now()/1000-cam.lastFace)<1,touching=(tNow-lastInput)<4;
+  if(camLive){eye.x=fx.f(eyeT.x,dt);eye.y=fy.f(eyeT.y,dt);eye.z=fz.f(eyeT.z,dt);}
+  else{
+    if(touching){eyeT.x=ptr.nx*exm;eyeT.y=-ptr.ny*.6;}
+    else{eyeT.x=.65*exm*Math.sin(tNow*.13);eyeT.y=.32*Math.sin(tNow*.097+1);}   // 触らなくても、ゆっくり見る角度が変わる
+    eyeT.z=CAMD;
+    var k=1-Math.exp(-dt*(touching?5:1.2));
+    eye.x+=(eyeT.x-eye.x)*k;eye.y+=(eyeT.y-eye.y)*k;eye.z+=(eyeT.z-eye.z)*k;
+    if(cam.on){fx.x=eye.x;fy.x=eye.y;fz.x=eye.z;}   // 顔を見失ったあと、戻っても跳ばない
+  }
+  eye.x=clamp(eye.x,-1.3,1.3);eye.y=clamp(eye.y,-.7,.7);}
 
 // ---------- 1コマ ----------
 var VP=new Float32Array(16);
-function persp(){var asp=W/Hpx,f=CAMD/H,n=.1,fa=20,A=(fa+n)/(n-fa),B=2*fa*n/(n-fa);VP.fill(0);
-  VP[0]=f/asp;VP[5]=f;VP[10]=A;VP[11]=-1;VP[14]=A*-CAMD+B;VP[15]=CAMD;}   // 投影 × カメラ(z=CAMDから-z向き)
+function persp(){   // オフアクシス投影: z=0 の面(画面=ガラス)は動かず、奥ほど視点と逆にずれる
+  var asp=W/Hpx,n=.1,fa=20,ex=eye.x,ey=eye.y,ez=eye.z;
+  var l=(-H*asp-ex)*n/ez,r=(H*asp-ex)*n/ez,b=(-H-ey)*n/ez,t=(H-ey)*n/ez;
+  VP.fill(0);
+  VP[0]=2*n/(r-l);VP[5]=2*n/(t-b);VP[8]=(r+l)/(r-l);VP[9]=(t+b)/(t-b);VP[10]=-(fa+n)/(fa-n);VP[11]=-1;
+  VP[12]=VP[0]*-ex+VP[8]*-ez;VP[13]=VP[5]*-ey+VP[9]*-ez;VP[14]=VP[10]*-ez-2*fa*n/(fa-n);VP[15]=ez;}
 var frames=0,acc=0,last=performance.now(),fr=0;
 function uploadSlot(sl){
   var d=sl.drop,rn=0,idx=0,N=sl.nodes,RA=sl.ra,RB=sl.rb;
@@ -539,7 +602,6 @@ function uploadSlot(sl){
     idx+=R.N;rn++;}
   sl.rn=rn;
   gl.bindTexture(gl.TEXTURE_2D,sl.tex);gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,NW,2,gl.RGBA,gl.FLOAT,N);}
-var stU=new Float32Array(16),svU=new Float32Array(16);
 
 function simStep(dtReal){
   var dt=Math.min(dtReal,1/30)*TS;
@@ -554,13 +616,10 @@ function simStep(dtReal){
   // 空中の滴
   for(var i=pending.length-1;i>=0;i--){var P=pending[i];P.t+=dtReal;if(P.t>=.42){spawn(P);pending.splice(i,1);}}
   rip.t+=dtReal;
-  for(var s=0;s<4;s++){var S=stirs[s];S.k*=Math.exp(-dtReal/1.4);}
-  slosh*=Math.exp(-dtReal/2.5);
-  for(var k=0;k<4;k++){var S2=stirs[k];stU[k*4]=S2.x;stU[k*4+1]=S2.y;stU[k*4+2]=0;stU[k*4+3]=S2.r;svU[k*4]=S2.vx;svU[k*4+1]=S2.vy;svU[k*4+2]=0;svU[k*4+3]=S2.k;}
   // 物理
   for(var j=0;j<slots.length;j++){var sl=slots[j];if(!sl.on)continue;sl.age+=dt;
     var yL=layerY[sl.layerKey]!==undefined?layerY[sl.layerKey]:hzTop;sl.yL=yL;
-    sl.drop.step(dt,stirs,yL);
+    sl.drop.step(dt,yL);
     var Ly=null;for(var q=0;q<layers.length;q++)if(layers[q].key===sl.layerKey){Ly=layers[q];break;}
     var since=sl.drop.rings.length?0:sl.drop.t-sl.drop.lastRing;
     sl.settle=Math.min(1,Math.max(sl.settle||0,since>0?Math.min(1,since/4):0,smoothJS(26,36,sl.age)));
@@ -575,7 +634,7 @@ function render(){
   persp();
   // 1) 粒を流す
   gl.useProgram(advP.p);gl.enable(gl.RASTERIZER_DISCARD);
-  gl.uniform4fv(advP.u.uSt,stU);gl.uniform4fv(advP.u.uSv,svU);gl.uniform1f(advP.u.uFr,fr%1000);gl.uniform1i(advP.u.uN,0);gl.activeTexture(gl.TEXTURE0);
+  gl.uniform1f(advP.u.uFr,fr%1000);gl.uniform1i(advP.u.uN,0);gl.activeTexture(gl.TEXTURE0);
   for(var j=0;j<slots.length;j++){var sl=slots[j];if(!sl.on)continue;
     gl.bindTexture(gl.TEXTURE_2D,sl.tex);
     gl.uniform4fv(advP.u.uRA,sl.ra);gl.uniform4fv(advP.u.uRB,sl.rb);gl.uniform1i(advP.u.uRN,sl.rn);
@@ -610,9 +669,10 @@ function render(){
   gl.activeTexture(gl.TEXTURE2);gl.bindTexture(gl.TEXTURE_2D,hzTex);gl.uniform1i(cpP.u.uHz,2);
   gl.activeTexture(gl.TEXTURE3);gl.bindTexture(gl.TEXTURE_2D,sB.t);gl.uniform1i(cpP.u.uSm,3);
   gl.uniform2f(cpP.u.uRes,W,Hpx);gl.uniform1f(cpP.u.uT,(performance.now()-t0)/1000);gl.uniform1f(cpP.u.uAsp,W/Hpx);
-  gl.uniform1f(cpP.u.uGain,1);gl.uniform1f(cpP.u.uSlosh,slosh);
+  gl.uniform1f(cpP.u.uGain,1);gl.uniform3f(cpP.u.uEye,eye.x,eye.y,eye.z);
   var P=pending[0];
-  if(P){var ft=Math.min(1,P.t/.42),yN=1.08-(1.08-SURF/H)*ft*ft;gl.uniform4f(cpP.u.uDrop,P.x/H*(CAMD/(CAMD-P.z)),yN,Math.max(2.5,4.2*Hpx/1688*2),1);gl.uniform3fv(cpP.u.uDropC,P.c);}
+  if(P){var ft=Math.min(1,P.t/.42),yw=1.3-(1.3-SURF)*ft*ft,sc=eye.z/(eye.z-P.z);
+    gl.uniform4f(cpP.u.uDrop,(eye.x+(P.x-eye.x)*sc)/H,(eye.y+(yw-eye.y)*sc)/H,Math.max(2.5,4.2*Hpx/1688*2),1);gl.uniform3fv(cpP.u.uDropC,P.c);}
   else gl.uniform4f(cpP.u.uDrop,0,0,0,0);
   gl.uniform4f(cpP.u.uRip,rip.x,0,rip.a,rip.t);
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
@@ -622,7 +682,7 @@ var hzCount=0;
 function frame(now){
   if(window.__ink&&__ink.paused){last=now;requestAnimationFrame(frame);return;}
   var dt=Math.min(.1,(now-last)/1000);last=now;fr++;
-  simStep(dt);
+  updateEye(dt);simStep(dt);
   if((hzCount++&3)===0)updateHaze();
   render();
   // 重い端末では解像度を少し下げる
@@ -651,17 +711,19 @@ start();updateHaze();
 requestAnimationFrame(function(n){last=n;frame(n);});
 
 // 確認用(画面には出ない): ヘッドレスで時間を進める
-window.__ink={paused:false,align:function(){tBase=Date.now();pBase=performance.now();vOff=PERIOD-(tBase%PERIOD)+300;},info:function(){return slots.filter(function(s){return s.on;}).map(function(s){return [s.key,s.age.toFixed(1),(s.settle||0).toFixed(2),(s.alpha||0).toFixed(2),(s.yL||0).toFixed(2),s.drop.rings.length].join(' ');}).join(' | ');},advance:function(sec,sps){sps=sps||60;for(var i=0;i<sec*sps;i++){vOff+=1000/sps;simStep(1/sps);if(i%4===0)updateHaze();if(i%2===0||i===sec*sps-1)render();}updateHaze();render();},slots:slots,layers:function(){return layers;}};
+window.__ink={paused:false,align:function(){tBase=Date.now();pBase=performance.now();vOff=PERIOD-(tBase%PERIOD)+300;},info:function(){return slots.filter(function(s){return s.on;}).map(function(s){return [s.key,s.age.toFixed(1),(s.settle||0).toFixed(2),(s.alpha||0).toFixed(2),(s.yL||0).toFixed(2),s.drop.rings.length].join(' ');}).join(' | ');},advance:function(sec,sps){sps=sps||60;for(var i=0;i<sec*sps;i++){vOff+=1000/sps;updateEye(1/sps);simStep(1/sps);if(i%4===0)updateHaze();if(i%2===0||i===sec*sps-1)render();}updateHaze();render();},slots:slots,layers:function(){return layers;}};
 
 APKit.init({
   canvas:cv, gifName:'ink-rings-loop', clockFormat:'spec',
   dock:true, autoHide:true, fullscreenButton:false,
   buttons:[
-    {label:'✦',name:'mutate',onClick:function(){queueDrop(nowMinuteKey(),.8+Math.random()*.45,(Math.random()-.5)*.3);}},   // いま1滴(大きさと位置が変わる)
-    {label:'↻',name:'reset',onClick:function(){layers=[];slots.forEach(function(s){s.on=false;});pending=[];lastDropKey=nowMinuteKey();queueDrop(lastDropKey,1);updateHaze();}}   // 水を入れ替える
+    {label:'✦',name:'mutate',onClick:function(){queueDrop(nowMinuteKey(),.8+Math.random()*.45,dropRange()*(Math.random()*2-1)*.9);}},   // いま1滴(大きさと位置が変わる)
+    {label:'↻',name:'reset',onClick:function(){layers=[];slots.forEach(function(s){s.on=false;});pending=[];lastDropKey=nowMinuteKey();queueDrop(lastDropKey,1);updateHaze();}},   // 水を入れ替える
+    {label:'📷',name:'camera',toggle:true,onClick:function(b){camBtn=b;   // 顔の位置でのぞく角度を変える
+      if(cam.on||cam.loading){stopCamera();setTimeout(function(){setCamButton(false);},0);}else startCamera();}}
   ]
 });
-showHint('30秒ごとに1滴<br>なぞると、水がそっと揺れる',5000);
+showHint('30秒ごとに1滴<br>なぞると見る角度が変わる / 下の📷で顔に合わせる',5500);
 })();
 </script>
 </body>
