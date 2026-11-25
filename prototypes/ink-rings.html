@@ -4,13 +4,12 @@
 <!-- 形は乱数で描かない。輪は閉じた渦糸で、水のどの点の流れも全部の渦糸からのビオ・サバールの和で決まる。インクの粒はその流れに乗って巻き上がる。
      インクは水より重いので、輪に沿ったインクの偏りのうち、芯の太さで決まる波長だけが育ち(σ=A·k²−B·k⁴)、重い所が垂れて房になる。
      房が育ちきると、房の一つ一つが小さな輪として巻き直す。それをもう一度くり返し、最後は底まで沈んで広がり、薄れて消える -->
-<!-- 時計: 30秒ごとに1滴(毎分00秒と30秒)。色は1滴ごとに少しずつ進み、30分で虹を一周(1時間に2周。2026/11/25 おっちゃん「30秒に1滴で色の変化も倍で」)。(底の虹の霞の層は外した。2026/11/25 おっちゃん「底の虹が要らない」)
+<!-- 時計: 30秒ごとに1滴(毎分00秒と30秒)。色は1滴ごとに12°ずつ進み、15分で虹を一周(1時間に4周。2026/11/25 おっちゃん「30秒に1滴で色の変化も倍で」→「色の変化がもっと欲しい」)。
+     インクは沈むほど色が移る(インクに混ざった色素が分かれていく): 最初の輪・分かれた子の輪・孫の輪で色が違って見え、分かれたことが色で分かる。(底の虹の霞の層は外した。2026/11/25 おっちゃん「底の虹が要らない」)
      見る角度(2026/11/25 おっちゃん「見る角度が欲しい、DEEP HOURSと同じ感じ」): 画面=水槽のガラス。視点はガラスの外にあり、触らなくてもゆっくり揺れる。
      なぞると指の位置からのぞき込む角度が変わる。下の📷を押すと、インカメラで顔の位置を読み、顔を動かした分だけのぞく角度が変わる(DEEP HOURSと同じ lib/face_mesh。映像は端末の外に出ない)。
      横画面では、滴の落ちる位置を横幅いっぱいに散らす(おっちゃん「横にした時に広がりがない」)。✦=いま1滴落とす(滴の大きさと落ちる位置が変わる)。↻=水を入れ替える(層も消える)。
      物理はふだん0.8倍速(スロー映像のように。1滴の一生=約85秒で、次の1滴と少し重なる)。
-     魚(2026/11/25 おっちゃん「魚を出して欲しい」): ときどき魚が横切る(assets/fish-kit、CC0。three.jsをこのWebGL2と同じ文脈で使い、魚だけ別の画に描いて合成)。
-     魚は泳ぐと周りの水を押しのける(動く球のまわりの流れ+体にまとわりつく水)ので、インクの粒も渦糸も押されて形が変わる。
      確認用: ?fast=1 で5秒ごとに1滴(1滴=30秒ぶんとして色と層が進む。物理は3倍速)。WebGL2・音なし・Wake Lock・録画用にpreserveDrawingBuffer -->
 <html lang="ja">
 <head>
@@ -18,7 +17,6 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>INK RINGS — インクは輪になり、分かれて、また輪になる</title>
 <script src="../ap-kit.js"></script>
-<script type="importmap">{"imports":{"three":"../assets/vendor/three/three.module.js","three/addons/":"../assets/vendor/three/examples/jsm/"}}</script>
 <style>
 html,body{margin:0;height:100%;background:#020309;overflow:hidden}
 canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
@@ -103,15 +101,7 @@ function induced(rings,px,py,pz,out){
 function smooth(e0,e1,x){var t=Math.min(1,Math.max(0,(x-e0)/(e1-e0)));return t*t*(3-2*t);}
 
 var tmp=[0,0,0];
-// 魚が押しのける水(シェーダーと同じ式): 動く球のまわりの流れ+体にまとわりつく水
-function blobAt(blobs,px,py,pz,out){
-  if(!blobs)return;
-  for(var i=0;i<blobs.length&&i<6;i++){var B=blobs[i];
-    var rx=px-B.x,ry=py-B.y,rz=pz-B.z,l=Math.hypot(rx,ry,rz),d=Math.max(l,B.a),il=1/Math.max(l,1e-5);
-    var hx=rx*il,hy=ry*il,hz=rz*il,vd=B.vx*hx+B.vy*hy+B.vz*hz,k=.5*B.a*B.a*B.a/(d*d*d),e=.3*Math.exp(-(rx*rx+ry*ry+rz*rz)/(2.2*B.a*B.a));
-    out[0]+=k*(3*vd*hx-B.vx)+e*B.vx;out[1]+=k*(3*vd*hy-B.vy)+e*B.vy;out[2]+=k*(3*vd*hz-B.vz)+e*B.vz;}
-}
-Drop.prototype.step=function(dt,yL,blobs){
+Drop.prototype.step=function(dt,yL){
   if(yL===undefined)yL=-.7;
   var rings=this.rings;this.t+=dt;
   // --- 1. 輪ごとの形(中心・半径・軸)と、インクの偏り・浮力・巻き込み
@@ -169,7 +159,7 @@ Drop.prototype.step=function(dt,yL,blobs){
   var all=rings;
   for(var r2=0;r2<rings.length;r2++){var R2=rings[r2],P2=R2.pos,V=R2.vel,N2=R2.N;
     for(var i6=0;i6<N2;i6++){var b=i6*3;
-      induced(all,P2[b],P2[b+1],P2[b+2],tmp);blobAt(blobs,P2[b],P2[b+1],P2[b+2],tmp);
+      induced(all,P2[b],P2[b+1],P2[b+2],tmp);
       V[b]=tmp[0]+R2.drift[b];V[b+1]=tmp[1]+R2.drift[b+1];V[b+2]=tmp[2]+R2.drift[b+2];}}
   // 中間点
   var half=[];
@@ -178,7 +168,7 @@ Drop.prototype.step=function(dt,yL,blobs){
   for(var r4=0;r4<rings.length;r4++){var R4=rings[r4],P4=R4.pos,N4=R4.N,H=half[r4];
     var V4=new Float32Array(N4*3);
     for(var i8=0;i8<N4;i8++){var b2=i8*3;
-      induced(all,P4[b2],P4[b2+1],P4[b2+2],tmp);blobAt(blobs,P4[b2],P4[b2+1],P4[b2+2],tmp);
+      induced(all,P4[b2],P4[b2+1],P4[b2+2],tmp);
       V4[b2]=tmp[0]+R4.drift[b2];V4[b2+1]=tmp[1]+R4.drift[b2+1];V4[b2+2]=tmp[2]+R4.drift[b2+2];}
     for(var i9=0;i9<N4*3;i9++){P4[i9]=H[i9]+V4[i9]*dt;R4.vel[i9]=V4[i9];}
     resample(R4);
@@ -275,7 +265,6 @@ layout(location=0) in vec4 aP;
 uniform highp sampler2D uN;
 uniform vec4 uRA[${MAXR}];uniform vec4 uRB[${MAXR}];uniform int uRN;
 uniform vec4 uSet;uniform vec2 uSc;uniform float uDt;uniform float uFr;
-uniform vec4 uFB[6];uniform vec4 uFV[6];uniform int uFN;
 out vec4 vP;
 float gks;
 vec3 vel(vec3 p){
@@ -290,9 +279,6 @@ vec3 vel(vec3 p){
       pv=cu;}
     u+=acc*B.w*(1.-smoothstep(.45*c2,c2,d2));}
   u+=ds/max(ks,1e-5)*min(1.,ks*1.5);gks=ks;
-  for(int i=0;i<6;i++){if(i>=uFN)break;                         // 魚が押しのける水: 動く球のまわりの流れ(双極子)+体にまとわりつく水
-    vec3 r=p-uFB[i].xyz;float a=uFB[i].w,l=length(r),d=max(l,a);vec3 rh=r/max(l,1e-5),v=uFV[i].xyz;
-    u+=.5*a*a*a*(3.*dot(v,rh)*rh-v)/(d*d*d)+.3*v*exp(-dot(r,r)/(2.2*a*a));}
   float dy=p.y-uSet.x;
   u.y-=(.006+uSet.y*.06)*tanh(dy/.06);                       // インクは重い: 自分と同じ重さの層まで沈む
   u.xz+=uSet.y*uSet.w*exp(-dy*dy/.006)*(p.xz-uSc);             // その層に着くと横に広がる(薄い層になる)
@@ -313,15 +299,15 @@ precision mediump float;out vec4 o;void main(){o=vec4(0);}`;
 var PT_VS=`#version 300 es
 precision highp float;
 layout(location=0) in vec4 aP;
-uniform mat4 uVP;uniform float uPS;uniform vec3 uC1;uniform vec3 uC2;uniform float uA;uniform float uG;
+uniform mat4 uVP;uniform float uPS;uniform vec3 uC1;uniform vec3 uCm;uniform vec3 uC2;uniform float uA;uniform float uG;
 out vec4 vC;
-float hh(float n){return fract(sin(n)*43758.5453);}
 void main(){vec4 c=uVP*vec4(aP.xyz,1.);gl_Position=c;
   gl_PointSize=uPS*uG*${CAMD.toFixed(1)}/c.w;
-  float id=float(gl_VertexID);float m=pow(hh(id*.173),3.);
+  float m=smoothstep(.75,-.55,aP.y);                         // 沈むほど色が移る
   float att=exp(-(c.w-${CAMD.toFixed(1)})*.5);
   float a=uA*aP.w*att/(uG*uG);
-  vC=vec4(mix(uC1,uC2,m)*a,a);}`;
+  vec3 col=m<.5?mix(uC1,uCm,m*2.):mix(uCm,uC2,m*2.-1.);    // 色相を順にたどる(まっすぐ混ぜると濁るので中間の色を通す)
+  vC=vec4(col*a,a);}`;
 var PT_FS=`#version 300 es
 precision mediump float;in vec4 vC;out vec4 o;
 void main(){vec2 d=gl_PointCoord*2.-1.;float r=dot(d,d);if(r>1.)discard;o=vC*exp(-r*3.2);}`;
@@ -334,10 +320,10 @@ void main(){vec4 s=texture(uT,vU)*.2270;
   s+=(texture(uT,vU+uD*1.3846)+texture(uT,vU-uD*1.3846))*.3162;
   s+=(texture(uT,vU+uD*3.2308)+texture(uT,vU-uD*3.2308))*.0703;o=s;}`;
 
-// 合成: 水(深い藍〜黒)・水面(下から見ると鏡)・魚・インク(煙のように透けて重なる)
+// 合成: 水(深い藍〜黒)・水面(下から見ると鏡)・インク(煙のように透けて重なる)
 var COMP_FS=`#version 300 es
 precision highp float;in vec2 vU;
-uniform sampler2D uDen;uniform sampler2D uBl;uniform sampler2D uSm;uniform sampler2D uFish;uniform float uFishOn;
+uniform sampler2D uDen;uniform sampler2D uBl;uniform sampler2D uSm;
 uniform vec2 uRes;uniform float uT;uniform float uAsp;uniform vec4 uDrop;uniform vec3 uDropC;uniform vec4 uRip;uniform float uGain;uniform vec3 uEye;
 out vec4 o;
 const float H=${H.toFixed(3)},S=${SURF.toFixed(3)},Z=.3;
@@ -366,8 +352,6 @@ void main(){
   vec3 col=mix(vec3(.00035,.0005,.0016),vec3(.0024,.0042,.0175),pow(gy,1.5));
   col*=.75+.25*exp(-pow(nx/(uAsp+.6),2.)*1.4);
   col+=vec3(.0012,.0025,.008)*exp(-(1.-gy)*6.);          // 水面からの光
-  // 魚(three.jsで別の画に描いたもの。水の色に少し沈める)
-  if(uFishOn>0.){vec4 f=texture(uFish,uv);col=col*(1.-f.a)+f.rgb*vec3(.72,.86,1.);}
   // インク
   float op;vec3 ic=ink(uv,op);
   col=col*(1.-op*.6)+ic;
@@ -433,7 +417,7 @@ function oklch(L,C,h){var a=C*Math.cos(h),b=C*Math.sin(h);
   var l=L+.3963377774*a+.2158037573*b,m=L-.1055613458*a-.0638541728*b,s=L-.0894841775*a-1.291485548*b;
   l=l*l*l;m=m*m*m;s=s*s*s;
   return [Math.max(0,4.0767416621*l-3.3077115913*m+.2309699292*s),Math.max(0,-1.2684380046*l+2.6097574011*m-.3413193965*s),Math.max(0,-.0041960863*l-.7034186147*m+1.707614701*s)];}
-function minuteColor(mi,sh){var h=((mi%60+60)%60)/60*2*Math.PI+.45+(sh||0);var c=oklch(.76,.15,h);var mx=Math.max(c[0],c[1],c[2]);if(mx>1)c=c.map(function(v){return v/mx;});return c;}
+function minuteColor(mi,sh){var h=((mi%30+30)%30)/30*2*Math.PI+.45+(sh||0);var c=oklch(.76,.15,h);var mx=Math.max(c[0],c[1],c[2]);if(mx>1)c=c.map(function(v){return v/mx;});return c;}
 
 // ---------- 時間 ----------
 var t0=performance.now(),vmin=0,lastDropKey=null,fastStart=0,vOff=0;
@@ -443,7 +427,7 @@ function perfNow(){return (pBase!==null?pBase:performance.now())+vOff;}
 function nowMinuteKey(){ // 今の「滴の番号」(normal: 実時間で30秒ごと、fast: 5秒ごと)
   if(!FAST)return Math.floor(nowMs()/PERIOD);
   return vmin+Math.floor((perfNow()-fastStart)/PERIOD);}
-function minuteOfHour(key){if(!FAST){var d=new Date(key*PERIOD);return d.getMinutes()%30*2+(d.getSeconds()>=30?1:0);}return ((key%60)+60)%60;}   // 30分(=60滴)で虹を一周。00分と30分が同じ色
+function minuteOfHour(key){if(!FAST){var d=new Date(key*PERIOD);return d.getMinutes()%15*2+(d.getSeconds()>=30?1:0);}return ((key%30)+30)%30;}   // 15分(=30滴)で虹を一周。00・15・30・45分が同じ色
 
 function smoothJS(e0,e1,x){var t=Math.min(1,Math.max(0,(x-e0)/(e1-e0)));return t*t*(3-2*t);}
 
@@ -457,7 +441,7 @@ function dropRange(){return Math.max(.11,H*innerWidth/innerHeight-.45);}   // �
 function queueDrop(key,strength,xAbs){
   var mi=minuteOfHour(key),f=(key*.6180339887)%1;
   var x=xAbs!==undefined?xAbs:dropRange()*(2*f-1)*.9,z=.2*Math.cos(key*3.1199);
-  pending.push({key:key,x:x,z:z,str:strength,c:minuteColor(mi),c2:minuteColor(mi,.42),t:0});}
+  pending.push({key:key,x:x,z:z,str:strength,c:minuteColor(mi),cm:minuteColor(mi,.95),c2:minuteColor(mi,1.9),t:0});}   // cm・c2=沈んだ所の色(約55°・110°先)
 function spawn(P){
   // 空いている枠、なければいちばん古い枠
   var sl=null,old=null;
@@ -465,7 +449,7 @@ function spawn(P){
   if(!sl)sl=old;
   var d=new SIM.Drop(P.x,P.z,P.key*1.618+P.str*7.1,P.str);
   sl.drop=d;sl.age=0;sl.on=true;sl.n=NPU;sl.settle=0;sl.alpha=1;   // 使い回す枠の沈み具合を戻す
-  sl.c=P.c;sl.c2=P.c2;sl.key=P.key;sl.cx=P.x;sl.cz=P.z;
+  sl.c=P.c;sl.cm=P.cm;sl.c2=P.c2;sl.key=P.key;sl.cx=P.x;sl.cz=P.z;
   var R0=d.rings[0],R=R0.R,a=R0.a,y0=.78;
   for(var k=0;k<NP;k++){var u=HAL[k*4],v=HAL[k*4+1],w=HAL[k*4+2],q=HAL[k*4+3],b=k*4;
     if(q<.5){ // 渦の芯のまわり(滴のインクは輪ができるときに芯へ巻き込まれる)
@@ -559,79 +543,14 @@ function updateEye(dt){
   eye.x=clamp(eye.x,-1.3,1.3);eye.y=clamp(eye.y,-.7,.7);}
 
 
-// ---------- 魚(assets/fish-kit、CC0)。ときどき横切り、泳ぐと周りの水を押しのける ----------
-// three.js はこのWebGL2と同じ文脈で使い、魚だけ別の画(render target)に描いて、合成のときに水とインクの間に入れる
-var F3={ready:false,T:null,K:null,r:null,scene:null,cam:null,rt:null,tex:null,drawn:false,pass:null,next:8,loading:false};
-var UPM=2.4;   // 1m=2.4(画面の縦がおよそ90cmの水槽)
-var FISH_LIST=[['aji',16,3],['saba',22,2],['madai',20,1],['isaki_young',10,4],['mebaru',14,2],['kurodai',22,1],['onagagure',22,1],['katakuchi',8,5],['kamasu',24,2],['shibudai',18,1],['isaki',18,2]];   // 名前, 長さcm, 匹数
-var blobs=[],FB=new Float32Array(24),FV=new Float32Array(24),FN=0;
-function restoreGL(){   // three.js が触った状態を、この作品の描き方に戻す
-  gl.disable(gl.DEPTH_TEST);gl.disable(gl.CULL_FACE);gl.disable(gl.SCISSOR_TEST);gl.disable(gl.BLEND);gl.disable(gl.POLYGON_OFFSET_FILL);
-  gl.depthMask(true);gl.colorMask(true,true,true,true);
-  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false);gl.pixelStorei(gl.UNPACK_ALIGNMENT,4);
-  gl.bindVertexArray(null);gl.bindBuffer(gl.ARRAY_BUFFER,null);gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.useProgram(null);gl.activeTexture(gl.TEXTURE0);}
-(async function(){try{
-  var T=await import('three'),K=await import('../assets/fish-kit/fish-kit.js');
-  var r=new T.WebGLRenderer({canvas:cv,context:gl,antialias:false,alpha:true});
-  r.autoClear=false;
-  var sc=new T.Scene();
-  sc.add(new T.HemisphereLight(0xa8ccff,0x02050b,1.15));
-  var key=new T.DirectionalLight(0xeef6ff,2.4);key.position.set(.3,1,.45);sc.add(key);   // 水面からの光
-  sc.fog=new T.Fog(0x02060f,CAMD-.3,CAMD+2.2);                                          // 奥ほど水に沈む
-  F3.T=T;F3.K=K;F3.r=r;F3.scene=sc;F3.cam=new T.PerspectiveCamera();F3.ready=true;
-}catch(e){console.error(e);}restoreGL();})();
-async function spawnFish(){
-  F3.loading=true;
-  var P=FISH_LIST[Math.floor(Math.random()*FISH_LIST.length)];
-  try{await F3.K.loadFish('../assets/fish-kit/fish/',[P[0]]);}catch(e){console.error(e);F3.loading=false;F3.next=20;return;}
-  restoreGL();
-  var halfW=H*innerWidth/innerHeight,dir=Math.random()<.5?1:-1,n=P[2],gs=.8+Math.random()*.45,members=[];
-  var y=-.7+Math.random()*1.2,z0=-.2+Math.random()*.3;
-  for(var i=0;i<n;i++){
-    var a=F3.K.createFish(P[0],P[1]*gs*(.85+Math.random()*.3));
-    a.setDetail(n>2?'low':'high');a.setMotion('swim');a.object.scale.setScalar(UPM);F3.scene.add(a.object);
-    var len=a.length*UPM;
-    members.push({a:a,len:len,ox:-dir*i*len*(1.1+Math.random()*.6),oy:(Math.random()-.5)*.16,z:z0+(Math.random()-.5)*.14,ph:Math.random()*6.28,ly:null,pitch:0});}
-  var maxLen=members[0].len;
-  F3.pass={dir:dir,n:n,x:-dir*(halfW+maxLen+.2),y:y,members:members,sp:(2*halfW+1.4)/(11+Math.random()*7),t:0,end:halfW+maxLen*(n+1)+.4};
-  F3.loading=false;}
-function updateFish(dt){
-  FN=0;blobs.length=0;
-  if(!F3.ready)return;
-  var P=F3.pass;
-  if(!P){F3.next-=dt;if(F3.next<=0&&!F3.loading)spawnFish();return;}
-  P.t+=dt;P.x+=P.dir*P.sp*dt;
-  for(var i=0;i<P.members.length;i++){var M=P.members[i];
-    var x=P.x+M.ox,y=P.y+M.oy+.035*Math.sin(P.t*.45+M.ph),z=M.z;
-    var vy=M.ly===null?0:(y-M.ly)/Math.max(dt,1e-3);M.ly=y;
-    M.pitch+=(-Math.atan2(vy,P.sp)-M.pitch)*(1-Math.exp(-3*dt));
-    M.a.object.position.set(x,y,z);M.a.object.rotation.set(M.pitch,P.dir>0?Math.PI/2:-Math.PI/2,0,'YXZ');
-    M.a.drive={speed:P.sp/UPM,turnRate:0};M.a.update(dt);
-    if(i<3)for(var s=-1;s<=1;s+=2){   // 体を2つの球で近似して、押しのける水を出す
-      var bx=x+s*P.dir*M.len*.22;blobs.push({x:bx,y:y,z:z,vx:P.dir*P.sp,vy:vy,vz:0,a:M.len*.15});}}
-  for(var k=0;k<blobs.length&&k<6;k++){var B=blobs[k];FB[k*4]=B.x;FB[k*4+1]=B.y;FB[k*4+2]=B.z;FB[k*4+3]=B.a;FV[k*4]=B.vx;FV[k*4+1]=B.vy;FV[k*4+2]=0;FN=k+1;}
-  if(P.x*P.dir>P.end){P.members.forEach(function(M){F3.scene.remove(M.a.object);M.a.dispose();});F3.pass=null;F3.next=16+Math.random()*22;}}
-function drawFish(){
-  F3.drawn=false;
-  if(!F3.ready||!F3.pass)return;
-  var T=F3.T,r=F3.r;
-  if(!F3.rt||F3.rt.width!==W||F3.rt.height!==Hpx){if(F3.rt)F3.rt.dispose();
-    F3.rt=new T.WebGLRenderTarget(W,Hpx,{type:FRT?T.HalfFloatType:T.UnsignedByteType,samples:4,depthBuffer:true});}
-  var c=F3.cam;c.projectionMatrix.fromArray(PJ);c.projectionMatrixInverse.copy(c.projectionMatrix).invert();
-  c.position.set(eye.x,eye.y,eye.z);c.rotation.set(0,0,0);c.updateMatrixWorld();
-  r.resetState();r.setRenderTarget(F3.rt);r.setClearColor(0x000000,0);r.clear(true,true,false);r.render(F3.scene,c);r.setRenderTarget(null);
-  F3.tex=r.properties.get(F3.rt.texture).__webglTexture;F3.drawn=true;
-  restoreGL();}
-
 // ---------- 1コマ ----------
-var VP=new Float32Array(16),PJ=new Float32Array(16);
+var VP=new Float32Array(16);
 function persp(){   // オフアクシス投影: z=0 の面(画面=ガラス)は動かず、奥ほど視点と逆にずれる
   var asp=W/Hpx,n=.1,fa=20,ex=eye.x,ey=eye.y,ez=eye.z;
   var l=(-H*asp-ex)*n/ez,r=(H*asp-ex)*n/ez,b=(-H-ey)*n/ez,t=(H-ey)*n/ez;
   VP.fill(0);
   VP[0]=2*n/(r-l);VP[5]=2*n/(t-b);VP[8]=(r+l)/(r-l);VP[9]=(t+b)/(t-b);VP[10]=-(fa+n)/(fa-n);VP[11]=-1;
-  VP[12]=VP[0]*-ex+VP[8]*-ez;VP[13]=VP[5]*-ey+VP[9]*-ez;VP[14]=VP[10]*-ez-2*fa*n/(fa-n);VP[15]=ez;
-  PJ.set(VP);PJ[12]=0;PJ[13]=0;PJ[14]=-2*fa*n/(fa-n);PJ[15]=0;}   // 投影だけ(魚のカメラ用)
+  VP[12]=VP[0]*-ex+VP[8]*-ez;VP[13]=VP[5]*-ey+VP[9]*-ez;VP[14]=VP[10]*-ez-2*fa*n/(fa-n);VP[15]=ez;}
 var frames=0,acc=0,last=performance.now(),fr=0;
 function uploadSlot(sl){
   var d=sl.drop,rn=0,idx=0,N=sl.nodes,RA=sl.ra,RB=sl.rb;
@@ -656,7 +575,7 @@ function simStep(dtReal){
   // 物理
   for(var j=0;j<slots.length;j++){var sl=slots[j];if(!sl.on)continue;sl.age+=dt;
     var yL=FLOOR;sl.yL=yL;
-    sl.drop.step(dt,yL,blobs);
+    sl.drop.step(dt,yL);
     var since=sl.drop.rings.length?0:sl.drop.t-sl.drop.lastRing;
     sl.settle=Math.min(1,Math.max(sl.settle||0,since>0?Math.min(1,since/4):0,smoothJS(26,36,sl.age)));
     sl.alpha=1-smoothJS(46,68,sl.age);
@@ -667,10 +586,9 @@ function simStep(dtReal){
 function render(){
   if(needRes)resize();
   persp();
-  drawFish();
   // 1) 粒を流す
   gl.useProgram(advP.p);gl.enable(gl.RASTERIZER_DISCARD);
-  gl.uniform1f(advP.u.uFr,fr%1000);gl.uniform4fv(advP.u.uFB,FB);gl.uniform4fv(advP.u.uFV,FV);gl.uniform1i(advP.u.uFN,FN);gl.uniform1i(advP.u.uN,0);gl.activeTexture(gl.TEXTURE0);
+  gl.uniform1f(advP.u.uFr,fr%1000);gl.uniform1i(advP.u.uN,0);gl.activeTexture(gl.TEXTURE0);
   for(var j=0;j<slots.length;j++){var sl=slots[j];if(!sl.on)continue;
     gl.bindTexture(gl.TEXTURE_2D,sl.tex);
     gl.uniform4fv(advP.u.uRA,sl.ra);gl.uniform4fv(advP.u.uRB,sl.rb);gl.uniform1i(advP.u.uRN,sl.rn);
@@ -687,7 +605,7 @@ function render(){
   var hs=den.h/422,ps=2.2*Math.sqrt(hs);   // 解像度が変わっても同じ濃さに見えるように(粒の大きさ²×濃さ÷画素の面積を一定に)
   gl.useProgram(ptP.p);gl.uniformMatrix4fv(ptP.u.uVP,false,VP);gl.uniform1f(ptP.u.uPS,ps);
   for(var j2=0;j2<slots.length;j2++){var s2=slots[j2];if(!s2.on||s2.alpha<=0)continue;
-    gl.uniform1f(ptP.u.uG,Math.min(4,1+s2.age/70+s2.settle*1.8));gl.uniform3fv(ptP.u.uC1,s2.c);gl.uniform3fv(ptP.u.uC2,s2.c2);gl.uniform1f(ptP.u.uA,s2.alpha*(FRT?.05:.035)*hs*NP/s2.n);
+    gl.uniform1f(ptP.u.uG,Math.min(4,1+s2.age/70+s2.settle*1.8));gl.uniform3fv(ptP.u.uC1,s2.c);gl.uniform3fv(ptP.u.uCm,s2.cm);gl.uniform3fv(ptP.u.uC2,s2.c2);gl.uniform1f(ptP.u.uA,s2.alpha*(FRT?.05:.035)*hs*NP/s2.n);
     gl.bindVertexArray(s2.vao[s2.cur]);gl.drawArrays(gl.POINTS,0,s2.n);}
   gl.disable(gl.BLEND);
   // 3) ぼかし(煙のにじみ)
@@ -702,7 +620,6 @@ function render(){
   gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.viewport(0,0,W,Hpx);gl.useProgram(cpP.p);
   gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,den.t);gl.uniform1i(cpP.u.uDen,0);
   gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,bB.t);gl.uniform1i(cpP.u.uBl,1);
-  gl.activeTexture(gl.TEXTURE2);gl.bindTexture(gl.TEXTURE_2D,F3.tex);gl.uniform1i(cpP.u.uFish,2);gl.uniform1f(cpP.u.uFishOn,F3.tex&&F3.drawn?1:0);
   gl.activeTexture(gl.TEXTURE3);gl.bindTexture(gl.TEXTURE_2D,sB.t);gl.uniform1i(cpP.u.uSm,3);
   gl.uniform2f(cpP.u.uRes,W,Hpx);gl.uniform1f(cpP.u.uT,(performance.now()-t0)/1000);gl.uniform1f(cpP.u.uAsp,W/Hpx);
   gl.uniform1f(cpP.u.uGain,1);gl.uniform3f(cpP.u.uEye,eye.x,eye.y,eye.z);
@@ -717,7 +634,7 @@ function render(){
 function frame(now){
   if(window.__ink&&__ink.paused){last=now;requestAnimationFrame(frame);return;}
   var dt=Math.min(.1,(now-last)/1000);last=now;fr++;
-  updateEye(dt);updateFish(dt);simStep(dt);
+  updateEye(dt);simStep(dt);
   render();
   // 重い端末では解像度を少し下げる
   frames++;acc+=dt;if(frames===90){if(acc/90>.021){if(qscale>.62){qscale*=.85;needRes=true;}else NPU=Math.max(24576,NPU-8192);}frames=0;acc=0;}   // まず解像度、それでも重ければ次の滴から粒を減らす
@@ -744,7 +661,7 @@ start();
 requestAnimationFrame(function(n){last=n;frame(n);});
 
 // 確認用(画面には出ない): ヘッドレスで時間を進める
-window.__ink={paused:false,align:function(){tBase=Date.now();pBase=performance.now();vOff=PERIOD-(tBase%PERIOD)+300;},info:function(){return slots.filter(function(s){return s.on;}).map(function(s){return [s.key,s.age.toFixed(1),(s.settle||0).toFixed(2),(s.alpha||0).toFixed(2),(s.yL||0).toFixed(2),s.drop.rings.length].join(' ');}).join(' | ');},advance:function(sec,sps){sps=sps||60;for(var i=0;i<sec*sps;i++){vOff+=1000/sps;updateEye(1/sps);updateFish(1/sps);simStep(1/sps);if(i%2===0||i===sec*sps-1)render();}render();},slots:slots,fishNow:function(){F3.next=0;},f3:F3};
+window.__ink={paused:false,align:function(){tBase=Date.now();pBase=performance.now();vOff=PERIOD-(tBase%PERIOD)+300;},info:function(){return slots.filter(function(s){return s.on;}).map(function(s){return [s.key,s.age.toFixed(1),(s.settle||0).toFixed(2),(s.alpha||0).toFixed(2),(s.yL||0).toFixed(2),s.drop.rings.length].join(' ');}).join(' | ');},advance:function(sec,sps){sps=sps||60;for(var i=0;i<sec*sps;i++){vOff+=1000/sps;updateEye(1/sps);simStep(1/sps);if(i%2===0||i===sec*sps-1)render();}render();},slots:slots};
 
 APKit.init({
   canvas:cv, gifName:'ink-rings-loop', clockFormat:'spec',
@@ -756,7 +673,7 @@ APKit.init({
       if(cam.on||cam.loading){stopCamera();setTimeout(function(){setCamButton(false);},0);}else startCamera();}}
   ]
 });
-showHint('30秒ごとに1滴<br>なぞると見る角度が変わる / 下の📷で顔に合わせる',5500);
+showHint('水に落ちたインクは輪になり、<br>沈みながら分かれて、また輪になる<br><br>30秒ごとに1滴。色は時刻で移る<br>なぞると見る角度が変わる / 下の📷で顔に合わせる',9000);
 })();
 </script>
 </body>
