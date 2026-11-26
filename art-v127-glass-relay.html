@@ -1070,7 +1070,7 @@ const sky=new THREE.Mesh(new THREE.SphereGeometry(190,48,24),new THREE.ShaderMat
     // 流れ星(頭が明るく、しっぽへ細く消える)
     if(uMa.w>0.001&&d.y>0.0){vec3 a=uMb.xyz,b=uMa.xyz,ab=b-a;float t=clamp(dot(d-a,ab)/max(dot(ab,ab),1e-7),0.0,1.0);float dd=length(d-a-ab*t);
       c+=vec3(0.80,0.90,1.0)*(exp(-pow(dd/(0.0016+0.0022*t),2.0))*t*t*2.6+exp(-dd/0.008)*t*t*0.22)*uMa.w*uMb.w;}
-    // 輪のある星(見ている方向の少し右上に、ゆっくり回り込んでくる)
+    // 輪のある星(宇宙に入るたびに、空のどこかへランダムに置く)
     vec3 pc=normalize(uPc);float pr=0.075;float dp=dot(d,pc);
     vec3 e1=normalize(cross(pc,vec3(0.0,1.0,0.0))),e2=cross(e1,pc);vec2 pl=vec2(dot(d,e1),dot(d,e2));
     float disk=(1.0-smoothstep(pr-0.004,pr,length(pl)))*step(0.0,dp);   // smoothstepは小さい方を先に(逆だと端末によって映らない)
@@ -1255,18 +1255,16 @@ function updateArea(vt){
   ptU.uCam.value.copy(camera.position);ptU.uT.value=vt%10000;
   updateSpaceSky(areaW.space);
 }
-// 宇宙: 輪のある星は、見ている方向の少し右上へゆっくり回り込む(宇宙に入った瞬間はその位置に置く)。流れ星は3〜7秒おきに、画面の上のほうを斜めに流れる
+// 宇宙: 輪のある星は、宇宙に入るたびに、そのとき見ている空のどこかへランダムに置いて止めておく。流れ星は3〜7秒おきに、画面の上のほうを斜めに流れる
 const _cf=new V3();let spaceWas=0,metNext=0,met=null,spLast=0,pYaw=0,pEl=0.3;
 function updateSpaceSky(w){
   if(DEBUG){window.__sky=skyU;window.__skyM=sky;window.__cam=camera;}
   const now=performance.now()/1000,dt=Math.min(0.5,now-spLast);spLast=now;
   if(w<=0.001){spaceWas=0;met=null;skyU.uMa.value.w=0;return;}
   camera.getWorldDirection(_cf);const yaw=Math.atan2(_cf.x,_cf.z),pit=Math.asin(clamp(_cf.y,-1,1)),hf=camera.fov*Math.PI/180/2;
-  const hh=Math.atan(Math.tan(hf)*camera.aspect), pe=clamp(pit+hf*0.5,0.12,1.1),pa=yaw-hh*0.42;   // 右上(画面の横幅に合わせる。右は -)
-  if(!spaceWas){pYaw=pa;pEl=pe;metNext=now+1.5;}
-  else{let dy=Math.atan2(Math.sin(pa-pYaw),Math.cos(pa-pYaw));const k=1-Math.exp(-dt/2.5);pYaw+=dy*k;pEl+=(pe-pEl)*k;
-    dy=Math.atan2(Math.sin(pYaw-pa),Math.cos(pYaw-pa));const mx=hh*0.75;if(Math.abs(dy)>mx)pYaw=pa+Math.sign(dy)*mx;   // ゆっくり遅れて回り込むが、画面の外へは出さない(縦持ちは左右±13°しかない)
-    pEl=clamp(pEl,pe-hf*0.35,pe+hf*0.35);}
+  const hh=Math.atan(Math.tan(hf)*camera.aspect);
+  if(!spaceWas){   // 宇宙に入ったときに、いま見ている空のどこかへランダムに置き、あとは動かさない(カメラについてこない)
+    pYaw=yaw+(Math.random()-0.5)*hh*1.3;pEl=clamp(pit+hf*(0.25+Math.random()*0.5),0.1,0.9);metNext=now+1.5;}
   skyU.uPc.value.set(Math.sin(pYaw)*Math.cos(pEl),Math.sin(pEl),Math.cos(pYaw)*Math.cos(pEl));
   spaceWas=1;
   if(!met&&now>metNext){const a=yaw+(Math.random()-0.5)*hh*1.4,e=clamp(pit+hf*(0.35+Math.random()*0.5),0.08,1.2),
@@ -1911,41 +1909,39 @@ async function bench(n){ // n コマ描いて、遅いほうから4割の所の�
   for(let i=0;i<n;i++){render(vtime(),1/60);await nextFrame();const t=performance.now();ts.push(t-t0);t0=t;}
   ts.sort((a,b)=>a-b);return ts[Math.floor(ts.length*0.6)];
 }
-// ---- 水の中の魚(おっちゃん「ちょっとだけ魚追加すれば？」): 魚の3Dキット(assets/fish-kit, CC0)のアジ2・マダイ・イサキ。
-//      エリア「水の中」のときだけ、カメラが見ているあたりのまわりを、ドミノより上の高さでゆっくり回って泳ぐ。読み込みは始まってから裏で
+// ---- 水の中の魚(おっちゃん「ちょっとだけ魚追加すれば？」→「追随しなくていい、ランダムで」): 魚の3Dキット(assets/fish-kit, CC0)のアジ2・マダイ・イサキ。
+//      エリア「水の中」のときだけ。それぞれ水の中の決まった場所を勝手に泳ぎ(カメラにはついてこない)、カメラが通りすぎて遠くなったら、前方のどこかへランダムに出直す
 const FISH_SET=[['aji',70],['aji',60],['madai',95],['isaki',80]];
-let fishG=null;const fishes=[],fishC=new V3(),_fT=new V3(),_fN=new V3(),_fF=new V3();
+let fishG=null,fishVt=0;const fishes=[],_fF=new V3();
 async function initFish(){
   try{await loadFish('./assets/fish-kit/fish/',['aji','madai','isaki']);}catch(e){return;}
   const G=new THREE.Group();
   for(const [id,cm] of FISH_SET){const a=createFish(id,cm*(0.9+Math.random()*0.2));a.setDetail('low');a.setMotion('swim');G.add(a.object);
-    fishes.push({a,th:Math.random()*6.283,rx:0.55+Math.random()*0.5,rz:1.2+Math.random()*1.6,h:-0.35+Math.random()*0.8,w:(0.28+Math.random()*0.18)*(Math.random()<0.5?-1:1),ph:Math.random()*6.283,p:new V3(),v:new V3(),yaw:0,pit:0,init:false});}
+    fishes.push({a,p:new V3(),yaw:0,pit:0,turn:0,sp:0.5,ph:Math.random()*6.283,init:false});}
   try{await renderer.compileAsync(G,camera,scene);}catch(e){}   // 初めて出るときにカクッとしないよう、先に準備
   G.visible=false;scene.add(G);fishG=G;if(DEBUG)window.__fish=fishes;
 }
-let fishVt=0;
+function spawnFish(f,first){   // カメラの前方のどこかに、ランダムな向きで出す
+  camera.getWorldDirection(_fF);_fF.y=0;if(_fF.lengthSq()<1e-6)_fF.set(0,0,-1);_fF.normalize();
+  const d=first?3+Math.random()*8:7+Math.random()*7, sd=(Math.random()-0.5)*d*0.9;
+  f.p.set(camera.position.x+_fF.x*d-_fF.z*sd,1.3+Math.random()*1.8,camera.position.z+_fF.z*d+_fF.x*sd);
+  f.yaw=Math.random()*6.283;f.pit=0;f.turn=(Math.random()-0.5)*0.3;f.sp=0.35+Math.random()*0.5;f.init=true;
+}
 function updateFish(dt0,vt){
   if(!fishG)return;
-  const dt=clamp(vt-fishVt,0,0.5);fishVt=vt;   // カメラは作品の時刻で動くので、魚も同じ時刻の進みで追う(重い端末で遅れない)
+  const dt=clamp(vt-fishVt,0,0.5);fishVt=vt;   // 作品の時刻の進みで動かす
   const on=areaW.water>0.5;fishG.visible=on;
-  // 回る中心は、カメラの少し先(画面に入るところ)。カメラは速く進むので、遅れないようにすぐ追う
-  camera.getWorldDirection(_fF);_fF.y=0;if(_fF.lengthSq()<1e-6)_fF.set(0,0,-1);_fF.normalize();
-  _v2.copy(camera.position).addScaledVector(_fF,6.0);
-  if(!on){for(const f of fishes)f.init=false;fishC.copy(_v2);return;}
-  fishC.lerp(_v2,1-Math.exp(-dt/0.35));
-  const hhF=Math.atan(Math.tan(camera.fov*Math.PI/360)*camera.aspect);
+  if(!on){for(const f of fishes)f.init=false;return;}
+  camera.getWorldDirection(_fF);
   for(const f of fishes){
-    f.th+=f.w*dt;const cz=Math.sin(f.th)*f.rz,cx=Math.cos(f.th)*f.rx*Math.tan(hhF)*(6.0+cz);   // 横の幅は、その距離で画面に入る幅に合わせる(縦持ちは狭い)
-    _fT.set(fishC.x-_fF.z*cx+_fF.x*cz,Math.max(1.3,camera.position.y+f.h)+Math.sin(vt*0.5+f.ph)*0.25,fishC.z+_fF.x*cx+_fF.z*cz);
-    if(!f.init){f.p.copy(_fT);f.v.set(0,0,0);f.init=true;}
-    _fN.copy(f.p).lerp(_fT,1-Math.exp(-dt*4));
-    if(dt>0)f.v.lerp(_v.subVectors(_fN,f.p).divideScalar(dt),1-Math.exp(-dt*4));
-    f.p.copy(_fN);
-    const hs=Math.hypot(f.v.x,f.v.z),sp=Math.hypot(hs,f.v.y);
-    if(sp>0.05){const ty=Math.atan2(f.v.x,f.v.z);f.yaw+=Math.atan2(Math.sin(ty-f.yaw),Math.cos(ty-f.yaw))*(1-Math.exp(-dt*3));
-      f.pit+=(clamp(-Math.atan2(f.v.y,hs),-0.5,0.5)-f.pit)*(1-Math.exp(-dt*3));}   // 魚は+Zが頭。x回転の+は頭が下
-    f.a.object.position.copy(f.p);f.a.object.rotation.set(f.pit,f.yaw,0,'YXZ');
-    f.a.drive={speed:clamp(sp*0.25,0.12,1.2),turnRate:0};f.a.update(dt);
+    if(!f.init)spawnFish(f,true);
+    _v.subVectors(f.p,camera.position);
+    if(_v.length()>20||(_v.dot(_fF)<-3))spawnFish(f,false);   // 遠くなった・後ろへ行った魚は前方へ出直す
+    if(Math.random()<dt*0.25)f.turn=(Math.random()-0.5)*0.5;   // ときどき曲がり方を変える
+    f.yaw+=f.turn*dt;f.pit=Math.sin(vt*0.35+f.ph)*0.12;
+    f.p.x+=Math.sin(f.yaw)*f.sp*dt;f.p.z+=Math.cos(f.yaw)*f.sp*dt;f.p.y=clamp(f.p.y-Math.sin(f.pit)*f.sp*dt,1.25,3.4);
+    f.a.object.position.copy(f.p);f.a.object.rotation.set(f.pit,f.yaw,0,'YXZ');   // 魚は+Zが頭。x回転の+は頭が下
+    f.a.drive={speed:f.sp,turnRate:f.turn};f.a.update(dt);
   }
 }
 function render(vt,dt){
