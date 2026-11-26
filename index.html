@@ -180,7 +180,7 @@
 <div class="aphint" id="aphint" role="status" aria-live="polite"></div>
 <div class="aptoast" id="aptoast" role="status" aria-live="polite"></div>
 <script>
-function openArt(url,title){document.documentElement.classList.remove('standalone-launch');var f=document.getElementById('modalFrame');f.src=url;document.getElementById('modal').classList.add('open');apUiShow();if(title)try{history.replaceState(null,'',location.pathname);document.title=title+' — Art Playground'}catch(e){}try{apOnOpen(url,title)}catch(e){}try{apHint(url)}catch(e){}schedule()}
+function openArt(url,title){document.documentElement.classList.remove('standalone-launch');var f=document.getElementById('modalFrame');f.src=url;document.getElementById('modal').classList.add('open');apUiShow();if(title)try{history.replaceState(null,'',location.pathname);document.title=title+' — Art Playground'}catch(e){}var base=String(url).split('?')[0];/* ?area= などが付いていても、録画・ヒントは作品の本体で判定する */try{apOnOpen(base,title)}catch(e){}try{apHint(base)}catch(e){}schedule()}
 function apFsToast(){
   if(window.navigator.standalone)return;
   var el=apHintEl();if(!el)return;apHintHide();
@@ -522,4 +522,16 @@ var REC_WORKS={'art-v127-glass-relay.html':1,'art-v126-ink-rings.html':1,'art-v1
     } catch (e) {}
   }, true);
 })();
+</script>
+<script>
+/* 直リンクで作品を全画面で開く: /?open=作品.html&他のパラメータ(例 /?open=art-v127-glass-relay.html&area=water)。
+   open以外のパラメータは作品にそのまま渡す。録画・静止画・共有はギャラリーから開いたときと同じ。2026/11 おっちゃん依頼 */
+(function(){try{
+  var Q=new URLSearchParams(location.search),f=Q.get('open');
+  if(!f||!/^[A-Za-z0-9_\-\/]+\.html$/.test(f)||f.indexOf('..')>=0||f.charAt(0)==='/')return;
+  Q.delete('open');var qs=Q.toString(),title='';
+  var els=document.querySelectorAll('[onclick]');
+  for(var i=0;i<els.length;i++){var m=/openArt\('([^']+)','([^']*)'\)/.exec(els[i].getAttribute('onclick')||'');if(m&&m[1]===f){title=m[2];break}}
+  openArt(f+(qs?'?'+qs:''),title);
+}catch(e){}})();
 </script></body></html>
