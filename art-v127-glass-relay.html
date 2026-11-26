@@ -42,6 +42,8 @@
        毎分0秒に分の数字の門をくぐると景色ごと切り替わる。エリアは5つ = 鏡のテーブル(夕空)/水の中/氷の湖と星空/雲の上/宇宙。
        周のはじめ(時刻が出る分)は必ず鏡のテーブル、残り4分は周ごとに順番を入れ替える。変わるのは空・床・霧・光・まわりの粒(泡・氷の粒・宇宙のちり)で、コースはそのまま。
        テスト用 ?area=mirror|water|ice|cloud|space(ずっとそのエリア)
+     2026/11/27 新エリア「天空の鏡」(?area=sky): 真昼の青空ともくもくの白い雲。床は白い塩の大地にうすく張った水で、遠くは完全な鏡(空がそのまま下にも続く)。
+       足もとだけ塩の多角形の縁がうっすら透け、ドミノが倒れたところから水面に波紋が広がる。エリアの並びは 水の中→天空の鏡→雲の上→宇宙 / (後半)…→氷の湖と星空。
      2026/11/26 夜 切り替わりの瞬間(「では1」): 門をくぐった瞬間、波の先頭から光の輪が広がる。輪の内側の床から新しいエリアになり、輪が通るドミノは虹色に光る。
        輪がカメラを通るとき空・霧・光が切り替わり、画面がふわっと明るくなる(3.4秒で輪は遠くへ)。
      操作: なぞる=見回す(離すと4秒で戻る) / ✦=いまの時刻から別のコースに組み直す(次に時刻のフィールドへ届くまでの分)
@@ -1091,6 +1093,29 @@ const sky=new THREE.Mesh(new THREE.SphereGeometry(190,48,24),new THREE.ShaderMat
     c+=vec3(0.7,0.62,0.5)*ring*step(0.0,dp)*(disk>0.5?front:1.0)*0.6;
     c+=vec3(0.25,0.35,0.6)*exp(-max(length(pl)-pr,0.0)*95.0)*step(0.0,dp)*0.15;   // 星のふち
     return c;}
+  // 天空の鏡(2026/11/27 新しく作ったエリア): 真昼の澄んだ青空と、もくもくの白い雲。下は塩の大地にうすく張った水に映った、もう1つの空
+  vec3 skyNoon(vec3 d){float y=max(d.y,0.0);
+    vec3 sun=normalize(vec3(0.42,0.74,-0.52));float sd=max(dot(d,sun),0.0);
+    vec3 c=mix(vec3(0.50,0.68,0.92),vec3(0.035,0.15,0.58),1.0-exp(-y*4.2));
+    c+=vec3(0.80,0.88,1.0)*exp(-y*16.0)*0.18;   // 地平線のかすみ
+    c+=vec3(1.0,0.96,0.88)*(pow(sd,10.0)*0.28+pow(sd,90.0)*0.6+pow(sd,1400.0)*7.0);   // 高い太陽
+    // 白い積雲: 空を平らな天井に見立てて、ふわふわの塊を浮かべる(地平線ほど低く、つぶれて見える)
+    vec2 uv=d.xz/(y+0.16)*0.30+vec2(uT*0.0035,uT*0.0012);
+    float base=fbm(vec3(uv*0.55,7.0));   // 雲の群れのある所とない所(青空の切れ間を残す)
+    float n=fbm(vec3(uv,0.3)+fbm(vec3(uv*2.3,2.0))*0.55)*0.75+fbm(vec3(uv*4.1,5.0))*0.25;
+    n+=(base-0.5)*0.55;
+    float cov=smoothstep(0.50,0.58,n);
+    vec2 so=normalize(sun.xz)*0.05;   // 太陽の側が明るく、反対の底が青みがかった灰色
+    float nb=fbm(vec3(uv+so,0.3)+fbm(vec3((uv+so)*2.3,2.0))*0.55)*0.75+fbm(vec3((uv+so)*4.1,5.0))*0.25+(base-0.5)*0.55;
+    float lit=clamp(0.58+(n-nb)*11.0+smoothstep(0.5,0.8,n)*0.2,0.0,1.0);
+    vec3 cc=mix(vec3(0.44,0.53,0.70),vec3(1.0,0.99,0.96),lit);
+    cc+=vec3(1.0,0.97,0.9)*pow(1.0-smoothstep(0.50,0.55,n),2.0)*cov*0.4;   // ふちの銀色
+    c=mix(c,cc,cov*smoothstep(0.0,0.04,y)*(1.0-exp(-y*30.0)*0.45));
+    return c;}
+  vec3 skyMirror(vec3 d){vec3 q=vec3(d.x,abs(d.y),d.z);vec3 c=skyNoon(q);
+    if(d.y<0.0)c*=vec3(0.84,0.88,0.93);   // 水に映った空は少しだけ暗く、ほんのり青く
+    c+=vec3(1.0,1.0,0.98)*exp(-abs(d.y)*260.0)*0.12;   // 空と水の境の細い光
+    return c;}
   void main(){
     vec3 d=normalize(vD);float ay=abs(d.y);
     vec3 q=vec3(d.x,ay,d.z);
@@ -1112,7 +1137,8 @@ const sky=new THREE.Mesh(new THREE.SphereGeometry(190,48,24),new THREE.ShaderMat
     if(wa>0.001){col*=max(0.0,1.0-wa);
       if(uAr.x>0.001)col+=skyIce(d)*uAr.x;
       if(uAr.y>0.001)col+=skyCloud(d)*uAr.y;
-      if(uAr.z>0.001)col+=skySpace(d)*uAr.z;}
+      if(uAr.z>0.001)col+=skySpace(d)*uAr.z;
+      if(uAr.w>0.001)col+=skyMirror(d)*uAr.w;}
     col=mix(col,vec3(0.004,0.05,0.065)+col*0.25+vec3(0.02,0.10,0.12)*pow(max(d.y,0.0),2.0),uWater);   // 水の中から見た空
     gl_FragColor=vec4(col,1.0);
   }`}));
@@ -1122,11 +1148,11 @@ let skyHue=0.6;
 // ---- エリアの床(2026/11/26「1分ごとにエリアが変わる」)。カメラについて動く大きな板を、床(y=0)のすぐ上に1枚。
 // 鏡のテーブルでは何も描かない。水の中=砂と光のゆらぎ / 氷の湖=割れ目と霜のある氷 / 雲の上=雲の海 / 宇宙=うすいガラスの床の線
 // ガラスのドミノの透け(屈折)にも床が映るよう「不透明の仲間」として描き、色の混ぜ方だけ半透明にする(renderOrder=1で鏡の写しの後)
-const floorU={uCam:{value:new V3()},uT:{value:0},uA0:{value:new THREE.Vector4()},uA:{value:new THREE.Vector4()},uB0:{value:new THREE.Vector4()},uB:{value:new THREE.Vector4()},uRing:{value:new THREE.Vector4()},uFogC:{value:new THREE.Color()},uFar:{value:72}};   // 輪の外=uA0(前のエリア)、内=uA(新しいエリア)   // uA=(水の中, 氷の湖, 雲の上, 宇宙)
+const floorU={uCam:{value:new V3()},uT:{value:0},uA0:{value:new THREE.Vector4()},uA:{value:new THREE.Vector4()},uB0:{value:new THREE.Vector4()},uB:{value:new THREE.Vector4()},uRing:{value:new THREE.Vector4()},uFogC:{value:new THREE.Color()},uFar:{value:72},uRp:{value:Array.from({length:8},()=>new THREE.Vector4())}};   // uRp=天空の鏡の波紋(x,z,経過秒,強さ)   // 輪の外=uA0(前のエリア)、内=uA(新しいエリア)   // uA=(水の中, 氷の湖, 雲の上, 宇宙)
 const floorMat=new THREE.ShaderMaterial({uniforms:floorU,transparent:false,depthWrite:false,fog:false,
   blending:THREE.CustomBlending,blendSrc:THREE.SrcAlphaFactor,blendDst:THREE.OneMinusSrcAlphaFactor,
   vertexShader:'varying vec3 vW;void main(){vec4 w=modelMatrix*vec4(position,1.);vW=w.xyz;gl_Position=projectionMatrix*viewMatrix*w;}',
-  fragmentShader:CAUSTIC_GLSL+`uniform vec3 uCam;uniform float uT;uniform vec4 uA0;uniform vec4 uA;uniform vec4 uB0;uniform vec4 uB;uniform vec4 uRing;uniform vec3 uFogC;uniform float uFar;varying vec3 vW;
+  fragmentShader:CAUSTIC_GLSL+`uniform vec3 uCam;uniform float uT;uniform vec4 uA0;uniform vec4 uA;uniform vec4 uB0;uniform vec4 uB;uniform vec4 uRing;uniform vec3 uFogC;uniform float uFar;uniform vec4 uRp[8];varying vec3 vW;
   float h2(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
   float n2(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);return mix(mix(h2(i),h2(i+vec2(1,0)),f.x),mix(h2(i+vec2(0,1)),h2(i+vec2(1,1)),f.x),f.y);}
   float fb(vec2 p){float a=0.5,s=0.0;for(int i=0;i<4;i++){s+=a*n2(p);p=p*2.07+vec2(5.1,1.7);a*=0.5;}return s;}
@@ -1170,6 +1196,19 @@ const floorMat=new THREE.ShaderMaterial({uniforms:floorU,transparent:false,depth
       float gl=smoothstep(0.494,0.5,max(g.x,g.y));
       vec3 c=vec3(0.0,0.0,0.002)+vec3(0.25,0.55,0.9)*gl*0.10*exp(-dist*0.04);
       float a=0.42+gl*0.3;col+=c*a*A.w;al+=a*A.w;}
+    if(A2.x>0.001){ // 天空の鏡: 白い塩の大地に、くるぶしほどの水。遠くは完全な鏡(下の空がそのまま見える)、足もとだけ塩の多角形の模様がうっすら透ける
+      float fres=pow(1.0-max(v.y,0.0),4.0);
+      vec2 wq=p+vec2(fb(p*0.12),fb(p*0.12+5.0))*3.0;
+      float k=crack(wq*0.62);
+      float ridge=smoothstep(0.06,0.0,k)*(0.55+0.45*n2(p*0.3));   // 塩の盛り上がった縁
+      float near=1.0-smoothstep(3.0,26.0,dist);
+      float rip=0.0;   // ドミノが倒れたところから広がる波紋
+      for(int i=0;i<8;i++){vec4 r=uRp[i];if(r.w<=0.0)continue;float ag=r.z,rr=0.25+ag*1.05,dd=length(p-r.xy)-rr;
+        rip+=(exp(-dd*dd*55.0)+exp(-(dd+0.32)*(dd+0.32)*90.0)*0.5)*(1.0-smoothstep(0.0,3.6,ag))*r.w;}
+      float sh=0.5+0.5*sin(dot(p,vec2(1.3,0.6))*2.2+uT*0.9)*sin(dot(p,vec2(-0.4,1.1))*1.7-uT*0.7);   // そよ風のさざ波
+      vec3 c=vec3(0.90,0.93,0.97)*(0.88+0.12*fb(p*1.6))+vec3(0.06,0.08,0.12)*sh;
+      float a=((0.08+0.20*ridge)*near*(1.0-fres)+sh*0.03*near+rip*0.22*(1.0-smoothstep(10.0,40.0,dist)))*A2.x;
+      col+=c*a;al+=a;}
     // 遠くは霧の色へ(空の地平線とつなぐ)
     float fogk=smoothstep(uFar*0.25,uFar,dist);
     vec3 rgb=mix(col/max(al,0.001),uFogC,fogk);
@@ -1241,7 +1280,7 @@ const ptMat=new THREE.ShaderMaterial({uniforms:ptU,transparent:true,depthWrite:f
  g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(PTN*3),3));g.setAttribute('aR',new THREE.BufferAttribute(a,4));
  var areaPts=new THREE.Points(g,ptMat);areaPts.frustumCulled=false;areaPts.renderOrder=5;areaPts.visible=false;scene.add(areaPts);}
 // ---- エリアの順番: 周のはじめ(時刻が出る分)は必ず鏡のテーブル。残りの4分は、周ごとに順番を入れ替える
-const AREAS=['mirror','water','ice','cloud','space'], AREA_JP={mirror:'鏡のテーブル',water:'水の中',ice:'氷の湖と星空',cloud:'雲の上',space:'宇宙'};
+const AREAS=['mirror','water','sky','cloud','space','ice'], AREA_JP={mirror:'鏡のテーブル',water:'水の中',sky:'天空の鏡',cloud:'雲の上',space:'宇宙',ice:'氷の湖と星空'};   // 並び: 前半=水の中→天空の鏡→雲の上→宇宙 / 後半=桜の丘→ひまわり畑→紅葉の谷→氷の湖と星空(冬)。後半の新エリアは作ったものから ice の前に足す
 function areaOf(M){
   if(Q.get('area')&&AREAS.includes(Q.get('area')))return Q.get('area');
   const L=Math.floor(M/LAP), p=M-L*LAP;if(p===0)return 'mirror';
@@ -1256,13 +1295,14 @@ const AREA_ENV={
   water:{fog:[0.006,0.05,0.062],near:2.5,far:30,key:0xd8f4ff,keyI:3.0,hemS:0x7fd8e8,hemG:0x10282a,hemI:0.55,rim:0x6fd0ff,rimI:1.1,backI:1.6,env:0.55,exp:1.08},
   ice:{fog:[0.012,0.022,0.045],near:18,far:85,key:0xcfdcff,keyI:2.6,hemS:0x8fb0ff,hemG:0x0a1020,hemI:0.4,rim:0xb8d4ff,rimI:1.3,backI:1.8,env:0.55,exp:1.05},
   cloud:{fog:[0.70,0.66,0.62],near:30,far:140,key:0xfff0d8,keyI:3.4,hemS:0xd8e6ff,hemG:0xf2e6da,hemI:1.0,rim:0xffd2a0,rimI:1.2,backI:2.4,env:0.95,exp:0.95},
+  sky:{fog:[0.60,0.74,0.92],near:40,far:170,key:0xfff4e6,keyI:3.3,hemS:0xa9cbff,hemG:0xdde8f6,hemI:1.15,rim:0xd8e8ff,rimI:1.0,backI:2.0,env:1.05,exp:0.9},
   space:{fog:[0.001,0.001,0.003],near:28,far:120,key:0xf4f6ff,keyI:3.2,hemS:0x6070a0,hemG:0x05050a,hemI:0.18,rim:0x9a7cff,rimI:1.6,backI:2.6,env:0.45,exp:1.08},
 };
 for(const k in AREA_ENV){const e=AREA_ENV[k];e.fogC=new THREE.Color().setRGB(e.fog[0],e.fog[1],e.fog[2],THREE.LinearSRGBColorSpace);for(const n of ['key','hemS','hemG','rim'])e[n+'C']=new THREE.Color(e[n]);}
 const areaW={};for(const a of AREAS)areaW[a]=a==='mirror'?1:0;let areaNow='mirror',areaFogNear=16,areaFogFar=72;
 const _ac=new THREE.Color(),_ac2=new THREE.Color(),_ac3=new THREE.Color(),_ac4=new THREE.Color(),_ac5=new THREE.Color();
 // エリアの「床の枠」と「空の枠」。エリアを足すときは、ここに空いている番号を書き、床と空のシェーダーにその枠の分岐を足す(床 0〜3=A, 4〜7=A2 / 空 0〜3=uAr, 4〜7=uAr2)
-const FLOOR_SLOT={water:0,ice:1,cloud:2,space:3}, SKY_SLOT={ice:0,cloud:1,space:2};
+const FLOOR_SLOT={water:0,ice:1,cloud:2,space:3,sky:4}, SKY_SLOT={ice:0,cloud:1,space:2,sky:3};
 const AREA_V={};for(const a of AREAS){const v=[0,0,0,0,0,0,0,0];if(a in FLOOR_SLOT)v[FLOOR_SLOT[a]]=1;AREA_V[a]=v;}
 const _skyW=[0,0,0,0,0,0,0,0];
 const ringC=new V3();let ringMin=-1,flashAmt=0;
@@ -1297,11 +1337,20 @@ function updateArea(vt){
   areaFogNear=n;areaFogFar=f;HORIZON_A.copy(_ac);
   key.color.copy(_ac2);key.intensity=keyI;HEM.color.copy(_ac3);HEM.groundColor.copy(_ac4);HEM.intensity=hemI;
   rim.color.copy(_ac5);rim.intensity=rimI;back.intensity=backI;scene.environmentIntensity=env;renderer.toneMappingExposure=ex;
-  shadowFloor.material.opacity=0.55-0.2*areaW.space-0.15*areaW.water;
+  shadowFloor.material.opacity=0.55-0.2*areaW.space-0.15*areaW.water-0.3*areaW.sky;
+  updateRipples(vt,areaW.sky);
   floorU.uCam.value.copy(camera.position);floorU.uT.value=vt%10000;floorU.uFogC.value.copy(_ac);floorU.uFar.value=f;
   floorArea.position.x=camera.position.x;floorArea.position.z=camera.position.z;
   ptU.uCam.value.copy(camera.position);ptU.uT.value=vt%10000;
   updateSpaceSky(areaW.space);updatePuffs(vt);
+}
+// 天空の鏡: 波の先頭が床の近くを進むとき、0.9進むごとに水面へ波紋を1つ(8つを使い回す)
+const rpT=new Float32Array(8).fill(-99);let rpI=0;const rpLast=new V3(1e9,0,0);
+function updateRipples(vt,w){
+  const U=floorU.uRp.value;
+  if(w<=0.001){for(let i=0;i<8;i++)U[i].w=0;rpLast.set(1e9,0,0);return;}
+  if(_h.y<0.35&&Math.hypot(_h.x-rpLast.x,_h.z-rpLast.z)>0.9){rpLast.copy(_h);rpT[rpI]=vt;U[rpI].set(_h.x,_h.z,0,1);rpI=(rpI+1)%8;}
+  for(let i=0;i<8;i++){const ag=vt-rpT[i];U[i].z=ag;U[i].w=ag>=0&&ag<3.6?w:0;}
 }
 // 宇宙: 輪のある星は、宇宙に入るたびに、そのとき見ている空のどこかへランダムに置いて止めておく。流れ星は3〜7秒おきに、画面の上のほうを斜めに流れる
 const _cf=new V3();let spaceWas=0,metNext=0,met=null,spLast=0,pYaw=0,pEl=0.3;
@@ -1940,7 +1989,7 @@ async function warmCompile(){
   for(const m of [waterVolMat,causticMat,lavaMat,rockMat,bombMat])W.add(new THREE.Mesh(g,m));
   {const pg=new THREE.BufferGeometry();pg.setAttribute('position',new THREE.BufferAttribute(new Float32Array(3),3));pg.setAttribute('aB',new THREE.BufferAttribute(new Float32Array(4),4));pg.setAttribute('aC',new THREE.BufferAttribute(new Float32Array(3),3));pg.setAttribute('aV',new THREE.BufferAttribute(new Float32Array(3),3));
    W.add(new THREE.Points(pg,bubbleMat));W.add(new THREE.Points(pg,sparkMat));}
-  waterPass.enabled=true;flashPass.enabled=true;zoneU.uRG.value.set(0,0,5,0.5);floorU.uRing.value.set(0,0,5,0.5);floorArea.visible=true;areaPts.visible=true;skyU.uAr.value.set(0.25,0.25,0.25,0);floorU.uA.value.set(0.25,0.25,0.25,0.25);skyU.uAr2.value.set(0.01,0.01,0.01,0.01);floorU.uB.value.set(0.01,0.01,0.01,0.01);
+  waterPass.enabled=true;flashPass.enabled=true;zoneU.uRG.value.set(0,0,5,0.5);floorU.uRing.value.set(0,0,5,0.5);floorArea.visible=true;areaPts.visible=true;skyU.uAr.value.set(0.25,0.25,0.25,0.25);floorU.uA.value.set(0.25,0.25,0.25,0.25);skyU.uAr2.value.set(0.01,0.01,0.01,0.01);floorU.uB.value.set(0.01,0.01,0.01,0.01);
   W.position.y=-40;WM.position.y=-40;scene.add(W);mirrorRoot.add(WM);
   const d0=glassMat.dispersion, s0=key.castShadow;
   for(const d of [4,0])for(const sh of [true,false]){
