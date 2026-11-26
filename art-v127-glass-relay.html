@@ -15,6 +15,13 @@
          カメラが真上近くまで大きく引いてコース全体と時刻を見せ(引いている間に巻き戻しが見える)、6秒過ぎに次のコースが走り出す。
        ・毎分の色テーマ: 虹(多め)/氷/琥珀/パステル/透明に1色/夕焼け/深い海。フィールドの数字の色は、その時刻を運んできたコースのテーマ。
        ・コースの形と回る向き: 円/三つ葉/四つ葉/角丸/楕円 × 左回り/右回り。最後の滑走路の手前は円に戻す。
+     2026/11/26 ヌルヌル化・アクション増量(おっちゃん「もっとヌルヌルに、アクション増やして、ローディング長くてもいい」):
+       ・しかけ17種類に(放射の輪/絵のフィールド=倒れるとハート・星・ねこ…が光る/連なる塔/すべり台/階段くだり を追加)。ふだん毎分8〜10個、10分ごと12個、正時15個。
+         階段で上った高さの下ろし方は、段差落ち/ビー玉の坂/階段くだり/すべり台の4通り。
+       ・カメラの通り道を0.05秒ごとに並べ直して前後0.35秒でならす(ドミノ1枚ごとのカクつきを消す)。
+       ・鏡の写しと影は角の丸みのない軽い形で描く(影は影のカメラにだけ写るレイヤー1の写し)。書き換えた範囲だけGPUへ送る。
+       ・読み込み中に、使う材質の組み合わせを全部先に準備し、40コマずつ描いて60fpsで回る一番きれいな段を選ぶ。動いてからは、2回続けて遅いときだけ1段下げる。
+       ・直した不具合: 倒れきったあとの姿勢を計算するとき大きな時刻で桁あふれし、ドミノが消えることがあった。
      操作: なぞる=見回す(離すと4秒で戻る) / ✦=いまの時刻から別のコースに組み直す
      テスト用: ?fast=1(時間が3倍で進む) ?debug=1(コマ数・画質の段・しかけ名・カメラ) ?sec=NN(その秒から、1分ぶんのコースで始める) ?seed=N ?tier=0〜4(画質の段を固定)
        ?debug=1&pause=1(時間を止める) ?debug=1&cam=top(真上から全体) ?debug=1&special=hour|ten&theme=0〜6&shape=0〜4&mir=1|-1&reveal=hour|ten(大仕掛け・色・形の確認)
@@ -155,7 +162,7 @@ function simulate(){
   let s=0;for(let j=12;j<26;j++)s+=hit[j+1]-hit[j];
   DREAL=s/14; DN=DREAL*SM;
 }
-function prof(id,tr){const a=PROF[id];if(tr<=0)return 0;const x=tr*1000,i=x|0;if(i>=a.length-1)return a[a.length-1];return a[i]+(a[i+1]-a[i])*(x-i);}
+function prof(id,tr){const a=PROF[id];if(!(tr>0))return 0;const x=tr*1000;if(x>=a.length-1)return a[a.length-1];const i=Math.floor(x);return a[i]+(a[i+1]-a[i])*(x-i);}   // 大きな時刻でも桁あふれしないように
 function profTimeTo(id,ang){const a=PROF[id];for(let i=1;i<a.length;i++)if(a[i]>=ang){const f=(ang-a[i-1])/(a[i]-a[i-1]);return (i-1+f)/1000;}return a.length/1000;}
 const SETTLE=0.5;   // 倒れてから落ち着くまで(実時間秒)
 
@@ -232,6 +239,7 @@ function addFall(C,x,y,z,a,th,o={}){
   const s=o.s||1, j=o.nojit?0:1;
   const it={k:0,p:new V3(x+(C.rnd()-.5)*.018*j,y,z+(C.rnd()-.5)*.018*j),q:o.q||qYaw(a+(C.rnd()-.5)*.028*j),s,ss:Math.sqrt(s),
     th:th+(C.rnd()-.5)*.012*j,pr:o.pr!=null?o.pr:(C.rnd()*NMID|0),pm:o.pm||1,col:o.col||C.color()};
+  if(o.glow!==undefined){it.glow=o.glow;it.col=PIC_DIM.clone();}   // 絵のフィールド: 倒れるほど光る(o.glow=光る色 or null=暗いまま)
   it.ord=it.th; it.w0=it.th; it.w1=it.th+SETTLE*SM*it.ss*Math.max(1,it.pm);
   C.items.push(it);
   if(y>0.01&&o.sup!==false){ // 下に台(黒いガラス)
@@ -242,6 +250,7 @@ function addFall(C,x,y,z,a,th,o={}){
   C.collide.push([x,y,z,it.ord]);
   return it;
 }
+const PIC_DIM=new THREE.Color(0.025,0.025,0.03);
 function addStatic(C,center,q,s,ord,col){
   const it={k:1,p:pivotFromCenter(center,q,s),q,s,ss:Math.sqrt(s),ord,w0:-1e9,w1:-1e9,col:col||C.color()};
   C.items.push(it);C.collide.push([center.x,center.y,center.z,ord]);return it;
@@ -423,18 +432,16 @@ GADGETS.fan=function(C){ // 扇に広がる
   cam(C,F.t-0.3,centerLast.t+0.6,'crane',{c,h:6.5,rr:4.5,a0:F.a(0)});
   setPose(C,F,0,centerLast.lz,0,centerLast.t,F.y);
 };
-GADGETS.tower=function(C){ // 塔くずし
-  const F=frame(C);let th=F.t;
-  th+=DN;put(C,F,0,0,SP,0,th);
-  th+=DN;put(C,F,0,0,2*SP,0,th,{pr:END});
-  const zt=2*SP+0.95, layers=9, tHit=th+profTimeTo(END,0.45)*SM;
+// 塔(寝かせたドミノを井桁に積む)を1本くずす。破片は前へ飛んで寝る。reachで前へ飛ぶ距離の上限
+function towerAt(C,F,zt,layers,tHit,reach){
   const right=F.v(1,0,0), fwd=F.v(0,0,1);
   let maxFwd=0, lastLand=tHit;
   for(let j=0;j<layers;j++)for(let i=0;i<2;i++){
     const even=j%2===0, o=i?0.3:-0.3;
     const lx=even?o:0, lz=even?zt:zt+o, y=F.y+DT*(j+0.5);
     const c0=new V3(F.x(lx,lz),y,F.z(lx,lz)), q0=even?qLie(fwd,UP):qLie(right,UP);
-    const fwdL=0.7+DT*j*1.25+C.rnd()*0.35, latL=lx*1.6+(C.rnd()-.5)*0.9+(even?0:(i?0.35:-0.35));
+    let fwdL=0.7+DT*j*1.25+C.rnd()*0.35;if(reach)fwdL=Math.min(fwdL,reach-0.25+C.rnd()*0.2);
+    const latL=lx*1.6+(C.rnd()-.5)*0.9+(even?0:(i?0.35:-0.35));
     const lz1=zt+fwdL, c1=new V3(F.x(latL,lz1),F.y+DT*0.5+0.004*(j*2+i),F.z(latL,lz1));
     const q1=qLie(F.v(Math.sin(C.rnd()*6.28),0,Math.cos(C.rnd()*6.28)),UP);
     const t0=tHit+(j*0.012+C.rnd()*0.01)*SM, v=0.4+C.rnd()*0.6;
@@ -443,11 +450,36 @@ GADGETS.tower=function(C){ // 塔くずし
     C.items.push(it);C.collide.push([c1.x,c1.y,c1.z,t0]);
     maxFwd=Math.max(maxFwd,fwdL);lastLand=Math.max(lastLand,t0+tf);
   }
-  const z1=zt+maxFwd+0.75;let th1=lastLand-0.15*SM;
+  C.spine.push([tHit,F.x(0,zt),F.y+0.7,F.z(0,zt)]);
+  return {maxFwd,lastLand};
+}
+GADGETS.tower=function(C){ // 塔くずし
+  const F=frame(C);let th=F.t;
+  th+=DN;put(C,F,0,0,SP,0,th);
+  th+=DN;put(C,F,0,0,2*SP,0,th,{pr:END});
+  const zt=2*SP+0.95, tHit=th+profTimeTo(END,0.45)*SM;
+  const R=towerAt(C,F,zt,9,tHit,0);
+  const z1=zt+R.maxFwd+0.75;let th1=R.lastLand-0.15*SM;
   put(C,F,0,0,z1,0,th1);
   for(let i=1;i<=2;i++){th1+=DN;put(C,F,0,0,z1+i*SP,0,th1);}
-  C.spine.push([tHit,F.x(0,zt),F.y+0.7,F.z(0,zt)]);
   cam(C,F.t-0.3,th1+0.3,'pull',{c:new V3(F.x(0,zt+0.8),F.y,F.z(0,zt+0.8))});
+  setPose(C,F,0,z1+2*SP,0,th1,F.y);
+};
+GADGETS.towers3=function(C){ // 連なる塔: 3本の塔が順にくずれて、次の塔を倒す
+  const F=frame(C);let th=F.t;
+  th+=DN;put(C,F,0,0,SP,0,th);
+  th+=DN;put(C,F,0,0,2*SP,0,th,{pr:END});
+  let zt=2*SP+0.95, tHit=th+profTimeTo(END,0.45)*SM, R=null;
+  const gap=1.95;
+  for(let k=0;k<3;k++){
+    R=towerAt(C,F,zt,5+k*2,tHit,k<2?gap-0.55:0);
+    tHit+=0.13*SM+(k*0.01)*SM;zt+=gap;
+  }
+  zt-=gap;
+  const z1=zt+R.maxFwd+0.75;let th1=R.lastLand-0.15*SM;
+  put(C,F,0,0,z1,0,th1);
+  for(let i=1;i<=2;i++){th1+=DN;put(C,F,0,0,z1+i*SP,0,th1);}
+  cam(C,F.t-0.3,th1+0.3,'pull',{c:new V3(F.x(0,2*SP+0.95+gap),F.y,F.z(0,2*SP+0.95+gap)),far:1.5});
   setPose(C,F,0,z1+2*SP,0,th1,F.y);
 };
 GADGETS.twotier=function(C){ // 2段重ね(ドミノの上を走る)
@@ -507,16 +539,91 @@ GADGETS.wave=function(C){ // うねりながら倒れる面
   cam(C,F.t-0.3,lastT+0.4,'high',{wide:1});
   C.pose={x:lastQ.x,z:lastQ.z,a:lastQ.a,y:F.y,t:lastT,s:1};
 };
+GADGETS.ripple=function(C){ // 放射の輪: まん中に届くと、輪になって外へ倒れていく
+  const F=frame(C);let th=F.t;
+  const M=6, zc=SP*(M+1);
+  for(let i=1;i<=M;i++){th+=DN;put(C,F,0,0,i*SP,0,th);}
+  th+=DN;put(C,F,0,0,zc,0,th);const tc=th;let tEx=th;
+  for(let m=1;m<=M;m++){const r=SP*m, gap=Math.asin(Math.min(1,0.62/r))+0.12, n=Math.floor(2*Math.PI*r/0.6);
+    for(let k=0;k<n;k++){const ang=k/n*2*Math.PI, da=Math.abs(Math.PI-ang);
+      if(da<gap)continue;
+      const t=tc+DN*m+Math.min(ang,2*Math.PI-ang)*0.04;
+      put(C,F,Math.sin(ang)*r,0,zc+Math.cos(ang)*r,ang,t,{spine:k===0,pr:m===M&&k!==0?END:undefined});
+      if(m===M&&k===0)tEx=t;}
+  }
+  cam(C,F.t-0.3,tEx+0.5,'crane',{c:new V3(F.x(0,zc),F.y,F.z(0,zc)),h:9.0,rr:4.2,a0:F.a(0),spin:0.4});
+  setPose(C,F,0,zc+SP*M,0,tEx,F.y);
+};
+const ICONS={
+  heart:['011000110','111101111','111111111','111111111','011111110','001111100','000111000','000010000','000000000'],
+  star:['000010000','000111000','000111000','111111111','011111110','001111100','011101110','011000110','100000001'],
+  smile:['001111100','010000010','101000101','100000001','100000001','101000101','100111001','010000010','001111100'],
+  note:['000011000','000011110','000010011','000010001','000010000','011110000','111110000','111100000','011000000'],
+  cat:['100000001','110000011','111111111','110111011','111111111','111101111','011010110','001111100','000000000'],
+  flower:['000111000','001101100','111101111','110010011','111101111','001101100','000111000','000010000','000111000'],
+  arrow:['000010000','000111000','001111100','011111110','000111000','000111000','000111000','000111000','000000000'],
+};
+GADGETS.picture=function(C){ // 絵のフィールド: 倒れると絵(ハート・星・ねこ…)が光る
+  const F=frame(C);let th=F.t;
+  const fs=0.7, ss=Math.sqrt(fs), n=9, sp=SP*fs, z0=0.72, keys=Object.keys(ICONS), icon=ICONS[keys[C.rnd()*keys.length|0]];
+  let tEx=th;
+  for(let r=0;r<n;r++)for(let c=0;c<n;c++){
+    const on=icon[n-1-r][c]==='1', t=th+DN*0.8+(r*DN+Math.abs(c-4)*0.3*DN)*ss;
+    let gc=null;if(on){const h0=(C.hue+c*0.06+r*0.03)%1;gc=new THREE.Color().setHSL(h0,1,0.5);}   // 光る所は、こい色
+    put(C,F,(c-4)*SP*fs,0,z0+r*sp,0,t,{s:fs,spine:c===4,pr:r===n-1&&c!==4?END:undefined,glow:gc});
+    if(r===n-1&&c===4)tEx=t;
+  }
+  const cz=z0+4*sp;
+  cam(C,F.t-0.3,tEx+3.2,'crane',{c:new V3(F.x(0,cz),F.y,F.z(0,cz)),h:8.6,rr:2.4,a0:F.a(0),spin:0.2,still:1});
+  setPose(C,F,0,z0+(n-1)*sp,0,tEx,F.y);
+};
+GADGETS.cascade=function(C){ // 階段くだり(上った高さを、1段ずつ下りる)
+  const F=frame(C), Y=F.y;let th=F.t;const steps=Math.max(1,Math.round(Y/0.2)), n=2+steps*3;let lz=0,y=Y;
+  for(let i=1;i<=n;i++){lz=i*SP;const k=i<=2?0:Math.floor((i-3)/3)+1;y=Math.max(0,Y-k*0.2);th+=DN*((i>2&&(i-3)%3===0)?0.92:1);put(C,F,0,y-Y,lz,0,th);}
+  cam(C,F.t-0.6,th+0.3,'side',{s:1});
+  setPose(C,F,0,lz,0,th,0);
+};
+GADGETS.slide=function(C){ // すべり台: 台の端の1枚が倒れて、ガラスの坂を寝たまま滑りおり、下の列を起こす
+  const F=frame(C), Y=F.y;let th=F.t;
+  for(let i=1;i<=2;i++){th+=DN;put(C,F,0,0,i*SP,0,th);}
+  const ze=3*SP, al=22*DEG, L=Y/Math.tan(al), a=F.a(0);
+  th+=DN;
+  C.boxes.push({x:F.x(0,ze-SP/2),z:F.z(0,ze-SP/2),y0:0,y1:Y,w:1.25,l:SP,a});
+  // 坂(黒いガラスの板)
+  const rc=new V3(F.x(0,ze+L/2),Y/2-0.03,F.z(0,ze+L/2)), rq=qYaw(a).multiply(new QT().setFromAxisAngle(XA,al));
+  C.geos.push({type:'box',c:rc,q:rq,size:[0.9,0.05,Math.hypot(L,Y)+0.05]});
+  // 1枚の動き: ①台の端を支点に倒れて坂に寝る ②坂を滑る ③床を少し滑って次の1枚にぶつかる
+  const keys=[], pv=new V3(F.x(0,ze),Y,F.z(0,ze)), dn=F.v(0,-Math.sin(al),Math.cos(al)), fw=F.v(0,0,1);
+  const thEnd=Math.PI/2+al;let t=th;
+  for(let m=0;;m++){const tr=m*0.004, ang=Math.min(thEnd,prof(END,tr)*(thEnd/(Math.PI/2)));keys.push([th+tr*SM,pv.x,pv.y,pv.z,ang]);if(ang>=thEnd-1e-3||m>200){t=th+tr*SM;break;}}
+  const mu=0.14, acc=G_REAL*(Math.sin(al)-mu*Math.cos(al)), slope=Math.hypot(L,Y);
+  let s2=0,v=0.6,tt=t;const p=new V3();
+  // ②坂の上を寝たまま滑る(先が坂の下に着くまで) → 先が床を滑りながら、支点が坂を下りきる
+  while(s2<slope){const dtr=0.004;v+=acc*dtr;s2+=v*dtr;tt+=dtr*SM;const sc=Math.min(s2,slope);p.copy(pv).addScaledVector(dn,sc);
+    const ang=sc<slope-DH?thEnd:Math.acos(clamp(-p.y,-1,1));keys.push([tt,p.x,p.y,p.z,ang]);}
+  const bottom=pv.clone().addScaledVector(dn,slope);bottom.y=0;
+  const zStop=1.15;let s3=0;
+  while(s3<zStop){const dtr=0.004;v=Math.max(0.8,v-mu*G_REAL*dtr);s3+=v*dtr;tt+=dtr*SM;p.copy(bottom).addScaledVector(fw,s3);keys.push([tt,p.x,0,p.z,Math.PI/2]);}
+  const it={k:8,keys,a,s:1,ss:1,col:C.color(),ord:th,w0:th,w1:tt+0.1};
+  C.items.push(it);C.collide.push([bottom.x,0,bottom.z,tt]);
+  for(let i=0;i<keys.length;i+=12)C.spine.push([keys[i][0],keys[i][1],keys[i][2]+0.3,keys[i][3]]);
+  // 次の列: 滑ってきた1枚の頭(坂から見て前)が当たる位置
+  const z1=ze+L+zStop+DH+DT+0.02;let th1=tt;
+  put(C,F,0,-Y,z1,0,th1);
+  for(let i=1;i<=2;i++){th1+=DN;put(C,F,0,-Y,z1+i*SP,0,th1);}
+  cam(C,th-0.3,th1+0.4,'side',{marble:true});
+  setPose(C,F,0,z1+2*SP,0,th1,0);
+};
 const GADGET_LEN={stairs:9.5,drop:3.5,marble:7,split:11,loop:4.5,bridge:8,grow:13,fan:5.5,tower:6,twotier:7,spiral:8,wave:10};
-const GADGET_JP={stairs:'階段',drop:'段差落ち',marble:'ビー玉の坂',split:'分岐→合流',loop:'宙返りの輪',bridge:'寝かせたドミノの橋',grow:'だんだん大きく',fan:'扇',tower:'塔くずし',twotier:'2段重ね',spiral:'渦巻き',wave:'うねる面'};
+const GADGET_JP={ripple:'放射の輪',picture:'絵のフィールド',cascade:'階段くだり',slide:'すべり台',towers3:'連なる塔',stairs:'階段',drop:'段差落ち',marble:'ビー玉の坂',split:'分岐→合流',loop:'宙返りの輪',bridge:'寝かせたドミノの橋',grow:'だんだん大きく',fan:'扇',tower:'塔くずし',twotier:'2段重ね',spiral:'渦巻き',wave:'うねる面'};
 
 function planList(rnd,kTotal){
-  const pool=['split','loop','bridge','grow','fan','tower','twotier','spiral','wave','marble'];
+  const pool=['split','loop','bridge','grow','fan','tower','twotier','spiral','wave','marble','ripple','picture','towers3'];
   for(let i=pool.length-1;i>0;i--){const j=rnd()*(i+1)|0;[pool[i],pool[j]]=[pool[j],pool[i]];}
   if(kTotal<=0)return [];
   const combo=kTotal>=4&&rnd()<0.6;   // 階段は、段差落ちかビー玉の坂とセット(上った高さを下ろす)
   const list=pool.slice(0,combo?kTotal-2:kTotal);
-  if(combo){const second=list.includes('marble')||rnd()<0.6?'drop':'marble';list.splice(rnd()*(list.length+1)|0,0,'stairs',second);}
+  if(combo){const low=['drop','cascade','slide'];if(!list.includes('marble'))low.push('marble');list.splice(rnd()*(list.length+1)|0,0,'stairs',low[rnd()*low.length|0]);}   // 下ろし方は4通り
   return list;
 }
 
@@ -550,7 +657,7 @@ function buildCourse(seed,Ta,turns,list,opt){
     phi=curPhi();
     const slot=phiStart+span*(i+0.35)/(k+0.15);
     let target=Math.max(slot,phi+0.22);
-    if(g==='marble'&&list[i-1]==='stairs'||g==='drop')target=phi+0.16;
+    if(list[i-1]==='stairs')target=phi+0.16;
     const gp=G(target);
     connector(C,gp[0],gp[1],tang(target));
     // 大きなしかけは外側へ広げる(フィールドから離す)
@@ -587,15 +694,15 @@ function collides(C){
 function planCourse(seed,Ta,opt){
   opt=opt||{};
   const rnd=mulberry(seed*7+3);
-  let kTotal=Ta<14?0:Ta<24?1:Ta<34?3:Ta<44?5:6+(rnd()*3|0);
-  if(opt.special==='ten'&&Ta>44)kTotal=9;
-  if(opt.special==='hour'&&Ta>44)kTotal=12;
+  let kTotal=Ta<14?0:Ta<24?2:Ta<34?4:Ta<44?6:8+(rnd()*3|0);   // ふだんは毎分8〜10個
+  if(opt.special==='ten'&&Ta>44)kTotal=12;
+  if(opt.special==='hour'&&Ta>44)kTotal=15;   // 正時: しかけ13種+階段と下ろし方
   const fLo=opt.special?0.74:0.86;
   let best=null;
   for(let attempt=0;attempt<14;attempt++){
     const s=seed+attempt*7919, lr=mulberry(s);
     let list=planList(lr,kTotal);
-    if(kTotal===12&&!list.includes('stairs')){list=planList(lr,10);list.splice(lr()*(list.length+1)|0,0,'stairs','drop');}
+    if(kTotal===15&&!list.includes('stairs'))list.splice(lr()*(list.length+1)|0,0,'stairs',['drop','cascade','slide'][lr()*3|0]);
     const o={theme:opt.theme,shape:opt.shape!=null?opt.shape:(mulberry(s+1)()*COURSE_SHAPES.length|0),mir:opt.mir||(mulberry(s+2)()<.5?1:-1),sp:mulberry(s+3)()*6.28};
     let turns=clamp(Ta/40,0.12,1.6), C=null, ok=false;
     for(let it=0;it<7;it++){
@@ -645,7 +752,9 @@ const back=new THREE.DirectionalLight(0xfff1e0,2.2);back.position.set(2,3,-30);s
 const glint=new THREE.PointLight(0xffd7a8,10,18,1.6);scene.add(glint);
 
 // ドミノの形(支点=手前下の辺、ローカル+zが前)
-const domGeo=new RoundedBoxGeometry(DW,DH,DT,3,0.03);domGeo.translate(0,DH/2,-DT/2);
+const domGeo=new RoundedBoxGeometry(DW,DH,DT,2,0.03);domGeo.translate(0,DH/2,-DT/2);
+// 鏡の中の写しと影は、角の丸みのない軽い形で描く(頂点の数を減らしてヌルヌルに)
+const lowGeo=new THREE.BoxGeometry(DW,DH,DT);lowGeo.translate(0,DH/2,-DT/2);
 const glassMat=new THREE.MeshPhysicalMaterial({roughness:0.04,metalness:0,transmission:1,thickness:0.35,ior:1.52,dispersion:4,
   specularIntensity:1,clearcoat:1,clearcoatRoughness:0.02,attenuationDistance:0.6,attenuationColor:new THREE.Color(1,1,1)});
 glassMat.emissive=new THREE.Color(1,1,1).multiplyScalar(0.22);
@@ -655,6 +764,7 @@ const mirMat=new THREE.MeshStandardMaterial({color:0x020202,roughness:0.15,metal
 mirMat.onBeforeCompile=sh=>{sh.fragmentShader=sh.fragmentShader.replace('vec3 totalEmissiveRadiance = emissive;','vec3 totalEmissiveRadiance = emissive * vColor.rgb;');};
 const darkMat=new THREE.MeshPhysicalMaterial({color:0x07070a,roughness:0.18,metalness:0,clearcoat:1,clearcoatRoughness:0.06,envMapIntensity:0.35});
 const darkMirMat=new THREE.MeshStandardMaterial({color:0x040405,roughness:0.3,envMapIntensity:0.3});
+const darkMatDS=darkMat.clone();darkMatDS.side=THREE.DoubleSide;const darkMirMatDS=darkMirMat.clone();darkMirMatDS.side=THREE.DoubleSide;
 const railMat=new THREE.MeshPhysicalMaterial({color:0xd8ecff,roughness:0.05,metalness:0.2,clearcoat:1,emissive:0x1a2430});
 const railMirMat=new THREE.MeshStandardMaterial({color:0x07080a,roughness:0.25,emissive:0x04060a,envMapIntensity:0.3});
 const marbleMat=new THREE.MeshPhysicalMaterial({color:0xeaf6ff,roughness:0.02,transmission:1,thickness:0.4,ior:1.5,dispersion:2,clearcoat:1,iridescence:0.8,iridescenceIOR:1.4,emissive:0x5a7896,emissiveIntensity:0.55,envMapIntensity:1.6});
@@ -665,16 +775,31 @@ const mirrorRoot=new THREE.Group();mirrorRoot.scale.y=-1;scene.add(mirrorRoot);
 const FN=FC*FR, CAP=1500, TOTAL=FN+CAP;
 const doms=new THREE.InstancedMesh(domGeo,glassMat,TOTAL);
 doms.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-doms.castShadow=true;doms.receiveShadow=true;doms.frustumCulled=false;
+doms.castShadow=false;doms.receiveShadow=false;doms.frustumCulled=false;
 const colArr=new Float32Array(TOTAL*3);
 doms.instanceColor=new THREE.InstancedBufferAttribute(colArr,3);doms.instanceColor.setUsage(THREE.DynamicDrawUsage);
 scene.add(doms);
-const domsM=new THREE.InstancedMesh(domGeo,mirMat,TOTAL);
+const domsM=new THREE.InstancedMesh(lowGeo,mirMat,TOTAL);
 domsM.instanceMatrix=doms.instanceMatrix;domsM.instanceColor=doms.instanceColor;domsM.frustumCulled=false;
 mirrorRoot.add(domsM);
+// 影だけを落とす写し(レイヤー1。ふつうのカメラには写らず、影のカメラにだけ写る)
+const domsS=new THREE.InstancedMesh(lowGeo,new THREE.MeshBasicMaterial(),TOTAL);
+domsS.instanceMatrix=doms.instanceMatrix;domsS.frustumCulled=false;domsS.castShadow=true;domsS.layers.set(1);
+scene.add(domsS);key.shadow.camera.layers.enable(1);
 const ZERO=new THREE.Matrix4().makeScale(0,0,0);
 for(let i=0;i<TOTAL;i++)doms.setMatrixAt(i,ZERO);
-doms.count=domsM.count=FN;
+doms.count=domsM.count=domsS.count=FN;
+function setCount(n){doms.count=domsM.count=domsS.count=n;}
+// 毎コマ、書き換えた範囲だけGPUへ送る
+let dMin=1e9,dMax=-1,cMin=1e9,cMax=-1;
+function setM(i,m){doms.setMatrixAt(i,m);if(i<dMin)dMin=i;if(i>dMax)dMax=i;}
+function markC(i){if(i<cMin)cMin=i;if(i>cMax)cMax=i;}
+function flushInst(){
+  const A=doms.instanceMatrix,Cc=doms.instanceColor;
+  if(dMax>=dMin){A.clearUpdateRanges();A.addUpdateRange(dMin*16,(dMax-dMin+1)*16);A.needsUpdate=true;}
+  if(cMax>=cMin){Cc.clearUpdateRanges();Cc.addUpdateRange(cMin*3,(cMax-cMin+1)*3);Cc.needsUpdate=true;}
+  dMin=cMin=1e9;dMax=cMax=-1;
+}
 
 // 影だけを受ける床(床そのものは黒い鏡=何も描かない)
 const shadowFloor=new THREE.Mesh(new THREE.PlaneGeometry(400,400),new THREE.ShadowMaterial({opacity:0.55}));
@@ -713,10 +838,11 @@ function buildDecor(C){
         pos.push(a.x,a.y,a.z,b.x,b.y,b.z);if(i>0){const k=i*2;idx.push(k-2,k-1,k,k-1,k+1,k);}maxY=Math.max(maxY,o.c.y);});
       const bg=new THREE.BufferGeometry();bg.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));bg.setIndex(idx);bg.computeVertexNormals();glR.push(bg);}
   }
+  for(const g of C.geos)if(g.type==='box'){const bx=new THREE.BoxGeometry(g.size[0],g.size[1],g.size[2]);bx.applyMatrix4(new THREE.Matrix4().compose(g.c,g.q,new V3(1,1,1)));glR.push(bx);maxY=Math.max(maxY,g.c.y+0.5);}
   for(const p of C.posts){const cg=new THREE.CylinderGeometry(p.r,p.r*1.1,p.y1-p.y0,10);cg.translate(p.x,(p.y0+p.y1)/2,p.z);(p.r>0.05?glR:gl).push(cg);maxY=Math.max(maxY,p.y1);}
   if(gl.length){const mg=mergeGeometries(gl.map(g=>g.index?g.toNonIndexed():g));const m=new THREE.Mesh(mg,railMat);m.castShadow=true;G.add(m);GM.add(new THREE.Mesh(mg,railMirMat));}
   if(glR.length){const mg=mergeGeometries(glR.map(g=>{g=g.index?g.toNonIndexed():g;if(!g.attributes.normal)g.computeVertexNormals();if(g.attributes.uv)g.deleteAttribute('uv');return g;}));
-    const mat=darkMat.clone();mat.side=THREE.DoubleSide;const m=new THREE.Mesh(mg,mat);m.castShadow=m.receiveShadow=true;G.add(m);const mm=darkMirMat.clone();mm.side=THREE.DoubleSide;GM.add(new THREE.Mesh(mg,mm));}
+    const m=new THREE.Mesh(mg,darkMatDS);m.castShadow=m.receiveShadow=true;G.add(m);GM.add(new THREE.Mesh(mg,darkMirMatDS));}
   if(C.marble){
     const sg=new THREE.SphereGeometry(C.marble.r,40,28);
     const mb=new THREE.Mesh(sg,marbleMat);mb.castShadow=true;G.add(mb);
@@ -729,7 +855,7 @@ function buildDecor(C){
   setDecorY(C,-C.decorH);
 }
 function setDecorY(C,y){if(!C||!C.decor)return;C.decor.position.y=y;C.decorM.position.y=y;C.decor.visible=C.decorM.visible=y>-C.decorH+0.01;}
-function disposeDecor(C){if(!C||!C.decor)return;for(const G of [C.decor,C.decorM]){G.traverse(o=>{if(o.geometry&&o.geometry!==domGeo)o.geometry.dispose();if(o.material&&o.material!==darkMat&&o.material!==darkMirMat&&o.material!==railMat&&o.material!==railMirMat&&o.material!==marbleMat&&o.material!==marbleMirMat)o.material.dispose();});G.removeFromParent();}C.decor=null;}
+function disposeDecor(C){if(!C||!C.decor)return;for(const G of [C.decor,C.decorM]){G.traverse(o=>{if(o.geometry&&o.geometry!==domGeo)o.geometry.dispose();if(o.material&&o.material!==darkMat&&o.material!==darkMirMat&&o.material!==darkMatDS&&o.material!==darkMirMatDS&&o.material!==railMat&&o.material!==railMirMat&&o.material!==marbleMat&&o.material!==marbleMirMat)o.material.dispose();});G.removeFromParent();}C.decor=null;}
 
 // ============================================================
 // 6) 1枚ずつの姿勢
@@ -763,10 +889,19 @@ function evalItem(it,τ,out){
     case 4:{const L=it.L;lintelFrame(L,τ);
       // 上段: まぐさの法線を上、まぐさの向きを前に立ち、物理の倒れ方で倒れる
       _v.copy(_v3).addScaledVector(_Z,DT+0.001).addScaledVector(_Y,DT/2);
-      const Yu=_Z.clone(), Zu=_Y.clone(), Xu=new V3().crossVectors(Yu,Zu);
-      _m.makeBasis(Xu,Yu,Zu);_q2.setFromRotationMatrix(_m);
+      _A.crossVectors(_Z,_Y);_m.makeBasis(_A,_Z,_Y);_q2.setFromRotationMatrix(_m);
       _q.setFromAxisAngle(XA,prof(it.pr,(τ-it.th)/SM));_q2.multiply(_q);
       return out.compose(_v,_q2,_s.setScalar(1));}
+    case 8:{ // すべり台の1枚: 支点の位置と倒れ角のキーをなぞる
+      const K=it.keys;let i=0;
+      if(τ<=K[0][0])i=-1;else if(τ>=K[K.length-1][0])i=K.length-1;
+      else{let lo=0,hi=K.length-1;while(hi-lo>1){const m=(lo+hi)>>1;if(K[m][0]<τ)lo=m;else hi=m;}i=lo;}
+      let x,y,z,a;
+      if(i<0){x=K[0][1];y=K[0][2];z=K[0][3];a=0;}
+      else if(i>=K.length-1){const k=K[K.length-1];x=k[1];y=k[2];z=k[3];a=k[4];}
+      else{const k0=K[i],k1=K[i+1],f=(τ-k0[0])/((k1[0]-k0[0])||1);x=lerp(k0[1],k1[1],f);y=lerp(k0[2],k1[2],f);z=lerp(k0[3],k1[3],f);a=lerp(k0[4],k1[4],f);}
+      _q2.setFromAxisAngle(UP,it.a);_q.setFromAxisAngle(XA,a);_q2.multiply(_q);
+      return out.compose(_v.set(x,y,z),_q2,_s.setScalar(1));}
   }
 }
 
@@ -792,14 +927,15 @@ let oldDecor=null;
 
 function courseTau(C,vt){return (vt-C.tStart)/C.f;}
 function prepare(C,tStart){C.tStart=tStart;buildDecor(C);
-  C.toPose=C.items.map(it=>{evalItem(it,-1e9,_m);const p=new V3(),q=new QT(),s=new V3();_m.decompose(p,q,s);return {p,q,s:s.x};});
+  C.toPose=C.items.map(it=>{evalItem(it,-1e9,_m);const p=new V3(),q=new QT(),s=new V3();_m.decompose(p,q,s);return {p,q,s};});
   C.items.forEach(it=>{it.col0=it.col.clone();});
+  smoothSpine(C);
 }
 function startCourse(C,t0,animate){
   // いまの姿勢をつかまえて、新しいコースの立った姿勢へ巻き戻す
   const n=Math.max(slotCount,C.items.length), from=[];
   for(let i=0;i<n;i++){
-    if(i<slotCount&&slotIt[i]){doms.getMatrixAt(FN+i,_m);const p=new V3(),q=new QT(),s=new V3();_m.decompose(p,q,s);from.push({p,q,s:s.x,c:slotIt[i].col.clone()});}
+    if(i<slotCount&&slotIt[i]){doms.getMatrixAt(FN+i,_m);const p=new V3(),q=new QT(),s=new V3();_m.decompose(p,q,s);const k=(FN+i)*3;from.push({p,q,s,c:new THREE.Color(colArr[k],colArr[k+1],colArr[k+2])});}
     else from.push(null);
   }
   if(oldDecor&&oldDecor!==cur)disposeDecor(oldDecor);
@@ -809,10 +945,9 @@ function startCourse(C,t0,animate){
   slotCount=C.items.length;
   morph=animate?{t0,from,n}:null;
   if(!animate){setDecorY(C,0);if(oldDecor){disposeDecor(oldDecor);oldDecor=null;}}
-  doms.count=domsM.count=FN+n;
+  setCount(FN+n);
   cur=C;C.riseAt=t0;
-  for(let i=0;i<C.items.length;i++){const c=C.items[i].col;colArr.set([c.r,c.g,c.b],(FN+i)*3);}
-  doms.instanceColor.needsUpdate=true;
+  if(!animate){for(let i=0;i<C.items.length;i++){const c=C.items[i].col;colArr.set([c.r,c.g,c.b],(FN+i)*3);}markC(FN);markC(FN+Math.max(1,C.items.length)-1);}
 }
 // その分(M)のコースが最後に出す時刻(M+1)が :00 なら正時、:10 :20 … なら10分ごと
 function minuteOfHour(M){return new Date(M*60000).getMinutes();}
@@ -847,32 +982,34 @@ function newCourseNow(vt,animate){
 function updateCourse(vt){
   if(!cur)return;
   const τ=courseTau(cur,vt);
-  let dirty=false;
   if(morph){
     const n=morph.n, md=1.25;let done=true;
     for(let i=0;i<n;i++){
       const st=morph.t0+0.2+(1-i/Math.max(1,n-1))*1.55, u=clamp((vt-st)/md,0,1);
       if(u<1)done=false;
       const e=ease3(u), fr=morph.from[i], it=slotIt[i], to=it?cur.toPose[i]:null;
-      let p,q,s;
-      if(fr&&to){_v.lerpVectors(fr.p,to.p,e);_v.y+=Math.sin(Math.PI*e)*(0.35+fr.p.distanceTo(to.p)*0.06);_q2.slerpQuaternions(fr.q,to.q,e);s=lerp(fr.s,to.s,e);}
-      else if(fr){_v.copy(fr.p);_v.y+=e*0.3;_q2.copy(fr.q);s=fr.s*(1-e);}
-      else if(to){_v.copy(to.p);_q2.copy(to.q);s=to.s*e;}
+      if(fr&&to){_v.lerpVectors(fr.p,to.p,e);_v.y+=Math.sin(Math.PI*e)*(0.35+fr.p.distanceTo(to.p)*0.06);_q2.slerpQuaternions(fr.q,to.q,e);_s.lerpVectors(fr.s,to.s,e);}
+      else if(fr){_v.copy(fr.p);_v.y+=e*0.3;_q2.copy(fr.q);_s.copy(fr.s).multiplyScalar(1-e);}
+      else if(to){_v.copy(to.p);_q2.copy(to.q);_s.copy(to.s).multiplyScalar(e);}
       else continue;
-      _m.compose(_v,_q2,_s.setScalar(Math.max(1e-4,s)));doms.setMatrixAt(FN+i,_m);
-      if(fr&&it){const c=it.col;colArr[(FN+i)*3]=lerp(fr.c.r,c.r,e);colArr[(FN+i)*3+1]=lerp(fr.c.g,c.g,e);colArr[(FN+i)*3+2]=lerp(fr.c.b,c.b,e);}
+      _s.x=Math.max(1e-4,_s.x);_s.y=Math.max(1e-4,_s.y);_s.z=Math.max(1e-4,_s.z);
+      _m.compose(_v,_q2,_s);setM(FN+i,_m);
+      if(it){const c=it.col,k=(FN+i)*3;if(fr){colArr[k]=lerp(fr.c.r,c.r,e);colArr[k+1]=lerp(fr.c.g,c.g,e);colArr[k+2]=lerp(fr.c.b,c.b,e);}else{colArr[k]=c.r;colArr[k+1]=c.g;colArr[k+2]=c.b;}markC(FN+i);}
     }
-    doms.instanceColor.needsUpdate=true;dirty=true;
     // 飾り: 古いのは鏡に沈み、新しいのは鏡から上がる
     if(oldDecor){const u=clamp((vt-oldDecor.decorSink)/1.3,0,1);setDecorY(oldDecor,-oldDecor.decorH*ease3(u));}
     {const u=clamp((vt-morph.t0-0.15)/1.6,0,1);setDecorY(cur,-cur.decorH*(1-ease3(u)));}
-    if(done&&vt>morph.t0+MORPH){morph=null;doms.count=domsM.count=FN+slotCount;if(oldDecor){disposeDecor(oldDecor);oldDecor=null;}setDecorY(cur,0);slotSt.fill(-1);}
+    if(done&&vt>morph.t0+MORPH){morph=null;setCount(FN+slotCount);if(oldDecor){disposeDecor(oldDecor);oldDecor=null;}setDecorY(cur,0);slotSt.fill(-1);}
   }
   if(!morph){
     for(let i=0;i<slotCount;i++){
       const it=slotIt[i];if(!it)continue;
       const st=τ<it.w0?0:τ>it.w1?2:1;
-      if(st!==slotSt[i]||st===1){evalItem(it,st===0?-1e9:st===2?1e9:τ,_m);doms.setMatrixAt(FN+i,_m);slotSt[i]=st;dirty=true;}
+      if(st!==slotSt[i]||st===1){const tt=st===0?-1e9:st===2?1e9:τ;evalItem(it,tt,_m);setM(FN+i,_m);slotSt[i]=st;
+        if(it.glow!==undefined){ // 絵のフィールド: 倒れた角度で光らせる
+          const g=clamp(prof(it.pr,(tt-it.th)/(SM*it.ss))/1.2,0,1), k=(FN+i)*3, D=PIC_DIM;let r=D.r,gg=D.g,b=D.b;
+          if(it.glow){const kk=g*g*2.2;r=lerp(r,it.glow.r*kk,g);gg=lerp(gg,it.glow.g*kk,g);b=lerp(b,it.glow.b*kk,g);}
+          colArr[k]=r;colArr[k+1]=gg;colArr[k+2]=b;markC(FN+i);}}
     }
   }
   if(cur.marble&&cur.decor){
@@ -886,7 +1023,6 @@ function updateCourse(vt){
     }
     mb.mesh.position.copy(p);mb.meshM.position.copy(p);mb.last=mb.mesh.position.clone();
   }
-  if(dirty)doms.instanceMatrix.needsUpdate=true;
 }
 
 // ---- 毎コマ: 時刻のフィールド
@@ -915,13 +1051,13 @@ function updateField(vt){
     let th;
     if(vt<tr)th=prof(f.pr,(vt-tf)/(SM*FSS));
     else th=prof(f.pr,Math.max(0,SETTLE*SM*FSS-(vt-tr)*RISE)/(SM*FSS));
-    _q.setFromAxisAngle(XA,th);_q2.multiplyQuaternions(f.q,_q);_m.compose(f.p,_q2,_s.setScalar(FS));doms.setMatrixAt(i,_m);
+    _q.setFromAxisAngle(XA,th);_q2.multiplyQuaternions(f.q,_q);_m.compose(f.p,_q2,_s.setScalar(FS));setM(i,_m);
     const g=clamp(th/1.2,0,1), on=fieldMask[f.r*FC+f.c];
     let r=DIM.r,gg=DIM.g,b=DIM.b;
     if(on){if(fieldTheme===0)_c.setHSL((fieldHue+f.c/FC*0.75)%1,1,0.62);else if(fieldTheme===4)_c.setHSL(fieldHue,1,0.6);else{const t=THEMES[fieldTheme].f(f.c*1.5,fieldHue);_c.setHSL(t[0],Math.max(t[1],0.6),t[2]);}const k=g*g*3.2;r=lerp(r,_c.r*k,g);gg=lerp(gg,_c.g*k,g);b=lerp(b,_c.b*k,g);}
     colArr[i*3]=r;colArr[i*3+1]=gg;colArr[i*3+2]=b;
   }
-  doms.instanceMatrix.needsUpdate=true;doms.instanceColor.needsUpdate=true;
+  markC(0);markC(FN-1);
   fieldStatic=!moving;
 }
 const _c=new THREE.Color();
@@ -940,11 +1076,27 @@ function spineAt(C,τ,out){
   const a=S[lo],b=S[hi],f=(τ-a[0])/((b[0]-a[0])||1);
   return out.set(a[1]+(b[1]-a[1])*f,a[2]+(b[2]-a[2])*f,a[3]+(b[3]-a[3])*f);
 }
+// カメラ用の通り道: 波の先頭の位置を0.05秒ごとに並べ直し、前後0.35秒でならしておく(ドミノ1枚ごとのカクつきを消す)
+function smoothSpine(C){
+  const S=C.spine;if(S.length<2){C.cs=null;return;}
+  const t0=S[0][0], t1=S[S.length-1][0], dt=0.05, n=Math.max(2,Math.ceil((t1-t0)/dt)+1);
+  const raw=new Float32Array(n*3), out=new Float32Array(n*3), v=new V3();
+  for(let i=0;i<n;i++){spineAt(C,t0+i*dt,v);raw[i*3]=v.x;raw[i*3+1]=v.y;raw[i*3+2]=v.z;}
+  const sg=0.35/dt, R=Math.ceil(sg*3), w=[];let ws=0;for(let k=-R;k<=R;k++){const x=Math.exp(-k*k/(2*sg*sg));w.push(x);ws+=x;}
+  for(let i=0;i<n;i++){let x=0,y=0,z=0;for(let k=-R;k<=R;k++){const j=clamp(i+k,0,n-1)*3,ww=w[k+R];x+=raw[j]*ww;y+=raw[j+1]*ww;z+=raw[j+2]*ww;}
+    out[i*3]=x/ws;out[i*3+1]=y/ws;out[i*3+2]=z/ws;}
+  C.cs={t0,dt,n,P:out};
+}
+function camSpineAt(C,τ,out){
+  const S=C.cs;if(!S)return spineAt(C,τ,out);
+  const x=clamp((τ-S.t0)/S.dt,0,S.n-1), i=Math.min(S.n-2,Math.floor(x)), f=x-i, P=S.P, a=i*3, b=a+3;
+  return out.set(P[a]+(P[b]-P[a])*f,P[a+1]+(P[b+1]-P[a+1])*f,P[a+2]+(P[b+2]-P[a+2])*f);
+}
 const _h=new V3(),_ha=new V3(),_hb=new V3(),_hc=new V3(),_d=new V3(),_r=new V3(),_fp=new V3(),_ft=new V3();
 let focusDist=8,lastMode='',overW=0;
 function pickMode(C,τ){for(const c of C.cams){if(τ>=c.t0&&τ<=c.t1)return c;}return null;}
 function courseCam(C,τ,cm,P,T){
-  spineAt(C,τ,_h);spineAt(C,τ+0.9,_ha);spineAt(C,τ-0.7,_hb);spineAt(C,τ+0.7,_hc);
+  camSpineAt(C,τ,_h);camSpineAt(C,τ+0.9,_ha);camSpineAt(C,τ-0.9,_hb);camSpineAt(C,τ+0.9,_hc);
   _d.subVectors(_hc,_hb);_d.y=0;if(_d.lengthSq()<1e-6)_d.set(0,0,-1);_d.normalize();
   _r.set(_d.z,0,-_d.x);
   const out=Math.sign(_r.x*_h.x+_r.z*_h.z)||1;   // 外側へずらすと、内側のフィールドが奥に見える
@@ -953,12 +1105,12 @@ function courseCam(C,τ,cm,P,T){
   switch(mode){
     case 'climb':P.copy(_h).addScaledVector(_d,-3.0).addScaledVector(_r,out*1.5);P.y=y0+1.15;T.copy(_ha).addScaledVector(_d,0.8);T.y+=0.55;break;
     case 'high':P.copy(_h).addScaledVector(_d,-4.2).addScaledVector(_r,out*2.0);P.y=y0+4.3;T.copy(_ha);T.y=y0+0.2;break;
-    case 'low':{const s=cm.s||3;P.copy(_h).addScaledVector(_d,-2.6-s*0.7).addScaledVector(_r,out*(1.9+s*0.45));P.y=y0+0.5;spineAt(C,τ+1.4,T);T.y=y0+0.3+s*0.35;break;}
+    case 'low':{const s=cm.s||3;P.copy(_h).addScaledVector(_d,-2.6-s*0.7).addScaledVector(_r,out*(1.9+s*0.45));P.y=y0+0.5;camSpineAt(C,τ+1.4,T);T.y=y0+0.3+s*0.35;break;}
     case 'side':P.copy(_h).addScaledVector(_r,out*3.3).addScaledVector(_d,-1.3);P.y=y0+(cm.marble?1.0:1.35);T.copy(_h).addScaledVector(_d,1.0);T.y=y0+0.3;break;
     case 'orbit':{const u=clamp((τ-cm.t0)/(cm.t1-cm.t0),0,1), a=cm.a0+(u-0.5)*1.1;P.set(cm.c.x+Math.sin(a)*7.0,cm.c.y+0.9,cm.c.z+Math.cos(a)*7.0);T.copy(cm.c);T.y-=0.2;break;}
     case 'crane':{const u=clamp((τ-cm.t0)/(cm.t1-cm.t0),0,1), a=cm.a0+Math.PI+(u-0.5)*(cm.spin||0.5);
-      P.set(cm.c.x+Math.sin(a)*cm.rr,cm.c.y+cm.h,cm.c.z+Math.cos(a)*cm.rr);T.lerpVectors(cm.c,_h,0.35);T.y=cm.c.y;break;}
-    case 'pull':P.copy(cm.c).addScaledVector(_d,-4.6).addScaledVector(_r,out*2.8);P.y=cm.c.y+2.3;T.copy(cm.c);T.y+=0.45;break;
+      P.set(cm.c.x+Math.sin(a)*cm.rr,cm.c.y+cm.h,cm.c.z+Math.cos(a)*cm.rr);T.lerpVectors(cm.c,_h,cm.still?0:0.35);T.y=cm.c.y;break;}
+    case 'pull':{const fa=cm.far||1;P.copy(cm.c).addScaledVector(_d,-4.6*fa).addScaledVector(_r,out*2.8*fa);P.y=cm.c.y+2.3*fa;T.copy(cm.c);T.y+=0.45;break;}
     default: // 波の先頭を、斜め後ろの少し上から
       P.copy(_h).addScaledVector(_d,-3.0).addScaledVector(_r,out*2.1);P.y=y0+1.5;T.copy(_h).addScaledVector(_d,3.3);T.y=y0+0.3;
       T.lerp(FIELD_C,0.06);
@@ -1003,7 +1155,7 @@ function updateCamera(dt,vt){
   camPos.lerp(desP,kp);camTgt.lerp(desT,kt);
   if(camPos.y<0.22)camPos.y=0.22;
   camera.position.copy(camPos);camera.lookAt(camTgt);
-  if(DEBUG&&Q.get('cam')==='top'){scene.fog=null;camera.position.set(0,Q.get('h')?+Q.get('h'):95,0.01);camera.lookAt(0,0,0);if(!window.__mk){window.__mk=new THREE.Mesh(new THREE.SphereGeometry(0.8),new THREE.MeshBasicMaterial({color:0xff0000,fog:false}));scene.add(window.__mk);}window.__mk.position.copy(_h);}
+  if(DEBUG&&Q.get('cam')==='top'){scene.fog=null;const cx=+(Q.get('cx')||0),cz=+(Q.get('cz')||0);camera.position.set(cx,Q.get('h')?+Q.get('h'):95,cz+0.01);camera.lookAt(cx,0,cz);if(!window.__mk){window.__mk=new THREE.Mesh(new THREE.SphereGeometry(0.8),new THREE.MeshBasicMaterial({color:0xff0000,fog:false}));scene.add(window.__mk);}window.__mk.position.copy(_h);}
   if(DEBUG){window.__camMode=lastMode;window.__camInfo=()=>({cam:camera.position.toArray().map(v=>+v.toFixed(2)),tgt:camTgt.toArray().map(v=>+v.toFixed(2)),des:desP.toArray().map(v=>+v.toFixed(2)),h:_h.toArray().map(v=>+v.toFixed(2))});}
   _v.lerpVectors(_h,FIELD_C,w);
   focusDist=lerp(focusDist,camera.position.distanceTo(_v),1-Math.exp(-dt*4));
@@ -1063,7 +1215,7 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState===
 // ============================================================
 // 11) はじまり
 // ============================================================
-let frames=0,fpsT=0,fpsN=0,fps=0,lastNow=0,perfLog=[],bootTier=1,lastVt=0;
+let frames=0,fpsT=0,fpsN=0,fps=0,lastNow=0,perfLog=[],bootTier=1,lastVt=0,slowWin=0;
 async function boot(){
   await nextFrame();
   simulate();
@@ -1073,21 +1225,21 @@ async function boot(){
   // 最初のコース
   const vt=vtime(), M=Math.floor(vt/60), sec=vt-M*60;
   if(Q.get('sec')!=null&&sec>=3.5&&(M+1)*60-(M*60+3.5)>0){
-    const C=makeCourseFor(M*60+3.5,(M+1)*60);if(C)startCourse(C,vt,false);
+    const C=makeCourseFor(M*60+3.5,(M+1)*60,M);if(C)startCourse(C,vt,false);
   }else newCourseNow(vt,true);
   curMinute=M;
   updateField(vt);updateCourse(vt);
   updateCamera(10,vt);camPos.copy(desP);camTgt.copy(desT);
-  // 描画の準備(シェーダーの準備)をしてから、何コマか描いて速さを測る
-  try{await renderer.compileAsync(scene,camera);}catch(e){}
-  const times=[];let t0=performance.now();
-  for(let i=0;i<26;i++){render(vtime(),1/60);await nextFrame();const t=performance.now();times.push(t-t0);t0=t;}
-  times.sort((a,b)=>a-b);const med=times[times.length>>1];
+  // ①使う材質の組み合わせ(分光あり/なし × 影あり/なし、台やレールやビー玉)を全部、先に準備する
+  //   → 途中で画質の段が変わったり、新しいしかけが初めて出たりしてもカクッとしない
+  await warmCompile();
+  // ②実際に描いて速さを測り、60fpsで回る一番きれいな段を選ぶ(ローディングは長くなってもよい、とおっちゃん)
+  const mobile=/iPhone|iPad|Android/.test(navigator.userAgent);
   if(Q.get('tier')==null){
-    if(med>34)applyTier(3);else if(med>24)applyTier(2);else if(med<14&&(window.devicePixelRatio||1)<=2&&!/iPhone|Android/.test(navigator.userAgent))applyTier(0);
-  }
+    let t=mobile?1:0;applyTier(t);await bench(8);
+    for(;;){const v=await bench(40);perfLog.push('tier '+t+': '+v.toFixed(1)+'ms');if(v<=18.5||t>=TIERS.length-2)break;t++;applyTier(t);await bench(6);}
+  }else await bench(10);
   bootTier=tier;
-  perfLog.push('boot median '+med.toFixed(1)+'ms → tier '+tier);
   const ld=document.getElementById('load');ld.classList.add('out');setTimeout(()=>{ld.classList.add('gone');ld.remove();},1300);
   wake();
   APKit.init({canvas:cv,gifName:'glass-relay-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,
@@ -1099,8 +1251,28 @@ async function boot(){
   lastNow=performance.now();
   requestAnimationFrame(loop);
 }
+async function warmCompile(){
+  const g=new THREE.BoxGeometry(.2,.2,.2), W=new THREE.Group(), WM=new THREE.Group();
+  for(const m of [darkMat,darkMatDS,railMat,marbleMat]){const me=new THREE.Mesh(g,m);me.castShadow=true;me.receiveShadow=true;W.add(me);}
+  for(const m of [darkMirMat,darkMirMatDS,railMirMat,marbleMirMat])WM.add(new THREE.Mesh(g,m));
+  W.position.y=-40;WM.position.y=-40;scene.add(W);mirrorRoot.add(WM);
+  const d0=glassMat.dispersion, s0=key.castShadow;
+  for(const d of [4,0])for(const sh of [true,false]){
+    glassMat.dispersion=d;glassMat.needsUpdate=true;marbleMat.dispersion=d?2:0;marbleMat.needsUpdate=true;key.castShadow=sh;
+    try{await renderer.compileAsync(scene,camera);}catch(e){}
+    render(vtime(),1/60);await nextFrame();
+  }
+  glassMat.dispersion=d0;glassMat.needsUpdate=true;marbleMat.dispersion=d0?2:0;marbleMat.needsUpdate=true;key.castShadow=s0;
+  try{await renderer.compileAsync(scene,camera);}catch(e){}
+  scene.remove(W);mirrorRoot.remove(WM);g.dispose();
+}
+async function bench(n){ // n コマ描いて、遅いほうから4割の所のコマ時間(ms)
+  const ts=[];let t0=performance.now();
+  for(let i=0;i<n;i++){render(vtime(),1/60);await nextFrame();const t=performance.now();ts.push(t-t0);t0=t;}
+  ts.sort((a,b)=>a-b);return ts[Math.floor(ts.length*0.6)];
+}
 function render(vt,dt){
-  updateField(vt);updateCourse(vt);updateCamera(dt,vt);
+  updateField(vt);updateCourse(vt);updateCamera(dt,vt);flushInst();
   if(bokeh.enabled){bokeh.uniforms.focus.value=focusDist;bokeh.uniforms.aspect.value=camera.aspect;bokeh.uniforms.aperture.value=0.006*(1-0.85*overW);}
   if(bokeh.enabled)composer.render(dt);else{composer.render(dt);}
 }
@@ -1122,7 +1294,8 @@ function loop(now){
   // 速さを見て、重ければ段を下げる
   frames++;fpsN++;fpsT+=dt;
   if(fpsT>=2){fps=fpsN/fpsT;
-    if(Q.get('tier')==null&&fps<47&&tier<Math.min(TIERS.length-1,bootTier+2)&&!document.hidden){applyTier(tier+1);perfLog.push('fps '+fps.toFixed(0)+' → tier '+tier);}
+    slowWin=fps<44?slowWin+1:0;   // 2回続けて遅いときだけ、1段だけ下げる
+    if(Q.get('tier')==null&&slowWin>=2&&tier<Math.min(TIERS.length-1,bootTier+1)&&!document.hidden){applyTier(tier+1);slowWin=0;perfLog.push('fps '+fps.toFixed(0)+' → tier '+tier);}
     fpsT=0;fpsN=0;}
   if(DEBUG)dbgEl.textContent=`fps ${fps.toFixed(1)}  frame ${frames}  tier ${tier}  pr ${renderer.getPixelRatio().toFixed(2)}\n`+
     `sec ${sec.toFixed(1)}  ${hhmm(M)}  items ${cur?cur.items.length:0}  f ${cur?cur.f.toFixed(2):'-'}  build ${cur?cur.buildMs.toFixed(0):'-'}ms\n`+(cur?`色 ${THEMES[cur.theme].jp}  形 ${COURSE_SHAPES[cur.shape]}${cur.mir<0?'・右回り':'・左回り'}  ${cur.special||''}\n`:'')+
