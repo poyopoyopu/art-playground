@@ -61,9 +61,12 @@
   html,body,canvas{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
   html,body{margin:0;height:100%;background:#060403;overflow:hidden;touch-action:none}
   #cv{position:fixed;inset:0;width:100%;height:100%;display:block}
-  #load{position:fixed;inset:0;background:#000;display:flex;align-items:center;justify-content:center;z-index:5;transition:opacity 1.2s}
+  #load{position:fixed;inset:0;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;z-index:5;transition:opacity 1.2s;font-family:-apple-system,"Hiragino Sans",sans-serif;color:#fff}
   #load.out{opacity:0;pointer-events:none}
-  #ld{width:120px;height:160px}
+  #ld{width:280px;height:110px}
+  #ldT{font:600 11px/1 ui-monospace,Menlo,monospace;letter-spacing:.32em;color:rgba(255,255,255,.55)}
+  #ldP{font-size:15px;letter-spacing:.12em;color:rgba(255,255,255,.9);font-variant-numeric:tabular-nums}
+  #ldM{font-size:12px;letter-spacing:.06em;color:rgba(255,255,255,.5);min-height:1.5em;text-align:center}
   #hint{position:fixed;left:0;right:0;bottom:20%;text-align:center;color:rgba(255,255,255,.85);font:13px/1.8 -apple-system,"Hiragino Sans",sans-serif;letter-spacing:.08em;pointer-events:none;opacity:0;transition:opacity 1.4s;text-shadow:0 0 10px #000,0 0 4px #000;z-index:3}
   #hint.on{opacity:1}
   #dbg{position:fixed;left:6px;top:6px;color:#9f9;font:11px/1.35 ui-monospace,monospace;white-space:pre;pointer-events:none;z-index:4;text-shadow:0 0 3px #000}
@@ -77,25 +80,33 @@
 </head>
 <body>
 <canvas id="cv"></canvas>
-<div id="load"><canvas id="ld" width="240" height="320"></canvas></div>
+<div id="load"><div id="ldT">GLASS RELAY</div><canvas id="ld" width="560" height="220"></canvas><div id="ldP">読み込み中 0%</div><div id="ldM">読み込んでいます</div></div>
 <div id="hint"></div>
 <div id="dbg"></div>
 <script>
-// ---- ローディング: 黒地に1枚のドミノがゆっくり倒れる(three.jsの読み込み前から動く)
+// ---- ローディング: 一列のガラスのドミノが、進み具合に合わせて順に倒れていく(three.jsの読み込み前から動く)
+//      作品側から window.__ld(進み具合0〜1, 次の段階の目安, 文) で知らせる。止まって見えないよう、段階の中でも少しずつ進める
 (function(){
-  var c=document.getElementById('ld'),g=c.getContext('2d'),t0=performance.now();
+  var c=document.getElementById('ld'),g=c.getContext('2d'),P=document.getElementById('ldP'),Mg=document.getElementById('ldM');
+  var N=14,st={p:0.02,nx:0.12,t:performance.now()},shown=0,lastPct=-1;
+  window.__ld=function(p,nx,msg){st={p:p,nx:Math.max(p,nx),t:performance.now()};if(p>=1)shown=1;if(msg!=null&&Mg)Mg.textContent=msg;};
   function draw(now){
     var L=document.getElementById('load');if(!L||L.classList.contains('gone'))return;
-    var t=((now-t0)/1000)%3.2, u=Math.min(1,Math.max(0,(t-.5)/1.6));
-    var a=(1-Math.cos(u*Math.PI))/2*1.31, fade=t>2.6?1-(t-2.6)/.6:1;
-    g.clearRect(0,0,240,320);
-    g.save();g.translate(150,260);g.rotate(a);g.globalAlpha=Math.max(0,fade);
-    var gr=g.createLinearGradient(-30,-150,0,0);
-    gr.addColorStop(0,'hsla('+(200+u*160)+',90%,72%,.85)');gr.addColorStop(1,'hsla('+(260+u*160)+',90%,60%,.35)');
-    g.fillStyle=gr;g.strokeStyle='rgba(255,255,255,.55)';g.lineWidth=1.5;
-    g.beginPath();g.roundRect(-30,-150,30,150,4);g.fill();g.stroke();
-    g.restore();
-    g.globalAlpha=.25;g.fillStyle='#fff';g.fillRect(40,261,160,1);g.globalAlpha=1;
+    var el=(now-st.t)/1000,goal=st.p+(st.nx-st.p)*0.85*(1-Math.exp(-el/5));
+    shown+=(Math.max(shown,goal)-shown)*0.08;
+    var pct=Math.min(100,Math.floor(shown*100));if(pct!==lastPct&&P){P.textContent='読み込み中 '+pct+'%';lastPct=pct;}
+    g.clearRect(0,0,560,220);
+    var x0=38,dx=36,w=14,h=88,base=170,k=shown*N;
+    for(var i=0;i<N;i++){
+      var u=Math.min(1,Math.max(0,k-i)),a=(1-Math.cos(u*Math.PI))/2*1.12;   // 倒れきると次のドミノに寄りかかる角度
+      if(u<=0&&i===Math.floor(k))a=Math.sin(now/180)*0.04;                 // 次に倒れる1枚は小さく揺れる
+      g.save();g.translate(x0+i*dx+w,base);g.rotate(a);
+      var hue=200+i*12, gr=g.createLinearGradient(-w,-h,0,0);
+      gr.addColorStop(0,'hsla('+hue+',90%,72%,'+(u>0?.9:.55)+')');gr.addColorStop(1,'hsla('+(hue+40)+',90%,58%,'+(u>0?.45:.22)+')');
+      g.fillStyle=gr;g.strokeStyle='rgba(255,255,255,'+(u>0?.7:.35)+')';g.lineWidth=1.5;
+      g.beginPath();if(g.roundRect)g.roundRect(-w,-h,w,h,3);else g.rect(-w,-h,w,h);g.fill();g.stroke();g.restore();
+    }
+    g.globalAlpha=.22;g.fillStyle='#fff';g.fillRect(20,base+1,520,1.5);g.globalAlpha=1;
     requestAnimationFrame(draw);
   }
   requestAnimationFrame(draw);
@@ -1820,12 +1831,14 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState===
 // ============================================================
 let frames=0,fpsT=0,fpsN=0,fps=0,lastNow=0,perfLog=[],bootTier=1,lastVt=0,slowWin=0;
 async function boot(){
+  window.__ld&&window.__ld(0.12,0.3,'ドミノの倒れ方を計算しています');
   await nextFrame();
   simulate();
   initField();
   applyTier(tier);
   await nextFrame();
   // 最初のコース
+  window.__ld&&window.__ld(0.3,0.5,'コースを組み立てています');await nextFrame();
   const vt=vtime(), M=Math.floor(vt/60), L=Math.floor(M/LAP)*LAP;
   if((Q.get('sec')!=null||Q.get('cyc')!=null)&&vt>L*60+3.6){ // テスト用: この周を最初から走っていたことにする
     const C=await makeCourseFor(L*60+3.5,nextFrame);if(C)startCourse(C,vtime(),false);
@@ -1835,14 +1848,17 @@ async function boot(){
   updateCamera(10,vt);camPos.copy(desP);camTgt.copy(desT);
   // ①使う材質の組み合わせ(分光あり/なし × 影あり/なし、台やレールやビー玉)を全部、先に準備する
   //   → 途中で画質の段が変わったり、新しいしかけが初めて出たりしてもカクッとしない
+  window.__ld&&window.__ld(0.5,0.68,'ガラスを準備しています');await nextFrame();
   await warmCompile();
+  window.__ld&&window.__ld(0.68,0.97,'この端末に合う画質を測っています');
   // ②実際に描いて速さを測り、60fpsで回る一番きれいな段を選ぶ(ローディングは長くなってもよい、とおっちゃん)
   const mobile=/iPhone|iPad|Android/.test(navigator.userAgent);
   if(Q.get('tier')==null){
     let t=0;applyTier(t);await bench(8);   // スマホでも、いちばんきれいな段から試す
-    for(;;){const v=await bench(40);perfLog.push('tier '+t+': '+v.toFixed(1)+'ms');if(v<=18.5||t>=TIERS.length-2)break;t++;applyTier(t);await bench(6);}
+    for(;;){const v=await bench(40);perfLog.push('tier '+t+': '+v.toFixed(1)+'ms');if(v<=18.5||t>=TIERS.length-2)break;t++;applyTier(t);window.__ld&&window.__ld(0.68+0.07*t,0.97,'この端末に合う画質を測っています');await bench(6);}
   }else await bench(10);
   bootTier=tier;
+  window.__ld&&window.__ld(1,1,'はじまります');
   const ld=document.getElementById('load');ld.classList.add('out');setTimeout(()=>{ld.classList.add('gone');ld.remove();},1300);
   wake();
   APKit.init({canvas:cv,gifName:'glass-relay-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,
