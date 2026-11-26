@@ -265,6 +265,7 @@ function addFall(C,x,y,z,a,th,o={}){
     th:th+(C.rnd()-.5)*.012*j,pr:o.pr!=null?o.pr:(C.rnd()*NMID|0),pm:o.pm||1,col:o.col||C.color()};
   if(o.glow!==undefined){it.glow=o.glow;it.col=PIC_DIM.clone();}   // 絵のフィールド: 倒れるほど光る(o.glow=光る色 or null=暗いまま)
   it.ord=it.th; it.w0=it.th; it.w1=it.th+SETTLE*SM*it.ss*Math.max(1,it.pm);
+  if(it.glow){it.gw=it.w1;it.w1+=GLOW_HOLD+GLOW_FADE;}   // 光ったあと、少しして倒れた順に消えていく(2026/11/26「光かたが長いよ」)
   C.items.push(it);
   if(y>0.01&&o.sup!==false){ // 下に台(黒いガラス)
     const len=o.edge?SP:SP+0.02, back=o.edge?SP/2:0.08;
@@ -275,6 +276,7 @@ function addFall(C,x,y,z,a,th,o={}){
   return it;
 }
 const PIC_DIM=new THREE.Color(0.025,0.025,0.03);
+const GLOW_HOLD=1.0, GLOW_FADE=1.5;   // 数字・絵のパネル: 倒れて落ち着いてから1秒で消え始め、1.5秒で消える
 function addStatic(C,center,q,s,ord,col){
   const it={k:1,p:pivotFromCenter(center,q,s),q,s,ss:Math.sqrt(s),ord,w0:-1e9,w1:-1e9,col:col||C.color()};
   C.items.push(it);C.collide.push([center.x,center.y,center.z,ord]);return it;
@@ -1499,7 +1501,7 @@ function updateCourse(vt){
       const st=τ<it.w0?0:τ>it.w1?2:1;
       if(st!==slotSt[i]||st===1){const tt=st===0?-1e9:st===2?1e9:τ;evalItem(it,tt,_m);setM(FN+i,_m);slotSt[i]=st;
         if(it.glow!==undefined){ // 絵のフィールド: 倒れた角度で光らせる
-          const g=clamp(prof(it.pr,(tt-it.th)/(SM*it.ss))/1.2,0,1), D=PIC_DIM;let r=D.r,gg=D.g,b=D.b;
+          const g=clamp(prof(it.pr,(tt-it.th)/(SM*it.ss))/1.2,0,1)*(it.gw?1-sstep(it.gw+GLOW_HOLD,it.gw+GLOW_HOLD+GLOW_FADE,tt):1), D=PIC_DIM;let r=D.r,gg=D.g,b=D.b;
           if(it.glow){const kk=g*g*2.2;r=lerp(r,it.glow.r*kk,g);gg=lerp(gg,it.glow.g*kk,g);b=lerp(b,it.glow.b*kk,g);}
           setC(FN+i,r,gg,b);}
         if(it.heat){const h=clamp((tt-it.melt+0.9)/1.3,0,1), c=it.col;setC(FN+i,lerp(c.r,16,h),lerp(c.g,3.6,h),lerp(c.b,0.5,h));}}   // マグマで赤く焼ける
