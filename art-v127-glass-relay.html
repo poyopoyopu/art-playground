@@ -43,7 +43,9 @@
        周のはじめ(時刻が出る分)は必ず鏡のテーブル、残り4分は周ごとに順番を入れ替える。変わるのは空・床・霧・光・まわりの粒(泡・氷の粒・宇宙のちり)で、コースはそのまま。
        テスト用 ?area=mirror|water|ice|cloud|space(ずっとそのエリア)
      2026/11/27 新エリア「天空の鏡」(?area=sky): 真昼の青空ともくもくの白い雲。床は白い塩の大地にうすく張った水で、遠くは完全な鏡(空がそのまま下にも続く)。
-       ドミノが倒れたところから水面に波紋が広がる(塩の多角形の線は、おっちゃん「タイルみたいな線が要らない」で外した)。エリアの並びは 水の中→天空の鏡→雲の上→宇宙 / (後半)…→氷の湖と星空。
+       ドミノが倒れたところから水面に波紋が広がる(塩の多角形の線は、おっちゃん「タイルみたいな線が要らない」で外した)。
+     2026/11/27 新エリア「桜の丘」(?area=sakura): 春霞の空、地平線に霞んだ山と桜の木が並ぶ丘(2列)。床は若草に散った花びら(吹きだまりに多い)。
+       ひらひら舞い落ちる花びら700枚(裏返りながら回り、風に流れる)。後半の1番目。エリアの並びは 水の中→天空の鏡→雲の上→宇宙 / (後半)…→氷の湖と星空。
      2026/11/26 夜 切り替わりの瞬間(「では1」): 門をくぐった瞬間、波の先頭から光の輪が広がる。輪の内側の床から新しいエリアになり、輪が通るドミノは虹色に光る。
        輪がカメラを通るとき空・霧・光が切り替わり、画面がふわっと明るくなる(3.4秒で輪は遠くへ)。
      操作: なぞる=見回す(離すと4秒で戻る) / ✦=いまの時刻から別のコースに組み直す(次に時刻のフィールドへ届くまでの分)
@@ -1116,6 +1118,47 @@ const sky=new THREE.Mesh(new THREE.SphereGeometry(190,48,24),new THREE.ShaderMat
     if(d.y<0.0)c*=vec3(0.84,0.88,0.93);   // 水に映った空は少しだけ暗く、ほんのり青く
     c+=vec3(1.0,1.0,0.98)*exp(-abs(d.y)*260.0)*0.12;   // 空と水の境の細い光
     return c;}
+  // 桜の丘(2026/11/27 新しく作ったエリア): 春霞の空、うすい雲。地平線に霞んだ遠い山と、桜の木が並ぶ丘(手前の列ほど大きく濃い)。下は霞んでいく野原
+  float hh1(float n){return fract(sin(n*12.9898)*43758.5453);}
+  // 方位 az・高さ y に、木を N 本ぶん並べる。m=木の形、sh=日の当たり方、tk=幹
+  void treeRow(float az,float y,float N,float base,float sz,float seed,out float m,out float sh,out float tk){
+    float u=az*N/6.28318,i=floor(u);m=0.0;sh=0.0;tk=0.0;
+    for(int k=-1;k<=1;k++){float j=i+float(k),h=hh1(j+seed),h2=hh1(j+seed+7.3);
+      float dx=(u-(j+0.5+(h-0.5)*0.5))*6.28318/N;
+      float rad=sz*(0.7+0.6*h2),cy=base+rad*1.05;
+      vec2 q=vec2(dx/(rad*1.35),(y-cy)/rad);
+      float nz=fbm(vec3(q*3.0+vec2(j*3.1,seed),seed)), nf=fbm(vec3(q*11.0+vec2(seed,j),2.0));
+      // 樹冠は3つの花のかたまりを重ねる(横に広がる桜の形)
+      float r=min(min(length(q-vec2(-0.42,-0.08))/0.68,length(q-vec2(0.44,-0.02))/0.64),length(q-vec2(0.02,0.36))/0.6);
+      r+=(nz-0.45)*0.5+(nf-0.5)*0.12;
+      float mm=1.0-smoothstep(0.82,0.96,r);
+      float t=step(abs(dx+sin(y*400.0+j)*rad*0.05),rad*0.09)*step(base-0.004,y)*step(y,cy);   // 幹
+      if(mm>m){m=mm;sh=clamp(0.5-q.x*0.25+q.y*0.45+(nz-0.45)*0.7+(nf-0.5)*0.5-(r-0.5)*0.3,0.0,1.0);}
+      tk=max(tk,t*(1.0-mm));}}
+  vec3 skySpring(vec3 d){float y=d.y,ay=max(y,0.0);
+    vec3 sun=normalize(vec3(-0.55,0.5,-0.67));float sd=max(dot(d,sun),0.0);
+    vec3 haze=vec3(0.80,0.82,0.90);
+    vec3 c=mix(haze,vec3(0.20,0.40,0.80),1.0-exp(-ay*4.0));   // 春霞から青へ
+    c+=vec3(1.0,0.95,0.88)*(pow(sd,5.0)*0.22+pow(sd,60.0)*0.35+pow(sd,1500.0)*5.0);
+    vec2 uv=d.xz/(ay+0.12)*0.22+vec2(uT*0.003,uT*0.001);   // うすい雲
+    float ci=fbm(vec3(uv.x,uv.y*2.6,1.0)+fbm(vec3(uv*2.0,4.0))*0.4);
+    c=mix(c,vec3(0.98,0.97,0.98),smoothstep(0.52,0.78,ci)*0.5*smoothstep(0.02,0.25,ay));
+    if(y<0.0){c=mix(vec3(0.50,0.60,0.40),vec3(0.36,0.48,0.24),smoothstep(0.0,0.25,-y));return c;}   // 下は野原(丘のすそとつなぐ)
+    if(y<0.16){float az=atan(d.z,d.x);
+      float r1=0.045+fbm(vec3(az*1.6,0.0,3.0))*0.06;   // 遠い山(青く霞む)
+      if(y<r1)c=mix(c,mix(vec3(0.60,0.66,0.80),haze,0.35+0.4*(1.0-y/r1)),0.85);
+      float r2=0.006+fbm(vec3(az*3.0,1.0,7.0))*0.03;   // 桜の丘の稜線
+      float m,sh,tk;
+      treeRow(az,y,150.0,r2,0.017,3.0,m,sh,tk);   // 奥の列(小さく霞む)
+      vec3 pk=mix(vec3(0.80,0.50,0.62),vec3(1.0,0.86,0.90),sh);
+      if(y<r2)c=mix(c,mix(vec3(0.42,0.52,0.32),haze,0.45),0.95);
+      c=mix(c,mix(pk,haze,0.4),m);c=mix(c,mix(vec3(0.30,0.24,0.26),haze,0.4),tk);
+      float r3=r2*0.5-0.003;
+      treeRow(az,y,70.0,r3,0.036,11.0,m,sh,tk);   // 手前の列(大きく濃い)
+      pk=mix(vec3(0.78,0.42,0.56),vec3(1.0,0.88,0.92),sh)*vec3(1.0,0.98,1.0);
+      if(y<r3)c=mix(c,vec3(0.36,0.48,0.24),0.95);
+      c=mix(c,mix(pk,haze,0.12),m);c=mix(c,vec3(0.20,0.14,0.14),tk);}
+    return c;}
   void main(){
     vec3 d=normalize(vD);float ay=abs(d.y);
     vec3 q=vec3(d.x,ay,d.z);
@@ -1138,7 +1181,8 @@ const sky=new THREE.Mesh(new THREE.SphereGeometry(190,48,24),new THREE.ShaderMat
       if(uAr.x>0.001)col+=skyIce(d)*uAr.x;
       if(uAr.y>0.001)col+=skyCloud(d)*uAr.y;
       if(uAr.z>0.001)col+=skySpace(d)*uAr.z;
-      if(uAr.w>0.001)col+=skyMirror(d)*uAr.w;}
+      if(uAr.w>0.001)col+=skyMirror(d)*uAr.w;
+      if(uAr2.x>0.001)col+=skySpring(d)*uAr2.x;}
     col=mix(col,vec3(0.004,0.05,0.065)+col*0.25+vec3(0.02,0.10,0.12)*pow(max(d.y,0.0),2.0),uWater);   // 水の中から見た空
     gl_FragColor=vec4(col,1.0);
   }`}));
@@ -1207,6 +1251,20 @@ const floorMat=new THREE.ShaderMaterial({uniforms:floorU,transparent:false,depth
       vec3 c=vec3(0.90,0.93,0.97)*(0.88+0.12*fb(p*1.6))+vec3(0.06,0.08,0.12)*sh;
       float a=((0.06+0.20*ridge)*near*(1.0-fres)+sh*0.03*near+rip*0.22*(1.0-smoothstep(10.0,40.0,dist)))*A2.x;
       col+=c*a;al+=a;}
+    if(A2.y>0.001){ // 桜の丘: やわらかい若草に、散った花びら。花びらは吹きだまりに多く、遠くは淡い桃色ににじむ
+      float g=fb(p*0.5)*0.6+fb(p*2.3)*0.4;
+      vec3 c=mix(vec3(0.13,0.26,0.06),vec3(0.34,0.50,0.14),g);
+      c*=0.86+0.28*n2(p*vec2(16.0,5.0)+vec2(sin(uT*0.6+p.y*0.3)*0.6,0.0));   // 草の細かい筋(そよ風で少しゆれる)
+      c+=vec3(0.10,0.10,0.02)*smoothstep(0.55,0.8,fb(p*0.9+3.0));   // 日だまり
+      float dens=smoothstep(0.3,0.75,fb(p*0.16+vec2(9.0)));   // 吹きだまり
+      vec2 cp=p*4.5,ci=floor(cp),f=fract(cp)-0.5;float h=h2(ci);float pet=0.0;
+      if(h<0.06+0.7*dens){vec2 o=vec2(h2(ci+3.1),h2(ci+7.7))-0.5;vec2 q=f-o*0.6;float an=h*40.0;q=mat2(cos(an),-sin(an),sin(an),cos(an))*q;
+        float ps=0.06+0.05*h2(ci+5.5);pet=1.0-smoothstep(ps,ps+0.03,length(q*vec2(1.0,1.6)));}
+      float fade=1.0-smoothstep(5.0,22.0,dist);
+      vec3 pc=mix(vec3(0.98,0.68,0.78),vec3(1.0,0.90,0.93),h2(ci+1.3));
+      c=mix(c,pc,pet*fade*0.92);
+      c=mix(c,vec3(0.92,0.74,0.80),dens*(0.18+0.25*(1.0-fade)));
+      col+=c*A2.y;al+=A2.y;}
     // 遠くは霧の色へ(空の地平線とつなぐ)
     float fogk=smoothstep(uFar*0.25,uFar,dist);
     vec3 rgb=mix(col/max(al,0.001),uFogC,fogk);
@@ -1247,6 +1305,32 @@ function updatePuffs(vt){
   _sp.copy(camera.position).addScaledVector(_sunW,100).project(camera);_sc.copy(camera.position).addScaledVector(camera.getWorldDirection(_sc),10).project(camera);   // 画面の上での夕日の向き
   pufU.uSun.value.set(_sp.x-_sc.x,_sp.y-_sc.y);if(pufU.uSun.value.lengthSq()<1e-6)pufU.uSun.value.set(1,0);pufU.uSun.value.normalize();if(_sp.z>1)pufU.uSun.value.negate();
 }
+// ---- 桜の丘: ひらひら舞い落ちる花びら。カメラのまわりの箱の中をくり返し、くるくる回りながら風に流れる
+const PETN=700;
+const petU={uCam:{value:new V3()},uT:{value:0},uA:{value:0},uPx:{value:400}};
+const petMat=new THREE.ShaderMaterial({uniforms:petU,transparent:true,depthWrite:false,fog:false,
+  vertexShader:`attribute vec4 aR;uniform vec3 uCam;uniform float uT;uniform float uPx;uniform float uA;varying float vA;varying float vR;varying float vF;varying float vS;
+  void main(){float B=14.0;
+    vec3 r=aR.xyz*B+vec3(uT*0.35+sin(uT*0.45+aR.y*20.0)*0.5,-uT*(0.22+aR.x*0.16),uT*0.12+cos(uT*0.4+aR.z*25.0)*0.4);
+    vec3 w=uCam+mod(r-uCam,B)-B*0.5;w.y=mod(r.y,6.5)+0.03;
+    vec4 mv=viewMatrix*vec4(w,1.0);gl_Position=projectionMatrix*mv;
+    float sz=0.07+aR.w*0.05,ps=sz*uPx/max(-mv.z,0.1);gl_PointSize=clamp(ps,1.0,90.0);
+    vR=uT*(0.8+aR.z*1.6)+aR.x*30.0;vF=sin(uT*(1.6+aR.y*2.4)+aR.z*40.0);vS=aR.w;
+    vA=uA*smoothstep(0.35,0.9,-mv.z)*(1.0-smoothstep(B*0.32,B*0.5,length(w.xz-uCam.xz)))*smoothstep(1.2,3.0,ps);}`,
+  fragmentShader:`varying float vA;varying float vR;varying float vF;varying float vS;
+  void main(){if(vA<0.002)discard;vec2 q=gl_PointCoord-0.5;q=mat2(cos(vR),-sin(vR),sin(vR),cos(vR))*q;
+    q.x/=max(abs(vF),0.18);   // 裏返りながら回る
+    float e=length(q*vec2(1.0,1.45)+vec2(0.0,0.04));
+    float m=1.0-smoothstep(0.28,0.33,e);
+    m*=smoothstep(0.035,0.07,length(q-vec2(0.0,0.33)));   // 花びらの先の切れこみ
+    if(m<0.01)discard;
+    vec3 c=mix(vec3(1.0,0.92,0.95),vec3(0.96,0.62,0.74),smoothstep(0.0,0.32,e));
+    c*=0.82+0.18*(vF*0.5+0.5);
+    gl_FragColor=vec4(c,m*vA*0.95);}`});
+{const g=new THREE.BufferGeometry(),r=mulberry(53),a=new Float32Array(PETN*4);for(let i=0;i<PETN*4;i++)a[i]=r();
+ g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(PETN*3),3));g.setAttribute('aR',new THREE.BufferAttribute(a,4));
+ var petals=new THREE.Points(g,petMat);petals.frustumCulled=false;petals.renderOrder=5;petals.visible=false;scene.add(petals);}
+function updatePetals(vt){const w=areaW.sakura;petals.visible=w>0.001;if(!petals.visible)return;petU.uA.value=w;petU.uCam.value.copy(camera.position);petU.uT.value=vt%10000;}
 // ---- エリアのまわりの粒: 水の中=のぼる泡 / 氷の湖=ただよう氷の粒 / 宇宙=星くず。カメラのまわりの箱の中をくり返す
 const PTN=1500;   // 6割が泡(水の中)、2割が氷の粒、2割が星くず
 const ptU={uCam:{value:new V3()},uT:{value:0},uA:{value:new THREE.Vector4()},uPx:{value:400}};
@@ -1278,7 +1362,7 @@ const ptMat=new THREE.ShaderMaterial({uniforms:ptU,transparent:true,depthWrite:f
  g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(PTN*3),3));g.setAttribute('aR',new THREE.BufferAttribute(a,4));
  var areaPts=new THREE.Points(g,ptMat);areaPts.frustumCulled=false;areaPts.renderOrder=5;areaPts.visible=false;scene.add(areaPts);}
 // ---- エリアの順番: 周のはじめ(時刻が出る分)は必ず鏡のテーブル。残りの4分は、周ごとに順番を入れ替える
-const AREAS=['mirror','water','sky','cloud','space','ice'], AREA_JP={mirror:'鏡のテーブル',water:'水の中',sky:'天空の鏡',cloud:'雲の上',space:'宇宙',ice:'氷の湖と星空'};   // 並び: 前半=水の中→天空の鏡→雲の上→宇宙 / 後半=桜の丘→ひまわり畑→紅葉の谷→氷の湖と星空(冬)。後半の新エリアは作ったものから ice の前に足す
+const AREAS=['mirror','water','sky','cloud','space','sakura','ice'], AREA_JP={mirror:'鏡のテーブル',water:'水の中',sky:'天空の鏡',cloud:'雲の上',space:'宇宙',sakura:'桜の丘',ice:'氷の湖と星空'};   // 並び: 前半=水の中→天空の鏡→雲の上→宇宙 / 後半=桜の丘→ひまわり畑→紅葉の谷→氷の湖と星空(冬)。後半の新エリアは作ったものから ice の前に足す
 function areaOf(M){
   if(Q.get('area')&&AREAS.includes(Q.get('area')))return Q.get('area');
   const L=Math.floor(M/LAP), p=M-L*LAP;if(p===0)return 'mirror';
@@ -1294,13 +1378,14 @@ const AREA_ENV={
   ice:{fog:[0.012,0.022,0.045],near:18,far:85,key:0xcfdcff,keyI:2.6,hemS:0x8fb0ff,hemG:0x0a1020,hemI:0.4,rim:0xb8d4ff,rimI:1.3,backI:1.8,env:0.55,exp:1.05},
   cloud:{fog:[0.70,0.66,0.62],near:30,far:140,key:0xfff0d8,keyI:3.4,hemS:0xd8e6ff,hemG:0xf2e6da,hemI:1.0,rim:0xffd2a0,rimI:1.2,backI:2.4,env:0.95,exp:0.95},
   sky:{fog:[0.60,0.74,0.92],near:40,far:170,key:0xfff4e6,keyI:3.3,hemS:0xa9cbff,hemG:0xdde8f6,hemI:1.15,rim:0xd8e8ff,rimI:1.0,backI:2.0,env:1.05,exp:0.9},
+  sakura:{fog:[0.52,0.61,0.44],near:36,far:150,key:0xfff0e4,keyI:3.1,hemS:0xd4e2ff,hemG:0x7f9d5c,hemI:0.95,rim:0xffd8e6,rimI:1.0,backI:2.0,env:0.95,exp:0.95},
   space:{fog:[0.001,0.001,0.003],near:28,far:120,key:0xf4f6ff,keyI:3.2,hemS:0x6070a0,hemG:0x05050a,hemI:0.18,rim:0x9a7cff,rimI:1.6,backI:2.6,env:0.45,exp:1.08},
 };
 for(const k in AREA_ENV){const e=AREA_ENV[k];e.fogC=new THREE.Color().setRGB(e.fog[0],e.fog[1],e.fog[2],THREE.LinearSRGBColorSpace);for(const n of ['key','hemS','hemG','rim'])e[n+'C']=new THREE.Color(e[n]);}
 const areaW={};for(const a of AREAS)areaW[a]=a==='mirror'?1:0;let areaNow='mirror',areaFogNear=16,areaFogFar=72;
 const _ac=new THREE.Color(),_ac2=new THREE.Color(),_ac3=new THREE.Color(),_ac4=new THREE.Color(),_ac5=new THREE.Color();
 // エリアの「床の枠」と「空の枠」。エリアを足すときは、ここに空いている番号を書き、床と空のシェーダーにその枠の分岐を足す(床 0〜3=A, 4〜7=A2 / 空 0〜3=uAr, 4〜7=uAr2)
-const FLOOR_SLOT={water:0,ice:1,cloud:2,space:3,sky:4}, SKY_SLOT={ice:0,cloud:1,space:2,sky:3};
+const FLOOR_SLOT={water:0,ice:1,cloud:2,space:3,sky:4,sakura:5}, SKY_SLOT={ice:0,cloud:1,space:2,sky:3,sakura:4};
 const AREA_V={};for(const a of AREAS){const v=[0,0,0,0,0,0,0,0];if(a in FLOOR_SLOT)v[FLOOR_SLOT[a]]=1;AREA_V[a]=v;}
 const _skyW=[0,0,0,0,0,0,0,0];
 const ringC=new V3();let ringMin=-1,flashAmt=0;
@@ -1340,7 +1425,7 @@ function updateArea(vt){
   floorU.uCam.value.copy(camera.position);floorU.uT.value=vt%10000;floorU.uFogC.value.copy(_ac);floorU.uFar.value=f;
   floorArea.position.x=camera.position.x;floorArea.position.z=camera.position.z;
   ptU.uCam.value.copy(camera.position);ptU.uT.value=vt%10000;
-  updateSpaceSky(areaW.space);updatePuffs(vt);
+  updateSpaceSky(areaW.space);updatePuffs(vt);updatePetals(vt);
 }
 // 天空の鏡: 波の先頭が床の近くを進むとき、0.9進むごとに水面へ波紋を1つ(8つを使い回す)
 const rpT=new Float32Array(8).fill(-99);let rpI=0;const rpLast=new V3(1e9,0,0);
@@ -1914,7 +1999,7 @@ function resize(){
   const w=innerWidth,h=innerHeight;
   renderer.setSize(w,h,false);composer.setPixelRatio(renderer.getPixelRatio());composer.setSize(w,h);
   camera.aspect=w/h;camera.fov=w<h?52:40;camera.updateProjectionMatrix();
-  const px=h*renderer.getPixelRatio()/(2*Math.tan(camera.fov*Math.PI/360));bubbleMat.uniforms.uPx.value=px;sparkMat.uniforms.uPx.value=px;ptU.uPx.value=px;pufU.uPx.value=px;
+  const px=h*renderer.getPixelRatio()/(2*Math.tan(camera.fov*Math.PI/360));bubbleMat.uniforms.uPx.value=px;sparkMat.uniforms.uPx.value=px;ptU.uPx.value=px;pufU.uPx.value=px;petU.uPx.value=px;
 }
 addEventListener('resize',resize);
 
@@ -1987,7 +2072,7 @@ async function warmCompile(){
   for(const m of [waterVolMat,causticMat,lavaMat,rockMat,bombMat])W.add(new THREE.Mesh(g,m));
   {const pg=new THREE.BufferGeometry();pg.setAttribute('position',new THREE.BufferAttribute(new Float32Array(3),3));pg.setAttribute('aB',new THREE.BufferAttribute(new Float32Array(4),4));pg.setAttribute('aC',new THREE.BufferAttribute(new Float32Array(3),3));pg.setAttribute('aV',new THREE.BufferAttribute(new Float32Array(3),3));
    W.add(new THREE.Points(pg,bubbleMat));W.add(new THREE.Points(pg,sparkMat));}
-  waterPass.enabled=true;flashPass.enabled=true;zoneU.uRG.value.set(0,0,5,0.5);floorU.uRing.value.set(0,0,5,0.5);floorArea.visible=true;areaPts.visible=true;skyU.uAr.value.set(0.25,0.25,0.25,0.25);floorU.uA.value.set(0.25,0.25,0.25,0.25);skyU.uAr2.value.set(0.01,0.01,0.01,0.01);floorU.uB.value.set(0.01,0.01,0.01,0.01);
+  waterPass.enabled=true;flashPass.enabled=true;zoneU.uRG.value.set(0,0,5,0.5);floorU.uRing.value.set(0,0,5,0.5);floorArea.visible=true;areaPts.visible=true;petals.visible=true;skyU.uAr.value.set(0.25,0.25,0.25,0.25);floorU.uA.value.set(0.25,0.25,0.25,0.25);skyU.uAr2.value.set(0.01,0.01,0.01,0.01);floorU.uB.value.set(0.01,0.01,0.01,0.01);
   W.position.y=-40;WM.position.y=-40;scene.add(W);mirrorRoot.add(WM);
   const d0=glassMat.dispersion, s0=key.castShadow;
   for(const d of [4,0])for(const sh of [true,false]){
