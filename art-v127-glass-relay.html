@@ -115,6 +115,7 @@
 <script type="module">
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { loadFish, createFish } from './assets/fish-kit/fish-kit.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -1869,6 +1870,7 @@ async function boot(){
   }else await bench(10);
   bootTier=tier;
   window.__ld&&window.__ld(1,1,'はじまります');
+  initFish();   // 魚は裏で読み込む(待たない)
   const ld=document.getElementById('load');ld.classList.add('out');setTimeout(()=>{ld.classList.add('gone');ld.remove();},1300);
   wake();
   APKit.init({canvas:cv,gifName:'glass-relay-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,
@@ -1909,8 +1911,45 @@ async function bench(n){ // n コマ描いて、遅いほうから4割の所の�
   for(let i=0;i<n;i++){render(vtime(),1/60);await nextFrame();const t=performance.now();ts.push(t-t0);t0=t;}
   ts.sort((a,b)=>a-b);return ts[Math.floor(ts.length*0.6)];
 }
+// ---- 水の中の魚(おっちゃん「ちょっとだけ魚追加すれば？」): 魚の3Dキット(assets/fish-kit, CC0)のアジ2・マダイ・イサキ。
+//      エリア「水の中」のときだけ、カメラが見ているあたりのまわりを、ドミノより上の高さでゆっくり回って泳ぐ。読み込みは始まってから裏で
+const FISH_SET=[['aji',70],['aji',60],['madai',95],['isaki',80]];
+let fishG=null;const fishes=[],fishC=new V3(),_fT=new V3(),_fN=new V3(),_fF=new V3();
+async function initFish(){
+  try{await loadFish('./assets/fish-kit/fish/',['aji','madai','isaki']);}catch(e){return;}
+  const G=new THREE.Group();
+  for(const [id,cm] of FISH_SET){const a=createFish(id,cm*(0.9+Math.random()*0.2));a.setDetail('low');a.setMotion('swim');G.add(a.object);
+    fishes.push({a,th:Math.random()*6.283,rx:0.55+Math.random()*0.5,rz:1.2+Math.random()*1.6,h:-0.35+Math.random()*0.8,w:(0.28+Math.random()*0.18)*(Math.random()<0.5?-1:1),ph:Math.random()*6.283,p:new V3(),v:new V3(),yaw:0,pit:0,init:false});}
+  try{await renderer.compileAsync(G,camera,scene);}catch(e){}   // 初めて出るときにカクッとしないよう、先に準備
+  G.visible=false;scene.add(G);fishG=G;if(DEBUG)window.__fish=fishes;
+}
+let fishVt=0;
+function updateFish(dt0,vt){
+  if(!fishG)return;
+  const dt=clamp(vt-fishVt,0,0.5);fishVt=vt;   // カメラは作品の時刻で動くので、魚も同じ時刻の進みで追う(重い端末で遅れない)
+  const on=areaW.water>0.5;fishG.visible=on;
+  // 回る中心は、カメラの少し先(画面に入るところ)。カメラは速く進むので、遅れないようにすぐ追う
+  camera.getWorldDirection(_fF);_fF.y=0;if(_fF.lengthSq()<1e-6)_fF.set(0,0,-1);_fF.normalize();
+  _v2.copy(camera.position).addScaledVector(_fF,6.0);
+  if(!on){for(const f of fishes)f.init=false;fishC.copy(_v2);return;}
+  fishC.lerp(_v2,1-Math.exp(-dt/0.35));
+  const hhF=Math.atan(Math.tan(camera.fov*Math.PI/360)*camera.aspect);
+  for(const f of fishes){
+    f.th+=f.w*dt;const cz=Math.sin(f.th)*f.rz,cx=Math.cos(f.th)*f.rx*Math.tan(hhF)*(6.0+cz);   // 横の幅は、その距離で画面に入る幅に合わせる(縦持ちは狭い)
+    _fT.set(fishC.x-_fF.z*cx+_fF.x*cz,Math.max(1.3,camera.position.y+f.h)+Math.sin(vt*0.5+f.ph)*0.25,fishC.z+_fF.x*cx+_fF.z*cz);
+    if(!f.init){f.p.copy(_fT);f.v.set(0,0,0);f.init=true;}
+    _fN.copy(f.p).lerp(_fT,1-Math.exp(-dt*4));
+    if(dt>0)f.v.lerp(_v.subVectors(_fN,f.p).divideScalar(dt),1-Math.exp(-dt*4));
+    f.p.copy(_fN);
+    const hs=Math.hypot(f.v.x,f.v.z),sp=Math.hypot(hs,f.v.y);
+    if(sp>0.05){const ty=Math.atan2(f.v.x,f.v.z);f.yaw+=Math.atan2(Math.sin(ty-f.yaw),Math.cos(ty-f.yaw))*(1-Math.exp(-dt*3));
+      f.pit+=(clamp(-Math.atan2(f.v.y,hs),-0.5,0.5)-f.pit)*(1-Math.exp(-dt*3));}   // 魚は+Zが頭。x回転の+は頭が下
+    f.a.object.position.copy(f.p);f.a.object.rotation.set(f.pit,f.yaw,0,'YXZ');
+    f.a.drive={speed:clamp(sp*0.25,0.12,1.2),turnRate:0};f.a.update(dt);
+  }
+}
 function render(vt,dt){
-  updateField(vt);updateCourse(vt);updateCamera(dt,vt);updateLOD();flushInst();
+  updateField(vt);updateCourse(vt);updateCamera(dt,vt);updateFish(dt,vt);updateLOD();flushInst();
   if(bokeh.enabled){bokeh.uniforms.focus.value=focusDist;bokeh.uniforms.aspect.value=camera.aspect;bokeh.uniforms.aperture.value=0.006*(1-0.85*Math.max(overW,sharpW*0.8));}
   if(bokeh.enabled)composer.render(dt);else{composer.render(dt);}
 }
