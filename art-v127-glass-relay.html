@@ -1048,14 +1048,22 @@ const sky=new THREE.Mesh(new THREE.SphereGeometry(190,48,24),new THREE.ShaderMat
     return c;}
   // 雲の上: 澄んだ青い空、地平線は金色、下は果てまで続く雲の海
   vec3 skyCloud(vec3 d){float ay=abs(d.y);
-    vec3 sun=normalize(vec3(-0.62,0.16,-0.77));float sd=max(dot(d,sun),0.0);
-    vec3 c=mix(vec3(0.70,0.62,0.52),vec3(0.05,0.15,0.42),smoothstep(0.0,0.4,d.y));
-    c+=vec3(1.0,0.62,0.3)*pow(sd,8.0)*0.5+vec3(1.0,0.85,0.6)*pow(sd,200.0)*3.0;
+    vec3 sun=normalize(vec3(-0.62,0.07,-0.77));float sd=max(dot(d,sun),0.0);   // 夕日(低い太陽)
+    float sh=max(dot(normalize(vec3(d.x,0.0,d.z)),normalize(vec3(sun.x,0.0,sun.z))),0.0);   // 太陽の側か
+    vec3 c=mix(mix(vec3(0.78,0.58,0.40),vec3(1.0,0.66,0.32),pow(sh,3.0)),vec3(0.06,0.13,0.36),smoothstep(0.0,0.42,d.y));
+    c+=vec3(1.0,0.55,0.22)*pow(sd,6.0)*0.7+vec3(1.0,0.82,0.5)*pow(sd,220.0)*4.0;
+    // 地平線に立ちのぼる入道雲(太陽の側のふちは金色、陰はうすい紫)
+    if(d.y>-0.01&&d.y<0.2){float az=atan(d.z,d.x);float tw=fbm(vec3(az*3.2,0.0,1.7))*0.16+fbm(vec3(az*11.0,0.4,2.3))*0.05-0.02;
+      float body=1.0-smoothstep(tw-0.012,tw,d.y);float tex=fbm(vec3(az*18.0,d.y*30.0,0.5));
+      float rim=smoothstep(tw-0.035,tw,d.y)*body;
+      vec3 cc=mix(vec3(0.42,0.36,0.50),vec3(0.98,0.80,0.60),0.25+0.45*tex+0.4*pow(sh,2.0));
+      cc+=vec3(1.0,0.62,0.25)*rim*(0.35+1.1*pow(sh,4.0));
+      c=mix(c,cc,body*0.95);}
     float hi=fbm(vec3(d.x/(d.y+0.25),0.0,d.z/(d.y+0.25))*1.3+vec3(uT*0.006,0.0,0.0));   // 高い所のうすい雲
     c=mix(c,vec3(0.85,0.78,0.72),smoothstep(0.55,0.85,hi)*0.35*smoothstep(0.05,0.3,d.y));
     if(d.y<0.0){vec2 uv=d.xz/(ay+0.06);float n=fbm(vec3(uv*0.9+vec2(uT*0.01,0.0),uT*0.004));
       vec3 cl=mix(vec3(0.42,0.44,0.52),vec3(0.95,0.88,0.80),smoothstep(0.3,0.75,n));
-      cl+=vec3(1.0,0.6,0.3)*pow(max(dot(normalize(vec3(d.x,0.0,d.z)),normalize(vec3(sun.x,0.0,sun.z))),0.0),6.0)*0.25;
+      cl+=vec3(1.0,0.6,0.25)*pow(sh,6.0)*0.4;
       c=mix(vec3(0.70,0.66,0.62),cl,smoothstep(0.0,0.18,ay));}
     return c;}
   // 宇宙: 真っ暗、星がいっぱい、色のついた星雲、遠くに輪のある星。下にも宇宙が続く(浮いたガラスの床)
@@ -1145,11 +1153,17 @@ const floorMat=new THREE.ShaderMaterial({uniforms:floorU,transparent:false,depth
       float fres=pow(1.0-max(v.y,0.0),4.0);c+=vec3(0.04,0.07,0.12)*fres;
       float a=clamp(0.38+0.5*frost+0.3*lines,0.0,1.0);col+=c*a*A.y;al+=a*A.y;}
     if(A.z>0.001){ // 雲の上: ふわふわの雲の海(足元は不透明)
-      vec2 q=p*0.11+vec2(uT*0.012,uT*0.004);float n=fb(q+fb(q*1.8+uT*0.003)*0.8);
-      float nn=fb(q+vec2(0.03,0.02)+fb((q+vec2(0.03,0.02))*1.8+uT*0.003)*0.8);
-      float lit=clamp(0.5+(n-nn)*22.0,0.0,1.0);   // 日の当たる側が明るい
-      vec3 c=mix(vec3(0.26,0.30,0.44),vec3(1.0,0.94,0.86),smoothstep(0.3,0.72,n)*0.45+lit*0.55);
-      c+=vec3(1.0,0.75,0.5)*pow(lit,3.0)*0.12;
+      vec2 q0=p*0.11+vec2(uT*0.012,uT*0.004);
+      float hh=fb(q0*0.6)*0.5+fb(q0+fb(q0*1.8+uT*0.003)*0.8)*0.5;
+      vec2 q=q0-v.xz/max(v.y,0.12)*hh*0.09;   // もこもこの高さぶん、見る向きにずらす(立体に見える)
+      float n=fb(q+fb(q*1.8+uT*0.003)*0.8);
+      vec2 sdir=normalize(vec2(-0.62,-0.77))*0.035;   // 夕日の向き
+      float nn=fb(q+sdir+fb((q+sdir)*1.8+uT*0.003)*0.8);
+      float lit=clamp(0.5+(n-nn)*26.0,0.0,1.0);   // 日の当たる側が明るい
+      float big=smoothstep(0.35,0.75,fb(q*0.35+3.0));   // 大きなかたまり
+      vec3 c=mix(vec3(0.40,0.36,0.54),vec3(1.0,0.88,0.74),smoothstep(0.3,0.72,n)*0.35+lit*0.45+big*0.2);
+      c+=vec3(1.0,0.58,0.22)*pow(lit,2.0)*0.42*(0.6+0.4*big);   // 夕日の金色
+      c*=0.82+0.18*smoothstep(0.2,0.6,n);
       col+=c*A.z;al+=A.z;}
     if(A.w>0.001){ // 宇宙: 黒いガラスの床。うすい継ぎ目の線だけ光る
       vec2 g=abs(fract(p/6.0)-0.5);
@@ -1167,6 +1181,35 @@ const floorMat=new THREE.ShaderMaterial({uniforms:floorU,transparent:false,depth
   }`});
 const floorArea=new THREE.Mesh(new THREE.PlaneGeometry(420,420),floorMat);
 floorArea.rotation.x=-Math.PI/2;floorArea.position.y=0.0015;floorArea.renderOrder=1;floorArea.frustumCulled=false;floorArea.visible=false;scene.add(floorArea);
+// ---- 雲の上: カメラのまわりの低いところに浮かぶ、やわらかい雲のかたまり(床の雲の海から盛り上がって見える)。夕日の側が金色
+const PUFN=60;
+const pufU={uCam:{value:new V3()},uT:{value:0},uA:{value:0},uPx:{value:400},uSun:{value:new THREE.Vector2(1,0)}};
+const pufMat=new THREE.ShaderMaterial({uniforms:pufU,transparent:true,depthWrite:false,fog:false,
+  vertexShader:`attribute vec4 aR;uniform vec3 uCam;uniform float uT;uniform float uPx;uniform float uA;varying float vA;varying float vS;
+  void main(){float B=26.0;vec3 r=vec3(aR.x*B+uT*0.15,0.0,aR.z*B+uT*0.05);vec3 w=uCam+mod(r-uCam,B)-B*0.5;w.y=-0.45+aR.y*0.6;
+    vec4 mv=viewMatrix*vec4(w,1.0);gl_Position=projectionMatrix*mv;vS=aR.w;
+    float sz=1.2+aR.w*2.0;gl_PointSize=clamp(sz*uPx/max(-mv.z,0.1),1.0,480.0);
+    float dc=length(w.xz-uCam.xz);vA=uA*(1.0-smoothstep(B*0.3,B*0.5,dc))*smoothstep(3.0,6.5,length(w-uCam));}   // 近くのは消す(コースを隠さない)`,
+  fragmentShader:`uniform vec2 uSun;varying float vA;varying float vS;
+  float h2(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+  float n2(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);return mix(mix(h2(i),h2(i+vec2(1,0)),f.x),mix(h2(i+vec2(0,1)),h2(i+vec2(1,1)),f.x),f.y);}
+  void main(){vec2 q=gl_PointCoord-0.5;q.y=-q.y;float r=length(q);
+    float nz=n2(q*5.0+vS*17.0)*0.6+n2(q*11.0+vS*5.0)*0.4;
+    float m=(1.0-smoothstep(0.18,0.5,r+(nz-0.5)*0.22))*smoothstep(-0.32,0.05,q.y+(nz-0.5)*0.1);   // 下のほうは雲の海に溶ける
+    if(m<0.01||vA<0.002)discard;
+    float lit=clamp(0.5+dot(normalize(q+1e-4),uSun)*0.6*smoothstep(0.05,0.45,r)+q.y*0.6,0.0,1.0);
+    vec3 c=mix(vec3(0.52,0.46,0.62),vec3(1.0,0.88,0.72),lit)+vec3(1.0,0.58,0.22)*pow(lit,2.5)*0.5;
+    gl_FragColor=vec4(c,m*vA*0.8);}`});
+{const g=new THREE.BufferGeometry(),r=mulberry(91),a=new Float32Array(PUFN*4);for(let i=0;i<PUFN*4;i++)a[i]=r();
+ g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(PUFN*3),3));g.setAttribute('aR',new THREE.BufferAttribute(a,4));
+ var cloudPuffs=new THREE.Points(g,pufMat);cloudPuffs.frustumCulled=false;cloudPuffs.renderOrder=2;cloudPuffs.visible=false;scene.add(cloudPuffs);}
+const _sunW=new V3(-0.62,0.07,-0.77).normalize(),_sp=new V3(),_sc=new V3();
+function updatePuffs(vt){
+  const w=areaW.cloud;cloudPuffs.visible=w>0.001;if(!cloudPuffs.visible)return;
+  pufU.uA.value=w;pufU.uCam.value.copy(camera.position);pufU.uT.value=vt%10000;
+  _sp.copy(camera.position).addScaledVector(_sunW,100).project(camera);_sc.copy(camera.position).addScaledVector(camera.getWorldDirection(_sc),10).project(camera);   // 画面の上での夕日の向き
+  pufU.uSun.value.set(_sp.x-_sc.x,_sp.y-_sc.y);if(pufU.uSun.value.lengthSq()<1e-6)pufU.uSun.value.set(1,0);pufU.uSun.value.normalize();if(_sp.z>1)pufU.uSun.value.negate();
+}
 // ---- エリアのまわりの粒: 水の中=のぼる泡 / 氷の湖=ただよう氷の粒 / 宇宙=星くず。カメラのまわりの箱の中をくり返す
 const PTN=1500;   // 6割が泡(水の中)、2割が氷の粒、2割が星くず
 const ptU={uCam:{value:new V3()},uT:{value:0},uA:{value:new THREE.Vector4()},uPx:{value:400}};
@@ -1253,7 +1296,7 @@ function updateArea(vt){
   floorU.uCam.value.copy(camera.position);floorU.uT.value=vt%10000;floorU.uFogC.value.copy(_ac);floorU.uFar.value=f;
   floorArea.position.x=camera.position.x;floorArea.position.z=camera.position.z;
   ptU.uCam.value.copy(camera.position);ptU.uT.value=vt%10000;
-  updateSpaceSky(areaW.space);
+  updateSpaceSky(areaW.space);updatePuffs(vt);
 }
 // 宇宙: 輪のある星は、宇宙に入るたびに、そのとき見ている空のどこかへランダムに置いて止めておく。流れ星は3〜7秒おきに、画面の上のほうを斜めに流れる
 const _cf=new V3();let spaceWas=0,metNext=0,met=null,spLast=0,pYaw=0,pEl=0.3;
@@ -1819,7 +1862,7 @@ function resize(){
   const w=innerWidth,h=innerHeight;
   renderer.setSize(w,h,false);composer.setPixelRatio(renderer.getPixelRatio());composer.setSize(w,h);
   camera.aspect=w/h;camera.fov=w<h?52:40;camera.updateProjectionMatrix();
-  const px=h*renderer.getPixelRatio()/(2*Math.tan(camera.fov*Math.PI/360));bubbleMat.uniforms.uPx.value=px;sparkMat.uniforms.uPx.value=px;ptU.uPx.value=px;
+  const px=h*renderer.getPixelRatio()/(2*Math.tan(camera.fov*Math.PI/360));bubbleMat.uniforms.uPx.value=px;sparkMat.uniforms.uPx.value=px;ptU.uPx.value=px;pufU.uPx.value=px;
 }
 addEventListener('resize',resize);
 
