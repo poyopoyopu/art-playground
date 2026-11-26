@@ -1573,6 +1573,9 @@ const _c=new THREE.Color();
 const FIELD_C=new V3(0,0,-0.2);
 const camPos=new V3(0,12,18), camTgt=new V3(0,0,0), desP=new V3(), desT=new V3();
 let userYaw=0,userPitch=0,userLast=-99,dragging=false;
+// 視点の固定: おまかせ(しかけごとに撮り方を変える) / 後ろ / 正面 / 横 / 上。下の操作バーの🎥か ?view=auto|back|front|side|top
+const VIEWS=['auto','back','front','side','top'], VIEW_JP={auto:'おまかせ',back:'後ろから',front:'正面から',side:'横から',top:'上から'};
+let VIEW=VIEWS.includes(Q.get('view'))?Q.get('view'):'auto';
 function spineAt(C,τ,out){
   const S=C.spine;if(!S.length)return out.set(0,0,RUN_Z0);
   if(τ<=S[0][0])return out.set(S[0][1],S[0][2],S[0][3]);
@@ -1631,7 +1634,19 @@ function courseCam(C,τ,cm,P,T){
 }
 const camBlend={from:null,to:null,u:1,init:false};
 const _P2=new V3(),_T2=new V3();
+function fixedCam(C,τ,P,T){   // 視点を固定したとき: 波の先頭を決まった向きから追う
+  camSpineAt(C,τ,_h);camSpineAt(C,τ-0.9,_hb);camSpineAt(C,τ+0.9,_hc);
+  _d.subVectors(_hc,_hb);_d.y=0;if(_d.lengthSq()<1e-6)_d.set(0,0,-1);_d.normalize();_r.set(_d.z,0,-_d.x);
+  const out=Math.sign(_r.x*_h.x+_r.z*_h.z)||1, y0=_h.y-0.4;
+  switch(VIEW){
+    case 'back':P.copy(_h).addScaledVector(_d,-3.4);P.y=y0+1.45;T.copy(_h).addScaledVector(_d,3.0);T.y=y0+0.3;break;
+    case 'front':camSpineAt(C,τ+2.4,P);P.addScaledVector(_r,out*0.5);P.y=y0+1.6;T.copy(_h);T.y=y0+0.25;break;   // 先回りして、倒れてくる波を迎える
+    case 'side':P.copy(_h).addScaledVector(_r,out*3.4).addScaledVector(_d,-0.3);P.y=y0+1.25;T.copy(_h).addScaledVector(_d,0.7);T.y=y0+0.3;break;
+    case 'top':P.copy(_h).addScaledVector(_d,-0.6);P.y=y0+7.0;T.copy(_h).addScaledVector(_d,0.6);T.y=y0;break;
+  }
+}
 function courseCamBlended(C,τ,dt,P,T){
+  if(VIEW!=='auto'){lastMode='view-'+VIEW;sharpW=lerp(sharpW,VIEW==='top'?1:0,0.08);fixedCam(C,τ,P,T);spineAt(C,τ,_h);return;}
   const cm=pickMode(C,τ);
   if(!camBlend.init){camBlend.from=camBlend.to=cm;camBlend.u=1;camBlend.init=true;}
   if(cm!==camBlend.to){camBlend.from=camBlend.u<0.5?camBlend.from:camBlend.to;camBlend.to=cm;camBlend.u=0;}
@@ -1808,8 +1823,12 @@ async function boot(){
       const vt=vtime(),M=Math.floor(vt/60),sec=vt-M*60;
       if(building||(isArrival(M+1)&&sec>60-MORPH-9)||(isArrival(M)&&sec<3.6)){APKit.toast&&APKit.toast('もうすぐ時刻が出るから、そのあとでね');return;}
       if(nextC){disposeDecor(nextC);nextC=null;}
-      newCourseNow(vt,true);}}]});
-  showHint('5分で1周するドミノ。<br>毎分0秒、分の数字の門をくぐると景色が変わる。<br>5分ごとに鏡のテーブルへ戻って時刻が出る。<br>なぞると見回せる',8000);
+      newCourseNow(vt,true);}},
+      {label:'🎥',name:'view',onClick:function(b){   // 視点を切り替える(おまかせ→後ろ→正面→横→上)
+        VIEW=VIEWS[(VIEWS.indexOf(VIEW)+1)%VIEWS.length];b.classList.toggle('apk-on',VIEW!=='auto');
+        APKit.toast&&APKit.toast('視点: '+VIEW_JP[VIEW]);}}]});
+  if(VIEW!=='auto'){const vb=document.querySelector('.apk-btn[aria-label="view"]');if(vb)vb.classList.add('apk-on');}
+  showHint('5分で1周するドミノ。<br>毎分0秒、分の数字の門をくぐると景色が変わる。<br>5分ごとに鏡のテーブルへ戻って時刻が出る。<br>なぞると見回せる。下の🎥で視点を固定',8000);
   lastNow=performance.now();
   requestAnimationFrame(loop);
 }
