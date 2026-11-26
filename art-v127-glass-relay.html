@@ -48,7 +48,8 @@
        ひらひら舞い落ちる花びら(裏返りながら回り、風に流れる)。後半の1番目。
        (おっちゃん「周りの桜の木がしょぼい」「光みたいなやつを桜の花びらに、リアルで」) コースの外まわりに桜の木64本(幹・枝・花のかたまりをシェーダーで描く板)。
        花びらは深度を書く切り抜きにして、ぼかしで丸い光にならないようにした(カメラの近くには出さない)。
-       (「地面の草原もリアルに」) 近くの草は葉を1本ずつ描く(床の下に草の層があるように見る向きに8段たどる、風で先がなびく)。遠くは平らな草の色。エリアの並びは 水の中→天空の鏡→雲の上→宇宙 / (後半)…→氷の湖と星空。
+       (「地面の草原もリアルに」→「床が人工芝だね」「春の道みたいに」→「石畳+花びら」) 床は古い石畳の参道(横長の切り石を段ずらし、目地は土と苔、ふちの丸み)。
+       花びらは吹きだまりと目地・石のふちに寄る。桜の木と地平線の並木は「要らない」で出さない(コードは残置)。エリアの並びは 水の中→天空の鏡→雲の上→宇宙 / (後半)…→氷の湖と星空。
      2026/11/26 夜 切り替わりの瞬間(「では1」): 門をくぐった瞬間、波の先頭から光の輪が広がる。輪の内側の床から新しいエリアになり、輪が通るドミノは虹色に光る。
        輪がカメラを通るとき空・霧・光が切り替わり、画面がふわっと明るくなる(3.4秒で輪は遠くへ)。
      操作: なぞる=見回す(離すと4秒で戻る) / ✦=いまの時刻から別のコースに組み直す(次に時刻のフィールドへ届くまでの分)
@@ -1146,18 +1147,19 @@ const sky=new THREE.Mesh(new THREE.SphereGeometry(190,48,24),new THREE.ShaderMat
     vec2 uv=d.xz/(ay+0.12)*0.22+vec2(uT*0.003,uT*0.001);   // うすい雲
     float ci=fbm(vec3(uv.x,uv.y*2.6,1.0)+fbm(vec3(uv*2.0,4.0))*0.4);
     c=mix(c,vec3(0.98,0.97,0.98),smoothstep(0.52,0.78,ci)*0.5*smoothstep(0.02,0.25,ay));
-    if(y<0.0){c=mix(vec3(0.50,0.60,0.40),vec3(0.36,0.48,0.24),smoothstep(0.0,0.25,-y));return c;}   // 下は野原(丘のすそとつなぐ)
+    if(y<0.0){c=mix(vec3(0.50,0.52,0.52),vec3(0.30,0.30,0.29),smoothstep(0.0,0.25,-y));return c;}   // 下は霞んでいく石畳
     if(y<0.16){float az=atan(d.z,d.x);
       float r1=0.045+fbm(vec3(az*1.6,0.0,3.0))*0.06;   // 遠い山(青く霞む)
       if(y<r1)c=mix(c,mix(vec3(0.60,0.66,0.80),haze,0.35+0.4*(1.0-y/r1)),0.85);
       float r2=0.006+fbm(vec3(az*3.0,1.0,7.0))*0.03;   // 桜の丘の稜線
-      float m,sh,tk;
-      treeRow(az,y,150.0,r2,0.017,3.0,m,sh,tk);   // 奥の列(小さく霞む)
+      float m=0.0,sh=0.0,tk=0.0;
+      const bool ROWS=false;   // 2026/11/27 おっちゃん「奥の並木も消す」→ 地平線の桜の並木は描かない(丘だけ残す。関数は残置)
+      if(ROWS)treeRow(az,y,150.0,r2,0.017,3.0,m,sh,tk);   // 奥の列(小さく霞む)
       vec3 pk=mix(vec3(0.80,0.50,0.62),vec3(1.0,0.86,0.90),sh);
       if(y<r2)c=mix(c,mix(vec3(0.42,0.52,0.32),haze,0.45),0.95);
       c=mix(c,mix(pk,haze,0.4),m);c=mix(c,mix(vec3(0.30,0.24,0.26),haze,0.4),tk);
       float r3=r2*0.5-0.003;
-      treeRow(az,y,70.0,r3,0.036,11.0,m,sh,tk);   // 手前の列(大きく濃い)
+      if(ROWS)treeRow(az,y,70.0,r3,0.036,11.0,m,sh,tk);   // 手前の列(大きく濃い)
       pk=mix(vec3(0.78,0.42,0.56),vec3(1.0,0.88,0.92),sh)*vec3(1.0,0.98,1.0);
       if(y<r3)c=mix(c,vec3(0.36,0.48,0.24),0.95);
       c=mix(c,mix(pk,haze,0.12),m);c=mix(c,vec3(0.20,0.14,0.14),tk);}
@@ -1254,38 +1256,47 @@ const floorMat=new THREE.ShaderMaterial({uniforms:floorU,transparent:false,depth
       vec3 c=vec3(0.90,0.93,0.97)*(0.88+0.12*fb(p*1.6))+vec3(0.06,0.08,0.12)*sh;
       float a=((0.06+0.20*ridge)*near*(1.0-fres)+sh*0.03*near+rip*0.22*(1.0-smoothstep(10.0,40.0,dist)))*A2.x;
       col+=c*a;al+=a;}
-    if(A2.y>0.001){ // 桜の丘: 若草に散った花びら。近くは草の葉を1本ずつ(床の下に草の層があるように、見る向きに8段たどって葉に当たる所を探す)、遠くは平らな草の色。花びらは吹きだまりに多い
-      // (2026/11/27 おっちゃん「地面の草原もリアルに」)
-      float g=fb(p*0.5)*0.6+fb(p*2.3)*0.4;
-      vec3 lawn=mix(vec3(0.17,0.30,0.06),vec3(0.33,0.50,0.13),g);
-      lawn+=vec3(0.08,0.08,0.02)*smoothstep(0.55,0.8,fb(p*0.9+3.0));   // 日だまり
-      float dens=smoothstep(0.3,0.75,fb(p*0.16+vec2(9.0)));   // 花びらの吹きだまり
-      vec2 cp=p*4.5,ci=floor(cp),fq=fract(cp)-0.5;float hp=h2(ci);float pet=0.0;
-      if(hp<0.06+0.7*dens){vec2 o=vec2(h2(ci+3.1),h2(ci+7.7))-0.5;vec2 q=fq-o*0.6;float an=hp*40.0;q=mat2(cos(an),-sin(an),sin(an),cos(an))*q;
-        float ps=0.06+0.05*h2(ci+5.5);pet=1.0-smoothstep(ps,ps+0.03,length(q*vec2(1.0,1.6)));}
-      vec3 pc=mix(vec3(0.98,0.68,0.78),vec3(1.0,0.90,0.93),h2(ci+1.3));
-      float fade=1.0-smoothstep(5.0,22.0,dist);
-      vec3 c=lawn;
-      float gN=1.0-smoothstep(6.0,18.0,dist);
-      if(gN>0.01){   // 草の葉: 2つの升目(大きさ違い)に1本ずつ。根元は暗く先ほど明るい黄緑、風で先がなびく
-        const float GH=0.16;vec3 gc=vec3(0.035,0.06,0.02);float hit=0.0;
-        float sl=GH/max(v.y,0.22);
-        for(int i=0;i<8;i++){float t=float(i)/7.0,hh=1.0-t;
-          vec2 q=p-normalize(v.xz+1e-5)*sl*t*min(1.0,length(v.xz)/max(v.y,0.22));
-          vec2 wd=vec2(sin(uT*1.4+q.y*0.8+q.x*0.5)+0.6,0.35*cos(uT*1.1+q.x*0.7))*0.010*hh*hh;
-          for(int k=0;k<2;k++){float sc=k==0?34.0:23.0;vec2 gq=(q+wd)*sc+(k==0?vec2(0.0):vec2(17.3,5.1));vec2 gi=floor(gq),gf=fract(gq)-0.5;
-            float hb=0.40+0.60*h2(gi+float(k)*9.1);vec2 o=(vec2(h2(gi+1.7),h2(gi+4.3))-0.5)*0.55;
-            vec2 dd=gf-o;dd=vec2(dd.x*1.0,dd.y*2.2);   // 葉は細長い
-            float rad=0.36*(1.0-hh/hb)+0.02;
-            if(hit<0.5&&hb>hh&&length(dd)<rad){hit=1.0;float tip=hh/hb;
-              vec3 a=mix(vec3(0.07,0.14,0.03),vec3(0.24,0.42,0.08),smoothstep(0.0,0.5,tip));
-              vec3 b=mix(vec3(0.48,0.66,0.16),vec3(0.62,0.76,0.26),h2(gi+2.2));
-              gc=mix(a,b,smoothstep(0.35,1.0,tip))*(0.85+0.3*h2(gi+6.6));}}
-          if(hit>0.5)break;}
-        if(hit<0.5)gc=mix(vec3(0.05,0.07,0.03),pc*0.6,pet);   // 葉の間から見える地面
-        c=mix(lawn,gc,gN);}
-      c=mix(c,pc,pet*fade*0.92*(0.55+0.45*(1.0-gN*0.4)));   // 花びらは草の上にのる
-      c=mix(c,vec3(0.92,0.74,0.80),dens*(0.12+0.25*(1.0-fade)));
+    if(A2.y>0.001){ // 桜の丘: 古い石畳の参道に、散った花びら(2026/11/27 おっちゃん「床が人工芝だね」「春の道みたいに」→「石畳+花びら」)
+      // 石: 横に長い切り石を段ごとにずらして並べる。半分くらいは2つに割れている。目地は土と苔で、花びらが吹きだまる
+      vec2 wp=p+vec2(fb(p*0.45),fb(p*0.45+7.0))*0.30+vec2(fb(p*2.2),fb(p*2.2+3.0))*0.04;   // 少しゆがめて、定規で引いた線に見えないように
+      const float RH=0.82,L=1.55;
+      float row=floor(wp.y/RH);float lx=wp.x+h2(vec2(row,3.0))*7.0;float cx=floor(lx/L);float fx=fract(lx/L);
+      float sp=0.28+0.44*h2(vec2(cx,row+11.0));bool split=h2(vec2(cx,row+23.0))<0.55;
+      float x0=0.0,x1=1.0,sid=cx*2.0;if(split){if(fx<sp){x1=sp;}else{x0=sp;sid+=1.0;}}
+      vec2 id=vec2(sid,row);
+      float ex=min(fx-x0,x1-fx)*L, ey=min(fract(wp.y/RH),1.0-fract(wp.y/RH))*RH;
+      float e=min(ex,ey);   // 石のふちまでの距離
+      vec2 outD=ex<ey?vec2(fx-x0<x1-fx?-1.0:1.0,0.0):vec2(0.0,fract(wp.y/RH)<0.5?-1.0:1.0);   // いちばん近いふちの向き
+      float gap=0.022+0.040*n2(p*1.7+id);
+      float joint=1.0-smoothstep(gap,gap+0.012,e);
+      float fadeJ=1.0-smoothstep(14.0,45.0,dist);
+      // 石の面: 1枚ごとの色(灰・ほんのり暖色・青み)、細かい粒、地衣のしみ、真ん中ほど踏まれてなめらかで明るい
+      float hs=h2(id+1.3),ht=h2(id+5.7);
+      vec3 st=mix(vec3(0.20,0.20,0.20),vec3(0.40,0.38,0.35),hs);
+      st=mix(st,st*vec3(1.05,0.98,0.92),smoothstep(0.6,1.0,ht))*mix(1.0,0.92,smoothstep(0.0,0.4,ht));
+      float grain=fb(p*9.0+id*3.0)*0.6+n2(p*40.0+id)*0.4;
+      st*=0.62+0.62*grain;
+      st*=0.85+0.3*fb(p*3.0+id*5.0);   // 石の中のまだら
+      st=mix(st,vec3(0.20,0.24,0.14),smoothstep(0.55,0.80,fb(p*1.3+id*2.0))*0.45);   // 地衣・苔のしみ
+      float wear=smoothstep(0.02,0.30,e);st*=0.92+0.10*wear;
+      // ふちの丸み: 日の当たる向きのふちは明るく、反対は暗い
+      float bev=1.0-smoothstep(gap,gap+0.10,e);
+      float sunSide=dot(outD,-normalize(vec2(-0.55,-0.67)));
+      st*=1.0+bev*0.45*sunSide-bev*0.18;
+      vec3 jc=mix(vec3(0.035,0.03,0.025),vec3(0.07,0.10,0.04),n2(p*6.0));   // 目地の土と苔
+      vec3 c=mix(st,jc,joint*fadeJ);
+      c=mix(c,vec3(0.27,0.26,0.25),(1.0-fadeJ)*0.6);   // 遠くは平均の色
+      // 花びら: 吹きだまりに多く、目地と石のふちに寄る
+      float dens=smoothstep(0.3,0.75,fb(p*0.16+vec2(9.0)));
+      float nearEdge=1.0-smoothstep(0.0,0.18,e);
+      vec2 cp=p*5.0,ci=floor(cp),fq=fract(cp)-0.5;float hp=h2(ci);float pet=0.0;
+      if(hp<0.08+0.55*dens+0.4*nearEdge){vec2 o=vec2(h2(ci+3.1),h2(ci+7.7))-0.5;vec2 q=fq-o*0.6;float an=hp*40.0;q=mat2(cos(an),-sin(an),sin(an),cos(an))*q;
+        float ps=0.07+0.05*h2(ci+5.5);float yy=q.y;float wd=ps*(0.55+0.45*smoothstep(-ps,ps*0.3,yy));
+        pet=step(abs(q.x),wd*sqrt(max(0.0,1.0-pow(yy/(ps*1.6),2.0))));}
+      vec3 pc=mix(vec3(0.94,0.60,0.72),vec3(1.0,0.86,0.90),h2(ci+1.3));
+      float fade=1.0-smoothstep(6.0,24.0,dist);
+      c=mix(c,pc*(0.9+0.1*h2(ci+9.0)),pet*fade);
+      c=mix(c,vec3(0.92,0.76,0.81),(dens*0.25+nearEdge*joint*0.5)*(0.35+0.65*(1.0-fade))*0.6);   // 遠くは淡い桃色ににじむ
       col+=c*A2.y;al+=A2.y;}
     // 遠くは霧の色へ(空の地平線とつなぐ)
     float fogk=smoothstep(uFar*0.25,uFar,dist);
@@ -1423,8 +1434,9 @@ function placeTrees(C){   // コースのいちばん外側(中心からの距�
     a[i*4]=FIELD_C.x+Math.cos(ang)*rr;a[i*4+1]=FIELD_C.z+Math.sin(ang)*rr;a[i*4+2]=6.0+r()*3.5;a[i*4+3]=r()*10;}
   trees.geometry.attributes.aP.needsUpdate=true;treeFor=C;if(DEBUG)window.__treeR=R;
 }
-function updatePetals(vt){const w=areaW.sakura;petals.visible=w>0.001;trees.visible=petals.visible;if(!petals.visible)return;petU.uA.value=w;petU.uCam.value.copy(camera.position);petU.uT.value=vt%10000;
-  if(treeFor!==cur)placeTrees(cur);
+const TREES_ON=false;   // 2026/11/27 おっちゃん「桜の木は要らないかな」→ 出さない(コードは残置)
+function updatePetals(vt){const w=areaW.sakura;petals.visible=w>0.001;trees.visible=TREES_ON&&petals.visible;if(!petals.visible)return;petU.uA.value=w;petU.uCam.value.copy(camera.position);petU.uT.value=vt%10000;
+  if(TREES_ON&&treeFor!==cur)placeTrees(cur);
   treeU.uA.value=w;treeU.uCam.value.copy(camera.position);treeU.uFogC.value.copy(HORIZON_A);treeU.uNear.value=areaFogNear;treeU.uFar.value=areaFogFar;}
 // ---- エリアのまわりの粒: 水の中=のぼる泡 / 氷の湖=ただよう氷の粒 / 宇宙=星くず。カメラのまわりの箱の中をくり返す
 const PTN=1500;   // 6割が泡(水の中)、2割が氷の粒、2割が星くず
@@ -1473,7 +1485,7 @@ const AREA_ENV={
   ice:{fog:[0.012,0.022,0.045],near:18,far:85,key:0xcfdcff,keyI:2.6,hemS:0x8fb0ff,hemG:0x0a1020,hemI:0.4,rim:0xb8d4ff,rimI:1.3,backI:1.8,env:0.55,exp:1.05},
   cloud:{fog:[0.70,0.66,0.62],near:30,far:140,key:0xfff0d8,keyI:3.4,hemS:0xd8e6ff,hemG:0xf2e6da,hemI:1.0,rim:0xffd2a0,rimI:1.2,backI:2.4,env:0.95,exp:0.95},
   sky:{fog:[0.60,0.74,0.92],near:40,far:170,key:0xfff4e6,keyI:3.3,hemS:0xa9cbff,hemG:0xdde8f6,hemI:1.15,rim:0xd8e8ff,rimI:1.0,backI:2.0,env:1.05,exp:0.9},
-  sakura:{fog:[0.52,0.61,0.44],near:36,far:150,key:0xfff0e4,keyI:3.1,hemS:0xd4e2ff,hemG:0x7f9d5c,hemI:0.95,rim:0xffd8e6,rimI:1.0,backI:2.0,env:0.95,exp:0.95},
+  sakura:{fog:[0.52,0.54,0.55],near:36,far:150,key:0xfff0e4,keyI:3.1,hemS:0xd4e2ff,hemG:0x8a8680,hemI:0.95,rim:0xffd8e6,rimI:1.0,backI:2.0,env:0.95,exp:0.95},
   space:{fog:[0.001,0.001,0.003],near:28,far:120,key:0xf4f6ff,keyI:3.2,hemS:0x6070a0,hemG:0x05050a,hemI:0.18,rim:0x9a7cff,rimI:1.6,backI:2.6,env:0.45,exp:1.08},
 };
 for(const k in AREA_ENV){const e=AREA_ENV[k];e.fogC=new THREE.Color().setRGB(e.fog[0],e.fog[1],e.fog[2],THREE.LinearSRGBColorSpace);for(const n of ['key','hemS','hemG','rim'])e[n+'C']=new THREE.Color(e[n]);}
@@ -2167,7 +2179,7 @@ async function warmCompile(){
   for(const m of [waterVolMat,causticMat,lavaMat,rockMat,bombMat])W.add(new THREE.Mesh(g,m));
   {const pg=new THREE.BufferGeometry();pg.setAttribute('position',new THREE.BufferAttribute(new Float32Array(3),3));pg.setAttribute('aB',new THREE.BufferAttribute(new Float32Array(4),4));pg.setAttribute('aC',new THREE.BufferAttribute(new Float32Array(3),3));pg.setAttribute('aV',new THREE.BufferAttribute(new Float32Array(3),3));
    W.add(new THREE.Points(pg,bubbleMat));W.add(new THREE.Points(pg,sparkMat));}
-  waterPass.enabled=true;flashPass.enabled=true;zoneU.uRG.value.set(0,0,5,0.5);floorU.uRing.value.set(0,0,5,0.5);floorArea.visible=true;areaPts.visible=true;petals.visible=true;trees.visible=true;skyU.uAr.value.set(0.25,0.25,0.25,0.25);floorU.uA.value.set(0.25,0.25,0.25,0.25);skyU.uAr2.value.set(0.01,0.01,0.01,0.01);floorU.uB.value.set(0.01,0.01,0.01,0.01);
+  waterPass.enabled=true;flashPass.enabled=true;zoneU.uRG.value.set(0,0,5,0.5);floorU.uRing.value.set(0,0,5,0.5);floorArea.visible=true;areaPts.visible=true;petals.visible=true;skyU.uAr.value.set(0.25,0.25,0.25,0.25);floorU.uA.value.set(0.25,0.25,0.25,0.25);skyU.uAr2.value.set(0.01,0.01,0.01,0.01);floorU.uB.value.set(0.01,0.01,0.01,0.01);
   W.position.y=-40;WM.position.y=-40;scene.add(W);mirrorRoot.add(WM);
   const d0=glassMat.dispersion, s0=key.castShadow;
   for(const d of [4,0])for(const sh of [true,false]){
