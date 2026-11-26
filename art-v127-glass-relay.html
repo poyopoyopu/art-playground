@@ -1167,15 +1167,18 @@ const floorMat=new THREE.ShaderMaterial({uniforms:floorU,transparent:false,depth
 const floorArea=new THREE.Mesh(new THREE.PlaneGeometry(420,420),floorMat);
 floorArea.rotation.x=-Math.PI/2;floorArea.position.y=0.0015;floorArea.renderOrder=1;floorArea.frustumCulled=false;floorArea.visible=false;scene.add(floorArea);
 // ---- エリアのまわりの粒: 水の中=のぼる泡 / 氷の湖=ただよう氷の粒 / 宇宙=星くず。カメラのまわりの箱の中をくり返す
-const PTN=900;
+const PTN=1500;   // 6割が泡(水の中)、2割が氷の粒、2割が星くず
 const ptU={uCam:{value:new V3()},uT:{value:0},uA:{value:new THREE.Vector4()},uPx:{value:400}};
 const ptMat=new THREE.ShaderMaterial({uniforms:ptU,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,fog:false,
   vertexShader:`attribute vec4 aR;uniform vec3 uCam;uniform float uT;uniform vec4 uA;uniform float uPx;varying float vA;varying vec3 vC;varying float vK;
-  void main(){float k=floor(aR.w*3.0);vK=k;float B=k<0.5?12.0:k<1.5?16.0:22.0;
+  void main(){float k=aR.w<0.6?0.0:aR.w<0.8?1.0:2.0;vK=k;float B=k<0.5?12.0:k<1.5?16.0:22.0;
     vec3 dr=k<0.5?vec3(sin(uT*0.7+aR.x*30.0)*0.15,uT*(0.35+aR.y*0.5),cos(uT*0.6+aR.z*30.0)*0.15)
           :k<1.5?vec3(uT*0.06+sin(uT*0.3+aR.y*20.0)*0.3,-uT*(0.03+aR.x*0.05),uT*0.03)
           :vec3(uT*0.02,uT*0.006,-uT*0.015);
-    vec3 r=aR.xyz*B+dr;vec3 w=uCam+mod(r-uCam,B)-B*0.5;
+    vec3 r=aR.xyz*B+dr;
+    if(k<0.5&&aR.y<0.4){float ci=floor(aR.x*7.0);vec2 cp=fract(vec2(sin(ci*12.9898),sin(ci*78.233))*43758.5453)*B;   // 泡の4割は、7本の筋になって上がる
+      r.xz=cp+vec2(sin(uT*1.3+aR.z*40.0),cos(uT*1.1+aR.z*37.0))*(0.03+aR.y*0.12);}
+    vec3 w=uCam+mod(r-uCam,B)-B*0.5;
     if(k<0.5){w.y=mod(r.y,6.5)+0.02;}             // 泡は床から6.5の高さまで
     else if(k<1.5){w.y=0.15+mod(r.y-uCam.y,5.0);}  // 氷の粒は低いところ
     float a=k<0.5?uA.x:k<1.5?uA.y:uA.z;
@@ -1696,7 +1699,7 @@ function courseCamBlended(C,τ,dt,P,T){
   spineAt(C,τ,_h);
 }
 // 水とマグマ: 近い2つずつをドミノのシェーダーへ。カメラが水の中なら、霧・空・画面のゆらぎを水の中にする。点光源は近くの水(青)かマグマ(赤)へ
-let underW=0;const WATER_FOG=new THREE.Color().setRGB(0.006,0.05,0.062,THREE.LinearSRGBColorSpace),GLINT_W=new THREE.Color(0xffd7a8),_zc=new THREE.Color();
+const _wd=new V3();let underW=0;const WATER_FOG=new THREE.Color().setRGB(0.006,0.05,0.062,THREE.LinearSRGBColorSpace),GLINT_W=new THREE.Color(0xffd7a8),_zc=new THREE.Color();
 function updateZones(dt,vt){
   zoneU.uZT.value=vt%10000;
   const Z=cur&&!morph?cur.zones:[], cp=camera.position;
@@ -1714,6 +1717,7 @@ function updateZones(dt,vt){
   skyU.uWater.value=uw;
   if(scene.fog){scene.fog.color.copy(HORIZON_A).lerp(WATER_FOG,underW);scene.fog.near=lerp(scene.fog.near,1.2,underW);scene.fog.far=lerp(scene.fog.far,17,underW);scene.background.copy(scene.fog.color);}
   waterPass.enabled=uw>0.01;waterPass.uniforms.uAmt.value=uw;waterPass.uniforms.uT.value=vt%1000;
+  if(uw>0.01){camera.getWorldDirection(_wd);const WU=waterPass.uniforms;WU.uRay.value=Math.max(areaW.water,underW*0.6);WU.uYaw.value=Math.atan2(_wd.x,_wd.z);WU.uPit.value=_wd.y;WU.uAsp.value=camera.aspect;}
   flashPass.enabled=flashAmt>0.004;flashPass.uniforms.uAmt.value=flashAmt;flashPass.uniforms.uT.value=vt%1000;
   // 点光源
   const nearL=L[0]&&L[0][1]<14?L[0][0]:null, nearW=W[0]&&W[0][1]<14?W[0][0]:null;
@@ -1773,11 +1777,17 @@ composer.addPass(new RenderPass(scene,camera));
 const bokeh=new BokehPass(scene,camera,{focus:8,aperture:0.006,maxblur:0.018});
 composer.addPass(bokeh);
 // 水の中: 画面がゆらゆら・青く
-const waterPass=new ShaderPass({uniforms:{tDiffuse:{value:null},uAmt:{value:0},uT:{value:0}},
+const waterPass=new ShaderPass({uniforms:{tDiffuse:{value:null},uAmt:{value:0},uT:{value:0},uRay:{value:0},uYaw:{value:0},uPit:{value:0},uAsp:{value:1}},
   vertexShader:'varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
-  fragmentShader:`uniform sampler2D tDiffuse;uniform float uAmt;uniform float uT;varying vec2 vUv;
+  fragmentShader:`uniform sampler2D tDiffuse;uniform float uAmt;uniform float uT;uniform float uRay;uniform float uYaw;uniform float uPit;uniform float uAsp;varying vec2 vUv;
     void main(){vec2 uv=vUv+uAmt*0.0022*vec2(sin(vUv.y*26.0+uT*1.6),cos(vUv.x*22.0+uT*1.25));vec4 c=texture2D(tDiffuse,uv);
-      float vg=1.0-0.35*uAmt*dot(vUv-0.5,vUv-0.5)*2.6;c.rgb=mix(c.rgb,c.rgb*vec3(0.62,0.98,1.06)+vec3(0.0,0.012,0.018),uAmt*0.75)*vg;gl_FragColor=c;}`});
+      float vg=1.0-0.35*uAmt*dot(vUv-0.5,vUv-0.5)*2.6;c.rgb=mix(c.rgb,c.rgb*vec3(0.62,0.98,1.06)+vec3(0.0,0.012,0.018),uAmt*0.75)*vg;
+      if(uRay>0.001){   // 上から差しこむ光の筋(カメラの向きに合わせて横へ流れる。上ほど強く、ゆっくり揺れる)
+        float x=(vUv.x-0.5)*uAsp-uYaw*1.6+(1.0-vUv.y)*0.32;
+        float r=pow(0.5+0.5*sin(x*6.0+uT*0.16+sin(x*2.1+uT*0.09)*1.6),7.0)*0.65+pow(0.5+0.5*sin(x*14.0-uT*0.12+1.7),12.0)*0.45;
+        float fade=smoothstep(0.05,1.0,vUv.y+uPit*0.6)*(0.75+0.25*sin(uT*0.7+x*3.0));
+        c.rgb+=vec3(0.50,0.88,1.0)*r*fade*0.20*uRay;}
+      gl_FragColor=c;}`});
 waterPass.enabled=false;composer.addPass(waterPass);
 // 切り替わりの光: 光の輪がカメラを通る瞬間だけ、画面がふわっと明るく虹色にかすむ
 const flashPass=new ShaderPass({uniforms:{tDiffuse:{value:null},uAmt:{value:0},uT:{value:0}},
