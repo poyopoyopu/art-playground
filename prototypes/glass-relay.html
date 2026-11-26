@@ -9,9 +9,14 @@
        列の途中の14枚と最後の2枚の倒れ方(揺れ・跳ね返り・寄りかかって止まる角度)を全ドミノで使い回す。大きいドミノは√倍ゆっくり倒れる。実物の約5.5倍のスロー。
      カメラ: 波の先頭を斜め後ろの少し上から追う。しかけごとに撮り方を変える(階段は一緒にのぼる、輪は回り込む、ビー玉は並走、扇・渦巻きは上から…)。0秒前後は引いて時刻を正面から。
      重さ: 読み込み中に実際に描いて速さを測り、画質の段(解像度・ぼかし・影・ガラスの分光)を決める。動き出してからも重ければ段を下げる。
+     眺めていての変化(2026/11/26 おっちゃん選択):
+       ・10分ごと・正時の大仕掛け: :10 :20 …が出る分のコースはしかけ9個、:00 が出る分は12種ぜんぶ(色は虹・形は円)。その時刻が出たあと、
+         カメラが真上近くまで大きく引いてコース全体と時刻を見せ(引いている間に巻き戻しが見える)、6秒過ぎに次のコースが走り出す。
+       ・毎分の色テーマ: 虹(多め)/氷/琥珀/パステル/透明に1色/夕焼け/深い海。フィールドの数字の色は、その時刻を運んできたコースのテーマ。
+       ・コースの形と回る向き: 円/三つ葉/四つ葉/角丸/楕円 × 左回り/右回り。最後の滑走路の手前は円に戻す。
      操作: なぞる=見回す(離すと4秒で戻る) / ✦=いまの時刻から別のコースに組み直す
      テスト用: ?fast=1(時間が3倍で進む) ?debug=1(コマ数・画質の段・しかけ名・カメラ) ?sec=NN(その秒から、1分ぶんのコースで始める) ?seed=N ?tier=0〜4(画質の段を固定)
-       ?debug=1&pause=1(時間を止める) ?debug=1&cam=top(真上から全体)
+       ?debug=1&pause=1(時間を止める) ?debug=1&cam=top(真上から全体) ?debug=1&special=hour|ten&theme=0〜6&shape=0〜4&mir=1|-1&reveal=hour|ten(大仕掛け・色・形の確認)
      three.js r187(assets/vendor/three)。音なし。ギャラリー未追加。 -->
 <html lang="ja">
 <head>
@@ -205,10 +210,21 @@ function bezierPts(x0,z0,a0,x1,z1,a1,y,k){
 // 4) コースを組む
 // ============================================================
 // item.k: 0=倒れるドミノ 1=動かない(寝かせたドミノ) 2=飛ぶ破片(塔) 3=まぐさ(2段重ねの横板) 4=上段のドミノ
-function newCourse(seed){
+// 毎分の色テーマ(f(i,h)→[色相,彩度,明度]。iはコースの何枚目か、hはその分の基準の色)
+const THEMES=[
+  {jp:'虹',w:3,f:(i,h)=>[(h+i/36)%1,1,0.62]},
+  {jp:'氷',w:1,f:(i,h)=>{const w=.5+.5*Math.sin(i*0.16+h*6);return [0.5+0.11*w,0.7,0.7+0.08*Math.sin(i*0.37)];}},
+  {jp:'琥珀',w:1,f:(i,h)=>{const w=.5+.5*Math.sin(i*0.15+h*6);return [0.045+0.075*w,0.95,0.56+0.08*Math.sin(i*0.31)];}},
+  {jp:'パステル',w:1,f:(i,h)=>[(h+i/50)%1,0.5,0.8]},
+  {jp:'透明に1色',w:1,f:(i,h)=>i%8===0?[h,1,0.6]:[h,0.06,0.9]},
+  {jp:'夕焼け',w:1,f:(i,h)=>{const w=.5+.5*Math.sin(i*0.12+h*6);return [(0.9+0.2*w)%1,0.95,0.6];}},
+  {jp:'深い海',w:1,f:(i,h)=>{const w=.5+.5*Math.sin(i*0.13+h*6);return [0.52+0.22*w,0.85,0.56];}},
+];
+const COURSE_SHAPES=['円','三つ葉','四つ葉','角丸','楕円'];
+function newCourse(seed,theme){
   const C={items:[],spine:[],cams:[],boxes:[],geos:[],posts:[],marble:null,rnd:mulberry(seed),names:[],nCol:0,collide:[]};
-  C.hue=C.rnd();
-  C.color=function(){const h=(C.hue+C.nCol++/36)%1;return new THREE.Color().setHSL(h,1.0,0.62);};
+  C.hue=C.rnd();C.theme=theme||0;
+  C.color=function(){const t=THEMES[C.theme].f(C.nCol++,C.hue);return new THREE.Color().setHSL(t[0],t[1],t[2]);};
   return C;
 }
 function addFall(C,x,y,z,a,th,o={}){
@@ -504,19 +520,29 @@ function planList(rnd,kTotal){
 }
 
 // コース全体: 時刻のフィールドのまわりを外から内へ回り、最後に南からフィールドへ入る
-function buildCourse(seed,Ta,turns,list){
-  const C=newCourse(seed);
+function buildCourse(seed,Ta,turns,list,opt){
+  opt=opt||{};
+  const C=newCourse(seed,opt.theme);
   const span=turns*2*Math.PI, phiEnd=Math.PI/2-0.35, phiStart=phiEnd-span;
   const R0=Math.min(31,17+span*1.9), R1=17;
   const Rof=ph=>lerp(R0,R1,clamp((ph-phiStart)/Math.max(span,1e-3),0,1));
-  const tang=ph=>Math.atan2(-Math.sin(ph),Math.cos(ph));
-  const r0=Rof(phiStart);
-  C.pose={x:r0*Math.cos(phiStart),z:r0*Math.sin(phiStart),a:tang(phiStart),y:0,t:0,s:1};
+  // コースの形(円/三つ葉/四つ葉/角丸/楕円)と回る向き(mir=-1で右回り)。最後の0.9radは円に戻して滑走路へ入りやすくする
+  const shp=opt.shape||0, mir=opt.mir||1, sp0=opt.sp||0;
+  const Rmod=ph=>{const e=clamp((phiEnd-ph)/0.9,0,1);let m=1;
+    if(shp===1)m=1+0.15*Math.sin(3*ph+sp0);else if(shp===2)m=1+0.12*Math.sin(4*ph+sp0);
+    else if(shp===3){const c=Math.abs(Math.cos(ph+sp0)),s2=Math.abs(Math.sin(ph+sp0));m=0.93*Math.pow(c**4+s2**4,-0.25);}
+    else if(shp===4)m=1+0.2*Math.cos(2*(ph-sp0));
+    return 1+e*(m-1);};
+  const G=ph=>{const R=Rof(ph)*Rmod(ph);return [R*Math.cos(ph)*mir,R*Math.sin(ph)];};
+  const tang=ph=>{const a=G(ph-1e-3),b=G(ph+1e-3);return Math.atan2(b[0]-a[0],b[1]-a[1]);};
+  const g0=G(phiStart);
+  C.pose={x:g0[0],z:g0[1],a:tang(phiStart),y:0,t:0,s:1};
+  C.shape=shp;C.mir=mir;
   // 最初の1枚(押される1枚)
   addFall(C,C.pose.x,0,C.pose.z,C.pose.a,0);
   run(C,2);
   let phi=phiStart;
-  const curPhi=()=>{let p=Math.atan2(C.pose.z,C.pose.x);while(p<phi-Math.PI)p+=2*Math.PI;while(p>phi+Math.PI)p-=2*Math.PI;return p;};
+  const curPhi=()=>{let p=Math.atan2(C.pose.z,C.pose.x*mir);while(p<phi-Math.PI)p+=2*Math.PI;while(p>phi+Math.PI)p-=2*Math.PI;return p;};
   const k=list.length;
   for(let i=0;i<k;i++){
     const g=list[i];
@@ -524,8 +550,8 @@ function buildCourse(seed,Ta,turns,list){
     const slot=phiStart+span*(i+0.35)/(k+0.15);
     let target=Math.max(slot,phi+0.22);
     if(g==='marble'&&list[i-1]==='stairs'||g==='drop')target=phi+0.16;
-    const R=Rof(target);
-    connector(C,R*Math.cos(target),R*Math.sin(target),tang(target));
+    const gp=G(target);
+    connector(C,gp[0],gp[1],tang(target));
     // 大きなしかけは外側へ広げる(フィールドから離す)
     const P=C.pose, rx=Math.cos(P.a), rz=-Math.sin(P.a);
     C.rightOut=(rx*P.x+rz*P.z)>0;
@@ -556,16 +582,24 @@ function collides(C){
   }
   return null;
 }
-function planCourse(seed,Ta){
+// 10分ごと(:10 :20 …が出る分)はしかけ9個、正時(:00が出る分)は12種ぜんぶ
+function planCourse(seed,Ta,opt){
+  opt=opt||{};
   const rnd=mulberry(seed*7+3);
-  const kTotal=Ta<14?0:Ta<24?1:Ta<34?3:Ta<44?5:6+(rnd()*3|0);
+  let kTotal=Ta<14?0:Ta<24?1:Ta<34?3:Ta<44?5:6+(rnd()*3|0);
+  if(opt.special==='ten'&&Ta>44)kTotal=9;
+  if(opt.special==='hour'&&Ta>44)kTotal=12;
+  const fLo=opt.special?0.74:0.86;
   let best=null;
   for(let attempt=0;attempt<14;attempt++){
-    const s=seed+attempt*7919, list=planList(mulberry(s),kTotal);
+    const s=seed+attempt*7919, lr=mulberry(s);
+    let list=planList(lr,kTotal);
+    if(kTotal===12&&!list.includes('stairs')){list=planList(lr,10);list.splice(lr()*(list.length+1)|0,0,'stairs','drop');}
+    const o={theme:opt.theme,shape:opt.shape!=null?opt.shape:(mulberry(s+1)()*COURSE_SHAPES.length|0),mir:opt.mir||(mulberry(s+2)()<.5?1:-1),sp:mulberry(s+3)()*6.28};
     let turns=clamp(Ta/40,0.12,1.6), C=null, ok=false;
     for(let it=0;it<7;it++){
-      C=buildCourse(s,Ta,turns,list);
-      if(C.f>0.86&&C.f<1.16){ok=true;break;}
+      C=buildCourse(s,Ta,turns,list,o);
+      if(C.f>fLo&&C.f<1.16){ok=true;break;}
       const tConn=Math.max(4,C.tEnd*0.55);
       turns=clamp(turns*(1+(Ta-C.tEnd)/tConn*0.8),0.05,2.4);
     }
@@ -575,7 +609,7 @@ function planCourse(seed,Ta){
     if(!col&&C.items.length<CAP&&(!best||Math.abs(Math.log(C.f))<Math.abs(Math.log(best.f))))best=C;
   }
   if(!best)best=buildCourse(seed,Ta,0.1,[]);
-  best.f=clamp(best.f,0.6,1.6);
+  best.f=clamp(best.f,0.6,1.6);best.special=opt.special||null;
   // 並び順(巻き戻しの順番)
   best.items.sort((a,b)=>a.ord-b.ord);
   best.spine.sort((a,b)=>a[0]-b[0]);
@@ -779,9 +813,22 @@ function startCourse(C,t0,animate){
   for(let i=0;i<C.items.length;i++){const c=C.items[i].col;colArr.set([c.r,c.g,c.b],(FN+i)*3);}
   doms.instanceColor.needsUpdate=true;
 }
-function makeCourseFor(tStart,tEnd){
+// その分(M)のコースが最後に出す時刻(M+1)が :00 なら正時、:10 :20 … なら10分ごと
+function minuteOfHour(M){return new Date(M*60000).getMinutes();}
+function specialOf(M){const mm=minuteOfHour(M+1);return mm===0?'hour':mm%10===0?'ten':null;}
+function revealOf(M){if(DEBUG&&Q.get('reveal'))return Q.get('reveal');return specialOf(M-1);}   // 分Mの0秒に出た時刻が大仕掛けの時刻か
+function themeOf(M){
+  if(specialOf(M)==='hour')return 0;   // 正時は虹
+  const r=mulberry(((M*2654435761)^SEED0)>>>0);r();const x=r();
+  let tot=0;for(const t of THEMES)tot+=t.w;let a=x*tot;
+  for(let i=0;i<THEMES.length;i++){a-=THEMES[i].w;if(a<0)return i;}return 0;
+}
+function makeCourseFor(tStart,tEnd,M){
   const Ta=tEnd-tStart;if(Ta<6)return null;
-  const t=performance.now(), C=planCourse(seedN%100000,Ta);
+  const sp=(DEBUG&&Q.get('special'))||specialOf(M);
+  const opt={special:sp,theme:themeOf(M),shape:sp==='hour'?0:undefined};
+  if(DEBUG){if(Q.get('theme'))opt.theme=+Q.get('theme');if(Q.get('shape'))opt.shape=+Q.get('shape');if(Q.get('mir'))opt.mir=+Q.get('mir');}
+  const t=performance.now(), C=planCourse(seedN%100000,Ta,opt);
   seedN=(seedN*1103515245+12345)>>>0;
   C.buildMs=performance.now()-t;
   prepare(C,tStart);
@@ -790,7 +837,7 @@ function makeCourseFor(tStart,tEnd){
 const MORPH=3.2;
 function newCourseNow(vt,animate){
   const M=Math.floor(vt/60), tEnd=(M+1)*60, tS=vt+(animate?MORPH:0.6);
-  const C=makeCourseFor(tS,tEnd);
+  const C=makeCourseFor(tS,tEnd,M);
   if(!C)return false;
   startCourse(C,vt,animate);return true;
 }
@@ -843,7 +890,7 @@ function updateCourse(vt){
 
 // ---- 毎コマ: 時刻のフィールド
 const FI=[];   // {p,q,pr,r,c}
-let fieldMask=null, fieldMaskMin=-1, fieldStatic=false, fieldHue=0;
+let fieldMask=null, fieldMaskMin=-1, fieldStatic=false, fieldHue=0, fieldTheme=0;
 function initField(){
   const rnd=mulberry(77);
   for(let r=0;r<FR;r++)for(let c=0;c<FC;c++){
@@ -859,7 +906,7 @@ function fieldTimes(f,M){ // 倒れる時刻・起き上がる時刻(絶対秒)
 const RISE=2.6;
 function updateField(vt){
   const M=Math.floor(vt/60), sec=vt-M*60;
-  if(fieldMaskMin!==M){fieldMask=digitMask(hhmm(M));fieldMaskMin=M;fieldStatic=false;fieldHue=(M%60)/60;}
+  if(fieldMaskMin!==M){fieldMask=digitMask(hhmm(M));fieldMaskMin=M;fieldStatic=false;fieldHue=(M%60)/60;fieldTheme=themeOf(M-1);}   // 数字の色は、その時刻を運んできたコースの色テーマ
   const moving=sec<5.6||sec>55.8;
   if(!moving&&fieldStatic)return;
   for(let i=0;i<FN;i++){
@@ -870,7 +917,7 @@ function updateField(vt){
     _q.setFromAxisAngle(XA,th);_q2.multiplyQuaternions(f.q,_q);_m.compose(f.p,_q2,_s.setScalar(FS));doms.setMatrixAt(i,_m);
     const g=clamp(th/1.2,0,1), on=fieldMask[f.r*FC+f.c];
     let r=DIM.r,gg=DIM.g,b=DIM.b;
-    if(on){const h=(fieldHue+f.c/FC*0.75)%1;_c.setHSL(h,1,0.62);const k=g*g*3.2;r=lerp(r,_c.r*k,g);gg=lerp(gg,_c.g*k,g);b=lerp(b,_c.b*k,g);}
+    if(on){if(fieldTheme===0)_c.setHSL((fieldHue+f.c/FC*0.75)%1,1,0.62);else if(fieldTheme===4)_c.setHSL(fieldHue,1,0.6);else{const t=THEMES[fieldTheme].f(f.c*1.5,fieldHue);_c.setHSL(t[0],Math.max(t[1],0.6),t[2]);}const k=g*g*3.2;r=lerp(r,_c.r*k,g);gg=lerp(gg,_c.g*k,g);b=lerp(b,_c.b*k,g);}
     colArr[i*3]=r;colArr[i*3+1]=gg;colArr[i*3+2]=b;
   }
   doms.instanceMatrix.needsUpdate=true;doms.instanceColor.needsUpdate=true;
@@ -893,7 +940,7 @@ function spineAt(C,τ,out){
   return out.set(a[1]+(b[1]-a[1])*f,a[2]+(b[2]-a[2])*f,a[3]+(b[3]-a[3])*f);
 }
 const _h=new V3(),_ha=new V3(),_hb=new V3(),_hc=new V3(),_d=new V3(),_r=new V3(),_fp=new V3(),_ft=new V3();
-let focusDist=8,lastMode='';
+let focusDist=8,lastMode='',overW=0;
 function pickMode(C,τ){for(const c of C.cams){if(τ>=c.t0&&τ<=c.t1)return c;}return null;}
 function courseCam(C,τ,cm,P,T){
   spineAt(C,τ,_h);spineAt(C,τ+0.9,_ha);spineAt(C,τ-0.7,_hb);spineAt(C,τ+0.7,_hc);
@@ -931,13 +978,19 @@ function courseCamBlended(C,τ,dt,P,T){
 function updateCamera(dt,vt){
   const M=Math.floor(vt/60), sec=vt-M*60;
   // 0秒前後は引いて、時刻のフィールドを正面から
-  let w=0;if(sec>50)w=sstep(58.3,59.85,sec);else if(sec<10)w=1-sstep(3.0,4.8,sec);
+  const rv=revealOf(M);
+  let w=0;if(sec>50)w=sstep(58.3,59.85,sec);else if(sec<10)w=1-(rv?sstep(6.0,7.6,sec):sstep(3.0,4.8,sec));
+  // 10分ごと・正時: 時刻が出たあと、真上近くまで大きく引いてコース全体と時刻を見せる
+  let wo=0;if(rv&&sec<10)wo=sstep(0.9,2.9,sec)*(1-sstep(5.0,6.6,sec));
+  overW=wo;
   const asp=camera.aspect;
   _fp.set(0,asp<1?21.5:11.5,asp<1?13.8:9.5);_ft.copy(FIELD_C);
   if(cur){const τ=courseTau(cur,vt);
     courseCamBlended(cur,Math.max(τ,-0.5),dt,desP,desT);
   }else{desP.copy(_fp);desT.copy(_ft);w=1;_h.copy(FIELD_C);}
   desP.lerp(_fp,w);desT.lerp(_ft,w);
+  if(wo>0){const H=rv==='hour'?(asp<1?64:44):(asp<1?38:27);_v.set(0,H,H*0.3);_v2.set(0,0,-H*0.02);desP.lerp(_v,wo);desT.lerp(_v2,wo);}
+  if(scene.fog)scene.fog.near=16+wo*(rv==='hour'?60:30);if(scene.fog)scene.fog.far=72+wo*(rv==='hour'?110:55);
   // ユーザーのなぞり(見回し): 目標のまわりを回す
   const idle=vt-userLast;
   if(!dragging&&idle>4/SPEED){userYaw*=Math.exp(-dt*1.6);userPitch*=Math.exp(-dt*1.6);}
@@ -1047,7 +1100,7 @@ async function boot(){
 }
 function render(vt,dt){
   updateField(vt);updateCourse(vt);updateCamera(dt,vt);
-  if(bokeh.enabled){bokeh.uniforms.focus.value=focusDist;bokeh.uniforms.aspect.value=camera.aspect;}
+  if(bokeh.enabled){bokeh.uniforms.focus.value=focusDist;bokeh.uniforms.aspect.value=camera.aspect;bokeh.uniforms.aperture.value=0.006*(1-0.85*overW);}
   if(bokeh.enabled)composer.render(dt);else{composer.render(dt);}
 }
 function loop(now){
@@ -1059,11 +1112,11 @@ function loop(now){
   }
   lastVt=vt;
   if(M!==curMinute){
-    if(nextC){startCourse(nextC,M*60+0.25,true);nextC=null;}
+    if(nextC){startCourse(nextC,M*60+(revealOf(M)?3.0:0.25),true);nextC=null;}
     else newCourseNow(vt,true);
     curMinute=M;
   }
-  if(!nextC&&sec>50&&sec<59){nextC=makeCourseFor((M+1)*60+MORPH+0.3,(M+2)*60);}
+  if(!nextC&&sec>50&&sec<59){nextC=makeCourseFor((M+1)*60+(revealOf(M+1)?6.4:MORPH+0.3),(M+2)*60,M+1);}
   render(vt,dt);
   // 速さを見て、重ければ段を下げる
   frames++;fpsN++;fpsT+=dt;
@@ -1071,7 +1124,7 @@ function loop(now){
     if(Q.get('tier')==null&&fps<47&&tier<Math.min(TIERS.length-1,bootTier+2)&&!document.hidden){applyTier(tier+1);perfLog.push('fps '+fps.toFixed(0)+' → tier '+tier);}
     fpsT=0;fpsN=0;}
   if(DEBUG)dbgEl.textContent=`fps ${fps.toFixed(1)}  frame ${frames}  tier ${tier}  pr ${renderer.getPixelRatio().toFixed(2)}\n`+
-    `sec ${sec.toFixed(1)}  ${hhmm(M)}  items ${cur?cur.items.length:0}  f ${cur?cur.f.toFixed(2):'-'}  build ${cur?cur.buildMs.toFixed(0):'-'}ms\n`+
+    `sec ${sec.toFixed(1)}  ${hhmm(M)}  items ${cur?cur.items.length:0}  f ${cur?cur.f.toFixed(2):'-'}  build ${cur?cur.buildMs.toFixed(0):'-'}ms\n`+(cur?`色 ${THEMES[cur.theme].jp}  形 ${COURSE_SHAPES[cur.shape]}${cur.mir<0?'・右回り':'・左回り'}  ${cur.special||''}\n`:'')+
     (cur?cur.names.join(' / '):'')+'\ncam '+lastMode+'\n'+perfLog.slice(-3).join('\n');
 }
 if(DEBUG)window.__dbg={planCourse,buildCourse,collides,planList,mulberry,setSec(x){const v=vtime(),M=Math.floor(v/60);vOffset+=(M*60+x)-v;lastVt=vtime();},get cur(){return cur;}};
