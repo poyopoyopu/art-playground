@@ -30,6 +30,8 @@
        ・ドミノは512枚ずつの区画で描き、画面に入らない区画は描かず、遠い区画は軽い形にする。次の周のコースは、走っている間に間をあけて少しずつ組む。
        ・周の終わり: 時刻が出て巻き戻しが始まると、カメラは高く弧を描いて次の周の入り口へ(巻き戻る1周を上から見せる)。
        ・10分ごと・正時の大仕掛けは、5分ごとに届く時刻が :X0 / :00 のときの「真上近くまで引く画」と、正時の虹色。毎分の色テーマ・形と向きは今まで通り。
+     2026/11/26 夜 背景の玉ボケをやめて空に(「背景の玉みたいなのを変えて欲しいな、美しくね」): 地平線がうっすら明るく上ほど深い色、ゆっくり流れる虹色のもや、
+       黒い鏡には暗く映り込む。もやの色はその分の色テーマの色相へゆっくり寄る。霧の色も地平線の色に合わせた。
      操作: なぞる=見回す(離すと4秒で戻る) / ✦=いまの時刻から別のコースに組み直す(次に時刻のフィールドへ届くまでの分)
      テスト用: ?cyc=NNN(5分の周の何秒目から、その周を最初から走っていたことにして始める) ?fast=1(時間が3倍で進む) ?debug=1(コマ数・画質の段・しかけ名・カメラ) ?sec=NN(その秒から、1分ぶんのコースで始める) ?seed=N ?tier=0〜4(画質の段を固定)
        ?debug=1&pause=1(時間を止める) ?debug=1&cam=top(真上から全体) ?debug=1&special=hour|ten&theme=0〜6&shape=0〜4&mir=1|-1&reveal=hour|ten(大仕掛け・色・形の確認)
@@ -875,12 +877,42 @@ shadowFloor.rotation.x=-Math.PI/2;shadowFloor.position.y=0.002;shadowFloor.recei
   const sheen=new THREE.Mesh(g,m);sheen.rotation.x=-Math.PI/2;sheen.position.y=0.001;sheen.renderOrder=2;scene.add(sheen);
   var sheenU=m.uniforms;
 }
-// 遠くの暖かい玉ボケ(静止画と同じ)
-{let sd=3;const r=()=>{sd=(sd*16807)%2147483647;return sd/2147483647;};
- const g=new THREE.SphereGeometry(1,10,8);
- for(let i=0;i<110;i++){const a=r()*Math.PI*2,R=78+r()*30;const s=0.25+r()*0.35;
-  const m=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color:new THREE.Color().setHSL(0.07+r()*0.06,0.9,0.55+r()*0.25),fog:false}));
-  m.scale.setScalar(s*2.2);m.position.set(Math.cos(a)*R,3+r()*14,Math.sin(a)*R);scene.add(m);}}
+// 背景の空(2026/11/26 おっちゃん「背景の玉みたいなのを変えて欲しいな、美しくね」→ 玉ボケをやめて、夜明け前のような空に)
+// 地平線がうっすら明るく、上ほど深い色。ゆっくり流れる虹色のもや。下半分は黒い鏡に映った空(暗め)。
+// 色はその分の色テーマの色相へ、ゆっくり寄っていく。カメラについて動く大きな球の内側に描く。
+const HORIZON=new THREE.Color().setRGB(0.032,0.022,0.036,THREE.LinearSRGBColorSpace);
+scene.fog.color.copy(HORIZON);scene.background.copy(HORIZON);
+const skyU={uT:{value:0},uHue:{value:0.6},uAmt:{value:1}};
+const sky=new THREE.Mesh(new THREE.SphereGeometry(190,48,24),new THREE.ShaderMaterial({
+  side:THREE.BackSide,depthWrite:false,fog:false,uniforms:skyU,
+  vertexShader:'varying vec3 vD;void main(){vD=position;vec4 p=projectionMatrix*modelViewMatrix*vec4(position,1.);gl_Position=p.xyww;}',
+  fragmentShader:`uniform float uT;uniform float uHue;uniform float uAmt;varying vec3 vD;
+  float h3(vec3 p){p=fract(p*0.3183099+0.1);p*=17.0;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}
+  float n3(vec3 x){vec3 i=floor(x),f=fract(x);f=f*f*(3.0-2.0*f);
+    return mix(mix(mix(h3(i),h3(i+vec3(1,0,0)),f.x),mix(h3(i+vec3(0,1,0)),h3(i+vec3(1,1,0)),f.x),f.y),
+               mix(mix(h3(i+vec3(0,0,1)),h3(i+vec3(1,0,1)),f.x),mix(h3(i+vec3(0,1,1)),h3(i+vec3(1,1,1)),f.x),f.y),f.z);}
+  float fbm(vec3 p){float a=0.5,s=0.0;for(int i=0;i<4;i++){s+=a*n3(p);p=p*2.03+vec3(1.7,9.2,3.1);a*=0.5;}return s;}
+  void main(){
+    vec3 d=normalize(vD);float ay=abs(d.y);
+    vec3 q=vec3(d.x,ay,d.z);
+    vec3 hor=vec3(0.032,0.022,0.036), zen=vec3(0.004,0.006,0.016);
+    vec3 col=mix(hor,zen,smoothstep(0.0,0.55,ay));
+    col+=vec3(0.30,0.15,0.09)*exp(-ay*30.0)*0.32;            // 地平線のうすい光
+    col+=vec3(0.10,0.07,0.14)*exp(-ay*7.0)*0.25;
+    // 流れる虹色のもや(地平線の少し上に帯のように)
+    vec3 w=q*2.1+vec3(uT*0.012,0.0,uT*0.007);
+    float n=fbm(w+fbm(w*1.7)*1.3);
+    float band=smoothstep(0.03,0.16,ay)*(1.0-smoothstep(0.32,0.72,ay));
+    float m=smoothstep(0.42,0.82,n)*band;
+    vec3 iri=0.5+0.5*cos(6.28318*(uHue+n*0.55+d.x*0.08+vec3(0.0,0.33,0.67)));
+    col+=iri*m*0.2*uAmt;
+    float veil=smoothstep(0.30,0.75,fbm(q*5.0+vec3(-uT*0.02,0.0,uT*0.015)))*band;   // 細かい筋
+    col+=iri*veil*0.035*uAmt;
+    if(d.y<0.0)col*=0.42;   // 下半分は黒い鏡に映った空
+    gl_FragColor=vec4(col,1.0);
+  }`}));
+sky.renderOrder=-10;sky.frustumCulled=false;scene.add(sky);
+let skyHue=0.6;
 
 // ---- コースの飾り(台・レール・輪の帯・台座・ビー玉)を作る
 function buildDecor(C){
@@ -1269,6 +1301,8 @@ function updateCamera(dt,vt){
   key.target.position.copy(_v2);key.position.copy(_v2).addScaledVector(KEYDIR,30);
   glint.position.set(_v.x-3,4,_v.z+2);
   sheenU.uCam.value.copy(camera.position);
+  sky.position.copy(camera.position);skyU.uT.value=vt%10000;
+  {const T=THEMES[themeOf(M)].f(0,(M%60)/60);let dh=T[0]-skyHue;dh-=Math.round(dh);skyHue+=dh*(1-Math.exp(-dt*0.25));skyU.uHue.value=skyHue;}
 }
 
 // ============================================================
