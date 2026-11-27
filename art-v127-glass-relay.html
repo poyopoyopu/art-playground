@@ -42,6 +42,7 @@
        毎分0秒に分の数字の門をくぐると景色ごと切り替わる。エリアは5つ = 鏡のテーブル(夕空)/水の中/氷の湖と星空/雲の上/宇宙。
        周のはじめ(時刻が出る分)は必ず鏡のテーブル、残り4分は周ごとに順番を入れ替える。変わるのは空・床・霧・光・まわりの粒(泡・氷の粒・宇宙のちり)で、コースはそのまま。
        テスト用 ?area=mirror|water|ice|cloud|space(ずっとそのエリア)
+     2026/11/27 鏡のテーブルと天空の鏡を入れ替え(おっちゃん「鏡のテーブルと天空の鏡を逆にしてよ」): 周のはじめ(時刻が出る分)=天空の鏡、前半=水の中→鏡のテーブル→電脳都市→宇宙。
      2026/11/27 新エリア「電脳都市」(?area=cyber、前半の3番目。「雲の上」と入れ替え。おっちゃん「鏡と雲の上がちょっと被ってる」「もっとSFチックな」「サイバーな感じ」):
        夜の高層ビル街(窓の明かり・縦のネオン・屋上の赤い灯)、紫とマゼンタのもや、上空はデータの雨。床は黒いガラスに光の回路で、線の上をデータの光が流れる。
        法則=ドミノが倒れたところから、電気が回路を四角く広がる。まわりにはシアンとマゼンタのデータの粒が上る。雲の上は ?area=cloud で見るだけ(コードは残置)。
@@ -1900,13 +1901,13 @@ const ptMat=new THREE.ShaderMaterial({uniforms:ptU,transparent:true,depthWrite:f
  var areaPts=new THREE.Points(g,ptMat);areaPts.frustumCulled=false;areaPts.renderOrder=5;areaPts.visible=false;scene.add(areaPts);}
 // ---- エリアの順番: 周のはじめ(時刻が出る分)は必ず鏡のテーブル。残りの4分は、周ごとに順番を入れ替える
 const AREAS=['mirror','water','sky','cyber','space','sakura','sunflower','autumn','ice','cloud'], AREA_JP={mirror:'鏡のテーブル',water:'水の中',sky:'天空の鏡',cyber:'電脳都市',cloud:'雲の上',space:'宇宙',sakura:'桜の丘',sunflower:'ひまわり畑',autumn:'紅葉の谷',ice:'氷の湖と星空'};   // 並び: 前半=水の中→天空の鏡→電脳都市→宇宙 / 後半=桜の丘→ひまわり畑→紅葉の谷→氷の湖と星空(冬)。後半の新エリアは作ったものから ice の前に足す。雲の上は天空の鏡と被るので外した(2026/11/27、?area=cloud で見るだけ。コードは残置)
+const LAP_START='sky', AREA_ROT=['water','mirror','cyber','space','sakura','sunflower','autumn','ice'];   // 周のはじめ(時刻が出る分)のエリアと、残りの巡回の順
 function areaOf(M){
   if(Q.get('area')&&AREAS.includes(Q.get('area')))return Q.get('area');
-  const L=Math.floor(M/LAP), p=M-L*LAP;if(p===0)return 'mirror';
-  // 10分で一巡(おっちゃん選択): 0分・5分は鏡のテーブル、ほかのエリア(最大8つ)は AREAS の順に1分ずつ。前半の周=1〜4番目、後半の周=5〜8番目。
-  // 8つそろった(2026/11/27 紅葉の谷で): 前半=水の中→天空の鏡→電脳都市→宇宙 / 後半=桜の丘→ひまわり畑→紅葉の谷→氷の湖と星空(雲の上は電脳都市に入れ替え、巡回から外した)
-  const o=AREAS.filter(a=>a!=='mirror'&&a!=='cloud');
-  return o[((L%2)*4+(p-1))%o.length];
+  const L=Math.floor(M/LAP), p=M-L*LAP;if(p===0)return LAP_START;
+  // 10分で一巡(おっちゃん選択): 0分・5分は周のはじめのエリア、ほかのエリア(8つ)は AREA_ROT の順に1分ずつ。前半の周=1〜4番目、後半の周=5〜8番目。
+  // 2026/11/27 おっちゃん「鏡のテーブルと天空の鏡を逆にして」: 周のはじめ=天空の鏡、前半=水の中→鏡のテーブル→電脳都市→宇宙 / 後半=桜の丘→ひまわり畑→紅葉の谷→氷の湖と星空(雲の上は電脳都市に入れ替え、巡回から外した)
+  return AREA_ROT[((L%2)*4+(p-1))%AREA_ROT.length];
 }
 // エリアごとの霧・光(鏡のテーブル=いままでの値)
 const AREA_ENV={
