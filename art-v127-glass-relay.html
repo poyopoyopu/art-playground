@@ -1167,7 +1167,9 @@ const sky=new THREE.Mesh(new THREE.SphereGeometry(190,48,24),new THREE.ShaderMat
       if(y<r3)c=mix(c,vec3(0.36,0.48,0.24),0.95);
       c=mix(c,mix(pk,haze,0.12),m);c=mix(c,vec3(0.20,0.14,0.14),tk);}
     return c;}
-  void bil(float az,float y,vec3 b,inout float bd,inout vec2 nr){vec2 q=vec2(az-b.x,y-b.y);float d=b.z-length(q);if(d>bd){bd=d;nr=q/b.z;}}   // 入道雲のこぶ1つ(中心の方位・高さ・半径)
+  // 入道雲のこぶ1つ(中心の方位・高さ・半径)。こぶ同士はなめらかにつなぎ(継ぎ目を出さない)、丸みの向きも重みでまぜる
+  void bil(float az,float y,vec3 b,inout float d,inout vec3 nw){vec2 q=vec2(az-b.x,y-b.y);float di=length(q)-b.z;
+    float h=clamp(0.5+0.5*(di-d)/0.03,0.0,1.0);d=mix(di,d,h)-0.03*h*(1.0-h);float w=exp(-di/0.018);nw+=vec3(q/b.z*w,w);}
   // ひまわり畑(2026/11/27 新しく作ったエリア): 真夏の濃い青空。太陽の反対側の地平線から、日の当たった真っ白な入道雲が立ちのぼる。地平線には遠い森の稜線
   vec3 skySummer(vec3 d){float y=d.y,ay=max(y,0.0);
     vec3 sun=normalize(vec3(-0.557,0.743,-0.371));float sd=max(dot(d,sun),0.0);   // 太陽=キーライトの向き(ドミノの影と合う)
@@ -1180,19 +1182,23 @@ const sky=new THREE.Mesh(new THREE.SphereGeometry(190,48,24),new THREE.ShaderMat
     vec2 hs=normalize(d.xz);float face=max(dot(hs,-normalize(sun.xz)),0.0);   // 1=太陽を背にして見ている(雲の日なたの面が見える)
     // 入道雲: まるい雲のこぶ(円)を積み重ねた塔。こぶごとの丸みで日なたと陰がつき、ふちはもこもこ。大きな塔は太陽の反対側(日なたの面が見える)
     if(y<0.5&&((az>-0.05&&az<0.75)||(az>0.8&&az<1.3)||(az>-1.6&&az<-1.2)||(az>2.1&&az<2.4))){
-      float bd=-1.0;vec2 nr=vec2(0.0,1.0);
-      bil(az,y,vec3(0.10,0.060,0.100),bd,nr);bil(az,y,vec3(0.22,0.120,0.120),bd,nr);bil(az,y,vec3(0.36,0.160,0.140),bd,nr);bil(az,y,vec3(0.50,0.110,0.120),bd,nr);bil(az,y,vec3(0.62,0.050,0.090),bd,nr);bil(az,y,vec3(0.24,0.220,0.085),bd,nr);bil(az,y,vec3(0.31,0.290,0.100),bd,nr);bil(az,y,vec3(0.43,0.300,0.090),bd,nr);bil(az,y,vec3(0.50,0.220,0.080),bd,nr);bil(az,y,vec3(0.36,0.410,0.075),bd,nr);bil(az,y,vec3(0.28,0.380,0.060),bd,nr);bil(az,y,vec3(0.92,0.050,0.080),bd,nr);bil(az,y,vec3(1.05,0.100,0.100),bd,nr);bil(az,y,vec3(1.17,0.060,0.080),bd,nr);bil(az,y,vec3(1.01,0.200,0.070),bd,nr);bil(az,y,vec3(1.11,0.180,0.060),bd,nr);bil(az,y,vec3(1.06,0.260,0.050),bd,nr);bil(az,y,vec3(-1.50,0.030,0.060),bd,nr);bil(az,y,vec3(-1.40,0.050,0.050),bd,nr);bil(az,y,vec3(-1.31,0.020,0.045),bd,nr);bil(az,y,vec3(2.20,0.030,0.050),bd,nr);bil(az,y,vec3(2.29,0.020,0.040),bd,nr);
-      bd+=(fbm(vec3(az*28.0,y*28.0,1.0))-0.5)*0.022+(fbm(vec3(az*70.0,y*70.0,3.0))-0.5)*0.008;   // ふちのもこもこ
-      if(bd>-0.003){
-        float body=smoothstep(-0.003,0.002,bd);
+      float d=1.0;vec3 nw=vec3(0.0);
+      bil(az,y,vec3(0.10,0.060,0.100),d,nw);bil(az,y,vec3(0.22,0.120,0.120),d,nw);bil(az,y,vec3(0.36,0.160,0.140),d,nw);bil(az,y,vec3(0.50,0.110,0.120),d,nw);bil(az,y,vec3(0.62,0.050,0.090),d,nw);bil(az,y,vec3(0.24,0.220,0.085),d,nw);bil(az,y,vec3(0.31,0.290,0.100),d,nw);bil(az,y,vec3(0.43,0.300,0.090),d,nw);bil(az,y,vec3(0.50,0.220,0.080),d,nw);bil(az,y,vec3(0.36,0.410,0.075),d,nw);bil(az,y,vec3(0.28,0.380,0.060),d,nw);bil(az,y,vec3(0.92,0.050,0.080),d,nw);bil(az,y,vec3(1.05,0.100,0.100),d,nw);bil(az,y,vec3(1.17,0.060,0.080),d,nw);bil(az,y,vec3(1.01,0.200,0.070),d,nw);bil(az,y,vec3(1.11,0.180,0.060),d,nw);bil(az,y,vec3(1.06,0.260,0.050),d,nw);bil(az,y,vec3(-1.50,0.030,0.060),d,nw);bil(az,y,vec3(-1.40,0.050,0.050),d,nw);bil(az,y,vec3(-1.31,0.020,0.045),d,nw);bil(az,y,vec3(2.20,0.030,0.050),d,nw);bil(az,y,vec3(2.29,0.020,0.040),d,nw);
+      d+=(fbm(vec3(az*26.0,y*26.0,1.0))-0.5)*0.024+(fbm(vec3(az*64.0,y*64.0,3.0))-0.5)*0.009;   // ふちのもこもこ
+      if(d<0.004){
+        float body=1.0-smoothstep(-0.004,0.003,d);
+        vec2 n2=nw.xy/max(nw.z,1e-6);n2*=min(1.0,0.97/max(length(n2),1e-4)*length(n2));
+        // こぶの中の小さなこぶ: 細かい凹凸で丸みの向きをゆらす
+        vec3 bp=vec3(az*17.0,y*17.0,9.0);float b0=fbm(bp),bx=fbm(bp+vec3(0.15,0.0,0.0)),by=fbm(bp+vec3(0.0,0.15,0.0));
+        n2+=vec2(b0-bx,b0-by)*2.2;
+        float lz=1.0-dot(n2,n2);vec3 n3=normalize(vec3(n2,sqrt(max(lz,0.02))));
         float sa=atan(sun.z,sun.x),rel=sin(sa-az);   // 太陽が右か左か
-        vec2 ld=normalize(vec2(-rel*0.9,0.75));
-        float tx=fbm(vec3(az*16.0,y*16.0,9.0)+fbm(vec3(az*40.0,y*40.0,2.0))*0.4);   // こぶの中の小さなこぶ
-        float lit=clamp(0.42+0.55*dot(nr,ld)+face*0.25+smoothstep(0.0,0.3,y)*0.12+(tx-0.5)*0.55,0.0,1.0);
-        float crease=smoothstep(0.0,0.025,bd);   // こぶの重なり目(ふちに近い所)は少し陰る
-        vec3 cc=mix(vec3(0.44,0.51,0.65),vec3(1.06,1.05,1.01),lit)*mix(0.88,1.0,crease);
-        cc=mix(cc,vec3(0.52,0.56,0.64),(1.0-smoothstep(0.0,0.07,y))*0.55);   // 雲の底は灰色
-        cc+=vec3(1.0,0.97,0.9)*(1.0-face)*(1.0-crease)*0.35;   // 太陽側の雲は、ふちが銀色に光る
+        vec3 L3=normalize(vec3(-rel*0.9,0.85,(face-0.45)*2.2));   // 太陽の向き(x=右, y=上, z=こちら向き)
+        float dif=clamp((dot(n3,L3)+0.25)/1.25,0.0,1.0);
+        vec3 amb=vec3(0.42,0.52,0.72)*(0.55+0.45*n3.y)+vec3(0.40,0.36,0.30)*(0.5-0.5*n3.y)*0.45;   // 上は空の青、下は地面の照り返し
+        vec3 cc=vec3(1.10,1.06,0.99)*dif*0.95+amb*0.50;
+        cc*=mix(0.70,1.0,smoothstep(0.0,0.16,y));   // 雲の下のほうは自分の影で暗い
+        cc+=vec3(1.0,0.97,0.9)*pow(1.0-n3.z,3.0)*(1.0-face)*0.6;   // 太陽側の雲は、ふちが銀色に光る
         cc=mix(cc,haze,exp(-y*22.0)*0.35);   // 地平線近くは霞む
         c=mix(c,cc,body);}}
     // 遠い森の稜線(青く霞む)
@@ -1541,48 +1547,62 @@ function sunfAtlas(){   // 左半分=花の中心、右半分=花びら1枚
   g.restore();g.restore();
   const tx=new THREE.CanvasTexture(cv);tx.colorSpace=THREE.SRGBColorSpace;tx.anisotropy=4;return tx;
 }
-function sunfGeo(){   // 1本ぶんの形。aK=部位(0茎 1葉 2花の裏 3花の中心 4花びら)
+function sunfGeo(det){   // 1本ぶんの形。aK=部位(0茎 1葉 2花の裏 3花の中心 4花びら)。det=近く用の細かい形(花びら3重で反る・葉はぎざぎざのハート形)
   const P=[],U=[],K=[];const v=(x,y,z,u,w,k)=>{P.push(x,y,z);U.push(u,w);K.push(k);};
   const quad=(a,b,c,d)=>{for(const q of [a,b,c,a,c,d])v(...q);};
-  // 茎: 5角の筒、3段(position.xz=外向き, position.y=高さ0〜1)
-  const SD=5,YS=[0,0.4,0.75,1.0];
-  for(let j=0;j<3;j++)for(let i=0;i<SD;i++){const a0=i/SD*Math.PI*2,a1=(i+1)/SD*Math.PI*2,y0=YS[j],y1=YS[j+1];
+  const R=mulberry(det?909:303);
+  // 茎(position.xz=外向き, position.y=高さ0〜1)
+  const SD=det?6:5,YS=det?[0,0.25,0.5,0.7,0.85,1.0]:[0,0.4,0.75,1.0];
+  for(let j=0;j<YS.length-1;j++)for(let i=0;i<SD;i++){const a0=i/SD*Math.PI*2,a1=(i+1)/SD*Math.PI*2,y0=YS[j],y1=YS[j+1];
     quad([Math.cos(a0),y0,Math.sin(a0),0,0,0],[Math.cos(a1),y0,Math.sin(a1),0,0,0],[Math.cos(a1),y1,Math.sin(a1),0,0,0],[Math.cos(a0),y1,Math.sin(a0),0,0,0]);}
-  // 葉4枚: position=(根元からの長さ0〜1, 横幅, 何枚目)。ハート形に近い大きな葉、真ん中の葉脈で少し折れる
-  const LX=[0,0.15,0.40,0.72,1.0],LW=[0.02,0.22,0.46,0.32,0.0];
-  for(let li=0;li<4;li++)for(let j=0;j<4;j++)for(const s of [-1,1]){
+  // 葉4枚: position=(根元からの長さ0〜1, 横幅, 何枚目)、uv=(長さ, 横の位置-1〜1)。ハート形、真ん中の葉脈で少し折れる
+  const LX=det?[0,0.10,0.17,0.28,0.42,0.56,0.70,0.84,1.0]:[0,0.15,0.40,0.72,1.0],LW=det?[0.015,0.03,0.30,0.43,0.46,0.42,0.33,0.19,0.0]:[0.02,0.22,0.46,0.32,0.0];
+  for(let li=0;li<4;li++)for(let j=0;j<LX.length-1;j++)for(const s of [-1,1]){
     const a=[LX[j],0,li,LX[j],0,1],b=[LX[j],s*LW[j],li,LX[j],s,1],c=[LX[j+1],s*LW[j+1],li,LX[j+1],s,1],d=[LX[j+1],0,li,LX[j+1],0,1];
     if(s>0)quad(a,b,c,d);else quad(a,d,c,b);}
   // 花の裏(緑のがく): 浅い円すい+とがった総苞片のぎざぎざ
-  const HS=12;
+  const HS=det?20:12;
   for(let i=0;i<HS;i++){const a0=i/HS*Math.PI*2,a1=(i+1)/HS*Math.PI*2;
     v(0,0,-0.55,0.5,0.5,2);v(Math.cos(a1),Math.sin(a1),-0.02,0.5,0.5,2);v(Math.cos(a0),Math.sin(a0),-0.02,0.5,0.5,2);
-    const am=(a0+a1)/2;v(Math.cos(a0)*0.96,Math.sin(a0)*0.96,-0.04,0,0,2);v(Math.cos(a1)*0.96,Math.sin(a1)*0.96,-0.04,0,0,2);v(Math.cos(am)*1.28,Math.sin(am)*1.28,-0.10,1,0,2);}
-  // 花の中心: 少し盛り上がった円(テクスチャ=黄金角のらせん)
-  for(let i=0;i<HS;i++){const a0=i/HS*Math.PI*2,a1=(i+1)/HS*Math.PI*2,k=122/128*0.25;
-    v(0,0,0.10,0.25,0.5,3);v(Math.cos(a0),Math.sin(a0),0.0,0.25+Math.cos(a0)*k,0.5+Math.sin(a0)*k*2,3);v(Math.cos(a1),Math.sin(a1),0.0,0.25+Math.cos(a1)*k,0.5+Math.sin(a1)*k*2,3);}
-  // 花びら: 外21枚(少し後ろへ反る)+内13枚(少し前へ)
-  const pet=(n,rb,len,wd,zt,off)=>{for(let i=0;i<n;i++){const a=(i+off)/n*Math.PI*2,cs=Math.cos(a),sn=Math.sin(a),r1=rb+len;
+    const am=(a0+a1)/2,bl=det?1.22+R()*0.18:1.28;v(Math.cos(a0)*0.96,Math.sin(a0)*0.96,-0.04,0,0,2);v(Math.cos(a1)*0.96,Math.sin(a1)*0.96,-0.04,0,0,2);v(Math.cos(am)*bl,Math.sin(am)*bl,-0.10-(det?R()*0.1:0),1,0,2);}
+  // 花の中心: 盛り上がった円(テクスチャ=黄金角のらせん)
+  const k=122/128*0.25,UV=(r,a)=>[0.25+Math.cos(a)*k*r,0.5+Math.sin(a)*k*2*r];
+  const RING=det?[[0,0.13],[0.55,0.095],[1,0]]:[[0,0.10],[1,0]];
+  for(let j=0;j<RING.length-1;j++)for(let i=0;i<HS;i++){const a0=i/HS*Math.PI*2,a1=(i+1)/HS*Math.PI*2,[r0,z0]=RING[j],[r1,z1]=RING[j+1];
+    const p=(r,z,a)=>[Math.cos(a)*r,Math.sin(a)*r,z,...UV(r,a),3];
+    if(r0===0){v(...p(0,z0,0));v(...p(r1,z1,a0));v(...p(r1,z1,a1));}else quad(p(r0,z0,a0),p(r1,z1,a0),p(r1,z1,a1),p(r0,z0,a1));}
+  // 花びら: 外(後ろへ反る)・中・内(前へ起きる)。近く用は2つ折りで、1枚ずつ長さ・幅・反り・ねじれが少し違う
+  const pet=(n,rb,len,wd,zm,zt,off)=>{for(let i=0;i<n;i++){const a=(i+off+(det?(R()-0.5)*0.25:0))/n*Math.PI*2,cs=Math.cos(a),sn=Math.sin(a);
+    const L=len*(det?0.85+R()*0.3:1),W=wd*(det?0.85+R()*0.3:1),cu=det?(R()-0.5)*0.12:0,tw=det?(R()-0.5)*0.10:0;
     const P0=(r,s,z)=>[cs*r-sn*s,sn*r+cs*s,z];
-    const A=P0(rb,-wd/2,0.01),B=P0(rb,wd/2,0.01),C=P0(r1,wd/2,zt),D=P0(r1,-wd/2,zt);
-    quad([...A,0.5,0,4],[...B,1,0,4],[...C,1,1,4],[...D,0.5,1,4]);}};
-  pet(21,0.80,1.05,0.50,-0.34,0);pet(13,0.78,0.85,0.48,0.04,0.5);
+    if(!det){const A=P0(rb,-W/2,0.01),B=P0(rb,W/2,0.01),C=P0(rb+L,W/2,zt),D=P0(rb+L,-W/2,zt);quad([...A,0.5,0,4],[...B,1,0,4],[...C,1,1,4],[...D,0.5,1,4]);continue;}
+    const rm=rb+L*0.5,rt=rb+L,zmm=zm+cu,ztt=zt+cu*2.0;
+    const A=P0(rb,-W/2,0.01),B=P0(rb,W/2,0.01),C=P0(rm,W*0.52,zmm+tw),D=P0(rm,-W*0.52,zmm-tw),E=P0(rt,W/2,ztt+tw*1.6),F=P0(rt,-W/2,ztt-tw*1.6);
+    quad([...A,0.5,0,4],[...B,1,0,4],[...C,1,0.5,4],[...D,0.5,0.5,4]);quad([...D,0.5,0.5,4],[...C,1,0.5,4],[...E,1,1,4],[...F,0.5,1,4]);}};
+  if(det){pet(21,0.82,1.10,0.48,-0.08,-0.36,0);pet(21,0.80,1.0,0.46,0.0,-0.14,0.5);pet(13,0.78,0.80,0.44,0.08,0.10,0.25);}
+  else{pet(21,0.80,1.05,0.50,0,-0.34,0);pet(13,0.78,0.85,0.48,0,0.04,0.5);}
   const geo=new THREE.InstancedBufferGeometry();
   geo.setAttribute('position',new THREE.Float32BufferAttribute(P,3));geo.setAttribute('uv',new THREE.Float32BufferAttribute(U,2));geo.setAttribute('aK',new THREE.Float32BufferAttribute(K,1));
-  geo.setAttribute('aI',new THREE.InstancedBufferAttribute(new Float32Array(SUNF_N*4),4));geo.instanceCount=0;return geo;
+  geo.instanceCount=0;return geo;
 }
-const sunfU={uCam:{value:new V3()},uT:{value:0},uA:{value:0},uTex:{value:null},uOcc:{value:null},uOccB:{value:null},uSun:{value:new V3(-9,12,-6).normalize()},uFogC:{value:new THREE.Color()},uNear:{value:30},uFar:{value:140}};
-const sunfMat=new THREE.ShaderMaterial({uniforms:sunfU,side:THREE.DoubleSide,fog:false,
-  vertexShader:`attribute vec4 aI;attribute float aK;uniform vec3 uCam;uniform float uT;uniform vec3 uSun;uniform sampler2D uOcc;uniform vec4 uOccB;
-  varying vec2 vU;varying float vK;varying vec3 vN;varying vec3 vW;varying float vH;
+const SUNF_LOD=9.0;   // これより近い花は細かい形(近く用)、遠い花は軽い形。境目の2mはまだらに入れ替える
+const sunfU={uLod:{value:0},uCam:{value:new V3()},uT:{value:0},uA:{value:0},uTex:{value:null},uOcc:{value:null},uOccB:{value:null},uSun:{value:new V3(-9,12,-6).normalize()},uFogC:{value:new THREE.Color()},uNear:{value:30},uFar:{value:140}};
+const sunfMatSrc={side:THREE.DoubleSide,fog:false,
+  vertexShader:`attribute vec4 aI;attribute float aK;uniform vec3 uCam;uniform float uT;uniform vec3 uSun;uniform sampler2D uOcc;uniform vec4 uOccB;uniform float uLod;
+  varying vec2 vU;varying float vK;varying vec3 vN;varying vec3 vW;varying float vH;varying float vLw;varying float vSd;varying float vFd;
   void main(){
-    const float B=${SUNF_B.toFixed(1)};
+    const float B=${SUNF_B.toFixed(1)},LR=${SUNF_LOD.toFixed(1)};
     vec3 base=vec3(0.0);base.xz=uCam.xz+mod(aI.xy*B-uCam.xz,B)-B*0.5;   // カメラのまわりの升に回す
+    float cd0=length(base.xz-uCam.xz),lw=1.0-smoothstep(LR-1.0,LR+1.0,cd0);   // 1=近く用の形を使う
+    if(uLod<0.5?lw<0.001:lw>0.999){gl_Position=vec4(2.0,2.0,2.0,1.0);return;}
+    vLw=lw;vSd=aI.w;
     float od=texture2D(uOcc,(base.xz-uOccB.xy)/uOccB.zw).r*10.0;   // 一番近いドミノまでの距離
     float sd=aI.w,H=1.15+1.05*smoothstep(3.2,9.0,od)+aI.z*0.55;   // 通り道の近くは低め、離れるほど高い
     float cd=length(base.xz-uCam.xz);
-    float gs=smoothstep(2.9,4.0,od)*(1.0-smoothstep(B*0.36,B*0.5,cd))*smoothstep(2.2,4.2,cd);   // 通り道の近く・升の端・カメラのすぐ近くでは、地面に小さく沈める(画面をふさがない)
+    // 2026/11/27 おっちゃん「にょきにょきが気持ち悪い」→ カメラの動きで伸び縮みさせない。大きさは場所だけで決まり(通り道に近いほど小さい)、升の端とカメラのすぐ前は霧の中でまだらに消す
+    float gs=smoothstep(3.3,4.3,od);
     if(gs<0.02){gl_Position=vec4(2.0,2.0,2.0,1.0);return;}
+    vFd=(1.0-smoothstep(B*0.30,B*0.48,cd))*smoothstep(0.9,1.9,cd);
     vec2 WD=vec2(0.8,0.6);vec3 wv=vec3(WD.x,0.0,WD.y);
     // 風の波: 畑を斜めにわたる大きなうねり+1本ずつの小さなゆれ
     float g=0.5+0.5*sin(dot(base.xz,WD)*0.30-uT*1.2+sin(dot(base.xz,vec2(-WD.y,WD.x))*0.11)*1.6);g=g*g;
@@ -1592,7 +1612,7 @@ const sunfMat=new THREE.ShaderMaterial({uniforms:sunfU,side:THREE.DoubleSide,fog
     float yaw=(sd-0.5)*0.55,cy=cos(yaw),sy=sin(yaw);vec2 sx=normalize(uSun.xz);sx=vec2(sx.x*cy-sx.y*sy,sx.x*sy+sx.y*cy);
     vec3 f=normalize(vec3(sx.x,0.10+(fract(sd*7.31)-0.5)*0.35-g*0.12,sx.y)+wv*bend*0.8);
     vec3 r=normalize(cross(vec3(0.0,1.0,0.0),f)),u=cross(f,r);
-    float S=H*(0.072+0.028*fract(sd*13.7));   // 花の中心の半径
+    float S=H*(0.080+0.030*fract(sd*13.7));   // 花の中心の半径
     vec3 w,n;
     if(aK<0.5){float y=position.y,rad=H*0.012*(1.2-0.4*y);
       vec3 c=base+vec3(0.0,y*H,0.0)+wv*bend*H*y*y;n=normalize(vec3(position.x,0.0,position.z));w=c+n*rad;}
@@ -1603,26 +1623,32 @@ const sunfMat=new THREE.ShaderMaterial({uniforms:sunfU,side:THREE.DoubleSide,fog
       float L=H*(0.25+0.06*fract(sd*5.1+li*0.37))*(1.12-li*0.14);
       float fl=sin(uT*2.7+sd*30.0+li*2.1)*0.07*(0.4+g);
       w=at+dir*x*L+vec3(0.0,(0.32*x-0.78*x*x+fl*x)*L-abs(s)*0.30*L,0.0)+side*s*L+wv*g*0.10*x*L;
-      n=normalize(vec3(0.0,1.0,0.0)+dir*(1.4*x-0.25)+side*sign(s)*0.55);}
+      n=normalize(vec3(0.0,1.0,0.0)+dir*(1.4*x-0.25)+side*sign(s)*0.55);vU=vec2(x,uv.y);vSd=fract(sd*3.7+li*0.29);}
     else{vec3 hp=position;float rl=sd*6.2832;hp.xy=mat2(cos(rl),-sin(rl),sin(rl),cos(rl))*hp.xy;   // 1本ずつ花を回して、花びらの並びを変える
       vec3 hc=top+f*S*0.30+vec3(0.0,S*0.15,0.0);
       w=hc+r*hp.x*S+u*hp.y*S+f*hp.z*S;
       n=aK<2.5?normalize(-f+(r*hp.x+u*hp.y)*0.5):normalize(f+(r*hp.x+u*hp.y)*(aK>3.5?0.18:0.35));}
     w=base+(w-base)*gs;   // 端では地面から小さく
-    vW=w;vN=n;vU=uv;vK=aK;vH=H*gs;
+    vW=w;vN=n;if(aK<0.5||aK>1.5)vU=uv;vK=aK;vH=H*gs;
     gl_Position=projectionMatrix*viewMatrix*vec4(w,1.0);}`,
-  fragmentShader:`uniform sampler2D uTex;uniform vec3 uSun;uniform vec3 uCam;uniform float uA;uniform vec3 uFogC;uniform float uNear;uniform float uFar;
-  varying vec2 vU;varying float vK;varying vec3 vN;varying vec3 vW;varying float vH;
+  fragmentShader:`uniform sampler2D uTex;uniform vec3 uSun;uniform vec3 uCam;uniform float uA;uniform vec3 uFogC;uniform float uNear;uniform float uFar;uniform float uLod;
+  varying vec2 vU;varying float vK;varying vec3 vN;varying vec3 vW;varying float vH;varying float vLw;varying float vSd;varying float vFd;
   float hh(vec2 p){return fract(sin(dot(p,vec2(12.99,78.23)))*43758.5);}
   void main(){
-    float hd=hh(gl_FragCoord.xy);if(hd>uA)discard;   // エリアの切り替わりはまだらに出入り
+    float hd=hh(gl_FragCoord.xy);if(hd>uA*vFd)discard;   // エリアの切り替わり・升の端はまだらに出入り
+    float hl=hh(gl_FragCoord.yx+17.3);if(uLod<0.5?hl>=vLw:hl<vLw)discard;   // 近く用と遠く用の入れ替わり(同じ升目で、ちょうど半分ずつ)
     float dc=length(vW-uCam);
     vec3 n=normalize(vN);if(!gl_FrontFacing)n=-n;
     vec3 v=normalize(uCam-vW),L=normalize(uSun);
     vec3 alb;float tr=0.0;
     if(vK<0.5){alb=vec3(0.13,0.24,0.05);}                                  // 茎(産毛のある緑)
-    else if(vK<1.5){float vein=1.0-smoothstep(0.0,0.06,abs(vU.y));       // 葉: 真ん中の葉脈が明るい、ふちは濃い
-      alb=mix(vec3(0.06,0.17,0.025),vec3(0.13,0.28,0.04),0.5+0.5*vU.x*(1.0-abs(vU.y)))+vec3(0.10,0.12,0.03)*vein;tr=0.55;}
+    else if(vK<1.5){float ay=abs(vU.y);
+      if(ay>1.0-0.13*fract(vU.x*13.0+vSd)*smoothstep(0.12,0.3,vU.x))discard;   // ふちのぎざぎざ
+      float vein=1.0-smoothstep(0.0,0.05,ay);                             // 真ん中の葉脈
+      float lat=1.0-smoothstep(0.0,0.07,abs(fract(vU.x*6.0-ay*2.4)-0.5)*2.0-0.86);   // 葉脈から斜めに出る脇の葉脈
+      alb=mix(vec3(0.05,0.15,0.022),vec3(0.12,0.27,0.035),0.45+0.55*vU.x*(1.0-ay*0.7));
+      alb=mix(alb,alb*vec3(1.35,1.25,0.7),smoothstep(0.75,1.0,vSd)*0.6);   // ところどころ黄ばんだ葉
+      alb+=vec3(0.09,0.11,0.03)*vein+vec3(0.03,0.04,0.01)*lat*(1.0-vein);tr=0.55;}
     else if(vK<2.5){alb=mix(vec3(0.07,0.15,0.03),vec3(0.16,0.28,0.06),vU.x);tr=0.25;}   // 花の裏・がく
     else if(vK<3.5){alb=texture2D(uTex,vU).rgb*vec3(1.15,0.86,0.62);}     // 花の中心(トーンマップで緑っぽく転ばないよう、赤茶に寄せる)
     else{vec4 t=texture2D(uTex,vec2(0.5+(vU.x-0.5),vU.y));if(t.a<0.5)discard;alb=t.rgb;tr=0.85;}   // 花びら
@@ -1633,8 +1659,14 @@ const sunfMat=new THREE.ShaderMaterial({uniforms:sunfU,side:THREE.DoubleSide,fog
     if(vK>2.5&&vK<3.5)c+=alb*sunC*0.12*pow(max(dot(reflect(-L,n),v),0.0),12.0);   // 花の中心のつや
     c*=mix(0.35,1.0,smoothstep(0.05,vH*0.7,vW.y));   // 下のほうは葉の陰で暗い
     c=mix(c,uFogC,smoothstep(uNear,uFar,dc)*0.9);
-    gl_FragColor=vec4(c,1.0);}`});
-var sunfs;{sunfU.uTex.value=sunfAtlas();sunfs=new THREE.Mesh(sunfGeo(),sunfMat);sunfs.frustumCulled=false;sunfs.visible=false;sunfs.renderOrder=0;scene.add(sunfs);}
+    gl_FragColor=vec4(c,1.0);}`};
+sunfU.uTex.value=sunfAtlas();
+const sunfUN={...sunfU,uLod:{value:0}},sunfUF={...sunfU,uLod:{value:1}};   // 近く用・遠く用(uLod以外の値は同じものを共有)
+var sunfs,sunfsN;
+{const aI=new THREE.InstancedBufferAttribute(new Float32Array(SUNF_N*4),4);   // 2つの形で、同じ植え位置を使う
+ const gF=sunfGeo(false),gN=sunfGeo(true);gF.setAttribute('aI',aI);gN.setAttribute('aI',aI);
+ sunfs=new THREE.Mesh(gF,new THREE.ShaderMaterial({...sunfMatSrc,uniforms:sunfUF}));sunfsN=new THREE.Mesh(gN,new THREE.ShaderMaterial({...sunfMatSrc,uniforms:sunfUN}));
+ for(const m of [sunfs,sunfsN]){m.frustumCulled=false;m.visible=false;m.renderOrder=0;scene.add(m);}}
 let sunfFor=null;
 {const a=sunfs.geometry.attributes.aI.array,r=mulberry(1717),k=Math.round(Math.sqrt(SUNF_N));   // 46m四方を50×50に分けて、升ごとに1本(少しずらす)
  for(let i=0;i<k;i++)for(let j=0;j<k;j++){const n=i*k+j;a[n*4]=(i+0.5+(r()-0.5)*0.8)/k;a[n*4+1]=(j+0.5+(r()-0.5)*0.8)/k;a[n*4+2]=r();a[n*4+3]=r();}
@@ -1662,8 +1694,8 @@ function buildOcc(C){
 }
 function updateSunflowers(vt){const w=areaW.sunflower;sunfs.visible=w>0.001;
   if((sunfs.visible||areaNow==='sunflower')&&sunfFor!==cur)buildOcc(cur);   // 床も地図を使うので、エリアが始まる前(光の輪の内側)から用意する
-  if(!sunfs.visible)return;
-  sunfs.geometry.instanceCount=Math.floor(SUNF_N*(tier>=4?0.5:tier>=3?0.75:1));
+  sunfsN.visible=sunfs.visible;if(!sunfs.visible)return;
+  sunfs.geometry.instanceCount=sunfsN.geometry.instanceCount=Math.floor(SUNF_N*(tier>=4?0.5:tier>=3?0.75:1));
   sunfU.uA.value=w;sunfU.uCam.value.copy(camera.position);sunfU.uT.value=vt%10000;sunfU.uFogC.value.copy(HORIZON_A);sunfU.uNear.value=areaFogNear;sunfU.uFar.value=areaFogFar;}
 // ---- エリアのまわりの粒: 水の中=のぼる泡 / 氷の湖=ただよう氷の粒 / 宇宙=星くず。カメラのまわりの箱の中をくり返す
 const PTN=1500;   // 6割が泡(水の中)、2割が氷の粒、2割が星くず
@@ -2408,7 +2440,7 @@ async function warmCompile(){
   for(const m of [waterVolMat,causticMat,lavaMat,rockMat,bombMat])W.add(new THREE.Mesh(g,m));
   {const pg=new THREE.BufferGeometry();pg.setAttribute('position',new THREE.BufferAttribute(new Float32Array(3),3));pg.setAttribute('aB',new THREE.BufferAttribute(new Float32Array(4),4));pg.setAttribute('aC',new THREE.BufferAttribute(new Float32Array(3),3));pg.setAttribute('aV',new THREE.BufferAttribute(new Float32Array(3),3));
    W.add(new THREE.Points(pg,bubbleMat));W.add(new THREE.Points(pg,sparkMat));}
-  waterPass.enabled=true;flashPass.enabled=true;zoneU.uRG.value.set(0,0,5,0.5);floorU.uRing.value.set(0,0,5,0.5);floorArea.visible=true;areaPts.visible=true;petals.visible=true;sunfs.visible=true;sunfs.geometry.instanceCount=1;skyU.uAr.value.set(0.25,0.25,0.25,0.25);floorU.uA.value.set(0.25,0.25,0.25,0.25);skyU.uAr2.value.set(0.01,0.01,0.01,0.01);floorU.uB.value.set(0.01,0.01,0.01,0.01);
+  waterPass.enabled=true;flashPass.enabled=true;zoneU.uRG.value.set(0,0,5,0.5);floorU.uRing.value.set(0,0,5,0.5);floorArea.visible=true;areaPts.visible=true;petals.visible=true;sunfs.visible=true;sunfs.geometry.instanceCount=1;sunfsN.visible=true;sunfsN.geometry.instanceCount=1;skyU.uAr.value.set(0.25,0.25,0.25,0.25);floorU.uA.value.set(0.25,0.25,0.25,0.25);skyU.uAr2.value.set(0.01,0.01,0.01,0.01);floorU.uB.value.set(0.01,0.01,0.01,0.01);
   W.position.y=-40;WM.position.y=-40;scene.add(W);mirrorRoot.add(WM);
   const d0=glassMat.dispersion, s0=key.castShadow;
   for(const d of [4,0])for(const sh of [true,false]){
