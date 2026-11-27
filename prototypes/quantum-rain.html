@@ -1,5 +1,7 @@
 <!DOCTYPE html>
 <!-- QUANTUM RAIN(仮) — クロちゃん(Claude)作の試作。2026/11/28 おっちゃん依頼(Starkapoo氏の「Quantum Rain」動画)。ap-kit.js統合: クロちゃん -->
+<!-- 2026/11/28 おっちゃん「ただの雨だな」→ 毎分、ばらばらに降る雨粒の一部が一瞬で集まって時刻(時・分)の数字になり、しばらく保ってから崩れてまた雨に戻る(量子が「測定」で一つの形に決まる見立て)。
+     集まる先は、その分の時刻を画面に描いて拾った点。粒ごとに集まり始めるタイミングがずれる。指でなぞると、数字の粒も散ってまた集まる。確認用: ?g=1 で常に集まった状態。
 <!-- 2026/11/28 作り直し(おっちゃん「やるならもっとリアルな雨っぽくしてよ」): 点線のMatrix風をやめ、本物の雨の見え方にした。
      雨粒は「動きでのびた線」(シャッターが開いている間に落ちた距離=速さ×露光)。手前ほど速く長く太く明るい、奥は細く淡く霧のよう。
      ごく手前の粒だけピントが外れて太くにじむ。風は時間でゆっくり強弱し、手前の粒ほど大きくなびく。
@@ -131,7 +133,7 @@ var bgP=prog(
 
 // ---------- 雨粒: 動きでのびた線(1粒=1つの板) ----------
 var rainP=prog(
-'#version 300 es\nprecision highp float;\nlayout(location=0) in vec4 a;\nuniform vec2 u_res;uniform float u_t,u_dpr,u_hue,u_wind,u_um,u_fl;uniform vec3 u_p;\n'+
+'#version 300 es\nprecision highp float;\nlayout(location=0) in vec4 a;\nlayout(location=1) in vec3 b;\nuniform vec2 u_res;uniform float u_t,u_dpr,u_hue,u_wind,u_um,u_fl,u_g;uniform vec3 u_p;\n'+
 'out vec2 v_q;out vec3 v_col;out float v_a;\n'+COMMON+
 'void main(){\n'+
 ' float d=a.y,seed=fract(a.w*13.7);float W=u_res.x,H=u_res.y,asp=W/H;\n'+
@@ -140,12 +142,15 @@ var rainP=prog(
 ' float kk=.45+.55*d;\n'+
 ' float xw=a.x*1.3-.15;float xs=xw+u_wind*kk*y/asp;\n'+
 ' vec2 head=vec2(xs*W,y*H);\n'+
+' float gi=b.z*smoothstep(0.,1.,clamp(u_g*1.5-seed*.5,0.,1.));\n'+
+' vec2 tgt=vec2(b.x*W,b.y*H)+vec2(sin(u_t*3.1+a.w*40.),cos(u_t*2.7+a.z*30.))*1.2*u_dpr;\n'+
+' head=mix(head,tgt,gi);\n'+
 ' float dxt=xs-u_p.x;float tw=exp(-dxt*dxt/.0144)*u_p.z*exp(-abs(y-u_p.y)*2.6);\n'+
 ' head.x+=sign(dxt)*tw*.05*W*(.4+d);\n'+
-' vec2 dir=normalize(vec2(u_wind*kk,1.));vec2 perp=vec2(-dir.y,dir.x);\n'+
-' float len=H*(spd*.042+.004)*(.9+.2*seed);\n'+
+' vec2 dir=normalize(mix(vec2(u_wind*kk,1.),vec2(0.,1.),gi));vec2 perp=vec2(-dir.y,dir.x);\n'+
+' float len=H*(spd*.042+.004)*(.9+.2*seed)*(1.-.94*gi);\n'+
 ' float oof=smoothstep(.93,.97,d);\n'+
-' float hw=(.5+1.0*pow(d,1.2))*u_dpr*(1.+4.5*oof);float pad=hw*1.6;\n'+
+' float hw=mix((.5+1.0*pow(d,1.2))*u_dpr*(1.+4.5*oof),.95*u_dpr,gi);float pad=hw*1.6;\n'+
 ' int vid=gl_VertexID;float t=float(vid&1);float ac=float(vid>>1)*2.-1.;\n'+
 ' vec2 P=head+dir*pad-dir*(len+2.*pad)*t+perp*ac*hw*1.9;\n'+
 ' v_q=vec2(t,ac);\n'+
@@ -155,8 +160,10 @@ var rainP=prog(
 ' float glint=pow(max(0.,sin(u_t*(2.+seed*3.)+seed*60.)),16.)*step(.4,d)*.9;\n'+
 ' float xc=clamp(xs,0.,1.);float sd=(xc-u_um)*asp;\n'+
 ' float shaft=1.+exp(-sd*sd/(2.*.04*.04))*1.5;\n'+
-' v_a=(base*shaft+glint*base*2.)*smoothstep(yl,yl-.02,y)*smoothstep(0.,.07,y)*(1.-.93*oof)*(1.+tw*1.4)*(1.+u_fl*.9)*(1.+.45*smoothstep(.4,0.,y));\n'+
-' v_col=hsv(hueOf(xc),.74-.42*d*d,1.);\n'+
+' float aFall=(base*shaft+glint*base*2.)*smoothstep(yl,yl-.02,y)*smoothstep(0.,.07,y)*(1.-.93*oof)*(1.+tw*1.4)*(1.+u_fl*.9)*(1.+.45*smoothstep(.4,0.,y));\n'+
+' float aForm=.62*(.75+.5*hv);\n'+
+' v_a=mix(aFall,aForm,gi);\n'+
+' v_col=hsv(hueOf(clamp(mix(xc,b.x,gi),0.,1.)),mix(.74-.42*d*d,.55,gi),1.);\n'+
 ' gl_Position=vec4(P.x/W*2.-1.,1.-P.y/H*2.,0.,1.);}',
 '#version 300 es\nprecision highp float;in vec2 v_q;in vec3 v_col;in float v_a;out vec4 o;\n'+
 'void main(){float acr=exp(-v_q.y*v_q.y*3.2);\n'+
@@ -204,7 +211,32 @@ var rainArr=[],NR=0;
 var rainBuf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,rainBuf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(rainArr),gl.STATIC_DRAW);
 var quad=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,quad);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
 var vaoBg=gl.createVertexArray();gl.bindVertexArray(vaoBg);gl.bindBuffer(gl.ARRAY_BUFFER,quad);gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+var tgtData=new Float32Array(NR*3),tgtBuf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,tgtBuf);gl.bufferData(gl.ARRAY_BUFFER,tgtData,gl.DYNAMIC_DRAW);
 var vaoRain=gl.createVertexArray();gl.bindVertexArray(vaoRain);gl.bindBuffer(gl.ARRAY_BUFFER,rainBuf);gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,4,gl.FLOAT,false,0,0);gl.vertexAttribDivisor(0,1);
+gl.bindBuffer(gl.ARRAY_BUFFER,tgtBuf);gl.enableVertexAttribArray(1);gl.vertexAttribPointer(1,3,gl.FLOAT,false,0,0);gl.vertexAttribDivisor(1,1);
+// 集まる先: その分の時刻を画面に描き、文字の形の点を拾う。集まる粒は、オーバーフォーカスの粒以外からランダムに選ぶ
+var NASS=4600,assignIdx=[];for(var ai=0;ai<NASS;ai++)assignIdx.push(Math.floor(rnd()*(NR-36)));
+var glyphKey='';
+function pad2(n){return (n<10?'0':'')+n;}
+function buildTargets(hh,mm){
+  var key=hh+':'+mm+':'+innerWidth+'x'+innerHeight;if(key===glyphKey)return;glyphKey=key;
+  var CW=360,CH=Math.max(120,Math.round(CW*innerHeight/innerWidth));
+  var c=document.createElement('canvas');c.width=CW;c.height=CH;var x=c.getContext('2d');
+  x.fillStyle='#fff';x.textAlign='center';x.textBaseline='middle';
+  var portrait=innerHeight>innerWidth*1.1;var fs,txt;
+  var fam='ui-monospace,"SF Mono",Menlo,Consolas,monospace';
+  if(portrait){fs=Math.min(.86*CW/1.2,.3*CH);x.font='700 '+fs+'px '+fam;
+    var y1=.42*CH-.475*fs;x.fillText(pad2(hh),CW/2,y1);x.fillText(pad2(mm),CW/2,y1+.95*fs);}
+  else{fs=Math.min(.86*CW/3,.5*CH);x.font='700 '+fs+'px '+fam;x.fillText(pad2(hh)+':'+pad2(mm),CW/2,.42*CH);}
+  var img=x.getImageData(0,0,CW,CH).data,pts=[];
+  for(var py=0;py<CH;py+=2)for(var px=0;px<CW;px+=2){if(img[(py*CW+px)*4+3]>140)pts.push(px/CW,py/CH);}
+  var n=pts.length/2;if(!n)return;
+  for(var i=n-1;i>0;i--){var j=Math.floor(rnd()*(i+1));var tx=pts[i*2],ty=pts[i*2+1];pts[i*2]=pts[j*2];pts[i*2+1]=pts[j*2+1];pts[j*2]=tx;pts[j*2+1]=ty;}
+  tgtData.fill(0);
+  for(var k=0;k<NASS;k++){var id=assignIdx[k],q=(k%n)*2;tgtData[id*3]=pts[q];tgtData[id*3+1]=pts[q+1];tgtData[id*3+2]=1;}
+  gl.bindBuffer(gl.ARRAY_BUFFER,tgtBuf);gl.bufferSubData(gl.ARRAY_BUFFER,0,tgtData);
+}
 
 // ---------- 時刻 ----------
 var tOff=0;
@@ -235,6 +267,9 @@ function frame(now){
   var t=(now-t0)/1000;
   var wind=.075+.05*Math.sin(t*.13)+.03*Math.sin(t*.41+1.);   // 風(ゆっくり強弱する)
   var um=(mn+sec/60)/60;
+  buildTargets(d.getHours(),mn);
+  var ss=function(a,b,x){x=Math.min(1,Math.max(0,(x-a)/(b-a)));return x*x*(3-2*x);};
+  var ge=ss(0,2.8,sec)*(1-ss(20,24,sec));if(Q.get('g')==='1')ge=1;   // 毎分0秒に集まり、20秒ごろから崩れて雨に戻る
   var ev=Math.floor(t/11),eh=hsh(ev),tt=t-ev*11;   // 11秒ごとにくじ。当たると雲の中で稲光(二度またたく)
   var fl=eh>.35?Math.exp(-Math.pow((tt-1.2)*5,2))+.6*Math.exp(-Math.pow((tt-1.55)*7,2)):0,fx=hsh(ev+3);
   if(!RT)buildRT();
@@ -245,7 +280,7 @@ function frame(now){
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
   gl.enable(gl.BLEND);gl.blendFunc(gl.ONE,gl.ONE);
   gl.useProgram(rainP.p);gl.bindVertexArray(vaoRain);
-  gl.uniform2f(rainP.u.u_res,W,H);gl.uniform1f(rainP.u.u_t,t);gl.uniform1f(rainP.u.u_dpr,W/innerWidth);gl.uniform1f(rainP.u.u_hue,hueV);gl.uniform1f(rainP.u.u_fl,fl);
+  gl.uniform2f(rainP.u.u_res,W,H);gl.uniform1f(rainP.u.u_t,t);gl.uniform1f(rainP.u.u_dpr,W/innerWidth);gl.uniform1f(rainP.u.u_hue,hueV);gl.uniform1f(rainP.u.u_fl,fl);gl.uniform1f(rainP.u.u_g,ge);
   gl.uniform1f(rainP.u.u_wind,wind);gl.uniform1f(rainP.u.u_um,um);gl.uniform3f(rainP.u.u_p,touch.x,touch.y,touch.s);
   gl.drawArraysInstanced(gl.TRIANGLE_STRIP,0,4,NR);
   gl.disable(gl.BLEND);gl.bindVertexArray(vaoBg);
@@ -283,7 +318,7 @@ APKit.init({
     {label:'↻',name:'reset',onClick:function(){hueV=hueV-Math.round(hueV);hueT=0;}}   // 虹を元の並びに戻す
   ]
 });
-showHint('虹色の灯りに照らされた雨<br>横幅が 0〜59 の目盛り<br>光の柱=分 / 地面に大きな波紋を広げる一滴=秒<br>なぞると雨が流れる',9000);
+showHint('降る雨は、毎分ひとつの時刻に決まる<br>横幅が 0〜59 の目盛り(光の柱=分 / 落ちる一滴=秒)<br>なぞると雨も数字も散る',9000);
 window.__qr={count:NR};
 })();
 </script>
