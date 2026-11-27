@@ -58,26 +58,38 @@ function prog(vs,fs){
 // ---------- 背景: 底の光だまり + 分の柱 + 秒の玉 ----------
 var bgP=prog(
 '#version 300 es\nlayout(location=0) in vec2 p;void main(){gl_Position=vec4(p,0.,1.);}',
-'#version 300 es\nprecision highp float;\nuniform vec2 u_res;uniform float u_t,u_sec,u_min,u_hue;out vec4 o;\n'+COMMON+
+'#version 300 es\nprecision highp float;\nuniform vec2 u_res;uniform float u_t,u_sec,u_min,u_hue,u_dpr;out vec4 o;\n'+COMMON+
 'float pillar(float x){float a=hash(floor(x*260.)),b=hash(floor(x*55.)+17.);float h=mix(a,b,.5);return h*h*1.4;}\n'+
+'vec3 strand(float x,float g,float N,float spd,float dens,float wpx,float gain,float sd){\n'+
+' float cell=floor(x*N);float h1=hash(cell+sd);float cx=(cell+.15+.7*h1)/N;\n'+
+' float dx=(x-cx)*u_res.x;float w=wpx*u_dpr;float line=exp(-dx*dx/(2.*w*w));\n'+
+' float yy=1.-g;float ph=fract(yy*dens*(.7+.6*h1)-u_t*spd*(.6+.8*hash(cell+9.))+h1*7.);\n'+
+' float bead=smoothstep(0.,.08,ph)*(1.-smoothstep(.06,.3,ph));\n'+
+' float k=line*(.025+bead*1.2)*(.25+.75*hash(cell+4.))*gain*smoothstep(0.,.05,yy)*smoothstep(1.,.9,yy);\n'+
+' return hsv(hueOf(cx),.8,1.)*k;}\n'+
 'void main(){\n'+
 ' vec2 uv=gl_FragCoord.xy/u_res;float asp=u_res.x/u_res.y;float x=uv.x,g=uv.y;\n'+
 ' vec3 c=vec3(.004,.004,.02);\n'+
-' c+=hsv(hueOf(x),.8,1.)*exp(-g*3.)*.05;\n'+                       // 地面からの薄い霞
+' c+=hsv(hueOf(x),.8,1.)*exp(-g*3.)*.05;\n'+
+' float hz=mix(hash(floor(x*34.)),hash(floor(x*34.)+1.),smoothstep(0.,1.,fract(x*34.)));\n'+
+' c+=hsv(hueOf(x),.75,1.)*hz*hz*(.008+.03*(1.-g))*(.6+.4*sin(u_t*.2+x*9.));\n'+     // ピントの外れた奥の糸のにじみ
+' c+=strand(x,g,150.,.05,6.,.5,.3,0.)+strand(x,g,230.,.09,11.,.45,.26,31.)+strand(x,g,95.,.17,3.5,.8,.5,67.)+strand(x,g,60.,.3,2.2,1.2,.55,101.);\n'+  // 極細の光の糸(4層)                       // 地面からの薄い霞
 ' float cell=floor(x*260.);float h=pillar(x);h*=.72+.28*sin(u_t*(.5+hash(cell)*1.6)+hash(cell+3.)*40.);\n'+
 ' float I=exp(-g/(.018+.2*h))*(.22+.95*h);\n'+
 ' c+=hsv(hueOf(x),.88,1.)*I*.62;\n'+                               // 底の光だまり(柱状に立ちのぼる)
 ' float m=(u_min+u_sec/60.)/60.;float dm=(x-m)*asp;\n'+
 ' float pil=exp(-dm*dm/(2.*.0042*.0042))*exp(-g/.62)*.85+exp(-dm*dm/(2.*.034*.034))*exp(-g/.26)*.34;\n'+
-' c+=mix(vec3(1.),hsv(hueOf(m),.55,1.),.45)*pil;\n'+                // いまの分の光の柱
+' c+=mix(vec3(1.),hsv(hueOf(m),.55,1.),.45)*pil;\n'+
+' vec2 sc=vec2(floor(x*210.),floor(g*70.));float sh=hash(sc.x*3.1+sc.y*17.3);\n'+
+' c+=hsv(hueOf(x),.55,1.)*step(.972,sh)*exp(-(pow(fract(x*210.)-.5,2.)*3.+pow(fract(g*70.)-.5,2.)*3.)*14.)*pow(max(0.,sin(u_t*(1.2+sh*4.)+sh*80.)),10.)*exp(-g*11.)*1.4;\n'+   // 底のきらめき                // いまの分の光の柱
 ' float s=fract(u_sec),idx=floor(u_sec);float xs=(idx+.5)/60.;float yo=s*s;float go=1.-yo*.97;\n'+
-' float dx=(x-xs)*asp;vec3 oc=mix(vec3(1.),hsv(hueOf(xs),.6,1.),.35);\n'+
-' float orb=exp(-(dx*dx+(g-go)*(g-go))/(2.*.011*.011));\n'+
-' float trail=step(go,g)*exp(-(g-go)/.2)*exp(-dx*dx/(2.*.0016*.0016))*.85;\n'+
-' c+=oc*(orb*1.8+trail);\n'+                                       // いまの秒の光の玉(上から落ちる)
+' float dx=(x-xs)*asp;vec3 oc=mix(vec3(1.),hsv(hueOf(xs),.8,1.),.6);\n'+
+' float orb=exp(-(dx*dx+(g-go)*(g-go))/(2.*.0058*.0058));\n'+
+' float trail=step(go,g)*exp(-(g-go)/.12)*exp(-dx*dx/(2.*.0009*.0009))*.2;\n'+
+' c+=oc*(orb*.55+trail);\n'+                                       // いまの秒の光の玉(上から落ちる)
 ' float xp=mod(idx-.5,60.)/60.+1./120.;float dp=abs((x-xp)*asp);\n'+
 ' float sp=exp(-s*3.4)*exp(-g/.055)*exp(-dp/(.012+.11*s));\n'+
-' c+=mix(vec3(1.),hsv(hueOf(xp),.6,1.),.4)*sp*1.5;\n'+              // 底で弾けた光
+' c+=mix(vec3(1.),hsv(hueOf(xp),.6,1.),.4)*sp*.55;\n'+              // 底で弾けた光
 ' c*=1.-.45*pow(abs(uv.x-.5)*2.,3.)*.5;\n'+
 ' c=1.-exp(-c*1.35);\n'+
 ' c+=(hash(dot(gl_FragCoord.xy,vec2(12.9898,78.233))+u_t)-.5)/255.;\n'+
@@ -169,13 +181,10 @@ function frame(now){
   var t=(now-t0)/1000;
   gl.viewport(0,0,W,H);gl.disable(gl.BLEND);
   gl.useProgram(bgP.p);gl.bindVertexArray(vaoBg);
-  gl.uniform2f(bgP.u.u_res,W,H);gl.uniform1f(bgP.u.u_t,t);gl.uniform1f(bgP.u.u_sec,sec);gl.uniform1f(bgP.u.u_min,mn);gl.uniform1f(bgP.u.u_hue,hueV);
+  gl.uniform2f(bgP.u.u_res,W,H);gl.uniform1f(bgP.u.u_t,t);gl.uniform1f(bgP.u.u_sec,sec);gl.uniform1f(bgP.u.u_min,mn);gl.uniform1f(bgP.u.u_hue,hueV);gl.uniform1f(bgP.u.u_dpr,W/innerWidth);
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
   gl.enable(gl.BLEND);gl.blendFunc(gl.ONE,gl.ONE);
   var s=H/innerHeight;
-  gl.useProgram(bokP.p);gl.bindVertexArray(vaoBok);
-  gl.uniform1f(bokP.u.u_t,t);gl.uniform1f(bokP.u.u_dpr,W/innerWidth);gl.uniform1f(bokP.u.u_hue,hueV);gl.uniform1f(bokP.u.u_h,innerHeight);
-  gl.drawArrays(gl.POINTS,0,NB);
   gl.useProgram(dotP.p);gl.bindVertexArray(vaoDot);
   gl.uniform1f(dotP.u.u_t,t);gl.uniform1f(dotP.u.u_dpr,W/innerWidth);gl.uniform1f(dotP.u.u_hue,hueV);gl.uniform1f(dotP.u.u_asp,W/H);
   gl.uniform3f(dotP.u.u_p,touch.x,touch.y,touch.s);
