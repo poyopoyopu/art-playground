@@ -59,8 +59,11 @@ function prog(vs,fs){
 // ---------- 背景: 光の柱の霞 + 濡れた地面(映り込み・波紋) + いまの秒の一滴 ----------
 var bgP=prog(
 '#version 300 es\nlayout(location=0) in vec2 p;void main(){gl_Position=vec4(p,0.,1.);}',
-'#version 300 es\nprecision highp float;\nuniform vec2 u_res;uniform float u_t,u_sec,u_min,u_hue;out vec4 o;\n'+COMMON+
+'#version 300 es\nprecision highp float;\nuniform vec2 u_res;uniform float u_t,u_sec,u_min,u_hue,u_fl,u_fx;out vec4 o;\n'+COMMON+
 'float vn(float p){float i=floor(p),f=fract(p);return mix(hash(i),hash(i+1.),f*f*(3.-2.*f));}\n'+
+'float h2(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}\n'+
+'float n2(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(h2(i),h2(i+vec2(1.,0.)),f.x),mix(h2(i+vec2(0.,1.)),h2(i+vec2(1.,1.)),f.x),f.y);}\n'+
+'float fbm(vec2 p){float a=.5,s=0.;for(int i=0;i<5;i++){s+=a*n2(p);p=p*2.03+vec2(1.7,9.2);a*=.5;}return s;}\n'+
 'const float DK[4]=float[4](.08,.34,.64,.95);\n'+
 'vec3 ripples(float x,float g,float asp){\n'+
 ' vec3 acc=vec3(0.);\n'+
@@ -86,6 +89,14 @@ var bgP=prog(
 'void main(){\n'+
 ' vec2 uv=gl_FragCoord.xy/u_res;float asp=u_res.x/u_res.y;float x=uv.x,g=uv.y;\n'+
 ' vec3 c=vec3(.004,.004,.018);\n'+
+' float cy=1.-g;vec2 cp=vec2(x*asp*2.6+u_t*.012,cy*3.2-u_t*.004);\n'+
+' float cl=fbm(cp+vec2(0.,fbm(cp*.7+u_t*.01)*.8));float cl2=fbm(cp+vec2(0.,.08));\n'+
+' float cmask=smoothstep(.55,.04,cy)*smoothstep(.3,.58,cl);\n'+
+' float rim=max(cl2-cl,0.)*5.5+max(cl-cl2,0.)*1.5;\n'+
+' vec3 ccol=hsv(hueOf(x),.7,1.);\n'+
+' c+=ccol*cmask*(.09+.55*rim+.16*smoothstep(.3,.7,cl))*(.6+.4*smoothstep(.0,.5,cy));\n'+                    // 虹色の灯りに照らされた雲
+' float lg=exp(-(pow((x-u_fx)*asp*1.4,2.)+pow(cy-.18,2.)*7.))*u_fl;\n'+
+' c+=mix(vec3(.75,.8,1.),ccol,.4)*(lg*(.5+cl*1.4)*smoothstep(.5,.05,cy)*1.1+u_fl*.025*cmask);\n'+            // 稲光(雲の中が光る)
 ' float hz=mix(hash(floor(x*26.)),hash(floor(x*26.)+1.),smoothstep(0.,1.,fract(x*26.)));\n'+
 ' c+=hsv(hueOf(x),.75,1.)*(.012+.03*hz*hz)*(.35+.65*(1.-g))*(.7+.3*sin(u_t*.18+x*8.));\n'+     // 霧に滲む灯りの色
 ' float gnd=smoothstep(.17,.15,g);\n'+                                                            // 地面の帯(g<.16)
@@ -113,14 +124,14 @@ var bgP=prog(
 ' float big=exp(-(dist-r)*(dist-r)/(2.*wr*wr))*pow(1.-s,1.2)+exp(-(dist-r*.6)*(dist-r*.6)/(2.*wr*wr))*pow(1.-s,1.8)*.6+exp(-dist*dist/(2.*.004*.004))*exp(-s*14.)*1.2;\n'+
 ' c+=mix(vec3(1.),hsv(hueOf(xp),.6,1.),.4)*big*.9;\n'+                                              // 地面に大きく広がる波紋=秒の合図
 ' c*=1.-.35*pow(abs(uv.x-.5)*2.,3.);\n'+
-' c*=.55+.45*smoothstep(1.,.78,g);\n'+                                                           // 上は暗い夜空
+' c*=.86+.14*smoothstep(1.,.8,g);\n'+                                                           // 上は暗い夜空
 ' c=1.-exp(-c*1.4);\n'+
 ' c+=(hash(dot(gl_FragCoord.xy,vec2(12.9898,78.233))+u_t)-.5)/255.;\n'+
 ' o=vec4(c,1.);}');
 
 // ---------- 雨粒: 動きでのびた線(1粒=1つの板) ----------
 var rainP=prog(
-'#version 300 es\nprecision highp float;\nlayout(location=0) in vec4 a;\nuniform vec2 u_res;uniform float u_t,u_dpr,u_hue,u_wind,u_um;uniform vec3 u_p;\n'+
+'#version 300 es\nprecision highp float;\nlayout(location=0) in vec4 a;\nuniform vec2 u_res;uniform float u_t,u_dpr,u_hue,u_wind,u_um,u_fl;uniform vec3 u_p;\n'+
 'out vec2 v_q;out vec3 v_col;out float v_a;\n'+COMMON+
 'void main(){\n'+
 ' float d=a.y,seed=fract(a.w*13.7);float W=u_res.x,H=u_res.y,asp=W/H;\n'+
@@ -144,7 +155,7 @@ var rainP=prog(
 ' float glint=pow(max(0.,sin(u_t*(2.+seed*3.)+seed*60.)),16.)*step(.4,d)*.9;\n'+
 ' float xc=clamp(xs,0.,1.);float sd=(xc-u_um)*asp;\n'+
 ' float shaft=1.+exp(-sd*sd/(2.*.04*.04))*1.5;\n'+
-' v_a=(base*shaft+glint*base*2.)*smoothstep(yl,yl-.02,y)*smoothstep(0.,.07,y)*(1.-.93*oof)*(1.+tw*1.4);\n'+
+' v_a=(base*shaft+glint*base*2.)*smoothstep(yl,yl-.02,y)*smoothstep(0.,.07,y)*(1.-.93*oof)*(1.+tw*1.4)*(1.+u_fl*.9)*(1.+.45*smoothstep(.4,0.,y));\n'+
 ' v_col=hsv(hueOf(xc),.74-.42*d*d,1.);\n'+
 ' gl_Position=vec4(P.x/W*2.-1.,1.-P.y/H*2.,0.,1.);}',
 '#version 300 es\nprecision highp float;in vec2 v_q;in vec3 v_col;in float v_a;out vec4 o;\n'+
@@ -214,6 +225,7 @@ addEventListener('pointermove',function(e){if(!touch.down)return;setT(e);touch.s
 addEventListener('pointerup',function(){touch.down=false;});
 addEventListener('pointercancel',function(){touch.down=false;});
 
+function hsh(n){var v=Math.sin(n*127.1+311.7)*43758.5453;return v-Math.floor(v);}
 var last=performance.now(),frames=0,acc=0;
 function frame(now){
   var dt=Math.min(.1,(now-last)/1000);last=now;
@@ -223,15 +235,17 @@ function frame(now){
   var t=(now-t0)/1000;
   var wind=.075+.05*Math.sin(t*.13)+.03*Math.sin(t*.41+1.);   // 風(ゆっくり強弱する)
   var um=(mn+sec/60)/60;
+  var ev=Math.floor(t/11),eh=hsh(ev),tt=t-ev*11;   // 11秒ごとにくじ。当たると雲の中で稲光(二度またたく)
+  var fl=eh>.35?Math.exp(-Math.pow((tt-1.2)*5,2))+.6*Math.exp(-Math.pow((tt-1.55)*7,2)):0,fx=hsh(ev+3);
   if(!RT)buildRT();
   gl.bindFramebuffer(gl.FRAMEBUFFER,RT.sc.f);
   gl.viewport(0,0,W,H);gl.disable(gl.BLEND);
   gl.useProgram(bgP.p);gl.bindVertexArray(vaoBg);
-  gl.uniform2f(bgP.u.u_res,W,H);gl.uniform1f(bgP.u.u_t,t);gl.uniform1f(bgP.u.u_sec,sec);gl.uniform1f(bgP.u.u_min,mn);gl.uniform1f(bgP.u.u_hue,hueV);
+  gl.uniform2f(bgP.u.u_res,W,H);gl.uniform1f(bgP.u.u_t,t);gl.uniform1f(bgP.u.u_sec,sec);gl.uniform1f(bgP.u.u_min,mn);gl.uniform1f(bgP.u.u_hue,hueV);gl.uniform1f(bgP.u.u_fl,fl);gl.uniform1f(bgP.u.u_fx,fx);
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
   gl.enable(gl.BLEND);gl.blendFunc(gl.ONE,gl.ONE);
   gl.useProgram(rainP.p);gl.bindVertexArray(vaoRain);
-  gl.uniform2f(rainP.u.u_res,W,H);gl.uniform1f(rainP.u.u_t,t);gl.uniform1f(rainP.u.u_dpr,W/innerWidth);gl.uniform1f(rainP.u.u_hue,hueV);
+  gl.uniform2f(rainP.u.u_res,W,H);gl.uniform1f(rainP.u.u_t,t);gl.uniform1f(rainP.u.u_dpr,W/innerWidth);gl.uniform1f(rainP.u.u_hue,hueV);gl.uniform1f(rainP.u.u_fl,fl);
   gl.uniform1f(rainP.u.u_wind,wind);gl.uniform1f(rainP.u.u_um,um);gl.uniform3f(rainP.u.u_p,touch.x,touch.y,touch.s);
   gl.drawArraysInstanced(gl.TRIANGLE_STRIP,0,4,NR);
   gl.disable(gl.BLEND);gl.bindVertexArray(vaoBg);
