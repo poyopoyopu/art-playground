@@ -30,6 +30,7 @@ iframeを外すので、ポスターが無いと「黒いタイル」になる�
   holds   = 撮影前に [x, y, 押し続けるms] で長押しする(押して引く作品用)
   timeout = この作品だけ撮影の上限ms(既定 45000。重い作品用)
   drags   = 撮影前に [[x0,y0],[x1,y1],分割数] の直線を押したままなぞる(なぞって初めて絵が出る作品用。分割数は省略で30。1分割あたり約50ms)
+  query   = 作品のURLの後ろに付けて撮る文字列(例 "?area=sky")。場面を選べる作品用(2026/11/27 おっちゃん承認。gen_og.py も同じ設定で撮る)
   hide    = 撮影のあいだ隠すCSSセレクタの配列(例 ["#hint"])。作品の冒頭に出る操作説明(#hint)が
             ポスターに写り込むのを防ぐ。説明が自動で消えない作品もあるので、delayで待つより確実
   ※ hide(読み込み直後) → taps → holds → drags → delay の順に実行。ポスターは「少し触った後」の姿になる。
@@ -167,7 +168,7 @@ def shoot(browser, port, src, cfg, hero=False):
         page.route(re.compile(r"^https?://(?!127\.0\.0\.1).*\.js(\?.*)?$"), _lib)
     page.set_default_timeout(int(c.get("timeout", PAGE_TIMEOUT_MS)))
     try:
-        page.goto(f"http://127.0.0.1:{port}/{src}", wait_until="load")
+        page.goto(f"http://127.0.0.1:{port}/{src}{c.get('query', '')}", wait_until="load")
         hide = c.get("hide", [])
         if hide:  # 操作説明などを隠して撮る(display:none なので後から出てきても写らない)
             page.add_style_tag(content="".join(f"{sel}{{display:none!important}}" for sel in hide))

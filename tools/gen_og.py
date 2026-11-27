@@ -19,7 +19,7 @@ ART PLAYGROUND 共有カード画像(OGP)生成 — SNS/LINE/DMにURLを貼っ�
 - 対象 = index.html の data-src に載っている全作品(CURRENT + LOG)。
 - 作品名 = index.html の openArt('パス','NAME')。一言 = index.html の META の sub、無ければ作品の <title>
   「NAME — 日本語の一言」から(index.html の JS と同じ規則)。
-- 撮影は tools/poster-config.json の taps/holds/delay/timeout/hide をポスターと共用する。
+- 撮影は tools/poster-config.json の taps/holds/delay/timeout/hide/query をポスターと共用する(query=URLの後ろに付ける文字列、例 "?area=sky")。
   さらに冒頭の操作説明(#hint)とap-kitのUI(ボタン・時計)は全作品で常に隠して撮る。
 
 【使い方】
@@ -137,7 +137,7 @@ def capture(browser, port, src, cfg, width):
         page.route(re.compile(r"^https?://(?!127\.0\.0\.1).*\.js(\?.*)?$"), _lib)
     page.set_default_timeout(int(c.get("timeout", gp.PAGE_TIMEOUT_MS)))
     try:
-        page.goto(f"http://127.0.0.1:{port}/{src}", wait_until="load")
+        page.goto(f"http://127.0.0.1:{port}/{src}{c.get('query', '')}", wait_until="load")
         # 操作説明(#hint)とap-kitのUI(ボタン・時計)は写さない
         base_hide = ["#hint", ".apk-ctrl", ".apk-clock", ".apk-toast"]
         hide = base_hide + [s for s in c.get("hide", []) if s not in base_hide]
@@ -233,7 +233,7 @@ def reel_capture(browser, port, src, cfg):
         page.route(re.compile(r"^https?://(?!127\.0\.0\.1).*\.js(\?.*)?$"), _lib)
     page.set_default_timeout(int(c.get("timeout", gp.PAGE_TIMEOUT_MS)))
     try:
-        page.goto(f"http://127.0.0.1:{port}/{src}", wait_until="load")
+        page.goto(f"http://127.0.0.1:{port}/{src}{c.get('query', '')}", wait_until="load")
         base_hide = ["#hint", ".apk-ctrl", ".apk-clock", ".apk-toast"]
         hide = base_hide + [s for s in c.get("hide", []) if s not in base_hide]
         page.add_style_tag(content="".join(f"{s}{{display:none!important}}" for s in hide))
