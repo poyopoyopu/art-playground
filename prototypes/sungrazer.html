@@ -1,0 +1,354 @@
+<!doctype html>
+<!-- SUNGRAZER(仮) — クロちゃん(Claude)作。2026/11/27。ART PLAYGROUND「軌道」の新作・試作1本目(彗星サングレーザー)。
+     法則: 彗星は放物線に近い軌道で太陽に落ち、近日点でいちばん速くなり、また闇へ帰る。尾は2本 —
+       青いイオンの尾は「いまの太陽の反対」へまっすぐ伸び、金色の塵の尾は「放たれたときの太陽の反対」へ押されるので、軌道に遅れて曲がる。
+     時計: 10分で1周。実際の時刻の :05 :15 :25 :35 :45 :55 ちょうどに近日点(画面の下半分が太陽になる)。:00 :10 …の前後は遠くの闇。
+       時間の割り振り: 放物線の時間の式(バーカーの式)に、近日点の前後±8秒で太陽の真下をくぐるよう引き伸ばした時間を入れている(本物は1秒足らずで抜けてしまうため)。
+     カメラ: 彗星の斜め後ろの少し上から追う。太陽が大きいときは太陽の縁が画面の真ん中に来るよう見下ろし、離れたら前を向く。
+     描き方: WebGL1。背景(星・天の川・太陽の表面の粒・縁の暗さ・黒点・彩層・プロミネンス・コロナ)は1枚のシェーダー、尾と頭は光の粒(加算合成)。
+     操作: ✦=星空・カメラの左右・尾の筋・太陽の模様を組み直す。触る仕掛けは無し(眺める時計)。
+     テスト用: ?fast=1(10倍速=1分で1周) ?s=-0.5〜0.5(その位置で止める。0が近日点) ?debug=1(数値を表示)
+     音なし。Wake Lock。録画用にpreserveDrawingBuffer。ギャラリー未追加。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>SUNGRAZER — 太陽をかすめる彗星</title>
+<script src="../ap-kit.js"></script>
+<style>
+  :root{color-scheme:dark}
+  html,body,canvas{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+  html,body{margin:0;height:100%;background:#000;overflow:hidden;touch-action:none}
+  #c{position:fixed;inset:0;width:100%;height:100%;display:block}
+  #hint{position:fixed;left:0;right:0;bottom:22%;text-align:center;color:rgba(255,255,255,.85);font:13px/1.8 -apple-system,"Hiragino Sans",sans-serif;letter-spacing:.08em;pointer-events:none;opacity:0;transition:opacity 1.4s;text-shadow:0 0 10px #000,0 0 4px #000;z-index:3}
+  #hint.on{opacity:1}
+  #dbg{position:fixed;left:6px;top:6px;color:#9f9;font:11px/1.35 ui-monospace,monospace;white-space:pre;pointer-events:none;z-index:4;text-shadow:0 0 3px #000}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint"></div>
+<div id="dbg"></div>
+<script>
+(function(){
+'use strict';
+var Q=new URLSearchParams(location.search);
+var FAST=Q.get('fast')==='1', DEBUG=Q.get('debug')==='1';
+var FIX_S=Q.has('s')?parseFloat(Q.get('s')):null;
+var cv=document.getElementById('c'), hint=document.getElementById('hint'), dbg=document.getElementById('dbg');
+var gl=cv.getContext('webgl',{antialias:false,alpha:false,preserveDrawingBuffer:true,powerPreference:'high-performance'});
+if(!gl){document.body.innerHTML='<p style="color:#fff;font:14px sans-serif;padding:2em">この端末ではWebGLが使えません</p>';return;}
+
+// ================= 軌道(太陽の半径=1) =================
+var PERIOD=600;          // 10分で1周
+var Qp=1.28;             // 近日点距離(太陽の中心から。表面から0.28)
+var S1=8/PERIOD;         // 近日点から8秒でν=±90°(太陽の真横)
+var BW=10.1;             // 時間の引き伸ばしの強さ(遠点で r≈220)
+var AW=(4/3)/Math.sinh(BW*S1);
+function cbrt(x){return x<0?-Math.pow(-x,1/3):Math.pow(x,1/3);}
+// s: -0.5〜0.5(0=近日点)。位置・速度の向き・太陽の反対の向き を返す(軌道面=XY、太陽=原点)
+function orbit(s){
+  var h=AW*Math.sinh(BW*s);                 // 引き伸ばした時間
+  var k=1.5*h, rt=Math.sqrt(k*k+1);
+  var D=cbrt(k+rt)+cbrt(k-rt);              // D+D³/3=h(放物線のバーカーの式)
+  var nu=2*Math.atan(D), r=Qp*(1+D*D);
+  var c=Math.cos(nu), sn=Math.sin(nu);
+  var px=r*c, py=r*sn;
+  var g=sn/(1+c);                           // dP/dν の向き
+  var vx=g*c-sn, vy=g*sn+c, vl=Math.hypot(vx,vy);
+  return {x:px,y:py,r:r,nu:nu,fx:vx/vl,fy:vy/vl,ax:c,ay:sn};
+}
+function phaseNow(sec){var p=((sec%PERIOD)+PERIOD)%PERIOD/PERIOD;return p-0.5;}  // :05:00 で 0
+// 現実の時刻(秒、:00:00起点で10分ごと)
+var t0=performance.now(), base=Date.now()/1000;
+function clockSec(){
+  var el=(performance.now()-t0)/1000;
+  var sec=base+el*(FAST?10:1);
+  return sec - 300; // :05:00 を周期の真ん中(s=0)に
+}
+
+// ================= 見た目の乱数(✦で組み直す) =================
+var seed=Math.random()*1000, side=Math.random()<.5?1:-1;
+function rnd(){seed=(seed*16807+0.5)%2147483647;return (seed%100000)/100000;}
+var look={star:Math.random()*100, sun:Math.random()*100, streak:Math.random()*100};
+
+// ================= シェーダー =================
+var VS_BG='attribute vec2 p;varying vec2 v;void main(){v=p;gl_Position=vec4(p,0.,1.);}';
+var FS_BG=[
+'precision highp float;',
+'varying vec2 v;',
+'uniform vec3 uR,uU,uL,uC,uN;uniform vec2 uTan;uniform float uT,uPix,uFade,uStarVis,uSunI,uSeedS,uSeedU,uExpo;',
+'float h13(vec3 p){p=fract(p*.1031);p+=dot(p,p.zyx+31.32);return fract((p.x+p.y)*p.z);}',
+'vec3 h33(vec3 p){p=fract(p*vec3(.1031,.1030,.0973));p+=dot(p,p.yxz+33.33);return fract((p.xxy+p.yxx)*p.zyx);}',
+'float vn(vec3 p){vec3 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);',
+' return mix(mix(mix(h13(i),h13(i+vec3(1,0,0)),f.x),mix(h13(i+vec3(0,1,0)),h13(i+vec3(1,1,0)),f.x),f.y),',
+'  mix(mix(h13(i+vec3(0,0,1)),h13(i+vec3(1,0,1)),f.x),mix(h13(i+vec3(0,1,1)),h13(i+vec3(1,1,1)),f.x),f.y),f.z);}',
+'float fbm(vec3 p){float a=.5,s=0.;for(int i=0;i<4;i++){s+=a*vn(p);p=p*2.03+17.1;a*=.5;}return s;}',
+// 星: 方向をセルに分けて、セルごとに1つ
+'vec3 stars(vec3 d){vec3 col=vec3(0.);',
+' for(int L=0;L<3;L++){float K=L==0?60.:(L==1?130.:260.);vec3 p=d*K+uSeedS*float(L+1);vec3 c=floor(p);vec3 f=fract(p);',
+'  float hh=h13(c);float th=L==0?.9:(L==1?.86:.82);if(hh>th){vec3 o=h33(c)*.7+.15;float dd=length(f-o);',
+'   float rad=max(.045,uPix*K*.9);float b=(hh-th)/(1.-th);b=b*b*(L==0?2.6:(L==1?1.1:.55));',
+'   float tw=.8+.2*sin(uT*(1.3+hh*3.)+hh*40.);',
+'   vec3 tint=mix(vec3(1.,.82,.62),vec3(.7,.82,1.),h13(c+3.1));col+=tint*b*tw*smoothstep(rad,0.,dd)*(.045/rad)*(.045/rad)*.9;}}',
+' vec3 gal=normalize(vec3(.3,.55,.78));float band=exp(-pow(dot(d,gal),2.)*14.);',
+' float m=fbm(d*3.5+uSeedS)*.7+fbm(d*9.+uSeedS*2.)*.3;col+=band*m*m*vec3(.10,.10,.14)*1.1;',
+' col+=band*smoothstep(.55,.8,fbm(d*6.+11.))*vec3(.05,.03,.02);',
+' return col;}',
+'void main(){',
+' vec3 d=normalize(uL+v.x*uTan.x*uR+v.y*uTan.y*uU);',
+' vec3 col=stars(d)*uStarVis;',
+' float cl=length(uC);vec3 cn=uC/cl;',
+' float tca=dot(d,uC);float d2=dot(uC,uC)-tca*tca;',
+' float rho=asin(min(1.,1./cl));',
+' if(tca>0.&&d2<1.){',
+// ---- 太陽の表面
+'  float thc=sqrt(1.-d2);float t=tca-thc;vec3 n=d*t-uC;',
+'  float mu=thc;',
+'  float ang=uT*.012;float ca=cos(ang),sa=sin(ang);vec3 q=vec3(ca*n.x-sa*n.y,sa*n.x+ca*n.y,n.z);',
+'  float foot=t*uPix/max(mu,.08);',
+'  vec3 sp=q+uSeedU;',
+'  float g=0.,amp=1.,K=70.,tot=0.;',
+'  for(int i=0;i<4;i++){float w=amp*(1.-smoothstep(.25,.9,K*foot));float nz=vn(sp*K+vec3(0.,0.,uT*.05*float(i+1)));',
+'   g+=w*(1.-abs(nz*2.-1.));tot+=amp;K*=2.3;amp*=.62;}',
+'  g=g/tot;',
+'  float sg=fbm(sp*9.+uT*.004);',
+'  float spot=smoothstep(.70,.80,fbm(sp*2.6+3.));float pen=smoothstep(.64,.72,fbm(sp*2.6+3.));',
+'  float fac=smoothstep(.6,.9,sg)*(1.-mu)*.25;',
+'  float limb=1.-.62*(1.-pow(mu,.55));',
+'  float I=limb*(.62+.85*g+.18*sg)*(1.-.55*pen)*(1.-.8*spot)+fac;',
+'  vec3 hot=mix(vec3(1.,.30,.04),vec3(1.,.80,.42),clamp(I*.85-.1,0.,1.));',
+'  hot=mix(hot,vec3(1.,.25,.06),(1.-mu)*.35);',
+'  col=hot*I*2.0*uSunI;',
+' }else{',
+// ---- コロナ・彩層・プロミネンス
+'  float dm=tca>0.?sqrt(d2):cl;',
+'  vec3 qd=normalize(d*max(tca,0.)-uC);',
+'  float x=max(dm-1.,0.);',
+'  float str=fbm(qd*5.+uSeedU)*.65+fbm(qd*14.+uSeedU*1.7)*.35;',
+'  float cor=.85*exp(-x*7.)+ .35*exp(-x*2.2)*(.4+1.4*str*str)+ .06*exp(-x*.5)*str;',
+'  col+=vec3(1.,.82,.6)*cor*uSunI*.75;',
+'  col+=vec3(1.,.28,.2)*exp(-x*90.)*.9*uSunI;',
+'  float pr=fbm(qd*7.+vec3(0.,0.,uT*.02)+uSeedU*3.);float prm=smoothstep(.58,.74,pr)*smoothstep(.16,.0,x)*smoothstep(0.,.006,x+.003);',
+'  float fil=vn(qd*40.+uT*.03);prm*=.55+.6*fil;',
+'  col+=vec3(1.,.32,.18)*prm*1.3*uSunI;',
+' }',
+// ---- 遠くの太陽のにじみ(画面上の角度で)と、近いときの光のかぶり
+' float a=acos(clamp(tca/cl,-1.,1.));',
+' float far=smoothstep(4.,40.,cl);',
+' col+=vec3(1.,.9,.75)*far*(.9/(1.+pow(a/(.0045+rho*1.1),2.))+.10/(1.+pow(a/.06,2.)))*uSunI;',
+' float near=1./(cl*cl);',
+' col+=vec3(1.,.55,.25)*near*(.06+.10*max(dot(d,cn),0.))*uSunI;',
+' col=1.-exp(-col*uExpo);',
+' col*=uFade;',
+' gl_FragColor=vec4(col,1.);}'
+].join('\n');
+
+var VS_P=[
+'attribute vec3 aP;attribute vec4 aC;attribute float aS;',
+'uniform vec3 uR,uU,uL;uniform vec2 uTan;uniform float uFoc,uMaxPt;',
+'varying vec4 vC;',
+'void main(){vec3 c=vec3(dot(aP,uR),dot(aP,uU),dot(aP,uL));',
+' if(c.z<.004){gl_Position=vec4(2.,2.,2.,1.);gl_PointSize=0.;vC=vec4(0.);return;}',
+' gl_Position=vec4(c.x/(c.z*uTan.x),c.y/(c.z*uTan.y),0.,1.);',
+' float px=aS/c.z*uFoc;float ps=clamp(px,1.6,uMaxPt);',
+' float e=(px*px)/(ps*ps);',                          // 小さすぎる粒は明るさで面積を保つ
+' float nf=smoothstep(.006,.05,c.z);',
+' gl_PointSize=ps;vC=vec4(aC.rgb,aC.a*min(e,1.)*nf);}'
+].join('\n');
+var FS_P=[
+'precision mediump float;varying vec4 vC;',
+'void main(){vec2 q=gl_PointCoord*2.-1.;float r2=dot(q,q);if(r2>1.)discard;',
+' float a=exp(-r2*3.2)*vC.a;gl_FragColor=vec4(vC.rgb*a,1.);}'
+].join('\n');
+
+function sh(type,src){var s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){console.error(gl.getShaderInfoLog(s));throw new Error(gl.getShaderInfoLog(s));}return s;}
+function prog(vs,fs){var p=gl.createProgram();gl.attachShader(p,sh(gl.VERTEX_SHADER,vs));gl.attachShader(p,sh(gl.FRAGMENT_SHADER,fs));gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(p));
+  var u={},n=gl.getProgramParameter(p,gl.ACTIVE_UNIFORMS);for(var i=0;i<n;i++){var a=gl.getActiveUniform(p,i);u[a.name]=gl.getUniformLocation(p,a.name);}
+  return {p:p,u:u};}
+var PB=prog(VS_BG,FS_BG), PP=prog(VS_P,FS_P);
+var quad=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,quad);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+
+// ================= 尾の粒 =================
+var NI=3000, ND=4200, NC=60, NP=NI+ND+NC;
+var pP=new Float32Array(NP*3), pC=new Float32Array(NP*4), pS=new Float32Array(NP);
+var bP=gl.createBuffer(), bC=gl.createBuffer(), bS=gl.createBuffer();
+var R1=new Float32Array(NP), R2=new Float32Array(NP), R3=new Float32Array(NP), R4=new Float32Array(NP);
+function reseedParticles(){
+  for(var i=0;i<NP;i++){R1[i]=rnd();R2[i]=rnd();R3[i]=rnd();R4[i]=rnd();}
+}
+reseedParticles();
+
+// ================= 大きさ =================
+var W=0,H=0,DPR=1, scaleQ=1;
+function resize(){
+  DPR=Math.min(window.devicePixelRatio||1,1.6)*scaleQ;
+  W=Math.floor(innerWidth*DPR);H=Math.floor(innerHeight*DPR);cv.width=W;cv.height=H;gl.viewport(0,0,W,H);
+}
+addEventListener('resize',resize);resize();
+
+// ================= 小さなベクトル =================
+function v3(x,y,z){return [x,y,z];}
+function add(a,b){return [a[0]+b[0],a[1]+b[1],a[2]+b[2]];}
+function sc(a,k){return [a[0]*k,a[1]*k,a[2]*k];}
+function dot(a,b){return a[0]*b[0]+a[1]*b[1]+a[2]*b[2];}
+function crs(a,b){return [a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];}
+function nrm(a){var l=Math.hypot(a[0],a[1],a[2])||1;return [a[0]/l,a[1]/l,a[2]/l];}
+function smooth(a,b,x){var t=Math.min(1,Math.max(0,(x-a)/(b-a)));return t*t*(3-2*t);}
+var N_ORB=[0,0,1];
+
+// 尾の長さ・明るさ(太陽に近いほど伸びて明るい)
+function tailScale(r){return Math.min(1.7,2.0/Math.pow(r,.62));}
+function activity(r){return Math.min(1.4,Math.pow(2.2/r,1.15));}
+
+// ================= 毎フレーム =================
+var lastT=performance.now(), fpsAvg=60, frames=0, tierT=0;
+function frame(now){
+  requestAnimationFrame(frame);
+  var dt=Math.min(.1,(now-lastT)/1000);lastT=now;
+  fpsAvg+= (1/Math.max(dt,1e-3)-fpsAvg)*.05;
+  // 重いときは解像度を下げる(読み込み後3秒から、2秒ごとに見る)
+  tierT+=dt;if(now-t0>3000&&tierT>2){tierT=0;
+    if(fpsAvg<44&&scaleQ>.55){scaleQ=Math.max(.55,scaleQ-.15);resize();}
+    else if(fpsAvg>58&&scaleQ<1){scaleQ=Math.min(1,scaleQ+.05);resize();}}
+
+  var csec=clockSec();
+  var s=FIX_S!==null?FIX_S:phaseNow(csec);
+  var tSec=FAST?(now-t0)/1000*10:(now-t0)/1000;  // 模様の動き用
+  var o=orbit(s);
+  var P=[o.x,o.y,0], F=[o.fx,o.fy,0], A=[o.ax,o.ay,0], S=sc(A,-1), r=o.r;
+  // 1周の切れ目(遠点)は闇に溶かす
+  var edge=0.5-Math.abs(s), fade=smooth(0,7/PERIOD,edge);
+  // ---- カメラ
+  var U=nrm(crs(N_ORB,F)); if(dot(U,S)>0)U=sc(U,-1);          // 太陽から離れる側=上
+  var alpha=Math.acos(Math.max(-1,Math.min(1,dot(F,S))));      // 進む向きと太陽の向きの角度
+  var rhoS=Math.asin(Math.min(1,1/r));
+  var pitch=Math.max(0,Math.min(42*Math.PI/180,Math.min(alpha,Math.PI-alpha)-rhoS))+3*Math.PI/180;
+  var wP=pitch/(42*Math.PI/180);
+  var thetaC=(9+22*wP)*Math.PI/180;                           // 彗星をどれだけ見下ろすか
+  var ts=tailScale(r);
+  var bDist=0.055+0.07*ts;
+  var nOff=bDist*Math.tan(14*Math.PI/180)*side;
+  var Cam=add(add(add(P,sc(F,-bDist)),sc(U,bDist*Math.tan(thetaC))),sc(N_ORB,nOff));
+  var Sc=nrm(sc(Cam,-1)), rc=Math.hypot(Cam[0],Cam[1],Cam[2]);
+  var beta=Math.atan2(dot(Sc,sc(U,-1)),dot(Sc,F));               // 太陽の中心が進む向きから何度下か
+  var bb=beta>Math.PI/2?Math.PI-beta:beta;
+  pitch=Math.max(0,Math.min(44*Math.PI/180,bb-Math.asin(Math.min(1,1/rc))+4*Math.PI/180))+3*Math.PI/180;
+  var yaw=Math.atan2(nOff,bDist)*.6;
+  var Lk=nrm(add(add(F,sc(U,-Math.tan(pitch))),sc(N_ORB,-Math.tan(yaw))));
+  var Rt=nrm(crs(Lk,U)); var Up=nrm(crs(Rt,Lk));
+  // 画角(短い辺で±32°)
+  var tLong=Math.tan(40*Math.PI/180), tx,ty;
+  if(W>=H){tx=tLong;ty=tLong*H/W;}else{ty=tLong;tx=tLong*W/H;}
+  var foc=(H/2)/ty;
+  var C=sc(Cam,-1);  // 太陽の中心(カメラから見た位置)
+  var nearSun=smooth(12,1.3,r);
+  // ---- 背景
+  gl.disable(gl.BLEND);
+  gl.useProgram(PB.p);var u=PB.u;
+  gl.uniform3fv(u.uR,Rt);gl.uniform3fv(u.uU,Up);gl.uniform3fv(u.uL,Lk);gl.uniform3fv(u.uC,C);
+  gl.uniform2f(u.uTan,tx,ty);gl.uniform1f(u.uT,tSec);gl.uniform1f(u.uPix,2*ty/H);
+  gl.uniform1f(u.uFade,fade);gl.uniform1f(u.uStarVis,1-.85*nearSun);
+  gl.uniform1f(u.uSunI,.55+.45*nearSun);gl.uniform1f(u.uSeedS,look.star);gl.uniform1f(u.uSeedU,look.sun);
+  gl.uniform1f(u.uExpo,1.35-.45*nearSun);
+  gl.bindBuffer(gl.ARRAY_BUFFER,quad);var la=gl.getAttribLocation(PB.p,'p');
+  gl.enableVertexAttribArray(la);gl.vertexAttribPointer(la,2,gl.FLOAT,false,0,0);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);gl.disableVertexAttribArray(la);
+
+  // ---- 尾の粒(カメラからの相対位置で入れる)
+  var act=activity(r)*fade;
+  var rel=add(P,sc(Cam,-1));       // 頭の位置(カメラから)
+  var B=nrm(crs(A,N_ORB));          // 太陽の反対に垂直で軌道面内
+  var k=0, i, a, life, off;
+  // 青いイオンの尾: いまの太陽の反対へまっすぐ。筋が何本か走る
+  var ionLen=1.15*ts;
+  for(i=0;i<NI;i++){
+    life=1;var sp=.55+.9*R2[i];
+    a=((tSec*.16*sp+R1[i])%1);                     // 0..1(放たれてからの割合)
+    var st=Math.floor(R3[i]*7), sa=(st/7-.5)*.10+(R4[i]-.5)*.025;
+    var wav=Math.sin(a*9-tSec*1.7+st*1.3+look.streak)*.012*a;
+    var dist=ionLen*a*(.2+.8*a)+.004;
+    var spreadN=(sa*dist*.9)+wav, spreadB=(R4[i]-.5)*.02*dist+Math.cos(a*7+st+tSec)*.006*a;
+    off=add(add(sc(A,dist),sc(N_ORB,spreadN)),sc(B,spreadB));
+    var p3=add(rel,off);pP[k*3]=p3[0];pP[k*3+1]=p3[1];pP[k*3+2]=p3[2];
+    var fa=(1-a)*(1-a)*Math.min(1,a*12);
+    var br=act*fa*(st%3===0?1.25:.8)*1.4;
+    pC[k*4]=.30+.15*R3[i];pC[k*4+1]=.58+.18*R2[i];pC[k*4+2]=1.;pC[k*4+3]=br*.62;
+    pS[k]=(.0016+.0022*R2[i])*(.6+.4*ts);
+    k++;
+  }
+  // 金色の塵の尾: 放たれたときの太陽の反対へ押され、軌道に遅れて曲がる
+  var dustLen=.85*ts;
+  for(i=0;i<ND;i++){
+    var beta=.25+.75*R2[i]*R2[i];
+    var lifeS=24;                                   // 秒(放たれてからの寿命、引き伸ばした時間で)
+    a=((tSec/lifeS*(.7+.6*R4[i])+R1[i])%1);
+    var age=a*lifeS;                                // 周期上の秒(fastのときも同じ単位)
+    var se=FIX_S!==null?s-age/PERIOD:phaseNow(csec-age);
+    if(Math.abs(se-s)>.25)se=s;                      // 周期の切れ目をまたいだら今の向き
+    var oe=orbit(se);
+    var Ae=[oe.ax,oe.ay,0];
+    var push=dustLen*beta*(a*.35+a*a*1.0);
+    var lag=dustLen*(1.15-beta)*a*a*.55;
+    var spr=(R3[i]-.5)*.06*dustLen*a*(.4+beta), sprN=(R4[i]-.5)*.03*dustLen*a;
+    off=add(add(add(sc(Ae,push),sc(F,-lag)),sc(B,spr)),sc(N_ORB,sprN));
+    p3=add(rel,off);pP[k*3]=p3[0];pP[k*3+1]=p3[1];pP[k*3+2]=p3[2];
+    var actE=activity(oe.r)*fade;
+    fa=(1-a)*Math.min(1,a*20);
+    pC[k*4]=1.;pC[k*4+1]=.66+.2*R3[i];pC[k*4+2]=.30+.18*R4[i];pC[k*4+3]=actE*fa*.40/(1+2.5*a);
+    pS[k]=(.0015+.002*R2[i])*(1+3.5*a)*(.6+.4*ts);
+    k++;
+  }
+  // 頭(コマ): 白から青白の光
+  for(i=0;i<NC;i++){
+    var rr=i<6?0:Math.pow(R1[i],2.2)*.02*ts, th=R2[i]*6.283, ph=Math.acos(2*R3[i]-1);
+    off=[rr*Math.sin(ph)*Math.cos(th),rr*Math.sin(ph)*Math.sin(th),rr*Math.cos(ph)];
+    off=add(off,sc(A,rr*.6));
+    p3=add(rel,off);pP[k*3]=p3[0];pP[k*3+1]=p3[1];pP[k*3+2]=p3[2];
+    var core=i<6;
+    pC[k*4]=core?1:.75;pC[k*4+1]=core?1:.9;pC[k*4+2]=1;
+    pC[k*4+3]=(core?(i===0?1.6:.55):.18*(1-R1[i]))*Math.min(1.2,act*1.3+.12*fade);
+    pS[k]=core?(i===0?.0035:.012+.018*i/6)*(.7+.3*ts):.004+.006*R4[i];
+    k++;
+  }
+  gl.enable(gl.BLEND);gl.blendFunc(gl.ONE,gl.ONE);
+  gl.useProgram(PP.p);u=PP.u;
+  gl.uniform3fv(u.uR,Rt);gl.uniform3fv(u.uU,Up);gl.uniform3fv(u.uL,Lk);gl.uniform2f(u.uTan,tx,ty);
+  gl.uniform1f(u.uFoc,foc);gl.uniform1f(u.uMaxPt,Math.min(70,H*.06));
+  var aP=gl.getAttribLocation(PP.p,'aP'),aC=gl.getAttribLocation(PP.p,'aC'),aS=gl.getAttribLocation(PP.p,'aS');
+  gl.bindBuffer(gl.ARRAY_BUFFER,bP);gl.bufferData(gl.ARRAY_BUFFER,pP,gl.DYNAMIC_DRAW);gl.enableVertexAttribArray(aP);gl.vertexAttribPointer(aP,3,gl.FLOAT,false,0,0);
+  gl.bindBuffer(gl.ARRAY_BUFFER,bC);gl.bufferData(gl.ARRAY_BUFFER,pC,gl.DYNAMIC_DRAW);gl.enableVertexAttribArray(aC);gl.vertexAttribPointer(aC,4,gl.FLOAT,false,0,0);
+  gl.bindBuffer(gl.ARRAY_BUFFER,bS);gl.bufferData(gl.ARRAY_BUFFER,pS,gl.DYNAMIC_DRAW);gl.enableVertexAttribArray(aS);gl.vertexAttribPointer(aS,1,gl.FLOAT,false,0,0);
+  gl.drawArrays(gl.POINTS,0,NP);
+  gl.disableVertexAttribArray(aP);gl.disableVertexAttribArray(aC);gl.disableVertexAttribArray(aS);
+
+  if(DEBUG){frames++;if(frames%10===0)dbg.textContent='s '+s.toFixed(4)+'  r '+r.toFixed(2)+'  nu '+(o.nu*57.3).toFixed(1)+
+    '\nalpha '+(alpha*57.3).toFixed(1)+'  pitch '+(pitch*57.3).toFixed(1)+'  fade '+fade.toFixed(2)+
+    '\nfps '+fpsAvg.toFixed(0)+'  q '+scaleQ.toFixed(2)+'  '+W+'x'+H;}
+}
+requestAnimationFrame(frame);
+
+// ================= 画面を消さない(Wake Lock) =================
+var wl=null;
+function wake(){if(navigator.wakeLock&&!wl&&document.visibilityState==='visible')navigator.wakeLock.request('screen').then(function(l){wl=l;l.addEventListener('release',function(){wl=null;});}).catch(function(){});}
+wake();document.addEventListener('visibilitychange',wake);addEventListener('pointerdown',wake);
+
+// ================= ヒント・キット =================
+function showHint(s,ms){hint.innerHTML=s;hint.classList.add('on');setTimeout(function(){hint.classList.remove('on');},ms);}
+APKit.init({
+  canvas:cv, gifName:'sungrazer-loop', clockFormat:'spec',
+  dock:true, autoHide:true, fullscreenButton:false,
+  buttons:[
+    {label:'✦',name:'mutate',onClick:function(){   // 星空・カメラの左右・尾の筋・太陽の模様を組み直す
+      look.star=Math.random()*100;look.sun=Math.random()*100;look.streak=Math.random()*100;side=-side;
+      seed=Math.random()*1e6;reseedParticles();}}
+  ]
+});
+showHint('太陽をかすめる彗星を、斜め後ろから追いかけている<br>10分ごと(:05 :15 :25 …)に太陽のすぐそばを最速で抜ける<br><br>青い尾は太陽の反対へまっすぐ / 金の尾は遅れて曲がる',9000);
+})();
+</script>
+</body>
+</html>
