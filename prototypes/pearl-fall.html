@@ -1,0 +1,314 @@
+<!doctype html>
+<!-- PEARL FALL(仮) — クロちゃん(Claude)作。2026/11/27。ART PLAYGROUND「軌道」の新作・試作2本目(真珠の首飾り)。
+     法則: 巨大なガス惑星に近づきすぎた彗星は潮の力で引きちぎられ、かけらは一列の数珠(真珠の首飾り)になって同じ道をたどり、1つずつ惑星に落ちる。
+       (1994年、シューメーカー・レビー第9彗星が木星に落ちたときに本当に起きたこと。火柱は縁の向こうで噴き上がり、黒い痕が残った)
+     時計: 毎分0秒に、先頭のかけらが縁の向こうに落ちる → 閃光 → 金色の火柱が噴き上がって崩れ落ちる。
+       :00 :10 :20 …に落ちるかけらは大きい(閃光も火柱も大きい)。20分で20粒を落としきり、次の彗星が来て、最初の1分で引き伸ばされてちぎれる。
+       落ちた場所には黒い痕が残り、惑星の自転(10分で1回転)で手前へ回ってくる。痕は約24分かけて薄れる。
+     見た目: 2026/11/27 の静止画(pearl-impact-still.png、おっちゃん「やってみようか」)を動かしたもの。画面の座標で描く(カメラは動かさない)。
+     描き方: WebGL1。惑星・縞・痕・閃光は1枚のシェーダー、かけら・尾・火柱は光の粒(加算合成)。
+     操作: ✦=惑星の縞の模様と色(木星/土星の金/氷の惑星)を組み直す。触る仕掛けは無し(眺める時計)。
+     テスト用: ?fast=1(6倍速) ?t=秒(20分の周期の中の秒で止める。例 ?t=62 は2粒目が落ちた2秒後) ?debug=1
+     音なし。Wake Lock。録画用にpreserveDrawingBuffer。ギャラリー未追加。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>PEARL FALL — ちぎれた彗星が1粒ずつ落ちる</title>
+<script src="../ap-kit.js"></script>
+<style>
+  :root{color-scheme:dark}
+  html,body,canvas{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+  html,body{margin:0;height:100%;background:#000;overflow:hidden;touch-action:none}
+  #c{position:fixed;inset:0;width:100%;height:100%;display:block}
+  #hint{position:fixed;left:0;right:0;top:16%;text-align:center;color:rgba(255,255,255,.85);font:13px/1.8 -apple-system,"Hiragino Sans",sans-serif;letter-spacing:.08em;pointer-events:none;opacity:0;transition:opacity 1.4s;text-shadow:0 0 10px #000,0 0 4px #000;z-index:3}
+  #hint.on{opacity:1}
+  #dbg{position:fixed;left:6px;top:6px;color:#9f9;font:11px/1.35 ui-monospace,monospace;white-space:pre;pointer-events:none;z-index:4;text-shadow:0 0 3px #000}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint"></div>
+<div id="dbg"></div>
+<script>
+(function(){
+'use strict';
+var Q=new URLSearchParams(location.search);
+var FAST=Q.get('fast')==='1', DEBUG=Q.get('debug')==='1', FIX_T=Q.has('t')?parseFloat(Q.get('t')):null;
+var cv=document.getElementById('c'), hint=document.getElementById('hint'), dbg=document.getElementById('dbg');
+var gl=cv.getContext('webgl',{antialias:false,alpha:false,preserveDrawingBuffer:true,powerPreference:'high-performance'});
+if(!gl){document.body.innerHTML='<p style="color:#fff;font:14px sans-serif;padding:2em">この端末ではWebGLが使えません</p>';return;}
+
+var CYCLE=1200, NFRAG=20, OMEGA=2*Math.PI/600;   // 20分で20粒、惑星は10分で1回転
+var NSCAR=24;
+
+// ---- 色の組(✦で替える)
+var PALS=[
+  {c:[1.0,.90,.74],o:[.86,.58,.32],r:[.62,.30,.16]},   // 木星
+  {c:[1.0,.93,.70],o:[.90,.74,.42],r:[.70,.52,.26]},   // 土星の金
+  {c:[.80,.95,1.0],o:[.45,.72,.85],r:[.22,.42,.62]}    // 氷の惑星
+];
+var look={seed:Math.random()*50, pal:0};
+
+// ================= シェーダー =================
+var VS_BG='attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}';
+var FS_BG=[
+'precision highp float;',
+'uniform vec2 uRes;uniform float uT,uK,uSeed,uRot,uFlash,uBig;',
+'uniform vec3 uPlanet,uPole,uSun,uPc,uPo,uPr;uniform vec2 uImp,uOn;',
+'uniform vec4 uScar['+NSCAR+'];uniform float uScarA['+NSCAR+'];',
+'float h13(vec3 p){p=fract(p*.1031);p+=dot(p,p.zyx+31.32);return fract((p.x+p.y)*p.z);}',
+'float vn(vec3 p){vec3 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);',
+' return mix(mix(mix(h13(i),h13(i+vec3(1,0,0)),f.x),mix(h13(i+vec3(0,1,0)),h13(i+vec3(1,1,0)),f.x),f.y),',
+'  mix(mix(h13(i+vec3(0,0,1)),h13(i+vec3(1,0,1)),f.x),mix(h13(i+vec3(0,1,1)),h13(i+vec3(1,1,1)),f.x),f.y),f.z);}',
+'float fbm(vec3 p){float a=.5,s=0.;for(int i=0;i<5;i++){s+=a*vn(p);p=p*2.03+17.1;a*=.5;}return s;}',
+'vec3 rotA(vec3 v,vec3 k,float a){float c=cos(a),s=sin(a);return v*c+cross(k,v)*s+k*dot(k,v)*(1.-c);}',
+'void main(){',
+' vec2 fc=vec2(gl_FragCoord.x,uRes.y-gl_FragCoord.y);',   // 上が0のピクセル座標
+' vec3 col=vec3(0.);',
+// 星
+' vec2 g=floor(fc/3.);float hs=h13(vec3(g,uSeed));',
+' if(hs>.9935){vec2 o=fract(vec2(hs*91.7,hs*53.3))*3.;float dd=length(fc-g*3.-o);col+=vec3(1.,.95,.9)*pow((hs-.9935)/.0065,2.)*2.2*exp(-dd*dd*.9);}',
+' vec2 d=(fc-uPlanet.xy)/uPlanet.z;float d2=dot(d,d);float dist=sqrt(d2);',
+' if(d2<1.){',
+'  vec3 n=vec3(d,sqrt(1.-d2));',
+'  vec3 nf=rotA(n,uPole,-uRot);',                            // 惑星に貼りついた座標
+'  float lat=asin(clamp(dot(n,uPole),-1.,1.));',
+'  float tb=fbm(nf*6.+uSeed),tb2=fbm(nf*22.+uSeed*1.7+vec3(0.,0.,uT*.004));',
+'  float L=lat*11.+(tb-.5)*.55+(tb2-.5)*.22;',
+'  float band=clamp((sin(L*2.2)*.5)*1.8+.5,0.,1.),band2=sin(L*5.1+1.3)*.5+.5;',
+'  vec3 c=mix(uPo,uPc,band);c=c*(.7+.3*band2)+uPr*clamp(.5-band2,0.,1.)*.5;',
+'  float sv=fbm(nf*3.+50.+uSeed);float st=clamp((sv-.62)*5.,0.,1.);c=c*(1.-.25*st)+uPr*.25*st;',
+// 痕
+'  float scar=0.;float plat=dot(nf,uPole);',
+'  for(int i=0;i<'+NSCAR+';i++){vec4 S=uScar[i];float A=uScarA[i];if(A>0.){',
+'   float ca=clamp(dot(nf,S.xyz),-1.,1.);float ang=acos(ca);',
+'   float dl=asin(clamp(plat,-1.,1.))-asin(clamp(dot(S.xyz,uPole),-1.,1.));float dlo=sqrt(max(ang*ang-dl*dl,0.));',
+'   float sz=S.w;float e=sqrt(dl*dl/.55+dlo*dlo/2.2);',
+'   scar+=A*(exp(-e*e/(sz*sz))+.28*exp(-pow((e-sz*1.8)/(sz*.45),2.))*(.4+1.*tb2));}}',
+'  c*=1.-.85*clamp(scar,0.,1.);',
+'  float lam=max(dot(n,uSun),0.);float limb=.35+.65*pow(n.z,.45);',
+'  col=c*(.12+.95*pow(lam,.8))*limb*.62;',
+' }',
+// 大気の縁
+' float rim=exp(-pow((dist-1.)*uPlanet.z/(16.*uK),2.))*step(.985,dist);',
+' float halo=exp(-max(dist-1.,0.)*uPlanet.z/(40.*uK))*step(1.,dist);',
+' col+=(rim*vec3(.75,.82,1.)*.55+halo*vec3(.55,.65,.9)*.18)*(.55+.45*(1.-fc.x/uRes.x));',
+// 閃光(縁の向こう)
+' if(uFlash>0.){vec2 r=fc-uImp;float u=dot(r,uOn);float v=dot(r,vec2(-uOn.y,uOn.x));float fd=length(r)/uK;',
+'  float occ=1./(1.+exp(-u/(30.*uK)));float sc=1.+uBig*.8;',
+'  col+=vec3(1.,.80,.55)*.55*uFlash*exp(-fd/(300.*sc))*(.25+.75*occ);',
+'  col+=vec3(1.,.97,.9)*1.3*uFlash*exp(-fd/(60.*sc))*occ;',
+'  col+=vec3(1.,.85,.6)*1.1*uFlash*exp(-pow(u/(8.*uK),2.))*exp(-pow(v/(180.*uK*sc),2.));',
+'  col+=vec3(1.,.9,.75)*.10*uFlash*sc;}',
+' col=1.-exp(-col*1.35);',
+' gl_FragColor=vec4(col,1.);}'
+].join('\n');
+
+var VS_P=[
+'attribute vec2 aP;attribute vec4 aC;attribute float aS;uniform vec2 uRes;varying vec4 vC;',
+'void main(){gl_Position=vec4(aP.x/uRes.x*2.-1.,1.-aP.y/uRes.y*2.,0.,1.);',
+' float ps=clamp(aS,1.5,140.);float e=min(1.,(aS*aS)/(ps*ps));gl_PointSize=ps;vC=vec4(aC.rgb,aC.a*e);}'
+].join('\n');
+var FS_P=[
+'precision mediump float;varying vec4 vC;',
+'void main(){vec2 q=gl_PointCoord*2.-1.;float r2=dot(q,q);if(r2>1.)discard;',
+' float a=exp(-r2*3.2)*vC.a;gl_FragColor=vec4(vC.rgb*a,1.);}'
+].join('\n');
+
+function sh(type,src){var s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));return s;}
+function prog(vs,fs){var p=gl.createProgram();gl.attachShader(p,sh(gl.VERTEX_SHADER,vs));gl.attachShader(p,sh(gl.FRAGMENT_SHADER,fs));gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(p));
+  var u={},n=gl.getProgramParameter(p,gl.ACTIVE_UNIFORMS);for(var i=0;i<n;i++){var a=gl.getActiveUniform(p,i);u[a.name.replace('[0]','')]=gl.getUniformLocation(p,a.name);}
+  return {p:p,u:u};}
+var PB=prog(VS_BG,FS_BG), PP=prog(VS_P,FS_P);
+var quad=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,quad);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+
+// ================= 粒 =================
+var TAILN=46, NFP=NFRAG*(TAILN+2), NPL=2200, NSP=220, NP=NFP+NPL*2+NSP*2;
+var pP=new Float32Array(NP*2), pC=new Float32Array(NP*4), pS=new Float32Array(NP);
+var bP=gl.createBuffer(), bC=gl.createBuffer(), bS=gl.createBuffer();
+function mulberry(a){return function(){a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+var R=mulberry(12345), RA=new Float32Array(NP*4);for(var i0=0;i0<NP*4;i0++)RA[i0]=R();
+var GA=new Float32Array(NP*2);for(i0=0;i0<NP*2;i0++){GA[i0]=Math.sqrt(-2*Math.log(1-R()))*Math.cos(6.2832*R());}   // 正規分布(火柱の形をなめらかに)
+
+// ================= 大きさ・配置 =================
+var W=0,H=0,DPR=1,scaleQ=1, K=1, PL={}, IMP={}, POLE=[0,0,0], NIMP=[0,0,0], NSC=[0,0,1], OMS=1;
+function nrm(a){var l=Math.hypot(a[0],a[1],a[2])||1;return [a[0]/l,a[1]/l,a[2]/l];}
+function dot(a,b){return a[0]*b[0]+a[1]*b[1]+a[2]*b[2];}
+function crs(a,b){return [a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];}
+function rotA(v,k,a){var c=Math.cos(a),s=Math.sin(a),kv=crs(k,v),d=dot(k,v)*(1-c);return [v[0]*c+kv[0]*s+k[0]*d,v[1]*c+kv[1]*s+k[1]*d,v[2]*c+kv[2]*s+k[2]*d];}
+function layout(){
+  K=H/1920;
+  var Rp=Math.max(H*0.74,W*0.80);
+  PL={x:W*0.40,y:H*0.56+Rp,r:Rp};
+  var ix=W*0.72, iy=PL.y-Math.sqrt(Math.max(Rp*Rp-(ix-PL.x)*(ix-PL.x),0));
+  var on=[ix-PL.x,iy-PL.y],ol=Math.hypot(on[0],on[1]);on=[on[0]/ol,on[1]/ol];
+  IMP={x:ix,y:iy,on:on,tg:[-on[1],on[0]]};
+  POLE=nrm([0.12,-0.72,-0.68]);      // 極は縁の向こう側へ傾ける(縞が縁に沿う)
+  NIMP=nrm([(ix-PL.x)/Rp,(iy-PL.y)/Rp,-0.22]);   // 落ちる場所(縁のすぐ向こう)
+  // 痕の出る場所: 衝突点と同じ経度で、見えている面を自転で横切る緯度(縁の衝突点の緯度だと、痕がずっと裏側を回ってしまうため)
+  var vx=(W*.55-PL.x)/Rp, vy=(H*.70-PL.y)/Rp, vpt=[vx,vy,Math.sqrt(Math.max(0,1-vx*vx-vy*vy))];
+  var lv=Math.asin(dot(vpt,POLE)), dp=dot(NIMP,POLE);
+  var hp=nrm([NIMP[0]-POLE[0]*dp,NIMP[1]-POLE[1]*dp,NIMP[2]-POLE[2]*dp]);
+  NSC=[POLE[0]*Math.sin(lv)+hp[0]*Math.cos(lv),POLE[1]*Math.sin(lv)+hp[1]*Math.cos(lv),POLE[2]*Math.sin(lv)+hp[2]*Math.cos(lv)];
+  var a1=rotA(NSC,POLE,.3), a2=rotA(NSC,POLE,-.3);
+  OMS=(dot(a1,vpt)>dot(a2,vpt))?1:-1;
+}
+function resize(){
+  DPR=Math.min(window.devicePixelRatio||1,1.6)*scaleQ;
+  W=Math.floor(innerWidth*DPR);H=Math.floor(innerHeight*DPR);cv.width=W;cv.height=H;gl.viewport(0,0,W,H);layout();
+}
+addEventListener('resize',resize);resize();
+
+// かけらの道(手前の左上→奥の衝突点)。t=1が衝突点。t<0は画面の外(左)
+function pathAt(t){
+  var x0=W*0.10, fx=x0+(IMP.x-x0)*(t>0?Math.pow(t,.8):t);
+  var dx=fx-PL.x, ly=PL.y-Math.sqrt(Math.max(PL.r*PL.r-dx*dx,0));
+  var tt=Math.min(1,Math.max(t,-.6));
+  var fy=ly-Math.pow(1-tt,1.3)*H*0.30-40*K*(1-tt)-14*K;
+  var sz=(1-tt)*1.1+0.22;
+  return [fx,fy,sz];
+}
+function smooth(a,b,x){var t=Math.min(1,Math.max(0,(x-a)/(b-a)));return t*t*(3-2*t);}
+
+// ================= 時刻 =================
+var t0=performance.now(), base=Date.now()/1000;
+function nowSec(){return base+(performance.now()-t0)/1000*(FAST?6:1);}
+function hashMin(m){var x=Math.sin(m*127.1+look.seed*3.7)*43758.5453;return x-Math.floor(x);}
+
+// ================= 毎フレーム =================
+var lastT=performance.now(), fpsAvg=60, frames=0, tierT=0;
+var scarU=new Float32Array(NSCAR*4), scarA=new Float32Array(NSCAR);
+function frame(now){
+  requestAnimationFrame(frame);
+  var dt=Math.min(.1,(now-lastT)/1000);lastT=now;
+  fpsAvg+=(1/Math.max(dt,1e-3)-fpsAvg)*.05;
+  tierT+=dt;if(now-t0>3000&&tierT>2){tierT=0;
+    if(fpsAvg<44&&scaleQ>.55){scaleQ=Math.max(.55,scaleQ-.15);resize();}
+    else if(fpsAvg>58&&scaleQ<1){scaleQ=Math.min(1,scaleQ+.05);resize();}}
+
+  var S=FIX_T!==null?(Math.floor(nowSec()/CYCLE)*CYCLE+FIX_T):nowSec();   // 絶対の秒
+  var absMin=Math.floor(S/60), msec=S-absMin*60;                          // いまの分と、分の中の秒
+  var j=((absMin%NFRAG)+NFRAG)%NFRAG;                                      // 20分の周期の何分目か
+  var rot=OMS*OMEGA*(S%6000);
+  // 直前の衝突(この分の0秒)
+  var age=msec, bigNow=(absMin%10===0)?1:0;
+  var flash=age<8?Math.min(1,age/.08)*Math.exp(-age/(bigNow?1.4:.9)):0;
+  // 痕: 過去24分ぶんの衝突
+  for(var q=0;q<NSCAR;q++){
+    var m=absMin-q, tm=m*60, ag=S-tm;
+    var c=rotA(NSC,POLE,-OMS*OMEGA*(tm%6000));
+    var jit=(hashMin(m)-.5)*.10; c=nrm([c[0],c[1]+jit*.3,c[2]]);
+    var big=(m%10===0);
+    var sz=(big?.028:.017)*(.8+.4*hashMin(m+7))*(1+Math.min(ag,600)/1500);
+    scarU[q*4]=c[0];scarU[q*4+1]=c[1];scarU[q*4+2]=c[2];scarU[q*4+3]=sz;
+    scarA[q]=ag<0?0:smooth(0,20,ag)*(1-smooth(600,NSCAR*60,ag));
+  }
+  // ---- 背景
+  var pal=PALS[look.pal];
+  gl.disable(gl.BLEND);gl.useProgram(PB.p);var u=PB.u;
+  gl.uniform2f(u.uRes,W,H);gl.uniform1f(u.uT,S%6000);gl.uniform1f(u.uK,K);gl.uniform1f(u.uSeed,look.seed);gl.uniform1f(u.uRot,rot);
+  gl.uniform1f(u.uFlash,flash);gl.uniform1f(u.uBig,bigNow);
+  gl.uniform3f(u.uPlanet,PL.x,PL.y,PL.r);gl.uniform3fv(u.uPole,POLE);gl.uniform3fv(u.uSun,nrm([-.55,-.55,.63]));
+  gl.uniform3fv(u.uPc,pal.c);gl.uniform3fv(u.uPo,pal.o);gl.uniform3fv(u.uPr,pal.r);
+  gl.uniform2f(u.uImp,IMP.x,IMP.y);gl.uniform2f(u.uOn,IMP.on[0],IMP.on[1]);
+  gl.uniform4fv(u.uScar,scarU);gl.uniform1fv(u.uScarA,scarA);
+  gl.bindBuffer(gl.ARRAY_BUFFER,quad);var la=gl.getAttribLocation(PB.p,'p');
+  gl.enableVertexAttribArray(la);gl.vertexAttribPointer(la,2,gl.FLOAT,false,0,0);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);gl.disableVertexAttribArray(la);
+
+  // ---- 粒
+  var k=0,i,f,t,pt,tl;
+  var tx=.62,ty=.78;                    // 尾の向き(太陽の反対=右下)
+  var left=NFRAG-j;                     // この分に残っているかけらの数(先頭がこの分の終わりに落ちる)
+  var frac=msec/60;
+  var spread=0.105*(j===0?smooth(2,50,msec):1);   // 周期の最初の1分で、1つの彗星が引き伸ばされてちぎれる
+  for(f=0;f<NFRAG;f++){
+    var alive=f<left;
+    t=1-(f+1-frac)*spread;               // 先頭(f=0)は分の終わりに t=1(衝突点)
+    pt=pathAt(t);
+    var m2=absMin+f+1, big2=(m2%10===0);
+    var bs=(big2?1.7:1)*(.85+.3*hashMin(m2+3));
+    var vis2=alive&&t<0.995?1:0;
+    var s0=pt[2]*K*bs;
+    var br=(.75+.25*((f%3)===0))*(1.2-.5*Math.max(0,t))*vis2*(t<-.4?smooth(-.6,-.4,t):1);
+    // 芯とにじみ
+    pP[k*2]=pt[0];pP[k*2+1]=pt[1];pC[k*4]=1;pC[k*4+1]=1;pC[k*4+2]=1;pC[k*4+3]=1.5*br;pS[k]=16*s0;k++;
+    pP[k*2]=pt[0];pP[k*2+1]=pt[1];pC[k*4]=.75;pC[k*4+1]=.85;pC[k*4+2]=1;pC[k*4+3]=.35*br;pS[k]=80*s0;k++;
+    for(i=0;i<TAILN;i++){
+      var ri=(f*TAILN+i)*4, a=Math.pow(RA[ri],1.3), dust=RA[ri+1]<.5;
+      var len=(dust?60:90)*s0*a*1.6, perp=(RA[ri+2]-.5)*(dust?5+len*.12:3+len*.06);
+      var bend=dust?len*.18:0;
+      pP[k*2]=pt[0]+tx*len-ty*(perp+bend);pP[k*2+1]=pt[1]+ty*len+tx*(perp+bend);
+      if(dust){pC[k*4]=1;pC[k*4+1]=.8;pC[k*4+2]=.45;}else{pC[k*4]=.55;pC[k*4+1]=.75;pC[k*4+2]=1;}
+      pC[k*4+3]=br*(1-a)*.32;pS[k]=(5+6*RA[ri+3])*s0*(1+a);k++;
+    }
+  }
+  // ---- 火柱(この分の衝突と、ひとつ前の分の残り)
+  for(var w2=0;w2<2;w2++){
+    var pa=msec+w2*60, pbig=((absMin-w2)%10===0), sc=pbig?1.45:1;
+    var ht=430*K*sc, rise=smooth(0,9,pa), fall=smooth(14,40,pa), live=pa<48?1:0;
+    var bright=Math.min(1,pa/.3)*(1-smooth(20,48,pa))*live;
+    var hue=smooth(0,16,pa);
+    for(i=0;i<NPL;i++){
+      var r4=(NFP+i)*4, hh=RA[r4], vv=GA[(NFP+i)*2]*.28, kind=RA[r4+2], gu=GA[(NFP+i)*2+1];
+      var uu,vvv;
+      if(kind<.55){        // 柱
+        uu=ht*rise*Math.pow(hh,.8)*(1-.55*fall*hh);
+        vvv=vv*(40*K+uu*.32)*(1+fall*.8);
+      }else{               // キノコの傘とスカート
+        var capu=ht*.92*rise*(1-.35*fall);
+        vvv=vv*ht*1.5*(.3+.7*rise)*(1+fall*.9);
+        uu=capu+gu*ht*.09*(1+fall)-ht*.55*vv*vv*(1+fall)-fall*ht*.2*Math.abs(vv);
+      }
+      uu+=Math.sin(i*1.7+pa*.6)*6*K; vvv+=Math.cos(i*2.3+pa*.5)*8*K;
+      pP[k*2]=IMP.x+IMP.on[0]*uu+IMP.tg[0]*vvv;pP[k*2+1]=IMP.y+IMP.on[1]*uu+IMP.tg[1]*vvv;
+      var heat=1-Math.min(1,uu/ht)*.6-hue*.5;
+      pC[k*4]=1;pC[k*4+1]=.45+.45*heat;pC[k*4+2]=.15+.55*heat*heat;
+      var lit=Math.min(1.2,Math.max(.3,.6+.5*(-vvv)/(ht*.6)));
+      pC[k*4+3]=uu>0?bright*.075*lit*(.6+.8*RA[r4+3]):0;
+      pS[k]=(22+34*RA[r4+3])*K*sc*(1+fall*.6);k++;
+    }
+    // 飛び散る火花
+    for(i=0;i<NSP;i++){
+      var r5=(NFP+NPL+i)*4, an=(RA[r5]-.5)*2.2, sp=(200+500*RA[r5+1])*K*sc;
+      var tt2=Math.min(pa,10), du=sp*Math.cos(an)*tt2/6-40*K*tt2*tt2/10, dv=sp*Math.sin(an)*tt2/6;
+      pP[k*2]=IMP.x+IMP.on[0]*du+IMP.tg[0]*dv;pP[k*2+1]=IMP.y+IMP.on[1]*du+IMP.tg[1]*dv;
+      pC[k*4]=1;pC[k*4+1]=.8;pC[k*4+2]=.5;pC[k*4+3]=du>0?bright*(1-smooth(2,10,pa))*.9:0;pS[k]=(4+5*RA[r5+2])*K;k++;
+    }
+  }
+  gl.enable(gl.BLEND);gl.blendFunc(gl.ONE,gl.ONE);
+  gl.useProgram(PP.p);gl.uniform2f(PP.u.uRes,W,H);
+  var aP=gl.getAttribLocation(PP.p,'aP'),aC=gl.getAttribLocation(PP.p,'aC'),aS=gl.getAttribLocation(PP.p,'aS');
+  gl.bindBuffer(gl.ARRAY_BUFFER,bP);gl.bufferData(gl.ARRAY_BUFFER,pP,gl.DYNAMIC_DRAW);gl.enableVertexAttribArray(aP);gl.vertexAttribPointer(aP,2,gl.FLOAT,false,0,0);
+  gl.bindBuffer(gl.ARRAY_BUFFER,bC);gl.bufferData(gl.ARRAY_BUFFER,pC,gl.DYNAMIC_DRAW);gl.enableVertexAttribArray(aC);gl.vertexAttribPointer(aC,4,gl.FLOAT,false,0,0);
+  gl.bindBuffer(gl.ARRAY_BUFFER,bS);gl.bufferData(gl.ARRAY_BUFFER,pS,gl.DYNAMIC_DRAW);gl.enableVertexAttribArray(aS);gl.vertexAttribPointer(aS,1,gl.FLOAT,false,0,0);
+  gl.drawArrays(gl.POINTS,0,k);
+  gl.disableVertexAttribArray(aP);gl.disableVertexAttribArray(aC);gl.disableVertexAttribArray(aS);
+
+  if(DEBUG){frames++;if(frames%10===0)dbg.textContent='min '+absMin+'  j '+j+'  left '+left+'  sec '+msec.toFixed(1)+'  big '+bigNow+
+    '\nflash '+flash.toFixed(2)+'  fps '+fpsAvg.toFixed(0)+'  q '+scaleQ.toFixed(2)+'  '+W+'x'+H;}
+}
+requestAnimationFrame(frame);
+
+// ================= 画面を消さない(Wake Lock) =================
+var wl=null;
+function wake(){if(navigator.wakeLock&&!wl&&document.visibilityState==='visible')navigator.wakeLock.request('screen').then(function(l){wl=l;l.addEventListener('release',function(){wl=null;});}).catch(function(){});}
+wake();document.addEventListener('visibilitychange',wake);addEventListener('pointerdown',wake);
+
+function showHint(s,ms){hint.innerHTML=s;hint.classList.add('on');setTimeout(function(){hint.classList.remove('on');},ms);}
+APKit.init({
+  canvas:cv, gifName:'pearl-fall-loop', clockFormat:'spec',
+  dock:true, autoHide:true, fullscreenButton:false,
+  buttons:[
+    {label:'✦',name:'mutate',onClick:function(){   // 惑星の縞の模様と色を組み直す
+      look.seed=Math.random()*50;look.pal=(look.pal+1+Math.floor(Math.random()*(PALS.length-1)))%PALS.length;}}
+  ]
+});
+showHint('巨大な惑星に近づきすぎた彗星は、潮の力でちぎれて<br>真珠の首飾りになる<br><br>毎分0秒、1粒ずつ縁の向こうに落ちて火柱が上がる<br>10分ごとは大きいかけら / 落ちた痕は自転で手前に回ってくる',9000);
+})();
+</script>
+</body>
+</html>
