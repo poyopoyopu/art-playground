@@ -1,10 +1,12 @@
 <!DOCTYPE html>
-<!-- QUANTUM RAIN(仮) — クロちゃん(Claude)作の試作。2026/11/28 おっちゃん依頼(Starkapoo氏の「Quantum Rain」動画: 虹色の点線が縦に降り、底に光だまりができる)。ap-kit.js統合: クロちゃん -->
-<!-- 世界の法則: 光の雨はいつも同じ速さで降りつづけ、画面の横幅が「0〜59」の目盛りになっている。
-     光の柱=いまの分(左から右へ、1時間かけて動く)。上から落ちてくる光の玉=いまの秒(毎秒、別の列を落ちて底で弾ける)。
-     手前の糸は太く速く明るく、奥の糸は細く遅くぼやける(奥行きだけで見た目が決まる。形は乱数で描かず、雨粒は等間隔の点)。
-     虹の色は横位置で決まる(左=橙・赤、中=紫・青、右=シアン・緑)。✦=虹の色をずらす / ↻=元に戻す。なぞると糸が横に揺れる。
-     確認用: ?t=HH:MM:SS でその時刻から進む / ?fast=1 で時間を6倍速。WebGL2・音なし・Wake Lock・録画用にpreserveDrawingBuffer -->
+<!-- QUANTUM RAIN(仮) — クロちゃん(Claude)作の試作。2026/11/28 おっちゃん依頼(Starkapoo氏の「Quantum Rain」動画)。ap-kit.js統合: クロちゃん -->
+<!-- 2026/11/28 作り直し(おっちゃん「やるならもっとリアルな雨っぽくしてよ」): 点線のMatrix風をやめ、本物の雨の見え方にした。
+     雨粒は「動きでのびた線」(シャッターが開いている間に落ちた距離=速さ×露光)。手前ほど速く長く太く明るい、奥は細く淡く霧のよう。
+     ごく手前の粒だけピントが外れて太くにじむ。風は時間でゆっくり強弱し、手前の粒ほど大きくなびく。
+     粒は地面の高さまで落ちて消え、地面(奥ほど高い位置)に楕円の波紋が二重に広がる。濡れた地面に色とりどりの灯りが映る。
+     雨は虹色の灯りに照らされていて、色は横位置で決まる(左=橙・赤、中=紫・青、右=シアン・緑)。
+     時計: 横幅が0〜59の目盛り。光の柱(雨を明るく照らす光の筋)=いまの分(1時間かけて左→右)。上から落ちる明るい一滴=いまの秒で、毎秒別の位置の地面に大きな波紋を広げる。
+     ✦=虹の色をずらす / ↻=元に戻す。なぞると雨が横に流れる。確認用: ?t=HH:MM:SS でその時刻から進む。WebGL2・音なし・Wake Lock・録画用にpreserveDrawingBuffer -->
 <html lang="ja">
 <head>
 <meta charset="utf-8">
@@ -30,7 +32,6 @@ var gl=cv.getContext('webgl2',{antialias:false,alpha:false,preserveDrawingBuffer
 var hintEl=document.getElementById('hint'),timeEl=document.getElementById('time');
 if(!gl){hintEl.innerHTML='このブラウザではWebGL2が使えません';hintEl.classList.add('on');return;}
 var Q=new URLSearchParams(location.search);
-var FAST=Q.get('fast')==='1';
 
 // ---------- 共通のGLSL: 横位置→虹の色 ----------
 var COMMON=
@@ -55,109 +56,109 @@ function prog(vs,fs){
   for(var i=0;i<n;i++){var inf=gl.getActiveUniform(p,i);u[inf.name]=gl.getUniformLocation(p,inf.name);}
   return {p:p,u:u};}
 
-// ---------- 背景: 底の光だまり + 分の柱 + 秒の玉 ----------
+// ---------- 背景: 光の柱の霞 + 濡れた地面(映り込み・波紋) + いまの秒の一滴 ----------
 var bgP=prog(
 '#version 300 es\nlayout(location=0) in vec2 p;void main(){gl_Position=vec4(p,0.,1.);}',
-'#version 300 es\nprecision highp float;\nuniform vec2 u_res;uniform float u_t,u_sec,u_min,u_hue,u_dpr;out vec4 o;\n'+COMMON+
-'float pillar(float x){float a=hash(floor(x*260.)),b=hash(floor(x*55.)+17.);float h=mix(a,b,.5);return h*h*1.4;}\n'+
-'vec3 strand(float x,float g,float N,float spd,float dens,float wpx,float gain,float sd){\n'+
-' float cell=floor(x*N);float h1=hash(cell+sd);float cx=(cell+.15+.7*h1)/N;\n'+
-' float dx=(x-cx)*u_res.x;float w=wpx*u_dpr;float line=exp(-dx*dx/(2.*w*w));\n'+
-' float yy=1.-g;float ph=fract(yy*dens*(.7+.6*h1)-u_t*spd*(.6+.8*hash(cell+9.))+h1*7.);\n'+
-' float bead=smoothstep(0.,.08,ph)*(1.-smoothstep(.06,.3,ph));\n'+
-' float k=line*(.025+bead*1.2)*(.25+.75*hash(cell+4.))*gain*smoothstep(0.,.05,yy)*smoothstep(1.,.9,yy);\n'+
-' return hsv(hueOf(cx),.8,1.)*k;}\n'+
+'#version 300 es\nprecision highp float;\nuniform vec2 u_res;uniform float u_t,u_sec,u_min,u_hue;out vec4 o;\n'+COMMON+
+'const float DK[4]=float[4](.08,.34,.64,.95);\n'+
+'vec3 ripples(float x,float g,float asp){\n'+
+' vec3 acc=vec3(0.);\n'+
+' for(int k=0;k<4;k++){\n'+
+'  float dk=DK[k];float gk=1.-mix(.84,.985,dk);float sq=.17+.1*dk;float R=mix(.012,.07,dk);\n'+
+'  if(abs(g-gk)>R*sq*1.15+.02)continue;\n'+
+'  float N=floor(mix(30.,8.,dk));float ci=floor(x*N);\n'+
+'  for(int j=-1;j<=1;j++){\n'+
+'   float c=ci+float(j);float h1=hash(c*7.3+float(k)*19.1),h2=hash(c*3.7+float(k)*5.5+1.);\n'+
+'   float xc=(c+h1)/N;float ph=fract(u_t*(.38+.55*h2)+h2*13.+h1*5.);\n'+
+'   float dxp=(x-xc)*asp,dyp=(g-gk)/sq;float dist=sqrt(dxp*dxp+dyp*dyp);\n'+
+'   float w=.0012+.0011*dk;float r=ph*R;float r2=ph*R*.55;\n'+
+'   float ring=exp(-(dist-r)*(dist-r)/(2.*w*w))*pow(1.-ph,1.5);\n'+
+'   float ring2=exp(-(dist-r2)*(dist-r2)/(2.*w*w))*pow(1.-ph,2.2)*.6;\n'+
+'   float fl=exp(-dist*dist/(2.*.0022*.0022))*exp(-ph*26.);\n'+
+'   acc+=hsv(hueOf(clamp(xc,0.,1.)),.5,1.)*(ring+ring2+fl*1.3)*(.3+.7*dk);\n'+
+'  }}\n'+
+' return acc;}\n'+
 'void main(){\n'+
 ' vec2 uv=gl_FragCoord.xy/u_res;float asp=u_res.x/u_res.y;float x=uv.x,g=uv.y;\n'+
-' vec3 c=vec3(.004,.004,.02);\n'+
-' c+=hsv(hueOf(x),.8,1.)*exp(-g*3.)*.05;\n'+
-' float hz=mix(hash(floor(x*34.)),hash(floor(x*34.)+1.),smoothstep(0.,1.,fract(x*34.)));\n'+
-' c+=hsv(hueOf(x),.75,1.)*hz*hz*(.008+.03*(1.-g))*(.6+.4*sin(u_t*.2+x*9.));\n'+     // ピントの外れた奥の糸のにじみ
-' c+=strand(x,g,150.,.05,6.,.5,.3,0.)+strand(x,g,230.,.09,11.,.45,.26,31.)+strand(x,g,95.,.17,3.5,.8,.5,67.)+strand(x,g,60.,.3,2.2,1.2,.55,101.);\n'+  // 極細の光の糸(4層)                       // 地面からの薄い霞
-' float cell=floor(x*260.);float h=pillar(x);h*=.72+.28*sin(u_t*(.5+hash(cell)*1.6)+hash(cell+3.)*40.);\n'+
-' float I=exp(-g/(.018+.2*h))*(.22+.95*h);\n'+
-' c+=hsv(hueOf(x),.88,1.)*I*.62;\n'+                               // 底の光だまり(柱状に立ちのぼる)
+' vec3 c=vec3(.004,.004,.018);\n'+
+' float hz=mix(hash(floor(x*26.)),hash(floor(x*26.)+1.),smoothstep(0.,1.,fract(x*26.)));\n'+
+' c+=hsv(hueOf(x),.75,1.)*(.012+.03*hz*hz)*(.35+.65*(1.-g))*(.7+.3*sin(u_t*.18+x*8.));\n'+     // 霧に滲む灯りの色
+' float gnd=smoothstep(.17,.15,g);\n'+                                                            // 地面の帯(g<.16)
+' float cell=floor(x*240.);float hh=mix(hash(cell),hash(floor(x*50.)+17.),.55);hh=hh*hh*1.5;\n'+
+' hh*=.72+.28*sin(u_t*(.5+hash(cell)*1.4)+hash(cell+3.)*40.);\n'+
+' float I=exp(-g/(.03+.17*hh))*(.14+.8*hh);\n'+
+' c+=hsv(hueOf(x),.88,1.)*I*.5*(.35+.65*gnd);\n'+                                                // 濡れた地面に映る灯り
+' c+=hsv(hueOf(x),.6,1.)*exp(-(g-.16)*(g-.16)/.0009)*.035*(.5+hz);\n'+                             // 地平のにじみ
 ' float m=(u_min+u_sec/60.)/60.;float dm=(x-m)*asp;\n'+
-' float pil=exp(-dm*dm/(2.*.0042*.0042))*exp(-g/.62)*.85+exp(-dm*dm/(2.*.034*.034))*exp(-g/.26)*.34;\n'+
-' c+=mix(vec3(1.),hsv(hueOf(m),.55,1.),.45)*pil;\n'+
-' vec2 sc=vec2(floor(x*210.),floor(g*70.));float sh=hash(sc.x*3.1+sc.y*17.3);\n'+
-' c+=hsv(hueOf(x),.55,1.)*step(.972,sh)*exp(-(pow(fract(x*210.)-.5,2.)*3.+pow(fract(g*70.)-.5,2.)*3.)*14.)*pow(max(0.,sin(u_t*(1.2+sh*4.)+sh*80.)),10.)*exp(-g*11.)*1.4;\n'+   // 底のきらめき                // いまの分の光の柱
-' float s=fract(u_sec),idx=floor(u_sec);float xs=(idx+.5)/60.;float yo=s*s;float go=1.-yo*.97;\n'+
-' float dx=(x-xs)*asp;vec3 oc=mix(vec3(1.),hsv(hueOf(xs),.8,1.),.6);\n'+
-' float orb=exp(-(dx*dx+(g-go)*(g-go))/(2.*.0058*.0058));\n'+
-' float trail=step(go,g)*exp(-(g-go)/.12)*exp(-dx*dx/(2.*.0009*.0009))*.2;\n'+
-' c+=oc*(orb*.55+trail);\n'+                                       // いまの秒の光の玉(上から落ちる)
-' float xp=mod(idx-.5,60.)/60.+1./120.;float dp=abs((x-xp)*asp);\n'+
-' float sp=exp(-s*3.4)*exp(-g/.055)*exp(-dp/(.012+.11*s));\n'+
-' c+=mix(vec3(1.),hsv(hueOf(xp),.6,1.),.4)*sp*.55;\n'+              // 底で弾けた光
-' c*=1.-.45*pow(abs(uv.x-.5)*2.,3.)*.5;\n'+
-' c=1.-exp(-c*1.35);\n'+
+' float pil=exp(-dm*dm/(2.*.0036*.0036))*exp(-g/.7)*.5+exp(-dm*dm/(2.*.045*.045))*exp(-g/.5)*.2;\n'+
+' c+=mix(vec3(1.),hsv(hueOf(m),.5,1.),.4)*pil;\n'+                                                // 雨を照らす光の柱=分
+' c+=ripples(x,g,asp)*(.55+.45*gnd);\n'+
+' float s=fract(u_sec),idx=floor(u_sec);float xs=(idx+.5)/60.;float yo=s*s;float go=1.-yo*.985;\n'+
+' float dx=(x-xs)*asp;vec3 oc=mix(vec3(1.),hsv(hueOf(xs),.7,1.),.5);\n'+
+' float head=exp(-(dx*dx+(g-go)*(g-go)*.35)/(2.*.0042*.0042));\n'+
+' float tail=step(go,g)*exp(-(g-go)/.05)*exp(-dx*dx/(2.*.0011*.0011))*.7;\n'+
+' c+=oc*(head*.8+tail);\n'+                                                                       // いまの秒の一滴
+' float xp=(mod(idx-1.,60.)+.5)/60.;float gn=1.-.985;\n'+
+' float dxp=(x-xp)*asp,dyp=(g-gn)/.26;float dist=sqrt(dxp*dxp+dyp*dyp);\n'+
+' float r=s*.2;float wr=.0022+.003*s;\n'+
+' float big=exp(-(dist-r)*(dist-r)/(2.*wr*wr))*pow(1.-s,1.2)+exp(-(dist-r*.6)*(dist-r*.6)/(2.*wr*wr))*pow(1.-s,1.8)*.6+exp(-dist*dist/(2.*.004*.004))*exp(-s*14.)*1.2;\n'+
+' c+=mix(vec3(1.),hsv(hueOf(xp),.6,1.),.4)*big*.9;\n'+                                              // 地面に大きく広がる波紋=秒の合図
+' c*=1.-.35*pow(abs(uv.x-.5)*2.,3.);\n'+
+' c*=.55+.45*smoothstep(1.,.78,g);\n'+                                                           // 上は暗い夜空
+' c=1.-exp(-c*1.4);\n'+
 ' c+=(hash(dot(gl_FragCoord.xy,vec2(12.9898,78.233))+u_t)-.5)/255.;\n'+
 ' o=vec4(c,1.);}');
 
-// ---------- 光の糸の粒 ----------
-var dotP=prog(
-'#version 300 es\nprecision highp float;\nlayout(location=0) in vec4 a;\nuniform float u_t,u_dpr,u_hue,u_asp;uniform vec3 u_p;\n'+
-'out vec3 v_col;out float v_a;out float v_ring;out float v_soft;\n'+COMMON+
+// ---------- 雨粒: 動きでのびた線(1粒=1つの板) ----------
+var rainP=prog(
+'#version 300 es\nprecision highp float;\nlayout(location=0) in vec4 a;\nuniform vec2 u_res;uniform float u_t,u_dpr,u_hue,u_wind,u_um;uniform vec3 u_p;\n'+
+'out vec2 v_q;out vec3 v_col;out float v_a;\n'+COMMON+
 'void main(){\n'+
-' float d=a.y,seed=fract(a.w*13.7);\n'+
-' float spd=mix(.05,.2,d)*(.82+.36*seed);\n'+
-' float y=fract(a.z+u_t*spd);\n'+
-' float x=a.x+sin(u_t*.31+a.x*11.+seed*6.)*.0016*(1.-.5*d);\n'+
-' float dx=x-u_p.x;float w=exp(-dx*dx/.0144)*u_p.z*exp(-abs(y-u_p.y)*2.6);\n'+
-' x+=sign(dx)*w*.045*(.4+d);\n'+
-' float tw=hash(a.z*91.7+a.w*5.3);\n'+
-' float b=(.14+.86*pow(d,1.4))*(.3+.7*tw);\n'+
-' b*=.62+.38*sin(y*34.-u_t*(1.6+seed*3.)+seed*40.);\n'+
-' b*=1.+w*1.6;\n'+
-' b*=smoothstep(0.,.07,y)*smoothstep(1.,.84,y);\n'+
-' v_col=hsv(hueOf(a.x),.86-.3*d*d*d,1.);\n'+
-' v_a=b;v_ring=step(.82,d)*step(.55,fract(seed*7.3));v_soft=1.-d;\n'+
-' gl_PointSize=(1.3+3.8*pow(d,1.6))*(.85+.4*tw)*u_dpr*(1.+w*.6);\n'+
-' gl_Position=vec4(x*2.-1.,1.-2.*y,0.,1.);}',
-'#version 300 es\nprecision highp float;in vec3 v_col;in float v_a,v_ring,v_soft;out vec4 o;\n'+
-'void main(){vec2 q=gl_PointCoord*2.-1.;float r=length(q);if(r>1.)discard;\n'+
-' float sharp=exp(-r*r*10.);float ring=smoothstep(.22,0.,abs(r-.56))*1.15+exp(-r*r*6.)*.12;\n'+
-' float s=mix(sharp,ring,v_ring);s=mix(s,exp(-r*r*3.5)*.55,v_soft*.7);\n'+
-' float halo=exp(-r*r*2.5)*.16;\n'+
-' o=vec4(v_col*(s+halo)*v_a,1.);}');
+' float d=a.y,seed=fract(a.w*13.7);float W=u_res.x,H=u_res.y,asp=W/H;\n'+
+' float spd=mix(.3,1.15,d)*(.9+.2*seed);float yl=mix(.84,.985,d);\n'+
+' float y=yl*fract(a.z+u_t*spd/yl);\n'+
+' float kk=.45+.55*d;\n'+
+' float xw=a.x*1.3-.15;float xs=xw+u_wind*kk*y/asp;\n'+
+' vec2 head=vec2(xs*W,y*H);\n'+
+' float dxt=xs-u_p.x;float tw=exp(-dxt*dxt/.0144)*u_p.z*exp(-abs(y-u_p.y)*2.6);\n'+
+' head.x+=sign(dxt)*tw*.05*W*(.4+d);\n'+
+' vec2 dir=normalize(vec2(u_wind*kk,1.));vec2 perp=vec2(-dir.y,dir.x);\n'+
+' float len=H*(spd*.042+.004)*(.9+.2*seed);\n'+
+' float oof=smoothstep(.93,.97,d);\n'+
+' float hw=(.5+1.0*pow(d,1.2))*u_dpr*(1.+4.5*oof);float pad=hw*1.6;\n'+
+' int vid=gl_VertexID;float t=float(vid&1);float ac=float(vid>>1)*2.-1.;\n'+
+' vec2 P=head+dir*pad-dir*(len+2.*pad)*t+perp*ac*hw*1.9;\n'+
+' v_q=vec2(t,ac);\n'+
+' float hv=hash(a.w*7.1+a.z*3.3);\n'+
+' float base=mix(.05,.42,pow(d,1.35))*(.4+.6*hv);\n'+
+' float glint=pow(max(0.,sin(u_t*(2.+seed*3.)+seed*60.)),16.)*step(.4,d)*.9;\n'+
+' float xc=clamp(xs,0.,1.);float sd=(xc-u_um)*asp;\n'+
+' float shaft=1.+exp(-sd*sd/(2.*.04*.04))*1.5;\n'+
+' v_a=(base*shaft+glint*base*2.)*smoothstep(yl,yl-.02,y)*smoothstep(0.,.07,y)*(1.-.93*oof)*(1.+tw*1.4);\n'+
+' v_col=hsv(hueOf(xc),.74-.42*d*d,1.);\n'+
+' gl_Position=vec4(P.x/W*2.-1.,1.-P.y/H*2.,0.,1.);}',
+'#version 300 es\nprecision highp float;in vec2 v_q;in vec3 v_col;in float v_a;out vec4 o;\n'+
+'void main(){float acr=exp(-v_q.y*v_q.y*3.2);\n'+
+' float al=pow(max(1.-v_q.x,0.),.7)*smoothstep(0.,.1,v_q.x)*smoothstep(1.,.9,v_q.x);\n'+
+' o=vec4(v_col*acr*al*v_a,1.);}');
 
-// ---------- 玉ボケ ----------
-var bokP=prog(
-'#version 300 es\nprecision highp float;\nlayout(location=0) in vec4 a;\nuniform float u_t,u_dpr,u_hue,u_h;\nout vec3 v_col;out float v_a;\n'+COMMON+
-'void main(){float sd=fract(a.w*9.1);float y=fract(a.y+u_t*(.008+.02*sd));\n'+
-' float x=a.x+sin(u_t*.07+a.w*20.)*.03;\n'+
-' v_col=hsv(hueOf(fract(x)),.75,1.);v_a=(.03+.05*sd)*smoothstep(0.,.1,y)*smoothstep(1.,.8,y);\n'+
-' gl_PointSize=min(a.z*u_dpr*u_h/900.,240.);gl_Position=vec4(fract(x)*2.-1.,1.-2.*y,0.,1.);}',
-'#version 300 es\nprecision highp float;in vec3 v_col;in float v_a;out vec4 o;\n'+
-'void main(){vec2 q=gl_PointCoord*2.-1.;float r=length(q);if(r>1.)discard;\n'+
-' float disc=smoothstep(1.,.86,r)*(.45+.55*smoothstep(.15,.95,r));\n'+
-' o=vec4(v_col*disc*v_a,1.);}');
-
-// ---------- 頂点データ ----------
+// ---------- 頂点データ(雨粒の層: 奥〜手前) ----------
 function rnd(){return Math.random();}
-var C=300,dotsArr=[],N0=0;
+var rainArr=[],NR=0;
 (function build(){
-  for(var c=0;c<C;c++){
-    var colx=(c+.15+rnd()*.7)/C;
-    var depth=Math.pow(rnd(),1.25);
-    var n=Math.round(40+rnd()*80);var off=rnd();var sd=rnd();
-    for(var i=0;i<n;i++){dotsArr.push(colx,depth,(i+ (rnd()-.5)*.25)/n+off,sd+i*.0001);N0++;}
-  }
+  var L=[[6200,0,.35],[2200,.35,.7],[300,.7,.93],[36,.95,1]];
+  for(var l=0;l<L.length;l++){for(var i=0;i<L[l][0];i++){rainArr.push(rnd(),L[l][1]+rnd()*(L[l][2]-L[l][1]),rnd(),rnd());NR++;}}
 })();
-var dotBuf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,dotBuf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(dotsArr),gl.STATIC_DRAW);
-var bokArr=[];var NB=64;for(var b=0;b<NB;b++){bokArr.push(rnd(),rnd(),30+Math.pow(rnd(),2)*130,rnd());}
-var bokBuf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,bokBuf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(bokArr),gl.STATIC_DRAW);
+var rainBuf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,rainBuf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(rainArr),gl.STATIC_DRAW);
 var quad=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,quad);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
 var vaoBg=gl.createVertexArray();gl.bindVertexArray(vaoBg);gl.bindBuffer(gl.ARRAY_BUFFER,quad);gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
-var vaoDot=gl.createVertexArray();gl.bindVertexArray(vaoDot);gl.bindBuffer(gl.ARRAY_BUFFER,dotBuf);gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,4,gl.FLOAT,false,0,0);
-var vaoBok=gl.createVertexArray();gl.bindVertexArray(vaoBok);gl.bindBuffer(gl.ARRAY_BUFFER,bokBuf);gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,4,gl.FLOAT,false,0,0);
+var vaoRain=gl.createVertexArray();gl.bindVertexArray(vaoRain);gl.bindBuffer(gl.ARRAY_BUFFER,rainBuf);gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,4,gl.FLOAT,false,0,0);gl.vertexAttribDivisor(0,1);
 
 // ---------- 時刻 ----------
 var tOff=0;
 if(Q.get('t')){var m=Q.get('t').split(':');var tgt=new Date();tgt.setHours(+m[0]||0,+m[1]||0,+m[2]||0,0);tOff=tgt.getTime()-Date.now();}
 var t0=performance.now();
-function nowDate(){var ms=Date.now()+tOff;if(FAST)ms=Date.now()*6+tOff;return new Date(ms);}
+function nowDate(){return new Date(Date.now()+tOff);}
 
 // ---------- 画面サイズ・描画 ----------
 var dpr=Math.min(2,window.devicePixelRatio||1),qscale=1,W=0,H=0;
@@ -179,16 +180,17 @@ function frame(now){
   hueV+=(hueT-hueV)*(1-Math.exp(-dt*1.6));
   var d=nowDate();var sec=d.getSeconds()+d.getMilliseconds()/1000;var mn=d.getMinutes();
   var t=(now-t0)/1000;
+  var wind=.075+.05*Math.sin(t*.13)+.03*Math.sin(t*.41+1.);   // 風(ゆっくり強弱する)
+  var um=(mn+sec/60)/60;
   gl.viewport(0,0,W,H);gl.disable(gl.BLEND);
   gl.useProgram(bgP.p);gl.bindVertexArray(vaoBg);
-  gl.uniform2f(bgP.u.u_res,W,H);gl.uniform1f(bgP.u.u_t,t);gl.uniform1f(bgP.u.u_sec,sec);gl.uniform1f(bgP.u.u_min,mn);gl.uniform1f(bgP.u.u_hue,hueV);gl.uniform1f(bgP.u.u_dpr,W/innerWidth);
+  gl.uniform2f(bgP.u.u_res,W,H);gl.uniform1f(bgP.u.u_t,t);gl.uniform1f(bgP.u.u_sec,sec);gl.uniform1f(bgP.u.u_min,mn);gl.uniform1f(bgP.u.u_hue,hueV);
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
   gl.enable(gl.BLEND);gl.blendFunc(gl.ONE,gl.ONE);
-  var s=H/innerHeight;
-  gl.useProgram(dotP.p);gl.bindVertexArray(vaoDot);
-  gl.uniform1f(dotP.u.u_t,t);gl.uniform1f(dotP.u.u_dpr,W/innerWidth);gl.uniform1f(dotP.u.u_hue,hueV);gl.uniform1f(dotP.u.u_asp,W/H);
-  gl.uniform3f(dotP.u.u_p,touch.x,touch.y,touch.s);
-  gl.drawArrays(gl.POINTS,0,N0);
+  gl.useProgram(rainP.p);gl.bindVertexArray(vaoRain);
+  gl.uniform2f(rainP.u.u_res,W,H);gl.uniform1f(rainP.u.u_t,t);gl.uniform1f(rainP.u.u_dpr,W/innerWidth);gl.uniform1f(rainP.u.u_hue,hueV);
+  gl.uniform1f(rainP.u.u_wind,wind);gl.uniform1f(rainP.u.u_um,um);gl.uniform3f(rainP.u.u_p,touch.x,touch.y,touch.s);
+  gl.drawArraysInstanced(gl.TRIANGLE_STRIP,0,4,NR);
   frames++;acc+=dt;if(frames===90){if(acc/90>.021&&qscale>.6){qscale*=.85;resize();}frames=0;acc=0;}
   requestAnimationFrame(frame);}
 requestAnimationFrame(function(n){last=n;frame(n);});
@@ -216,9 +218,8 @@ APKit.init({
     {label:'↻',name:'reset',onClick:function(){hueV=hueV-Math.round(hueV);hueT=0;}}   // 虹を元の並びに戻す
   ]
 });
-showHint('光の雨が降りつづける<br>横幅が 0〜59 の目盛り<br>立ちのぼる光の柱=分 / 落ちてくる光の玉=秒<br>なぞると光の糸が揺れる',9000);
-// 確認用(画面には出ない)
-window.__qr={count:N0};
+showHint('虹色の灯りに照らされた雨<br>横幅が 0〜59 の目盛り<br>光の柱=分 / 地面に大きな波紋を広げる一滴=秒<br>なぞると雨が流れる',9000);
+window.__qr={count:NR};
 })();
 </script>
 </body>
