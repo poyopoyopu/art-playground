@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<!-- THREE BODIES(仮) — クロちゃん(Claude)作の試作。2026/11/27 おっちゃん依頼「軌道を作品に」(案A: 八の字の崩壊)。ap-kit.js統合: クロちゃん -->
+<!-- 世界の法則: 万有引力だけ。3つの星が1本の八の字の道を追いかけ合って回る(Chenciner-Montgomery の八の字解)。
+     3つの星の重さをほんの少し不揃いにしてあるので、八の字は少しずつ崩れる。崩れ方に乱数は使わない(式を積分しているだけ)。
+     崩れる時間は事前にPythonとNodeで確かめた(1周=6秒): 不揃い量0.03%(既定)なら、八の字がほどけ始めるのが約3分(176秒)、数十秒でほぐれて絡み、星が飛び出すのが約5分(292秒)。
+     不揃い量0.015〜0.05%の範囲だと、ほどけ始め2.5〜4分・飛び出し3.5〜7分(0.02%など飛び出さない場合もあり、その場合は12分で新しい八の字に戻す)。0%なら12分たっても崩れない。
+     残像は星の通った跡そのもの(過去10秒ぶんの位置を持ち、古いほど薄い)。薄く残る八の字は、崩れていない世界(同じ式で重さが等しいとき)の軌道。
+     色: 星ごとに青・緑・マゼンタ、全体の色相は15分で一周(いまの時刻で決まる)。時計表示は ap-kit の🕐。
+     触ると: いちばん近い星を指から遠ざける向きにはじく。はじいた星は八の字に戻らない。
+     確認用: ?fast=1 で6倍速 / ?eps=0.005 で不揃い量 / ?skip=180 で180秒ぶん先へ進めた状態から始める。2D canvas・音なし・Wake Lock -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>THREE BODIES — 3つの星が描く八の字は、いつか崩れる</title>
+<script src="../ap-kit.js"></script>
+<style>
+html,body{margin:0;height:100%;background:#020309;overflow:hidden}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#hint{position:fixed;left:0;right:0;bottom:22%;text-align:center;color:rgba(255,255,255,.85);font:13px/1.8 -apple-system,"Hiragino Sans",sans-serif;letter-spacing:.08em;pointer-events:none;opacity:0;transition:opacity 1.2s}
+#hint.on{opacity:1}
+html,body,canvas{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div id="hint"></div>
+<script>
+(function(){
+'use strict';
+
+//<<PHYS
+var T0=6.3259, SOFT2=0.02*0.02;
+var K1=new Float64Array(12),K2=new Float64Array(12),K3=new Float64Array(12),K4=new Float64Array(12),TMP=new Float64Array(12);
+function deriv(y,m,out){
+  var i,j,k,ax,ay,dx,dy,r2,inv;
+  for(k=0;k<6;k++)out[k]=y[6+k];
+  for(i=0;i<3;i++){
+    ax=0;ay=0;
+    for(j=0;j<3;j++){
+      if(j===i)continue;
+      dx=y[2*j]-y[2*i];dy=y[2*j+1]-y[2*i+1];
+      r2=dx*dx+dy*dy+SOFT2;
+      inv=m[j]/(r2*Math.sqrt(r2));
+      ax+=dx*inv;ay+=dy*inv;
+    }
+    out[6+2*i]=ax;out[7+2*i]=ay;
+  }
+}
+function rk4(y,m,h){
+  var k;
+  deriv(y,m,K1);
+  for(k=0;k<12;k++)TMP[k]=y[k]+.5*h*K1[k];
+  deriv(TMP,m,K2);
+  for(k=0;k<12;k++)TMP[k]=y[k]+.5*h*K2[k];
+  deriv(TMP,m,K3);
+  for(k=0;k<12;k++)TMP[k]=y[k]+h*K3[k];
+  deriv(TMP,m,K4);
+  for(k=0;k<12;k++)y[k]+=h/6*(K1[k]+2*K2[k]+2*K3[k]+K4[k]);
+}
+function makeState(eps){
+  var m=[1,1,1+eps], y=new Float64Array(12), k;
+  var X1=[-0.97000436,0.24308753], V3=[-0.93240737,-0.86473146];
+  y[0]=X1[0];y[1]=X1[1];y[2]=-X1[0];y[3]=-X1[1];y[4]=0;y[5]=0;
+  y[6]=-V3[0]/2;y[7]=-V3[1]/2;y[8]=-V3[0]/2;y[9]=-V3[1]/2;y[10]=V3[0];y[11]=V3[1];
+  var M=m[0]+m[1]+m[2], cx=0,cy=0,vx=0,vy=0;
+  for(k=0;k<3;k++){cx+=m[k]*y[2*k];cy+=m[k]*y[2*k+1];vx+=m[k]*y[6+2*k];vy+=m[k]*y[7+2*k];}
+  cx/=M;cy/=M;vx/=M;vy/=M;
+  for(k=0;k<3;k++){y[2*k]-=cx;y[2*k+1]-=cy;y[6+2*k]-=vx;y[7+2*k]-=vy;}
+  return {m:m,y:y};
+}
+function advance(S,h,hook){
+  var y=S.y,m=S.m,guard=0,dt,dmin,vmax,d,v,i,j,dx,dy;
+  while(h>1e-9&&guard++<900){
+    dmin=1e9;vmax=0;
+    for(i=0;i<3;i++){
+      v=Math.sqrt(y[6+2*i]*y[6+2*i]+y[7+2*i]*y[7+2*i]);if(v>vmax)vmax=v;
+      for(j=i+1;j<3;j++){dx=y[2*j]-y[2*i];dy=y[2*j+1]-y[2*i+1];d=Math.sqrt(dx*dx+dy*dy);if(d<dmin)dmin=d;}
+    }
+    dt=Math.min(h,0.004,0.05*dmin/(vmax+0.3));
+    if(dt<1e-4)dt=Math.min(h,1e-4);
+    rk4(y,m,dt);h-=dt;
+    if(hook)hook(S);
+  }
+}
+//>>PHYS
+
+// ---- 設定 ----
+var Q=new URLSearchParams(location.search);
+var FAST=Q.get('fast')==='1'?6:1;
+var PERIOD=6;                       // 八の字1周の秒数
+var K=T0/PERIOD;                    // 1秒あたりに進む式の中の時間
+var EPS_DEFAULT=0.0003;             // 3番目の星だけ0.03%重い。約3分で八の字がほどけ始め、約5分で星が飛び出す(Nodeで測定)
+var epsQ=parseFloat(Q.get('eps'));
+var eps=isFinite(epsQ)&&epsQ>=0?epsQ:EPS_DEFAULT;
+var SKIP=Math.max(0,parseFloat(Q.get('skip'))||0);
+var TL=10;                          // 残像の長さ(秒)
+var LIFE=720;                       // 始まりから何秒で新しい八の字に戻すか
+var NPTS=3000, NG=22;
+var HUE_BODY=[215,145,318];
+
+var cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+var hintEl=document.getElementById('hint');
+var W=0,H=0,dpr=1,bg=null;
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth;H=window.innerHeight;
+  cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);
+  var g=ctx.createRadialGradient(cv.width/2,cv.height/2,0,cv.width/2,cv.height/2,Math.max(cv.width,cv.height)*.65);
+  g.addColorStop(0,'#080a1c');g.addColorStop(1,'#020309');
+  bg=g;
+}
+window.addEventListener('resize',resize);resize();
+
+// ---- 軌跡 ----
+function Trail(){this.x=new Float32Array(NPTS);this.y=new Float32Array(NPTS);this.t=new Float64Array(NPTS);this.h=0;this.n=0;}
+Trail.prototype.push=function(x,y,t){
+  var idx=(this.h+this.n)%NPTS;
+  this.x[idx]=x;this.y[idx]=y;this.t[idx]=t;
+  if(this.n<NPTS)this.n++;else this.h=(this.h+1)%NPTS;
+};
+Trail.prototype.trim=function(now){while(this.n>0&&now-this.t[this.h]>TL){this.h=(this.h+1)%NPTS;this.n--;}};
+Trail.prototype.last=function(){var idx=(this.h+this.n-1)%NPTS;return idx;};
+
+var S, trails=[new Trail(),new Trail(),new Trail()];
+var clock=0, elapsed=0, hueSeed=Math.random()*360;
+var vis=0, fadeState='in', fadeT=0;
+var sc=0, scInit=false;
+var bodyScr=[{x:0,y:0},{x:0,y:0},{x:0,y:0}];
+var rings=[];
+
+function pushPoints(){
+  var y=S.y,i,tr,li;
+  for(i=0;i<3;i++){
+    tr=trails[i];
+    if(tr.n>0){
+      li=tr.last();
+      var dx=y[2*i]-tr.x[li],dy=y[2*i+1]-tr.y[li];
+      if(dx*dx+dy*dy<0.0035*0.0035)continue;
+    }
+    tr.push(y[2*i],y[2*i+1],clock);
+  }
+}
+
+// 崩れていない世界の軌道(同じ式・重さが等しいとき)
+var ideal=[];
+(function(){
+  var I=makeState(0),t=0,dt=0.01,n=Math.ceil(T0/dt)+2,i;
+  for(i=0;i<n;i++){ideal.push(I.y[0],I.y[1]);advance(I,dt);}
+})();
+
+function restart(newEps){
+  if(newEps!==undefined)eps=newEps;
+  S=makeState(eps);
+  trails.forEach(function(t){t.h=0;t.n=0;});
+  elapsed=0;
+  pushPoints();
+}
+restart();
+
+// ---- 画面の変換 ----
+function view(){
+  var port=H>W;
+  var halfLong=(port?H:W)/2*.8, halfShort=(port?W:H)/2*.8;
+  var ex=0.45,ey=0.3,i,X,Y,L,Sh,r;
+  for(i=0;i<3;i++){
+    X=S.y[2*i];Y=S.y[2*i+1];
+    r=Math.sqrt(X*X+Y*Y);if(r>6)continue;
+    L=Math.abs(X);Sh=Math.abs(Y);
+    if(L>ex)ex=L;if(Sh>ey)ey=Sh;
+  }
+  var target=Math.min(halfLong/(ex*1.12+.15),halfShort/(ey*1.12+.15));
+  return {port:port,target:target};
+}
+function stepView(dt,v){
+  if(!scInit){sc=v.target;scInit=true;return;}
+  var rate=v.target<sc?1.6:.25;
+  sc*=Math.exp(Math.log(v.target/sc)*(1-Math.exp(-rate*dt)));
+}
+function toScreen(X,Y,port){
+  return port?{x:W/2+Y*sc,y:H/2+X*sc}:{x:W/2+X*sc,y:H/2-Y*sc};
+}
+
+// ---- 1コマ進める ----
+function step(dtReal){
+  clock+=dtReal;elapsed+=dtReal;
+  if(fadeState==='in'){fadeT+=dtReal;vis=Math.min(1,fadeT/1.4);if(vis>=1){fadeState='run';}}
+  else if(fadeState==='out'){fadeT+=dtReal;vis=Math.max(0,1-fadeT/1.2);if(vis<=0){restart();fadeState='in';fadeT=0;}}
+  advance(S,dtReal*K,pushPoints);
+  trails.forEach(function(t){t.trim(clock);});
+  if(fadeState==='run'){
+    var i,r,lost=false;
+    for(i=0;i<3;i++){r=Math.sqrt(S.y[2*i]*S.y[2*i]+S.y[2*i+1]*S.y[2*i+1]);if(r>22)lost=true;}
+    if(lost||elapsed>LIFE){fadeState='out';fadeT=0;}
+  }
+}
+
+// ---- 描画 ----
+function hsl(h,s,l,a){return 'hsla('+(((h%360)+360)%360).toFixed(1)+','+s+'%,'+l+'%,'+a.toFixed(3)+')';}
+function hueNow(){return ((Date.now()/1000)%900)/900*360+hueSeed*0;}
+function draw(){
+  var v=view(),port=v.port,i,g,k;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.globalCompositeOperation='source-over';
+  ctx.globalAlpha=1;
+  ctx.save();ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle=bg;ctx.fillRect(0,0,cv.width,cv.height);ctx.restore();
+
+  // 崩れていない八の字(うすく)
+  ctx.lineWidth=1;ctx.strokeStyle='rgba(150,170,255,'+(0.10*vis).toFixed(3)+')';
+  ctx.beginPath();
+  for(k=0;k<ideal.length;k+=2){
+    var p=toScreen(ideal[k],ideal[k+1],port);
+    if(k===0)ctx.moveTo(p.x,p.y);else ctx.lineTo(p.x,p.y);
+  }
+  ctx.closePath();ctx.stroke();
+
+  ctx.globalCompositeOperation='lighter';
+  ctx.lineCap='butt';ctx.lineJoin='round';
+  var hue0=hueNow()+hueSeed;
+  for(i=0;i<3;i++){
+    var tr=trails[i],n=tr.n;
+    if(n<2)continue;
+    for(g=0;g<NG;g++){
+      var i0=Math.floor(g*n/NG), i1=Math.min(n-1,Math.floor((g+1)*n/NG));   // 隣の組と端の点だけ共有(重ねると接ぎ目が明るく点に見える)
+      if(i1<=i0)continue;
+      var mid=(i0+i1)>>1, midIdx=(tr.h+mid)%NPTS;
+      var age=(clock-tr.t[midIdx])/TL; if(age<0)age=0;if(age>1)continue;
+      var a=Math.pow(1-age,1.5)*vis;
+      var hh=hue0+HUE_BODY[i]-age*70;
+      var j,p0;
+      for(var pass=0;pass<3;pass++){
+        ctx.beginPath();
+        for(j=i0;j<=i1;j++){
+          var idx=(tr.h+j)%NPTS;
+          p0=toScreen(tr.x[idx],tr.y[idx],port);
+          if(j===i0)ctx.moveTo(p0.x,p0.y);else ctx.lineTo(p0.x,p0.y);
+        }
+        if(pass===0){ctx.lineWidth=22;ctx.strokeStyle=hsl(hh,100,50,a*.035);}
+        else if(pass===1){ctx.lineWidth=9;ctx.strokeStyle=hsl(hh,100,55,a*.11);}
+        else{ctx.lineWidth=2.1;ctx.strokeStyle=hsl(hh,95,68,a*.95);}
+        ctx.stroke();
+      }
+    }
+  }
+  // 星の頭
+  for(i=0;i<3;i++){
+    var q=toScreen(S.y[2*i],S.y[2*i+1],port);
+    bodyScr[i].x=q.x;bodyScr[i].y=q.y;
+    var hb=hue0+HUE_BODY[i], rad=17*Math.cbrt(S.m[i]);
+    g=ctx.createRadialGradient(q.x,q.y,0,q.x,q.y,rad);
+    g.addColorStop(0,hsl(hb,100,93,vis));
+    g.addColorStop(.22,hsl(hb,100,68,.6*vis));
+    g.addColorStop(1,hsl(hb,100,50,0));
+    ctx.fillStyle=g;
+    ctx.beginPath();ctx.arc(q.x,q.y,rad,0,6.2832);ctx.fill();
+  }
+  // はじいた波紋
+  for(i=rings.length-1;i>=0;i--){
+    var rg=rings[i],ra=(clock-rg.t)/0.8;
+    if(ra>=1){rings.splice(i,1);continue;}
+    ctx.lineWidth=1.6;ctx.strokeStyle=hsl(hue0+HUE_BODY[rg.b],90,75,(1-ra)*.7*vis);
+    ctx.beginPath();ctx.arc(rg.x,rg.y,6+ra*46,0,6.2832);ctx.stroke();
+  }
+  ctx.globalCompositeOperation='source-over';
+}
+
+// ---- 触る: いちばん近い星を指から遠ざける向きにはじく ----
+function kick(x,y){
+  var best=0,bd=1e12,i,d;
+  for(i=0;i<3;i++){d=Math.hypot(bodyScr[i].x-x,bodyScr[i].y-y);if(d<bd){bd=d;best=i;}}
+  var dx=bodyScr[best].x-x,dy=bodyScr[best].y-y,L=Math.hypot(dx,dy)||1;
+  dx/=L;dy/=L;
+  var port=H>W,X,Y;
+  if(port){X=dy;Y=dx;}else{X=dx;Y=-dy;}
+  S.y[6+2*best]+=X*0.32;S.y[7+2*best]+=Y*0.32;
+  rings.push({x:bodyScr[best].x,y:bodyScr[best].y,t:clock,b:best});
+}
+window.addEventListener('pointerdown',function(e){
+  if(window.APKit&&APKit.isUI(e.clientX,e.clientY))return;
+  if(fadeState!=='run')return;
+  kick(e.clientX,e.clientY);
+});
+
+// ---- ヒント・Wake Lock ----
+function showHint(html,ms){
+  hintEl.innerHTML=html;hintEl.classList.add('on');
+  setTimeout(function(){hintEl.classList.remove('on');},ms);
+}
+var wl=null;
+function lockScreen(){try{if(navigator.wakeLock&&document.visibilityState==='visible')navigator.wakeLock.request('screen').then(function(l){wl=l;}).catch(function(){});}catch(e){}}
+document.addEventListener('visibilitychange',lockScreen);lockScreen();
+
+// ---- 先送り(確認用) ----
+if(SKIP>0){
+  var sk=0,fd=1/60;
+  while(sk<SKIP){step(fd);var vv=view();stepView(fd,vv);sk+=fd;}
+}
+
+// ---- ループ ----
+var last=0;
+function frame(ts){
+  var dt=last?Math.min(.05,(ts-last)/1000):1/60;last=ts;
+  var n=FAST>1?FAST:1,s;
+  for(s=0;s<n;s++)step(dt);
+  stepView(dt,view());
+  draw();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+APKit.init({
+  canvas:cv, gifName:'three-bodies-loop', clockFormat:'spec',
+  dock:true, autoHide:true, fullscreenButton:false,
+  buttons:[
+    {label:'✦',name:'mutate',onClick:function(){   // 重さの不揃い量と色を変えて、新しい八の字から
+      hueSeed=Math.random()*360;
+      eps=0.00015+Math.random()*0.00025;
+      fadeState='out';fadeT=0;
+    }},
+    {label:'↻',name:'reset',onClick:function(){fadeState='out';fadeT=0;}}   // 同じ設定で、八の字から
+  ]
+});
+showHint('3つの星は、重力だけで八の字を描く<br>重さがほんの少し違うので、少しずつ崩れていく<br><br>タップで星をはじく',9000);
+})();
+</script>
+</body>
+</html>
