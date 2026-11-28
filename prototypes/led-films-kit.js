@@ -4,6 +4,7 @@
    使い方:
      var kit=LEDFilms.init({canvas:cv, draw:function(t,dt){ kit.films[L].ctx に描く(L=0が一番奥、4が一番手前) }});
      kit.GX, kit.GY … 膜のLEDの数(横・縦)。描く座標は左上が(0,0)
+     neutralTint:true … 膜ごとの色味を付けない(作品側の色をそのまま出す)
      kit.flash … 0〜1。全部の膜のLEDを白くほのかに光らせる(稲光など)
      kit.spread … 0〜1。膜どうしの奥行きを広げる
      kit.toGrid(clientX,clientY) … 画面の座標を一番手前の膜のLED座標に
@@ -68,7 +69,7 @@ var LEDFilms={init:function(o){
   function pick(L,first){var z=L/4,f=FP[L]||{};
     f.ts=(L===4?rr(1.02,1.08):rr(.9,1.2));f.tr=(L===4?rr(-.025,.025):rr(-.12,.12));
     f.tox=rr(-6,6)*(1-z*.7);f.toy=rr(-4,4)*(1-z*.7);f.tb=rr(.7,1.15);
-    var hue=Math.random();f.tt=[.82+.3*Math.max(0,Math.cos(6.283*hue)),.82+.3*Math.max(0,Math.cos(6.283*(hue-.33))),.82+.3*Math.max(0,Math.cos(6.283*(hue-.67)))];
+    var hue=Math.random();f.tt=o.neutralTint?[1,1,1]:[.82+.3*Math.max(0,Math.cos(6.283*hue)),.82+.3*Math.max(0,Math.cos(6.283*(hue-.33))),.82+.3*Math.max(0,Math.cos(6.283*(hue-.67)))];
     f.next=rr(8,25);if(first){f.s=f.ts;f.r=f.tr;f.ox=f.tox;f.oy=f.toy;f.b=f.tb;f.t3=f.tt.slice();f.ev=0;f.evT=rr(4,20);f.evK=0;}
     FP[L]=f;}
   for(var Lp=0;Lp<NF;Lp++)pick(Lp,true);

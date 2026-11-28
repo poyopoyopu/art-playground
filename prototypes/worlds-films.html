@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<!-- FIVE WORLDS(仮) — クロちゃん(Claude)作の試作。2026/11/28 おっちゃん「幕毎に違う世界にして欲しいだよ」。ap-kit.js統合: クロちゃん -->
+<!-- 透明なLED膜5枚(led-films-kit.js)に、1枚ずつまったく別の世界が映っていて、透けて重なる。
+     膜0(一番奥)=宇宙: 星がゆっくり流れ、ときどき流れ星。空の色は時間帯。
+     膜1=夜の海: 水平線から手前へ、横に流れる光の波頭が何列も。月明かりのきらめきの帯。
+     膜2=街: ビルの窓の灯りが点いたり消えたりする(夜ほど多く灯る)。道を白いライト(右へ)と赤いライト(左へ)が流れる。
+     膜3=鳥の群れ: ボイドの群れ。群れの高さ=分(正時は低く、30分は高く)。
+     膜4(一番手前)=雨: 斜めの雨。ときどき稲光が全部の世界を一瞬照らす。
+     時計(なんとなく): 街の窓の灯りの数と空の色=時間帯、鳥の群れの高さ=分。
+     タップ=そこに稲光、鳥が逃げる。✦=街と星を作り直す / ↻=鳥の群れを散らす。確認用: ?t=HH:MM:SS。WebGL2・音なし -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>FIVE WORLDS — 5枚の膜に、5つの世界が重なる</title>
+<script src="../ap-kit.js"></script>
+<script src="led-films-kit.js"></script>
+<style>
+html,body{margin:0;height:100%;background:#000;overflow:hidden}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#hint{position:fixed;left:0;right:0;bottom:24%;text-align:center;color:rgba(255,255,255,.88);font:13px/1.8 -apple-system,"Hiragino Sans",sans-serif;letter-spacing:.08em;pointer-events:none;opacity:0;transition:opacity 1.2s;text-shadow:0 0 12px #000,0 0 4px #000}
+#hint.on{opacity:1}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint"></div>
+<script>
+(function(){
+var cv=document.getElementById('c'),hintEl=document.getElementById('hint');
+function rnd(a,b){return a+Math.random()*(b-a);}
+var stars=[],shoot=null,nextShoot=6,bld=[],cars=[],birds=[],drops=[],bolt=null,flash=0,touch={x:-9,y:-9,on:0},GX=1,GY=1;
+function makeStars(){stars=[];for(var i=0;i<150;i++)stars.push({x:Math.random(),y:Math.random(),b:rnd(.25,1),p:rnd(0,6.3),c:Math.random()});}
+function makeCity(){bld=[];var x=0;while(x<1){var w=rnd(.05,.12),h=rnd(.12,.42);var win=[];var cols=Math.max(2,Math.floor(w*GX/2)),rows=Math.max(3,Math.floor(h*GY/2.5));
+  for(var r=0;r<rows;r++)for(var c=0;c<cols;c++)win.push({c:c,r:r,on:Math.random()<.4,tt:rnd(0,20),warm:Math.random()});
+  bld.push({x:x,w:w,h:h,cols:cols,rows:rows,win:win,tall:h>.36});x+=w+rnd(.004,.02);}
+  cars=[];for(var k=0;k<26;k++)cars.push({x:Math.random(),dir:k%2?1:-1,v:rnd(.05,.12)});}
+function makeBirds(){birds=[];for(var i=0;i<90;i++)birds.push({x:rnd(.3,.7),y:rnd(.3,.6),vx:rnd(-.1,.1),vy:rnd(-.1,.1)});}
+function makeRain(){drops=[];for(var i=0;i<110;i++)drops.push({x:Math.random(),y:Math.random(),v:rnd(.7,1.1)});}
+function skyCol(h){var K=[[0,[6,8,34]],[4.5,[8,10,40]],[6,[80,50,90]],[7.5,[40,70,120]],[12,[30,80,140]],[16.5,[60,70,120]],[17.8,[150,70,60]],[19,[40,25,70]],[24,[6,8,34]]];
+  for(var i=0;i<K.length-1;i++)if(h>=K[i][0]&&h<=K[i+1][0]){var f=(h-K[i][0])/(K[i+1][0]-K[i][0]);return K[i][1].map(function(v,j){return v+(K[i+1][1][j]-v)*f;});}return K[0][1];}
+function setup(k){GX=k.GX;GY=k.GY;makeStars();makeCity();makeBirds();makeRain();}
+
+var kit=LEDFilms.init({canvas:cv,onResize:setup,neutralTint:true,draw:function(t,dt,k){
+  var d=k.now(),hr=d.getHours()+d.getMinutes()/60,mn=d.getMinutes()+d.getSeconds()/60;
+  var night=Math.max(0,Math.min(1,(Math.abs(hr-12.5)-4.5)/2));   // 夜ほど1
+  var F=k.films,c;
+  // ---- 膜0: 宇宙 ----
+  c=F[0].ctx;var sky=skyCol(hr);c.globalCompositeOperation='source-over';
+  var g=c.createLinearGradient(0,0,0,GY);g.addColorStop(0,'rgb('+(sky[0]*.25|0)+','+(sky[1]*.25|0)+','+(sky[2]*.3|0)+')');g.addColorStop(1,'rgb('+(sky[0]*.6|0)+','+(sky[1]*.6|0)+','+(sky[2]*.6|0)+')');
+  c.fillStyle=g;c.fillRect(0,0,GX,GY);c.globalCompositeOperation='lighter';
+  for(var i=0;i<stars.length;i++){var S=stars[i];S.x-=dt*.004;S.y+=dt*.002;if(S.x<0)S.x+=1;if(S.y>1)S.y-=1;
+    var a=S.b*(.45+.55*Math.sin(t*(1+S.c*2)+S.p))*(.35+.65*night);c.fillStyle=S.c<.2?'rgba(255,210,170,'+a+')':S.c<.4?'rgba(170,200,255,'+a+')':'rgba(235,238,255,'+a+')';c.fillRect(S.x*GX|0,S.y*GY|0,1,1);}
+  nextShoot-=dt;if(nextShoot<=0){shoot={x:rnd(.2,1),y:rnd(0,.4),vx:-rnd(.35,.6),vy:rnd(.12,.25),life:1};nextShoot=rnd(8,22);}
+  if(shoot){shoot.x+=shoot.vx*dt;shoot.y+=shoot.vy*dt;shoot.life-=dt*.9;var lg=c.createLinearGradient(shoot.x*GX,shoot.y*GY,(shoot.x-shoot.vx*.25)*GX,(shoot.y-shoot.vy*.25)*GY);
+    lg.addColorStop(0,'rgba(255,255,255,'+Math.max(0,shoot.life)+')');lg.addColorStop(1,'rgba(150,180,255,0)');c.strokeStyle=lg;c.lineWidth=1;c.beginPath();c.moveTo(shoot.x*GX,shoot.y*GY);c.lineTo((shoot.x-shoot.vx*.25)*GX,(shoot.y-shoot.vy*.25)*GY);c.stroke();if(shoot.life<=0)shoot=null;}
+  // ---- 膜1: 夜の海 ----
+  c=F[1].ctx;c.globalCompositeOperation='source-over';c.clearRect(0,0,GX,GY);c.globalCompositeOperation='lighter';
+  var hz=.58,mx=.68;
+  for(var r=0;r<26;r++){var f=r/25,y=hz+(1-hz)*Math.pow(f,1.7);var yy=y*GY|0;var fr=.9-.6*f,sp=.6+1.6*f;
+    for(var x=0;x<GX;x++){var xn=x/GX;var w=Math.sin(xn*GX*fr*.18+t*sp+r*2.1)+.6*Math.sin(xn*GX*fr*.07-t*sp*.6+r);var crest=Math.pow(Math.max(0,w/1.6),6);
+      var glit=Math.exp(-Math.pow((xn-mx)/(.04+.12*f),2))*Math.pow(Math.max(0,Math.sin(x*1.7+t*6+r*3)),12)*(.4+.6*night);
+      var b=crest*(.5+.9*f)+glit*1.2;if(b>.03){c.fillStyle='rgba('+(70+120*glit|0)+','+(150+60*glit|0)+',255,'+Math.min(1,b)+')';c.fillRect(x,yy,1,1);}}}
+  // ---- 膜2: 街 ----
+  c=F[2].ctx;c.globalCompositeOperation='source-over';c.clearRect(0,0,GX,GY);c.globalCompositeOperation='lighter';
+  var base=.84,onP=.12+.75*night;
+  for(var bi=0;bi<bld.length;bi++){var B=bld[bi],x0=B.x*GX,top=(base-B.h)*GY;
+    for(var wi=0;wi<B.win.length;wi++){var W=B.win[wi];W.tt-=dt;if(W.tt<=0){W.on=Math.random()<onP;W.tt=rnd(4,30);}
+      if(W.on){var wx=x0+1+W.c*2,wy=top+1+W.r*2.5;if(wx<GX){c.fillStyle=W.warm<.7?'rgba(255,200,120,.75)':'rgba(190,220,255,.7)';c.fillRect(wx|0,wy|0,1,1);}}}
+    if(B.tall&&Math.sin(t*3+bi)>.6){c.fillStyle='rgba(255,40,40,.95)';c.fillRect((x0+B.cols)|0,(top-1)|0,1,1);}}
+  for(var ci=0;ci<cars.length;ci++){var C=cars[ci];C.x+=C.dir*C.v*dt;if(C.x>1.05)C.x-=1.1;if(C.x<-.05)C.x+=1.1;
+    var cy=(base+(C.dir>0?.025:.045))*GY|0;c.fillStyle=C.dir>0?'rgba(255,250,230,.95)':'rgba(255,60,50,.9)';c.fillRect(C.x*GX|0,cy,1,1);
+    c.fillStyle=C.dir>0?'rgba(255,250,230,.35)':'rgba(255,60,50,.3)';c.fillRect((C.x*GX-C.dir*2)|0,cy,2,1);}
+  // ---- 膜3: 鳥の群れ ----
+  c=F[3].ctx;c.globalCompositeOperation='destination-out';c.fillStyle='rgba(0,0,0,'+Math.min(1,.35*dt*60)+')';c.fillRect(0,0,GX,GY);c.globalCompositeOperation='lighter';
+  var hy=.75-.5*(1-Math.abs(mn/30-1)),Tx=.5+.33*Math.sin(t*.12)+.07*Math.sin(t*.37),Ty=hy+.08*Math.sin(t*.2),sdt=Math.min(dt,.04);
+  for(var bi2=0;bi2<birds.length;bi2++){var b1=birds[bi2],ax=0,ay=0,cx=0,cyy=0,vx=0,vy=0,n=0,sx=0,sy=0;
+    for(var j=0;j<birds.length;j++){if(j===bi2)continue;var o=birds[j],dx=o.x-b1.x,dy=o.y-b1.y,dd=Math.hypot(dx,dy);if(dd<.12){n++;cx+=dx;cyy+=dy;vx+=o.vx;vy+=o.vy;if(dd<.045){var ff=(.045-dd)/.045/(dd+1e-4);sx-=dx*ff;sy-=dy*ff;}}}
+    if(n){ax+=cx/n*1+(vx/n-b1.vx)*1.4;ay+=cyy/n*1+(vy/n-b1.vy)*1.4;}ax+=sx*2.2;ay+=sy*2.2;
+    var gx=Tx-b1.x,gy=Ty-b1.y,gd=Math.hypot(gx,gy)+1e-4,gk=Math.min(gd,.25)/gd*.45;ax+=gx*gk;ay+=gy*gk;
+    if(b1.x<.05)ax+=(.05-b1.x)*9;if(b1.x>.95)ax-=(b1.x-.95)*9;if(b1.y<.05)ay+=(.05-b1.y)*9;if(b1.y>.95)ay-=(b1.y-.95)*9;
+    if(touch.on){var tx=b1.x-touch.x,ty=b1.y-touch.y,td=Math.hypot(tx,ty);if(td<.22){var ft=(.22-td)/.22*4/(td+.01);ax+=tx*ft;ay+=ty*ft;}}
+    b1.vx+=ax*sdt;b1.vy+=ay*sdt;var sp2=Math.hypot(b1.vx,b1.vy);if(sp2>.32){b1.vx*=.32/sp2;b1.vy*=.32/sp2;}if(sp2<.12){b1.vx*=.12/(sp2+1e-5);b1.vy*=.12/(sp2+1e-5);}}
+  for(var bi3=0;bi3<birds.length;bi3++){var e=birds[bi3];e.x+=e.vx*sdt;e.y+=e.vy*sdt;var s3=Math.hypot(e.vx,e.vy)+1e-5;
+    c.strokeStyle='rgba(255,120,200,.55)';c.lineWidth=1;c.beginPath();c.moveTo(e.x*GX,e.y*GY);c.lineTo(e.x*GX-e.vx/s3*2.2,e.y*GY-e.vy/s3*2.2);c.stroke();
+    c.fillStyle='rgba(255,200,235,.7)';c.fillRect(e.x*GX-.5,e.y*GY-.5,1,1);}
+  // ---- 膜4: 雨と稲光 ----
+  c=F[4].ctx;c.globalCompositeOperation='source-over';c.clearRect(0,0,GX,GY);c.globalCompositeOperation='lighter';
+  c.strokeStyle='rgba(170,190,235,.38)';c.lineWidth=1;c.beginPath();
+  for(var di=0;di<drops.length;di++){var D=drops[di];D.y+=dt*D.v*1.5;D.x+=dt*D.v*.25;if(D.y>1.05){D.y-=1.1;D.x=Math.random();}if(D.x>1.05)D.x-=1.1;
+    c.moveTo(D.x*GX,D.y*GY);c.lineTo(D.x*GX-1.2,D.y*GY-6*D.v);}c.stroke();
+  if(!bolt&&Math.random()<dt/14)bolt={x:rnd(.15,.85),life:1,seed:Math.random()};
+  if(bolt){if(bolt.life===1)flash=1;bolt.life-=dt*2.2;var bx=bolt.x*GX,by=0;c.strokeStyle='rgba(235,240,255,'+Math.max(0,bolt.life)+')';c.lineWidth=1.2;c.beginPath();c.moveTo(bx,by);
+    var sd=bolt.seed;while(by<GY*.7){sd=(sd*9301+49297)%233280/233280;bx+=(sd-.5)*6;by+=2+sd*4;c.lineTo(bx,by);}c.stroke();if(bolt.life<=0)bolt=null;}
+  flash*=Math.exp(-dt*6);k.flash=flash*.6;
+}});
+if(!kit.ok){hintEl.innerHTML='このブラウザではWebGL2が使えません';hintEl.classList.add('on');return;}
+function setT(e){var g=kit.toGrid(e.clientX,e.clientY);touch.x=g.x/kit.GX;touch.y=g.y/kit.GY;}
+addEventListener('pointerdown',function(e){if(window.APKit&&APKit.isUI&&APKit.isUI(e.clientX,e.clientY))return;touch.on=1;setT(e);bolt={x:touch.x,life:1,seed:Math.random()};});
+addEventListener('pointermove',function(e){if(touch.on)setT(e);});
+addEventListener('pointerup',function(){touch.on=0;});addEventListener('pointercancel',function(){touch.on=0;});
+var hintTimer=0;function showHint(h,ms){hintEl.innerHTML=h;hintEl.classList.add('on');clearTimeout(hintTimer);hintTimer=setTimeout(function(){hintEl.classList.remove('on');},ms);}
+APKit.init({canvas:cv,gifName:'worlds-films-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,
+  buttons:[{label:'✦',name:'mutate',onClick:function(){makeCity();makeStars();}},{label:'↻',name:'reset',onClick:function(){makeBirds();}}]});
+showHint('5枚の膜に、宇宙・海・街・鳥・雨<br>街の灯りと空の色=時間帯 / 鳥の高さ=分<br>タップ=稲光',8000);
+})();
+</script>
+</body>
+</html>
