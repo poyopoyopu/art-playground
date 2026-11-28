@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<!-- FIVE LAWS(仮) — クロちゃん(Claude)作の試作。2026/11/28 おっちゃん「幕毎に法則を別にするってのはどう？雨じゃないのよ」→「正直イメージが分からない」ので、案A(結晶/ライフゲーム/波の干渉/群れ/振り子の波)を実物で見せる。ap-kit.js統合: クロちゃん -->
+<!-- 2026/11/28 おっちゃん「自然の方法則がいいな」→ 案B(自然の力)に入れ替え: 膜0=潮(水位が1時間かけて満ち、正時前に一気に引く。水位=分)、膜1=対流(下で温まった粒が赤く昇り、冷えて青く沈む。セルの数がゆっくり変わる)、膜2=渦の列(横棒の障害物の後ろから互い違いに渦が生まれ、煙のような粒が渦の列を描いて流れる)、膜3=放電(上から枝分かれしながら走る、4〜9秒おき)、膜4=砂山の崩れ(崩れる寸前の砂の面に、ばらばらな場所へ1粒ずつ落ち、4粒で四方へ崩れて雪崩が連鎖。砂そのものは見せず、崩れた所だけが白→橙に光って消える)。触る=砂をどさっと落とす・渦が生まれる。✦=放電 / ↻=やり直し。下の説明は案Aの旧仕様。 -->
+<!-- 透明なLED膜5枚(led-films-kit.js)に、1枚ずつ別の法則で動くものが映り、透けて重なる。どれも乱数で絵を描かず、法則から形が出る。
+     膜0(一番奥)=結晶: 漂う粒がくっついて枝分かれした結晶が育つ(拡散律速凝集)。1時間かけて育ち、正時に消えて種から育ち直す(大きさ=1時間のどのあたりか)。
+     膜1=ライフゲーム: 周りに生きたLEDが3つなら生まれ、2〜3つなら生き残る。止まったらまた種をまく。
+     膜2=波の干渉: ゆっくり動く2つの波源の波が重なり、強め合う所だけ縞になって光る。
+     膜3=群れ: 光の鳥のボイド(近くに合わせる・ぶつからない・離れすぎない)。
+     膜4(一番手前)=振り子の波: 長さが少しずつ違う30個の振り子。ばらけて波や渦の形を作り、毎分0秒にぴたりと一列に揃う(=分の区切り)。
+     ボタン: 「1」=膜を1枚ずつ単独で見る(押すたびに次の膜→全部に戻る)。✦=結晶とライフゲームを種からやり直す / ↻=群れを散らす。触る=鳥が逃げ、ライフゲームに種がまかれる。確認用: ?t=HH:MM:SS / ?solo=0〜4。WebGL2・音なし -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>FIVE LAWS — 5枚の膜が、5つの自然の法則で動く</title>
+<script src="../ap-kit.js"></script>
+<script src="led-films-kit.js"></script>
+<style>
+html,body{margin:0;height:100%;background:#000;overflow:hidden}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#hint{position:fixed;left:0;right:0;bottom:24%;text-align:center;color:rgba(255,255,255,.9);font:13px/1.8 -apple-system,"Hiragino Sans",sans-serif;letter-spacing:.08em;pointer-events:none;opacity:0;transition:opacity 1s;text-shadow:0 0 12px #000,0 0 4px #000}
+#hint.on{opacity:1}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint"></div>
+<script>
+(function(){
+var cv=document.getElementById('c'),hintEl=document.getElementById('hint');
+function rnd(a,b){return a+Math.random()*(b-a);}
+var GX=1,GY=1,Q=new URLSearchParams(location.search),solo=Q.get('solo')!==null?+Q.get('solo'):-1;
+var NAMES=['潮(1時間かけて満ち、正時に引く)','対流(温まると昇り、冷えると沈む)','渦の列(障害物の後ろに互い違いの渦)','放電(電気が枝分かれして走る)','砂山の崩れ(1粒で大小の雪崩が連鎖する)'];
+// ---- 対流の粒 ----
+var conv=[];
+function makeConv(){conv=[];for(var i=0;i<420;i++)conv.push({x:Math.random(),y:Math.random(),a:Math.random()});}
+// ---- 渦の列 ----
+var vort=[],trc=[],shedT=0,shedSign=1;
+// ---- 放電 ----
+var dis=null,nextDis=2;
+function makeDischarge(){var x0=rnd(.2,.8),pts=[{x:x0,y:-.02}],segs=[];
+  function grow(x,y,ang,len,depth,br){var px=x,py=y;for(var i=0;i<len;i++){ang+=rnd(-.5,.5);ang=ang*.85+Math.PI/2*.15;var nx=px+Math.cos(ang)*.012,ny=py+Math.sin(ang)*.012;segs.push({x1:px,y1:py,x2:nx,y2:ny,o:ny,b:br});px=nx;py=ny;
+      if(depth<3&&Math.random()<.06)grow(px,py,ang+rnd(-1,1),Math.floor(len*.4),depth+1,br*.6);if(py>1.02)break;}}
+  grow(x0,-.02,Math.PI/2,120,0,1);return {segs:segs,t:0};}
+// ---- 砂山(2×2のLEDで1マス) ----
+var SW,SH,sand,topl,sandN=0,lastMin=-1;
+function resetSand(){sand=new Uint8Array(SW*SH);topl=new Float32Array(SW*SH).fill(-99);sandN=0;for(var i=0;i<SW*SH;i++)sand[i]=Math.floor(Math.random()*3.6);}   // 崩れる寸前の状態から始める
+var touch={x:-9,y:-9,on:0},waveImg=null;
+function setup(k){GX=k.GX;GY=k.GY;makeConv();vort=[];trc=[];SW=Math.ceil(GX/2);SH=Math.ceil(GY/2);resetSand();}
+// 対流の流れ(セルの数がゆっくり変わる)
+function convVel(x,y,t,out){var nc=3+Math.sin(t*.02)*.8,kx=Math.PI*nc,ky=Math.PI;var ph=t*.03;
+  out[0]=-Math.sin(kx*x+ph)*Math.cos(ky*y)*.06*kx/ky*.35;out[1]=Math.cos(kx*x+ph)*Math.sin(ky*y)*.06;}
+
+var kit=LEDFilms.init({canvas:cv,onResize:setup,neutralTint:true,draw:function(t,dt,k){
+  var d=k.now(),sec=d.getSeconds()+d.getMilliseconds()/1000,mn=d.getMinutes()+sec/60,F=k.films,c,i,j,x,y;
+  // ===== 膜0: 潮(水位=分) =====
+  c=F[0].ctx;c.globalCompositeOperation='source-over';c.fillStyle='#000';c.fillRect(0,0,GX,GY);
+  var lvl=mn<59.2?.92-.78*(mn/59.2):.14+.78*((mn-59.2)/.8);   // 正時は低く、1時間かけて満ち、最後の1分弱で一気に引く
+  for(x=0;x<GX;x++){var xn=x/GX,sy=(lvl+.012*Math.sin(xn*14+t*1.3)+.008*Math.sin(xn*31-t*2.1))*GY;
+    c.fillStyle='rgba(150,210,255,.9)';c.fillRect(x,Math.round(sy),1,1);
+    var g=c.createLinearGradient(0,sy+1,0,GY);g.addColorStop(0,'rgba(40,110,200,.5)');g.addColorStop(1,'rgba(10,30,90,.35)');c.fillStyle=g;c.fillRect(x,Math.round(sy)+1,1,GY);}
+  c.globalCompositeOperation='lighter';for(i=0;i<40;i++){var gx2=(i*37.7%GX),gy2=lvl*GY+3+((i*53.3+t*4)%Math.max(1,GY*(1-lvl)-4));var tw=Math.max(0,Math.sin(t*3+i*2.3));c.fillStyle='rgba(170,225,255,'+(.5*tw*tw)+')';c.fillRect(gx2|0,gy2|0,1,1);}
+  // ===== 膜1: 対流 =====
+  c=F[1].ctx;c.globalCompositeOperation='destination-out';c.fillStyle='rgba(0,0,0,'+Math.min(1,.12*dt*60)+')';c.fillRect(0,0,GX,GY);c.globalCompositeOperation='lighter';
+  var vv=[0,0];for(i=0;i<conv.length;i++){var P=conv[i];convVel(P.x,P.y,t,vv);P.x+=vv[0]*dt*3;P.y+=vv[1]*dt*3;P.x+=(Math.random()-.5)*.002;P.y+=(Math.random()-.5)*.002;
+    if(P.x<0)P.x+=1;if(P.x>1)P.x-=1;if(P.y<.01)P.y=.01;if(P.y>.99)P.y=.99;
+    var up=-vv[1]/.06;var hot=Math.max(0,Math.min(1,.5+up*.6+(P.y-.5)*.8));   // 下ほど熱く、昇るほど赤い
+    c.fillStyle='rgba('+(80+175*hot|0)+','+(70+80*(1-Math.abs(hot-.5)*2)|0)+','+(255-200*hot|0)+',.6)';c.fillRect(P.x*GX|0,P.y*GY|0,1,1);}
+  // ===== 膜2: 渦の列 =====
+  c=F[2].ctx;c.globalCompositeOperation='destination-out';c.fillStyle='rgba(0,0,0,'+Math.min(1,.1*dt*60)+')';c.fillRect(0,0,GX,GY);c.globalCompositeOperation='lighter';
+  var ox=.5,oy=.16,U=.09;shedT+=dt;if(shedT>1.6){shedT=0;vort.push({x:ox+.035*shedSign,y:oy+.03,g:.0042*shedSign});shedSign=-shedSign;}
+  for(i=0;i<6;i++)trc.push({x:ox+(Math.random()<.5?-.03:.03)+rnd(-.006,.006),y:oy+rnd(0,.01),life:1});
+  function vel(px,py){var ux=0,uy=U;for(var q=0;q<vort.length;q++){var V=vort[q],dx=px-V.x,dy=(py-V.y)*GY/GX,r2=dx*dx+dy*dy+.0004;ux+=-V.g*dy/r2;uy+=V.g*dx/r2;}return [ux,uy];}
+  for(i=vort.length-1;i>=0;i--){var V=vort[i],u=vel(V.x,V.y);V.x+=u[0]*dt*.5;V.y+=(U*.8)*dt;V.g*=Math.exp(-dt*.05);if(V.y>1.1)vort.splice(i,1);}
+  for(i=trc.length-1;i>=0;i--){var T=trc[i],u2=vel(T.x,T.y);T.x+=u2[0]*dt;T.y+=u2[1]*dt;T.life-=dt*.06;if(T.y>1.05||T.life<=0){trc.splice(i,1);continue;}
+    c.fillStyle='rgba(90,240,220,'+(.35*T.life)+')';c.fillRect(T.x*GX|0,T.y*GY|0,1,1);}
+  if(trc.length>2600)trc.splice(0,trc.length-2600);
+  c.fillStyle='rgba(200,255,250,.9)';c.fillRect(Math.round(ox*GX)-2,Math.round(oy*GY),5,2);   // 障害物(横棒)
+  // ===== 膜3: 放電 =====
+  c=F[3].ctx;c.globalCompositeOperation='destination-out';c.fillStyle='rgba(0,0,0,'+Math.min(1,.18*dt*60)+')';c.fillRect(0,0,GX,GY);c.globalCompositeOperation='lighter';
+  nextDis-=dt;if(nextDis<=0&&!dis){dis=makeDischarge();nextDis=rnd(4,9);}
+  if(dis){dis.t+=dt;var front=dis.t/.5;c.lineWidth=1;
+    for(i=0;i<dis.segs.length;i++){var S=dis.segs[i];if(S.o>front*1.05||S.drawn)continue;S.drawn=1;c.strokeStyle='rgba(200,150,255,'+(.8*S.b)+')';c.beginPath();c.moveTo(S.x1*GX,S.y1*GY);c.lineTo(S.x2*GX,S.y2*GY);c.stroke();}
+    if(front>1.2)dis=null;}
+  // ===== 膜4: 砂山の崩れ =====
+  for(var a2=0;a2<3;a2++){var rx=1+Math.floor(Math.random()*(SW-2)),ry=1+Math.floor(Math.random()*(SH-2));sand[ry*SW+rx]++;}   // ばらばらな場所に1粒ずつ落ちる
+  var it=0,moved=true;while(moved&&it<2){moved=false;it++;
+    for(y=1;y<SH-1;y++)for(x=1;x<SW-1;x++){var id=y*SW+x;if(sand[id]>=4){sand[id]-=4;sand[id-1]++;sand[id+1]++;sand[id-SW]++;sand[id+SW]++;topl[id]=t;moved=true;}}}
+  c=F[4].ctx;c.globalCompositeOperation='source-over';c.clearRect(0,0,GX,GY);c.globalCompositeOperation='lighter';
+  var COL=['','rgba(60,30,10,.35)','rgba(140,70,25,.4)','rgba(230,150,60,.45)'];
+  for(y=0;y<SH;y++)for(x=0;x<SW;x++){var id3=y*SW+x,hgt=Math.min(3,sand[id3]),fl=Math.exp(-(t-topl[id3])*3);
+    if(hgt===3&&fl<.05&&((x*7+y*13)%23===0)){c.fillStyle='rgba(200,120,50,.18)';c.fillRect(x*2,y*2,2,2);}if(fl>.04){c.fillStyle=fl>.5?'rgba(255,245,215,'+(.8*fl)+')':'rgba(255,150,60,'+(1.2*fl)+')';c.fillRect(x*2,y*2,2,2);}}
+  // ===== 1枚ずつ見る =====
+  if(solo>=0)for(var L=0;L<5;L++)if(L!==solo){F[L].ctx.globalCompositeOperation='source-over';F[L].ctx.clearRect(0,0,GX,GY);}
+}});
+if(!kit.ok){hintEl.innerHTML='このブラウザではWebGL2が使えません';hintEl.classList.add('on');return;}
+function setT(e){var g=kit.toGrid(e.clientX,e.clientY);touch.x=g.x/kit.GX;touch.y=g.y/kit.GY;}
+addEventListener('pointerdown',function(e){if(window.APKit&&APKit.isUI&&APKit.isUI(e.clientX,e.clientY))return;touch.on=1;setT(e);
+  var sx=Math.floor(touch.x*SW),sy=Math.floor(touch.y*SH);if(sx>0&&sy>0&&sx<SW-1&&sy<SH-1){sand[sy*SW+sx]+=40;}   // 触った所に砂をどさっと落とす
+  vort.push({x:touch.x,y:touch.y,g:.006*(Math.random()<.5?-1:1)});});   // 渦も1つ生まれる
+addEventListener('pointermove',function(e){if(touch.on)setT(e);});
+addEventListener('pointerup',function(){touch.on=0;});addEventListener('pointercancel',function(){touch.on=0;});
+var hintTimer=0;function showHint(h,ms){hintEl.innerHTML=h;hintEl.classList.add('on');clearTimeout(hintTimer);hintTimer=setTimeout(function(){hintEl.classList.remove('on');},ms);}
+APKit.init({canvas:cv,gifName:'laws-films-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,
+  buttons:[{label:'1',name:'solo',onClick:function(){solo=solo>=4?-1:solo+1;showHint(solo<0?'5枚ぜんぶ':('膜'+(solo+1)+'枚目: '+NAMES[solo]),3500);}},
+           {label:'✦',name:'mutate',onClick:function(){dis=makeDischarge();}},{label:'↻',name:'reset',onClick:function(){resetSand();makeConv();vort=[];trc=[];}}]});
+showHint('5枚の膜が、それぞれ別の自然の法則で動く<br>奥から 潮 / 対流 / 渦の列 / 放電 / 砂山の崩れ<br>潮の高さ=分 / 下の「1」で1枚ずつ見られる',9000);
+})();
+</script>
+</body>
+</html>
