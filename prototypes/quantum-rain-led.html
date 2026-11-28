@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <!-- QUANTUM RAIN LED(仮) — クロちゃん(Claude)作の試作。2026/11/28 おっちゃん「この細かいLEDパネルを使った美しいのか欲しいな」→「LEDの光の雨」を選択。ap-kit.js統合: クロちゃん -->
+<!-- 2026/11/28 おっちゃん「これの方がマシだ」→「膜ごとに別の雨の世界に」: 膜0=青紫の細かい霧雨(ゆっくり漂う)、膜1=下から上へ昇る金色の光、膜2=右下へ長く斜めに降るシアンの雨、膜3=左へ強く流れるマゼンタの雨、膜4=今までの虹色のまっすぐな雨(光の柱=分・白い一滴=秒もここ)。 -->
 <!-- 2026/11/28 おっちゃん「枚数増えたんだからもっと面白いことしてよ」→ ①毎分0秒、5枚の膜が奥へ広がりながら少しずつ違う向きにねじれ、LEDの格子が重なってモアレが出る(約17秒で戻る。?m=1で常にねじれた状態) ②10秒ごとに光の脈が奥の膜から手前の膜へ通り抜ける ③なぞると視点が動いて膜どうしが前後にずれる(離すとゆっくり戻る)。タップの光の輪はそのまま。 -->
 <!-- 2026/11/28 おっちゃん「このLEDまくが、5枚透過してる感じにして」→ 透明なLED膜を5枚、奥へ重ねた。奥の膜ほど小さく暗く粒が少しぼけ、ゆっくり大きく揺れる(視差)。雨は膜ごとに別々に降り、すき間から後ろの膜が透ける。一番奥の膜に虹色の霞と光だまり、一番手前の膜に光の柱(分)・白い一滴(秒)・なぞった光の輪。膜のふちがうっすら光る。 -->
 <!-- 画面は細かい四角いLED(約4px角)が並んだ1枚のパネル。絵をぼかして写すのではなく、LED1粒ずつの点灯を直接決める(黒はくっきり消灯)。
@@ -65,18 +66,24 @@ var ledP=prog(VS,
 ' vec2 p=q/s+ctr+sway;\n'+
 ' if(p.x<0.||p.y<0.||p.x>u_res.x||p.y>u_res.y)return vec3(0.);\n'+
 ' vec2 cid=floor(p/u_cell);vec2 f=fract(p/u_cell)-.5;\n'+
-' float c=cid.x,cs=c+L*157.3,r=u_grid.y-1.-cid.y;float xn=(c+.5)/u_grid.x;float yn=r/u_grid.y;\n'+
+' float c=cid.x,r=u_grid.y-1.-cid.y;float xn=(c+.5)/u_grid.x;float yn=r/u_grid.y;\n'+
+// 膜ごとに別の雨の世界: 0=霧雨 1=昇る金の光 2=右へ斜めの雨 3=左へ強く流れる雨 4=虹色のまっすぐな雨
+' int Li=int(L+.5);float slope=Li==2?.55:(Li==3?-1.1:(Li==0?.12:0.));\n'+
+' float rr=Li==1?(u_grid.y-1.-r):r;\n'+
+' float lc=floor(c+slope*rr+.5);float cs=lc+L*157.3;\n'+
+' float SPM=Li==0?.28:(Li==1?.45:(Li==2?1.15:(Li==3?1.35:1.)));float TLM=Li==0?.18:(Li==1?.5:(Li==2?1.5:(Li==3?.9:1.)));float DEN=Li==0?.05:(Li==1?.55:(Li==2?.35:(Li==3?.4:.3)));\n'+
 ' float rain=0.,white=0.;\n'+
-' for(int k=0;k<2;k++){float fk=float(k);if(h1(cs*3.17+fk*11.3)<.3+.15*fk)continue;\n'+
+' for(int k=0;k<2;k++){float fk=float(k);if(h1(cs*3.17+fk*11.3)<DEN+.15*fk)continue;\n'+
 '  float dep=clamp(z+(h1(cs*7.91+fk*5.1)-.5)*.3,0.,1.);\n'+
-'  float spd=mix(6.,30.,dep)*(.85+.3*h1(cs*2.3+fk));float tail=mix(5.,34.,dep)*(.7+.6*h1(cs*4.4+fk*2.));\n'+
+'  float spd=mix(6.,30.,dep)*(.85+.3*h1(cs*2.3+fk))*SPM;float tail=max(1.5,mix(5.,34.,dep)*(.7+.6*h1(cs*4.4+fk*2.))*TLM);\n'+
 '  float per=u_grid.y+tail+u_grid.y*(.2+1.3*h1(cs*9.7+fk*3.));\n'+
-'  float t=u_t*spd+h1(cs*1.3+fk*7.)*per;float head=mod(t,per);float d=head-r;if(d<0.||d>tail)continue;\n'+
-'  float fl=.55+.45*step(.3,h2(vec2(cs*1.7+fk,r+floor(u_t*6.+h1(cs+fk)*9.))));\n'+
+'  float t=u_t*spd+h1(cs*1.3+fk*7.)*per;float head=mod(t,per);float d=head-rr;if(d<0.||d>tail)continue;\n'+
+'  float fl=.55+.45*step(.3,h2(vec2(cs*1.7+fk,rr+floor(u_t*6.+h1(cs+fk)*9.))));\n'+
 '  rain=max(rain,exp(-d/(tail*.32))*fl);white=max(white,step(d,1.));}\n'+
 ' float gs=h2(cid*.73+L*9.1+floor(u_t*1.3+h2(cid+L)*13.));float gp=fract(u_t*1.3+h2(cid+L)*13.);\n'+
 ' float glint=step(.998,gs)*pow(1.-gp,3.)*1.4;\n'+
-' vec3 hc=hsv(hueOf(xn),.85,1.);\n'+
+' float bh=Li==0?.70+.05*xn:(Li==1?.11+.03*sin(xn*6.):(Li==2?.5+.04*xn:(Li==3?.87+.04*xn:hueOf(xn))));\n'+
+' vec3 hc=hsv(Li==4?hueOf(xn):fract(bh),Li==1?.7:.85,1.);\n'+
 ' vec3 col=hc*rain+mix(hc,vec3(1.),.75)*white*rain*1.1+mix(vec3(1.),hc,.4)*glint;\n'+
 ' if(L<.5){\n'+                                                                    // 一番奥の膜: 虹色の霞と下にたまる光
 '  vec2 bp=vec2(xn*2.4,yn*2.4*u_grid.y/u_grid.x);float wq=fbm(bp*.9+vec2(u_t*.03,-u_t*.05));float neb=fbm(bp+vec2(wq*1.6+u_t*.02,wq*1.2-u_t*.04));\n'+
