@@ -231,12 +231,16 @@ FS_HEAD+'uniform sampler2D u_a,u_b,u_c,u_m,u_l,u_l2;uniform vec2 u_inv;uniform f
 ' c=c/(1.+max(c-.8,0.)*.8);o=vec4(c,1.);}');
 // ---------- LEDの粒ごとの明るさ(1粒=1テクセル)。粒の中を9点で拾って平均と最大の間をとり、前のコマから滑らかにつなぐ(点くときは素早く、消えるときは少し残光) ----------
 var cellP=prog('#version 300 es\nlayout(location=0) in vec2 p;void main(){gl_Position=vec4(p,0.,1.);}',
-FS_HEAD+'uniform sampler2D u_a,u_p;uniform vec2 u_inv;uniform vec4 u_xf;uniform float u_cell,u_up,u_dec,u_first;out vec4 o;\n'+
+FS_HEAD+'uniform sampler2D u_a,u_p;uniform vec2 u_inv;uniform vec4 u_xf;uniform float u_cell,u_up,u_dec,u_first,u_rot;out vec4 o;\n'+
 'float hsh(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}\n'+
 'void main(){vec2 cid=floor(gl_FragCoord.xy);vec2 cc=(cid+.5)*u_cell*u_inv*u_xf.xy+u_xf.zw;vec2 st=u_cell*u_inv*u_xf.xy/3.;\n'+
 ' vec3 sm=vec3(0.),mx=vec3(0.);for(int j=-1;j<=1;j++)for(int i=-1;i<=1;i++){vec3 x=texture(u_a,cc+vec2(float(i),float(j))*st).rgb;sm+=x;mx=max(mx,x);}\n'+
 ' vec3 v=mix(sm/9.*1.3,mx,.5);v=pow(max(v-.03,0.),vec3(1.35))*2.2;v*=.92+.16*hsh(cid);\n'+
 ' float lum=max(max(v.r,v.g),v.b);v/=max(lum,1.);\n'+
+' if(abs(u_rot)>.001){vec4 K=vec4(0.,-1./3.,2./3.,-1.);vec4 pp=mix(vec4(v.bg,K.wz),vec4(v.gb,K.xy),step(v.b,v.g));vec4 qq=mix(vec4(pp.xyw,v.r),vec4(v.r,pp.yzx),step(pp.x,v.r));\n'+
+'  float dd=qq.x-min(qq.w,qq.y);vec3 hv=vec3(abs(qq.z+(qq.w-qq.y)/(6.*dd+1e-10)),dd/(qq.x+1e-10),qq.x);\n'+
+'  hv.x=fract(hv.x+u_rot/6.2832);hv.y=max(hv.y,.88);vec3 pq=abs(fract(hv.xxx+vec3(1.,2./3.,1./3.))*6.-3.);v=hv.z*mix(vec3(1.),clamp(pq-1.,0.,1.),hv.y);}\n'+   // 2026/11/28「奥と前で色合いも別に」: 奥の層だけ色相を回す
+
 ' vec3 pv=texelFetch(u_p,ivec2(cid),0).rgb;\n'+
 ' vec3 r=mix(max(v,pv*u_dec),mix(pv,v,u_up),step(pv,v));\n'+
 ' o=vec4(u_first>.5?v:r,1.);}');
@@ -250,11 +254,11 @@ function ensureCellRT(set,cpx){var w=Math.ceil(W/cpx)+1,h=Math.ceil(H/cpx)+1;
   if(set.rt&&set.rt[0].w===w&&set.rt[0].h===h)return;
   if(set.rt)set.rt.forEach(function(r){gl.deleteTexture(r.t);gl.deleteFramebuffer(r.f);});
   set.rt=[mkCellRT(w,h),mkCellRT(w,h)];set.first=true;}
-function runCell(set,cpx,xf,dt){ensureCellRT(set,cpx);var cdst=set.rt[set.idx],csrc=set.rt[1-set.idx];
+function runCell(set,cpx,xf,dt,rot){ensureCellRT(set,cpx);var cdst=set.rt[set.idx],csrc=set.rt[1-set.idx];
   gl.bindFramebuffer(gl.FRAMEBUFFER,cdst.f);gl.viewport(0,0,cdst.w,cdst.h);gl.useProgram(cellP.p);
   gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,RT.sc.t);gl.uniform1i(cellP.u.u_a,0);
   gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,csrc.t);gl.uniform1i(cellP.u.u_p,1);
-  gl.uniform2f(cellP.u.u_inv,1/W,1/H);gl.uniform4f(cellP.u.u_xf,xf[0],xf[1],xf[2],xf[3]);gl.uniform1f(cellP.u.u_cell,cpx);gl.uniform1f(cellP.u.u_up,1-Math.exp(-dt*45));gl.uniform1f(cellP.u.u_dec,Math.exp(-dt*11));gl.uniform1f(cellP.u.u_first,set.first?1:0);
+  gl.uniform2f(cellP.u.u_inv,1/W,1/H);gl.uniform4f(cellP.u.u_xf,xf[0],xf[1],xf[2],xf[3]);gl.uniform1f(cellP.u.u_cell,cpx);gl.uniform1f(cellP.u.u_up,1-Math.exp(-dt*45));gl.uniform1f(cellP.u.u_dec,Math.exp(-dt*11));gl.uniform1f(cellP.u.u_first,set.first?1:0);gl.uniform1f(cellP.u.u_rot,rot||0);
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);set.first=false;set.idx=1-set.idx;}
 function mkRT(w,h){var t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
@@ -330,7 +334,7 @@ addEventListener('resize',resize);resize();
 
 var hueBlk=null,hueT=0,hueV=0,rDir=1,rPh=0,phV=0,phH=0,dirV=1,dirH=1,wH=0,preV=0;var LED=Q.get('led')!=='0';
 var GRAIN=[8.4,12,16,24,4.2,2.1,0,2.1],GNAME=['LEDの粒: 大(約8px)','LEDの粒: 特大(約12px)','LEDの粒: 超特大(約16px)','LEDの粒: 巨大(約24px)','LEDの粒: 中(約4px)','LEDの粒: 小(約2px)','LEDなし(元の描き方)','LEDの粒: 奥=超特大/巨大・前=小か元'],gi=0;   // 2026/11/28「あえて大きくした方がインパクトある」→ 既定は大   // 粒の大きさの見比べ(?cell=4/8/2/0 か下の▦ボタン)
-var dualBack=[16,24].indexOf(+Q.get('back'))>=0?+Q.get('back'):16,dualFront=Q.get('front')==='0'?0:2;   // 二重表示(?cell=dual)の奥の粒の大きさと、前(2=小・0=元)
+var dualBack=[16,24].indexOf(+Q.get('back'))>=0?+Q.get('back'):16,dualFront=Q.get('front')==='0'?0:2,dualHue=Q.get('bh')!==null&&!isNaN(+Q.get('bh'))?+Q.get('bh'):150;   // ?bh=奥の色相のずらし(度)。0で前と同じ色   // 二重表示(?cell=dual)の奥の粒の大きさと、前(2=小・0=元)
 var gAuto=true,gOff=0,AUTO_G=[0,1,2,3,5,6];   // 2026/11/28「7分一周はいかんなー」→ 中(4px)を外して6分で1周(1時間でちょうど10周、毎時0分は大から)   // 2026/11/28「2と元も入れてよ」→ 小(2px)とLEDなしも順番に入れる
    // 2026/11/28「1分おきに大きさを自動で変更にして」→ 毎分、大→特大→超特大→巨大→中 の順に粒が変わる(▦で順番を1つ進める)
 (function(){var c=Q.get('cell');if(c!==null){var k={'8':0,'12':1,'16':2,'24':3,'4':4,'2':5,'0':6,'dual':7}[c];if(k!==undefined){gi=k;gAuto=false;}}})();   // LEDパネル表示(?led=0 で元の描き方)
@@ -387,7 +391,7 @@ function frame(now){
   var cpx=Math.max(2,Math.round(GRAIN[gi]*W/innerWidth)),useLed=LED&&GRAIN[gi]>0;
   if(gi===7)useLed=LED&&dualFront>0;var dual=(gi===7)&&LED;   // 奥=大きい粒・前=小(約2px)か元(LEDなし)を同じ画面に重ねる(?cell=dual&back=16|24&front=2|0。2026/11/28「特大と小は要らない」→奥は超特大(16)か巨大(24)だけ)
   var bcpx=Math.max(2,Math.round(dualBack*W/innerWidth));
-  if(useLed)runCell(cellSets[0],cpx,[1,1,0,0],dt);if(dual)runCell(cellSets[1],bcpx,[.82,.82,.09,.04],dt);
+  if(useLed)runCell(cellSets[0],cpx,[1,1,0,0],dt,0);if(dual)runCell(cellSets[1],bcpx,[.82,.82,.09,.04],dt,dualHue?(dualHue+28*Math.sin(t*.16))*Math.PI/180:0);
   gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.viewport(0,0,W,H);gl.useProgram(compP.p);
   if(useLed){gl.activeTexture(gl.TEXTURE4);gl.bindTexture(gl.TEXTURE_2D,cellSets[0].rt[1-cellSets[0].idx].t);gl.uniform1i(compP.u.u_l,4);}
   gl.uniform1f(compP.u.u_dual,dual?1:0);if(dual){gl.activeTexture(gl.TEXTURE5);gl.bindTexture(gl.TEXTURE_2D,cellSets[1].rt[1-cellSets[1].idx].t);gl.uniform1i(compP.u.u_l2,5);gl.uniform1f(compP.u.u_cell2,bcpx);}
