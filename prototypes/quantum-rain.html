@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <!-- QUANTUM RAIN(仮) — クロちゃん(Claude)作の試作。2026/11/28 おっちゃん依頼(Starkapoo氏の「Quantum Rain」動画)。ap-kit.js統合: クロちゃん -->
+<!-- 2026/11/28 おっちゃん「雲と稲妻は要らんのよ」→ 上の雲と稲光を描かない(コードの計算は残置、描画だけ外した) -->
 <!-- 2026/11/28 おっちゃん「細かい四角いLED panelが沢山あるとして描写してみてよ」→ 最後に、絵を細かい四角いLEDの粒(約4px)の並びで光らせる仕上げを追加。消えたLEDもうっすら見える、粒ごとの明るさのばらつき、明るさは段階的。光のにじみはLEDの外にも漏れる。?led=0 で元の描き方 -->
 <!-- 2026/11/28 おっちゃん「ただの雨だな」→ 毎分、ばらばらに降る雨粒の一部が一瞬で集まって時刻(時・分)の数字になり、しばらく保ってから崩れてまた雨に戻る(量子が「測定」で一つの形に決まる見立て)。
      集まる先は、その分の時刻を画面に描いて拾った点。粒ごとに集まり始めるタイミングがずれる。指でなぞると、数字の粒も散ってまた集まる。確認用: ?g=1 で常に集まった状態。
@@ -97,9 +98,9 @@ var bgP=prog(
 ' float cmask=smoothstep(.55,.04,cy)*smoothstep(.3,.58,cl);\n'+
 ' float rim=max(cl2-cl,0.)*5.5+max(cl-cl2,0.)*1.5;\n'+
 ' vec3 ccol=hsv(hueOf(x),.7,1.);\n'+
-' c+=ccol*cmask*(.09+.55*rim+.16*smoothstep(.3,.7,cl))*(.6+.4*smoothstep(.0,.5,cy));\n'+                    // 虹色の灯りに照らされた雲
+'\n'+                    // 虹色の灯りに照らされた雲
 ' float lg=exp(-(pow((x-u_fx)*asp*1.4,2.)+pow(cy-.18,2.)*7.))*u_fl;\n'+
-' c+=mix(vec3(.75,.8,1.),ccol,.4)*(lg*(.5+cl*1.4)*smoothstep(.5,.05,cy)*1.1+u_fl*.025*cmask);\n'+            // 稲光(雲の中が光る)
+'\n'+            // 稲光(雲の中が光る)
 ' float hz=mix(hash(floor(x*26.)),hash(floor(x*26.)+1.),smoothstep(0.,1.,fract(x*26.)));\n'+
 ' c+=hsv(hueOf(x),.75,1.)*(.012+.03*hz*hz)*(.35+.65*(1.-g))*(.7+.3*sin(u_t*.18+x*8.));\n'+     // 霧に滲む灯りの色
 ' float gnd=smoothstep(.17,.15,g);\n'+                                                            // 地面の帯(g<.16)
@@ -290,7 +291,7 @@ function frame(now){
   var ss=function(a,b,x){x=Math.min(1,Math.max(0,(x-a)/(b-a)));return x*x*(3-2*x);};
   var ge=ss(0,2.8,sec)*(1-ss(20,24,sec));if(Q.get('g')==='1')ge=1;   // 毎分0秒に集まり、20秒ごろから崩れて雨に戻る
   var ev=Math.floor(t/11),eh=hsh(ev),tt=t-ev*11;   // 11秒ごとにくじ。当たると雲の中で稲光(二度またたく)
-  var fl=eh>.35?Math.exp(-Math.pow((tt-1.2)*5,2))+.6*Math.exp(-Math.pow((tt-1.55)*7,2)):0,fx=hsh(ev+3);
+  var fl=0&&eh>.35?Math.exp(-Math.pow((tt-1.2)*5,2))+.6*Math.exp(-Math.pow((tt-1.55)*7,2)):0,fx=hsh(ev+3);
   if(!RT)buildRT();
   gl.bindFramebuffer(gl.FRAMEBUFFER,RT.sc.f);
   gl.viewport(0,0,W,H);gl.disable(gl.BLEND);
