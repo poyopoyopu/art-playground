@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <!-- QUANTUM RAIN(仮) — クロちゃん(Claude)作の試作。2026/11/28 おっちゃん依頼(Starkapoo氏の「Quantum Rain」動画)。ap-kit.js統合: クロちゃん -->
+<!-- 2026/11/28 おっちゃん「もう時刻の表示やめて、1分毎に下からの雨に切り替えてみて」→ 時刻の形は出さない。偶数分は上から降り、奇数分は下から昇る雨。分が変わると約1.6秒で減速して止まり、逆向きに動き出す(?up=1で常に下から) -->
 <!-- 2026/11/28 おっちゃん「微妙だなぁー、違う色で流れるは？」→ 影絵をやめ、時・分の形の所だけ、降っている雨が金色に変わって流れる(雨そのものは止まらない) -->
 <!-- 2026/11/28 おっちゃん「時計の表示がだめだなー」→3案から「雨の隙間で数字が浮かぶ」: 雨が数字に集まる形をやめ、時・分の形の所だけ雨が抜けて暗くなる影絵に(LEDの粒単位で消える、縁は少しぼける)。?g=1で旧版 -->
 <!-- 2026/11/28 おっちゃん「1粒を倍にするとどんな感じかな？粒感を変化したバージョンが見たい」→ 下の▦ボタンでLEDの粒を ふつう(約4px)→倍(約8px)→半分(約2px)→LEDなし と切り替え。?cell=4/8/2/0 でも指定できる -->
@@ -139,12 +140,12 @@ var bgP=prog(
 
 // ---------- 雨粒: 動きでのびた線(1粒=1つの板) ----------
 var rainP=prog(
-'#version 300 es\nprecision highp float;\nlayout(location=0) in vec4 a;\nlayout(location=1) in vec3 b;\nuniform vec2 u_res;uniform float u_t,u_dpr,u_hue,u_wind,u_um,u_fl,u_g;uniform vec3 u_p;\n'+
+'#version 300 es\nprecision highp float;\nlayout(location=0) in vec4 a;\nlayout(location=1) in vec3 b;\nuniform vec2 u_res;uniform float u_t,u_dpr,u_hue,u_wind,u_um,u_fl,u_g,u_ph,u_dir;uniform vec3 u_p;\n'+
 'out vec2 v_q;out vec3 v_col;out float v_a;\n'+COMMON+
 'void main(){\n'+
 ' float d=a.y,seed=fract(a.w*13.7);float W=u_res.x,H=u_res.y,asp=W/H;\n'+
 ' float spd=mix(.3,1.15,d)*(.9+.2*seed);float yl=mix(.84,.985,d);\n'+
-' float y=yl*fract(a.z+u_t*spd/yl);\n'+
+' float y=yl*fract(a.z+u_ph*spd/yl);\n'+   // u_ph=向き付きで進む時間(下からの雨の分は逆に進む)
 ' float kk=.45+.55*d;\n'+
 ' float xw=a.x*1.3-.15;float xs=xw+u_wind*kk*y/asp;\n'+
 ' vec2 head=vec2(xs*W,y*H);\n'+
@@ -153,8 +154,8 @@ var rainP=prog(
 ' head=mix(head,tgt,gi);\n'+
 ' float dxt=xs-u_p.x;float tw=exp(-dxt*dxt/.0144)*u_p.z*exp(-abs(y-u_p.y)*2.6);\n'+
 ' head.x+=sign(dxt)*tw*.05*W*(.4+d);\n'+
-' vec2 dir=normalize(mix(vec2(u_wind*kk,1.),vec2(0.,1.),gi));vec2 perp=vec2(-dir.y,dir.x);\n'+
-' float len=H*(spd*.042+.004)*(.9+.2*seed)*(1.-.94*gi);\n'+
+' vec2 dir=normalize(mix(vec2(u_wind*kk,1.),vec2(0.,1.),gi))*(u_dir<0.?-1.:1.);vec2 perp=vec2(-dir.y,dir.x);\n'+
+' float len=H*(spd*.042*abs(u_dir)+.004)*(.9+.2*seed)*(1.-.94*gi);\n'+
 ' float oof=smoothstep(.93,.97,d);\n'+
 ' float hw=mix((.5+1.0*pow(d,1.2))*u_dpr*(1.+4.5*oof),.95*u_dpr,gi);float pad=hw*1.6;\n'+
 ' int vid=gl_VertexID;float t=float(vid&1);float ac=float(vid>>1)*2.-1.;\n'+
@@ -286,7 +287,7 @@ var dpr=Math.min(2,window.devicePixelRatio||1),qscale=1,W=0,H=0;
 function resize(){var s=dpr*qscale;W=Math.max(2,Math.round(innerWidth*s));H=Math.max(2,Math.round(innerHeight*s));cv.width=W;cv.height=H;if(typeof buildRT==='function'&&gl)buildRT();}
 addEventListener('resize',resize);resize();
 
-var hueT=0,hueV=0;var LED=Q.get('led')!=='0';
+var hueT=0,hueV=0,rDir=1,rPh=0;var LED=Q.get('led')!=='0';
 var GRAIN=[8.4,12,16,24,4.2,2.1,0],GNAME=['LEDの粒: 大(約8px)','LEDの粒: 特大(約12px)','LEDの粒: 超特大(約16px)','LEDの粒: 巨大(約24px)','LEDの粒: 中(約4px)','LEDの粒: 小(約2px)','LEDなし(元の描き方)'],gi=0;   // 2026/11/28「あえて大きくした方がインパクトある」→ 既定は大   // 粒の大きさの見比べ(?cell=4/8/2/0 か下の▦ボタン)
 (function(){var c=Q.get('cell');if(c!==null){var k={'8':0,'12':1,'16':2,'24':3,'4':4,'2':5,'0':6}[c];if(k!==undefined)gi=k;}})();   // LEDパネル表示(?led=0 で元の描き方)
 var touch={x:.5,y:.5,s:0,down:false};
@@ -309,7 +310,9 @@ function frame(now){
   buildTargets(d.getHours(),mn);
   var ss=function(a,b,x){x=Math.min(1,Math.max(0,(x-a)/(b-a)));return x*x*(3-2*x);};
   var ge=0;if(Q.get('g')==='1')ge=1;   // 2026/11/28 雨が数字に集まる形はやめた(?g=1で旧版)。時刻は雨の隙間の影絵で出す
-  var mkS=Q.get('g')==='1'?0:1;   // 毎分0秒に集まり、20秒ごろから崩れて雨に戻る
+  var mkS=0;   // 2026/11/28「もう時刻の表示やめて」→ 時刻の形は出さない
+  // 1分ごとに、上からの雨と下からの雨が入れ替わる(偶数分=下へ、奇数分=上へ)。切り替わりは約1.6秒で減速→止まる→逆へ
+  var dTarget=(d.getMinutes()%2===0)?1:-1;if(Q.get('up')==='1')dTarget=-1;rDir+=(dTarget-rDir)*Math.min(1,dt*2.2);rPh+=dt*rDir;   // 毎分0秒に集まり、20秒ごろから崩れて雨に戻る
   var ev=Math.floor(t/11),eh=hsh(ev),tt=t-ev*11;   // 11秒ごとにくじ。当たると雲の中で稲光(二度またたく)
   var fl=0&&eh>.35?Math.exp(-Math.pow((tt-1.2)*5,2))+.6*Math.exp(-Math.pow((tt-1.55)*7,2)):0,fx=hsh(ev+3);
   if(!RT)buildRT();
@@ -321,7 +324,7 @@ function frame(now){
   gl.enable(gl.BLEND);gl.blendFunc(gl.ONE,gl.ONE);
   gl.useProgram(rainP.p);gl.bindVertexArray(vaoRain);
   gl.uniform2f(rainP.u.u_res,W,H);gl.uniform1f(rainP.u.u_t,t);gl.uniform1f(rainP.u.u_dpr,W/innerWidth);gl.uniform1f(rainP.u.u_hue,hueV);gl.uniform1f(rainP.u.u_fl,fl);gl.uniform1f(rainP.u.u_g,ge);
-  gl.uniform1f(rainP.u.u_wind,wind);gl.uniform1f(rainP.u.u_um,um);gl.uniform3f(rainP.u.u_p,touch.x,touch.y,touch.s);
+  gl.uniform1f(rainP.u.u_wind,wind);gl.uniform1f(rainP.u.u_ph,rPh);gl.uniform1f(rainP.u.u_dir,rDir);gl.uniform1f(rainP.u.u_um,um);gl.uniform3f(rainP.u.u_p,touch.x,touch.y,touch.s);
   gl.drawArraysInstanced(gl.TRIANGLE_STRIP,0,4,NR);
   gl.disable(gl.BLEND);gl.bindVertexArray(vaoBg);
   pass(blurP,RT.sc,RT.q1,3/W,0,.15);pass(blurP,RT.q1,RT.q2,0,1.6/RT.q1.h,0);
@@ -360,7 +363,7 @@ APKit.init({
     {label:'▦',name:'grain',onClick:function(){gi=(gi+1)%GRAIN.length;if(window.APKit&&APKit.toast)APKit.toast(GNAME[gi]);}}   // LEDの粒の大きさを切り替える
   ]
 });
-showHint('降る雨は、毎分ひとつの時刻に決まる<br>横幅が 0〜59 の目盛り(光の柱=分 / 落ちる一滴=秒)<br>なぞると雨も数字も散る',9000);
+showHint('雨は1分ごとに、上から降る雨と下から昇る雨が入れ替わる<br>横幅が 0〜59 の目盛り(光の柱=分 / 落ちる一滴=秒)<br>なぞると雨が散る',9000);
 window.__qr={count:NR};
 })();
 </script>
