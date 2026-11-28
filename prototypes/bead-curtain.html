@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<!-- BEAD CURTAIN(仮) — クロちゃん(Claude)作の試作。2026/11/28 おっちゃん依頼「(Starkapoo氏の元動画と違くなったので)別作品としてやろうか」。ap-kit.js統合: クロちゃん -->
+<!-- 元動画(quantum-rain-starkapoo.mp4)を解析して分かった作り: ①細い糸が縦に並び、糸の位置は動かない(動画でずれを測るとほぼ0) ②糸の上に小さな縦長の玉が点線のように並ぶ ③その玉の明るい塊が糸ごとに違う速さでゆっくり流れ落ちる(降っているのは糸ではなく光) ④奥にピントの外れた丸い光が点在 ⑤色は横位置で決まる(左端=黄緑・橙→赤→マゼンタ→紫→青→シアン→右端=緑) ⑥下ほど糸が明るく、下に虹色のにじみ。
+     この作品はそれを写す: 糸(奥は細く淡く、手前は太く明るい)・玉の点線・流れ落ちる光の塊・ボケた丸い光・下の虹のにじみ。
+     時計: 画面の横幅が0〜59の目盛り。いまの分の位置の糸が光の柱になり(1時間かけて左→右)、毎秒、その秒の位置に明るい一滴が落ちて下で波紋になる。数字・文字は出さない(🕐を押すとap-kitの時計が出る)。
+     ✦=虹の色をずらして光の塊を作り直す / ↻=元に戻す。なぞると、触れた糸に光が走る。確認用: ?t=HH:MM:SS でその時刻から進む、?hue=0〜1 で色をずらす。Canvas 2D・音なし・Wake Lock -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>BEAD CURTAIN — 光の玉が糸を伝って流れ落ちる</title>
+<script src="../ap-kit.js"></script>
+<style>
+html,body{margin:0;height:100%;background:#02020a;overflow:hidden}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#hint{position:fixed;left:0;right:0;bottom:24%;text-align:center;color:rgba(255,255,255,.85);font:13px/1.8 -apple-system,"Hiragino Sans",sans-serif;letter-spacing:.08em;pointer-events:none;opacity:0;transition:opacity 1.2s;text-shadow:0 0 8px #000}
+#hint.on{opacity:1}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint"></div>
+<script>
+(function(){
+var cv=document.getElementById('c');
+var ctx=cv.getContext('2d',{alpha:false});
+var hintEl=document.getElementById('hint');
+var Q=new URLSearchParams(location.search);
+var W=0,H=0,S=1;                                   // W,H=CSS px / S=描画の倍率(canvasのpx÷CSS px)
+var tOff=0;(function(){var t=Q.get('t');if(t){var m=t.match(/^(\d+):(\d+)(?::(\d+))?$/);if(m){var d=new Date();d.setHours(+m[1],+m[2],+(m[3]||0),0);tOff=d-Date.now();}}})();
+function nowDate(){return new Date(Date.now()+tOff);}
+function mulberry(a){return function(){a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+
+// ---------- 横位置→色(元動画の並び。度) ----------
+var PAL=[[0,95],[.05,38],[.11,352],[.24,318],[.38,272],[.55,226],[.78,194],[.92,166],[1,132]];
+function hueAt(x){x=Math.min(1,Math.max(0,x));for(var i=1;i<PAL.length;i++){if(x<=PAL[i][0]){var a=PAL[i-1],b=PAL[i],f=(x-a[0])/(b[0]-a[0]);return a[1]+(b[1]-a[1])*f;}}return PAL[PAL.length-1][1];}
+var hueV=0,hueT=Q.get('hue')?+Q.get('hue'):0,hueDrawn=-9;   // 色のずらし(周=1)。hueVが実際の値、hueTが目標
+
+// ---------- 糸 ----------
+var strands=[],seed=20261128,NS=0;
+function pickStrands(){
+  var rnd=mulberry(seed);strands=[];
+  var gap=W<600?3.7:4.6;NS=Math.round(W/gap);
+  for(var i=0;i<NS;i++){
+    var z=Math.pow(rnd(),1.6);                       // 奥行き 0=奥 1=手前(手前は少なめ)
+    var x=(i+.5+(rnd()-.5)*.9)/NS*W;
+    var p=(3.6+z*5.8+rnd()*1.6)*(z<.3?1.7:1);          // 玉の間隔(奥は淡いので間引いて軽くする)
+    var pk=[];for(var k=0;k<3;k++)pk.push({ph:rnd()*2000,len:40+rnd()*150,v:(18+rnd()*95)*(.55+.9*z)});
+    strands.push({x:x,z:z,p:p,y0:rnd()*p,pk:pk,rank:rnd(),boost:0,by:0,
+      bw:.8+z*1.5,bh:1.15+z*2.1,a:.42+z*.5+rnd()*.15,pil:rnd()<.13,tw:rnd()*6.28,twf:1.2+rnd()*3.5,
+      cLo:'',cHi:'',lg:null,lgP:null});
+  }
+  strands.sort(function(a,b){return a.z-b.z;});     // 奥から手前の順に描く
+}
+function envY(f){                                    // 糸の明るさの縦の変化(上は暗く、下ほど明るい)
+  var u=Math.min(1,Math.max(0,f/.3));u=u*u*(3-2*u);return (.26+.74*u)*(.7+.3*f);
+}
+function recolor(){
+  var hs=hueV*360;
+  for(var i=0;i<strands.length;i++){var s=strands[i];var h=(hueAt(s.x/W)+hs+720)%360;
+    s.cLo='hsl('+h.toFixed(0)+',100%,'+(52+s.z*8).toFixed(0)+'%)';
+    s.cHi='hsl('+h.toFixed(0)+',85%,'+(78+s.z*8).toFixed(0)+'%)';
+    var g=ctx.createLinearGradient(0,0,0,H);
+    var c0='hsla('+h.toFixed(0)+',100%,60%,';
+    g.addColorStop(0,c0+'0)');g.addColorStop(.3,c0+'.07)');g.addColorStop(.7,c0+'.2)');g.addColorStop(1,c0+'.4)');s.lg=g;
+    if(s.pil){var g2=ctx.createLinearGradient(0,0,0,H),c1='hsla('+h.toFixed(0)+',100%,58%,';g2.addColorStop(0,c1+'0)');g2.addColorStop(.35,c1+'.02)');g2.addColorStop(.65,c1+'.1)');g2.addColorStop(1,c1+'.38)');s.lgP=g2;}}
+  for(var j=0;j<sparks.length;j++){var o=sparks[j];var hh=((hueAt(o.x/W)+o.hd+hs)%360+360)%360;o.c='hsl('+hh.toFixed(0)+',100%,'+o.l+'%)';}
+  buildGlow();hueDrawn=hueV;
+}
+
+// ---------- 下の虹のにじみ(低解像度に作って引き伸ばす) ----------
+var glowCv=document.createElement('canvas');glowCv.width=160;glowCv.height=64;var gx=glowCv.getContext('2d');
+var gAmp=[];(function(){var r=mulberry(77),v=.7;for(var i=0;i<160;i++){v+= (r()-.5)*.5;v=Math.min(1.25,Math.max(.25,v));gAmp.push(v);}})();
+function buildGlow(){
+  gx.clearRect(0,0,160,64);var hs=hueV*360;
+  for(var i=0;i<160;i++){var h=(hueAt(i/159)+hs+720)%360,a=gAmp[i];
+    var g=gx.createLinearGradient(0,0,0,64);var c='hsla('+h.toFixed(0)+',100%,56%,';
+    g.addColorStop(0,c+'0)');g.addColorStop(.45,c+(.04*a).toFixed(3)+')');g.addColorStop(.75,c+(.2*a).toFixed(3)+')');g.addColorStop(1,c+(.62*a).toFixed(3)+')');
+    gx.fillStyle=g;gx.fillRect(i,0,1,64);}
+}
+
+// ---------- ボケた丸い光(色ごとの光の玉の絵を用意) ----------
+var sprites=[];(function(){for(var k=0;k<12;k++){var c=document.createElement('canvas');c.width=c.height=64;var x=c.getContext('2d');
+  var g=x.createRadialGradient(32,32,0,32,32,32);var h=k*30;
+  g.addColorStop(0,'hsla('+h+',60%,92%,1)');g.addColorStop(.18,'hsla('+h+',100%,66%,.95)');g.addColorStop(.5,'hsla('+h+',100%,52%,.28)');g.addColorStop(1,'hsla('+h+',100%,50%,0)');
+  x.fillStyle=g;x.fillRect(0,0,64,64);sprites.push(c);}})();
+var sparks=[];
+function pickSparks(){var r=mulberry(seed+31);sparks=[];var n=Math.round(W*H/1500);
+  for(var i=0;i<n;i++){var z=r();sparks.push({x:r()*W,y:r()*H,vy:4+r()*26*(.4+z),tw:r()*6.28,twf:.8+r()*3.4,a:.5+r()*.5,sz:.9+z*1.9,hd:(r()-.5)*50,l:60+Math.round(r()*26),c:''});}}
+var bokeh=[];
+function pickBokeh(){var r=mulberry(seed+9);bokeh=[];var n=Math.round(W*H/4000);
+  for(var i=0;i<n;i++){var z=Math.pow(r(),2.2);var x=r();
+    bokeh.push({x:x*W,y:r()*H,z:z,r:1.3+z*5.2,vy:5+r()*34*(.5+z),tw:r()*6.28,twf:.6+r()*2.2,hd:(r()-.5)*70,
+      st:r()<.2?1.7:1,a:.6+r()*.4});}
+}
+
+// ---------- なぞる ----------
+var touch={on:false,x:0,y:0};
+function onTouch(e){if(window.APKit&&APKit.isUI&&APKit.isUI(e.clientX,e.clientY))return;touch.on=true;touch.x=e.clientX;touch.y=e.clientY;
+  for(var i=0;i<strands.length;i++){var s=strands[i],d=Math.abs(s.x-touch.x);if(d<46){var b=1-d/46;if(b>s.boost){s.boost=b;s.by=touch.y;}}}}
+addEventListener('pointerdown',onTouch);addEventListener('pointermove',function(e){if(e.buttons||e.pointerType==='touch')onTouch(e);});
+addEventListener('pointerup',function(){touch.on=false;});
+
+// ---------- 画面サイズ ----------
+var dprMax=2,qs=1;
+function resize(){var dpr=Math.min(devicePixelRatio||1,dprMax);S=dpr*qs;W=innerWidth;H=innerHeight;cv.width=Math.max(2,Math.round(W*S));cv.height=Math.max(2,Math.round(H*S));
+  pickStrands();pickBokeh();pickSparks();recolor();}
+addEventListener('resize',resize);
+
+// ---------- 毎フレーム ----------
+var last=0,slow=0,density=1,tAcc=0,hueNext=0;
+function frame(now){
+  requestAnimationFrame(frame);
+  var dt=last?Math.min(.1,(now-last)/1000):.016;last=now;tAcc+=dt;
+  // 重い端末は糸の本数を減らす
+  if(dt>.026)slow++;else slow=Math.max(0,slow-1);
+  if(slow>40){density=Math.max(.5,density*.88);slow=0;}
+  // 色: 20秒ごとに少しずつずれる(✦で大きく)。なめらかに追従
+  if(tAcc>hueNext){hueNext=tAcc+20;hueT+=(Math.random()-.4)*.07;}
+  hueV+=(hueT-hueV)*(1-Math.exp(-dt*1.6));if(Math.abs(hueV-hueDrawn)>.0012)recolor();
+
+  var T=now/1000;
+  ctx.setTransform(S,0,0,S,0,0);
+  ctx.globalCompositeOperation='source-over';ctx.globalAlpha=1;ctx.fillStyle='#02020a';ctx.fillRect(0,0,W,H);
+  ctx.globalCompositeOperation='lighter';
+
+  // 下のにじみ
+  ctx.globalAlpha=.85+.15*Math.sin(T*.5);ctx.imageSmoothingEnabled=true;ctx.drawImage(glowCv,0,H*.46,W,H*.54);
+
+  // 時計の位置
+  var d=nowDate(),sec=d.getSeconds(),ms=d.getMilliseconds(),mf=(d.getMinutes()+(sec+ms/1000)/60)/60;
+  var xm=W*(.04+.92*mf);
+
+  // 糸
+  var L=Math.ceil(H/1)+1;
+  for(var i=0;i<strands.length;i++){var s=strands[i];if(s.rank>density)continue;
+    var mDist=Math.abs(s.x-xm),isMin=mDist<7;                      // いまの分の糸
+    var mk=isMin?(1-mDist/7):0;
+    // 細い糸の線
+    ctx.globalAlpha=Math.min(1,.55+s.z*.45+mk*1.2);ctx.fillStyle=s.lg;ctx.fillRect(s.x-(.3+s.z*.35),0,.6+s.z*.7,H);
+    if(s.pil&&s.lgP){ctx.globalAlpha=1;ctx.fillStyle=s.lgP;ctx.fillRect(s.x-(2.5+s.z*5),0,5+s.z*10,H);}
+    // 流れる光の塊の位置
+    var heads=[0,0,0],tot=H+260;
+    for(var k=0;k<3;k++){var q=s.pk[k];heads[k]=((q.ph+q.v*T*(1+s.boost*1.5))%tot)-60;}
+    s.boost*=Math.exp(-dt*1.1);if(s.boost<.01)s.boost=0;
+    var cur='',bw=s.bw,bh=s.bh;
+    var n=Math.ceil(H/s.p)+1;
+    for(var b=0;b<n;b++){var y=s.y0+b*s.p;if(y>H+bh)break;
+      var f=y/H;var e=envY(f);
+      var pl=0;
+      for(var k=0;k<3;k++){var hh=heads[k],q=s.pk[k];var dy=hh-y;
+        if(dy>=0){if(dy<q.len*2.6)pl+=Math.exp(-dy/q.len*2.4);}else if(dy>-9){var u=dy/5;pl+=Math.exp(-u*u);}}
+      if(s.boost>0){var db=(y-s.by)/90;pl+=s.boost*Math.exp(-db*db);}
+      if(isMin)pl+=.5+mk*.8;
+      var tw=.7+.3*Math.sin(T*s.twf+b*1.7+s.tw);
+      var al=(s.a*.8+pl*.95)*e*tw;
+      if(al<.015)continue;
+      var st=pl>.5?s.cHi:s.cLo;if(st!==cur){ctx.fillStyle=st;cur=st;}
+      ctx.globalAlpha=al>1?1:al;
+      var gw=pl>.5?bw*1.25:bw;
+      ctx.fillRect(s.x-gw*.5,y-bh*.5,gw,bh);
+    }
+  }
+
+  // 火花: 画面中に散らばるくっきりした小さな光
+  for(var i=0;i<sparks.length;i++){var o=sparks[i];o.y+=o.vy*dt;if(o.y>H+4){o.y=-3;o.x=Math.random()*W;}
+    var al=o.a*(.45+.55*Math.sin(T*o.twf+o.tw))*(.4+.6*envY(o.y/H));if(al<.05)continue;ctx.globalAlpha=al>1?1:al;ctx.fillStyle=o.c;ctx.fillRect(o.x-o.sz*.5,o.y-o.sz*.65,o.sz,o.sz*1.3);}
+  // ボケた丸い光
+  for(var i=0;i<bokeh.length;i++){var o=bokeh[i];o.y+=o.vy*dt;if(o.y>H+14){o.y=-10;o.x=Math.random()*W;}
+    var f=o.y/H;var tw=.55+.45*Math.sin(T*o.twf+o.tw);var al=o.a*tw*(.35+.65*envY(f));
+    var h=((hueAt(o.x/W)+o.hd+hueV*360)%360+360)%360;var sp=sprites[Math.round(h/30)%12];
+    var rr=o.r*2.5;ctx.globalAlpha=al>1?1:al;ctx.drawImage(sp,o.x-rr,o.y-rr*o.st,rr*2,rr*2*o.st);}
+
+  // 秒の一滴: その秒の位置に落ち、下で波紋になる
+  var xs=W*(.04+.92*(sec/60)),fall=.82,land=H*.93;
+  if(ms<fall*1000){var u=ms/(fall*1000),yy=land*Math.pow(u,1.7);
+    ctx.globalAlpha=.9;var tl=ctx.createLinearGradient(0,yy-70,0,yy);var hs=((hueAt(xs/W)+hueV*360)%360+360)%360;
+    tl.addColorStop(0,'hsla('+hs.toFixed(0)+',100%,70%,0)');tl.addColorStop(1,'hsla('+hs.toFixed(0)+',90%,85%,.9)');ctx.fillStyle=tl;ctx.fillRect(xs-1.1,yy-70,2.2,70);
+    var sp2=sprites[Math.round(hs/30)%12];ctx.globalAlpha=1;ctx.drawImage(sp2,xs-16,yy-16,32,32);
+  }else{var u2=Math.min(1,(ms-fall*1000)/(1000-fall*1000+1100));
+    var hs2=((hueAt(xs/W)+hueV*360)%360+360)%360;ctx.globalAlpha=Math.pow(1-u2,2)*.9;ctx.strokeStyle='hsl('+hs2.toFixed(0)+',90%,70%)';ctx.lineWidth=1.3;
+    ctx.beginPath();ctx.ellipse(xs,land,5+u2*95,1.5+u2*17,0,0,6.2832);ctx.stroke();}
+
+  ctx.globalAlpha=1;
+}
+
+// ---------- 画面を消さない(Wake Lock) ----------
+var wl=null;
+function wake(){if(navigator.wakeLock&&!wl&&document.visibilityState==='visible')navigator.wakeLock.request('screen').then(function(l){wl=l;l.addEventListener('release',function(){wl=null;});}).catch(function(){});}
+wake();document.addEventListener('visibilitychange',wake);addEventListener('pointerdown',wake);
+
+var hintTimer=0;
+function showHint(html,ms){hintEl.innerHTML=html;hintEl.classList.add('on');clearTimeout(hintTimer);hintTimer=setTimeout(function(){hintEl.classList.remove('on');},ms);}
+
+resize();
+APKit.init({
+  canvas:cv, gifName:'bead-curtain-loop', clockFormat:'spec',
+  dock:true, autoHide:true, fullscreenButton:false,
+  buttons:[
+    {label:'✦',name:'mutate',onClick:function(){hueT+=.12+Math.random()*.5;seed=(Math.random()*1e9)|0;pickStrands();pickBokeh();pickSparks();recolor();}},   // 色をずらして光の塊を作り直す
+    {label:'↻',name:'reset',onClick:function(){hueV=hueV-Math.round(hueV);hueT=0;seed=20261128;pickStrands();pickBokeh();pickSparks();recolor();}}   // 元に戻す
+  ]
+});
+showHint('光の玉が糸を伝って流れ落ちる<br>横幅が 0〜59 の目盛り(光の柱=分 / 落ちる一滴=秒)<br>なぞると、触れた糸に光が走る',9000);
+requestAnimationFrame(frame);
+window.__bc={strands:function(){return strands.length;}};
+})();
+</script>
+</body>
+</html>
