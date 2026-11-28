@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!-- QUANTUM RAIN(仮) — クロちゃん(Claude)作の試作。2026/11/28 おっちゃん依頼(Starkapoo氏の「Quantum Rain」動画)。ap-kit.js統合: クロちゃん -->
-<!-- 2026/11/28 おっちゃん「細かい四角いLED panelが沢山あるとして描写してみてよ」→ 最後に、絵を細かい四角いLEDの粒(約4px)の並びで光らせる仕上げを追加。48粒ごとにパネルの継ぎ目、消えたLEDもうっすら見える、粒ごとの明るさのばらつき、明るさは段階的。光のにじみはLEDの外にも漏れる。?led=0 で元の描き方 -->
+<!-- 2026/11/28 おっちゃん「細かい四角いLED panelが沢山あるとして描写してみてよ」→ 最後に、絵を細かい四角いLEDの粒(約4px)の並びで光らせる仕上げを追加。消えたLEDもうっすら見える、粒ごとの明るさのばらつき、明るさは段階的。光のにじみはLEDの外にも漏れる。?led=0 で元の描き方 -->
 <!-- 2026/11/28 おっちゃん「ただの雨だな」→ 毎分、ばらばらに降る雨粒の一部が一瞬で集まって時刻(時・分)の数字になり、しばらく保ってから崩れてまた雨に戻る(量子が「測定」で一つの形に決まる見立て)。
      集まる先は、その分の時刻を画面に描いて拾った点。粒ごとに集まり始めるタイミングがずれる。指でなぞると、数字の粒も散ってまた集まる。確認用: ?g=1 で常に集まった状態。
 <!-- 2026/11/28 作り直し(おっちゃん「やるならもっとリアルな雨っぽくしてよ」): 点線のMatrix風をやめ、本物の雨の見え方にした。
@@ -191,15 +191,18 @@ FS_HEAD+'uniform sampler2D u_a,u_b,u_c;uniform vec2 u_inv;uniform float u_cell,u
 ' if(u_led>.5){\n'+
 '  vec2 cid=floor(gl_FragCoord.xy/u_cell);vec2 f=fract(gl_FragCoord.xy/u_cell)-.5;\n'+
 '  vec2 cc=(cid+.5)*u_cell*u_inv;vec2 q=u_cell*.25*u_inv;\n'+
-'  vec3 v=(texture(u_a,cc+vec2(-q.x,-q.y)).rgb+texture(u_a,cc+vec2(q.x,-q.y)).rgb+texture(u_a,cc+vec2(-q.x,q.y)).rgb+texture(u_a,cc+vec2(q.x,q.y)).rgb)*.25;\n'+
+'  vec3 s1=texture(u_a,cc+vec2(-q.x,-q.y)).rgb,s2=texture(u_a,cc+vec2(q.x,-q.y)).rgb,s3=texture(u_a,cc+vec2(-q.x,q.y)).rgb,s4=texture(u_a,cc+vec2(q.x,q.y)).rgb;\n'+
+'  vec3 v=mix((s1+s2+s3+s4)*.25,max(max(s1,s2),max(s3,s4)),.65);\n'+                // 細い雨筋も拾う(平均と最大の間)
+'  v=pow(max(v-.03,0.),vec3(1.35))*2.2;\n'+
 '  v*=.92+.16*hsh(cid);\n'+                                                       // LEDごとの明るさのばらつき
 '  float d=max(abs(f.x),abs(f.y))*2.;\n'+
 '  float led=smoothstep(.86,.62,d)*(1.+.35*(1.-length(f)*2.));\n'+                 // 四角いLEDの粒(角が少し丸い・中心がやや明るい)
 '  vec2 pid=floor(cid/48.);vec2 pf=fract(cid/48.);\n'+
-'  float seam=step(.5/48.,pf.x)*step(.5/48.,pf.y);\n'+                              // パネルの継ぎ目(48粒ごと)
+'  float seam=1.;\n'+                              // パネルの継ぎ目(48粒ごと)
 '  float off=.022*smoothstep(.9,.5,d)*seam;\n'+                                     // 消えているLEDもうっすら見える
 '  float lum=max(max(v.r,v.g),v.b);vec3 vq=v*floor(min(lum,1.)*24.+.5)/24./max(lum,1e-4);\n'+   // 明るさの段階
-'  c=vq*led*1.25*seam+vec3(off*.8,off*.85,off)+texture(u_b,uv).rgb*.42+texture(u_c,uv).rgb*.65;\n'+
+'  float glow=exp(-dot(f,f)*7.)*.35;\n'+                                          // 一粒ずつのにじみ
+'  c=vq*(led*1.6+glow)*seam+vec3(off*.8,off*.85,off)+texture(u_b,uv).rgb*.45+texture(u_c,uv).rgb*.6;\n'+
 ' }else{c=texture(u_a,uv).rgb+texture(u_b,uv).rgb*.55+texture(u_c,uv).rgb*.8;}\n'+
 ' c=c/(1.+max(c-.8,0.)*.8);o=vec4(c,1.);}');
 function mkRT(w,h){var t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
