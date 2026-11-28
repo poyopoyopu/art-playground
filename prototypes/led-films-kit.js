@@ -26,7 +26,7 @@ var LEDFilms={init:function(o){
   var ledP=prog(VS,
   '#version 300 es\nprecision highp float;\nuniform sampler2D u_tex;uniform vec2 u_res,u_grid;uniform float u_cell,u_t,u_flash,u_spread;uniform vec3 u_ftint;uniform vec2 u_fo[5];uniform float u_fr[5],u_fs[5],u_fb[5];uniform vec3 u_ft[5];out vec4 o;\n'+
   'vec3 film(vec2 fc,int Li){float L=float(Li);float z=L/4.;\n'+
-  ' float s=mix(mix(.56,.36,u_spread),1.,z)*u_fs[Li];vec2 ctr=u_res*vec2(.5,.52);\n'+
+  ' float s=mix(mix(.5,.32,u_spread),.94,z)*u_fs[Li];vec2 ctr=u_res*(vec2(.5,.52)+vec2(.13,.09)*(1.-z));\n'+
   ' vec2 sway=vec2(sin(u_t*.11+L*1.7),cos(u_t*.083+L*.9))*(1.-z)*u_cell*3.;\n'+
   ' vec2 q=fc-ctr;float ca=cos(u_fr[Li]),sa=sin(u_fr[Li]);q=vec2(ca*q.x-sa*q.y,sa*q.x+ca*q.y);\n'+
   ' vec2 p=q/s+ctr+sway+u_fo[Li]*u_cell;\n'+
@@ -37,8 +37,8 @@ var LEDFilms={init:function(o){
   ' float lum=max(max(v.r,v.g),v.b);v*=(floor(min(lum,1.)*20.+.5)/20.*step(.1,lum)+lum*step(lum,.1))/max(lum,1e-4);\n'+
   ' float dd=max(abs(f.x),abs(f.y))*2.;float led=smoothstep(.88,.6-.2*(1.-z),dd)*(1.+.3*(1.-length(f)*2.));\n'+
   ' float e=min(min(p.x,p.y),min(u_grid.x*u_cell-p.x,u_grid.y*u_cell-p.y))/u_cell;\n'+
-  ' vec3 edge=vec3(.5,.55,.7)*exp(-e*1.2)*.06*(1.-z*.5)*(1.+u_flash*3.);\n'+
-  ' vec3 off=vec3(.009,.010,.014)*smoothstep(.9,.6,dd);\n'+
+  ' vec3 edge=u_ft[Li]*vec3(.55,.6,.8)*(exp(-e*1.6)*.42+exp(-e*.25)*.04)*(1.+u_flash*2.);\n'+
+  ' vec3 off=u_ft[Li]*vec3(.028,.032,.045)*smoothstep(.9,.6,dd);\n'+
   ' return (v*u_ft[Li]*led*1.5*u_fb[Li]+off+edge)*mix(.42,1.,pow(z,.8));}\n'+
   'void main(){vec3 c=vec3(0.);for(int i=0;i<5;i++)c+=film(gl_FragCoord.xy,i);o=vec4(c,1.);}');
   var blurP=prog(VS,'#version 300 es\nprecision highp float;\nuniform sampler2D u_tex;uniform vec2 u_step,u_inv;uniform float u_thr;out vec4 o;\n'+
@@ -66,7 +66,7 @@ var LEDFilms={init:function(o){
   var FP=[];
   function rr(a,b){return a+Math.random()*(b-a);}
   function pick(L,first){var z=L/4,f=FP[L]||{};
-    f.ts=(L===4?rr(1.02,1.16):rr(.82,1.28));f.tr=(L===4?rr(-.035,.035):rr(-.16,.16));
+    f.ts=(L===4?rr(.98,1.04):rr(.85,1.2));f.tr=(L===4?rr(-.025,.025):rr(-.12,.12));
     f.tox=rr(-6,6)*(1-z*.7);f.toy=rr(-4,4)*(1-z*.7);f.tb=rr(.7,1.15);
     var hue=Math.random();f.tt=[.82+.3*Math.max(0,Math.cos(6.283*hue)),.82+.3*Math.max(0,Math.cos(6.283*(hue-.33))),.82+.3*Math.max(0,Math.cos(6.283*(hue-.67)))];
     f.next=rr(8,25);if(first){f.s=f.ts;f.r=f.tr;f.ox=f.tox;f.oy=f.toy;f.b=f.tb;f.t3=f.tt.slice();f.ev=0;f.evT=rr(4,20);f.evK=0;}
@@ -93,7 +93,7 @@ var LEDFilms={init:function(o){
     RT={sc:mkRT(W,H),q1:mkRT(Math.max(2,W>>2),Math.max(2,H>>2)),q2:mkRT(Math.max(2,W>>2),Math.max(2,H>>2)),e1:mkRT(Math.max(2,W>>3),Math.max(2,H>>3)),e2:mkRT(Math.max(2,W>>3),Math.max(2,H>>3))};}
   kit.toGrid=function(x,y){   // 画面の座標→一番手前の膜のLED座標(膜の傾き・大きさ・ずれも戻す)
     var f=FP[4],fx=x*W/innerWidth,fy=(innerHeight-y)*H/innerHeight,cx=W*.5,cy=H*.52,qx=fx-cx,qy=fy-cy,ca=Math.cos(f.r),sa=Math.sin(f.r);
-    var rx=ca*qx-sa*qy,ry=sa*qx+ca*qy;var px=rx/f.s+cx+uFo[8]*CELL,py=ry/f.s+cy+uFo[9]*CELL;
+    var rx=ca*qx-sa*qy,ry=sa*qx+ca*qy;var px=rx/(f.s*.94)+cx+uFo[8]*CELL,py=ry/(f.s*.94)+cy+uFo[9]*CELL;
     return {x:px/CELL,y:kit.GY-py/CELL};};
   function pass(src,dst,sx,sy,thr){gl.bindFramebuffer(gl.FRAMEBUFFER,dst.f);gl.viewport(0,0,dst.w,dst.h);gl.useProgram(blurP.p);
     gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,src.t);gl.uniform1i(blurP.u.u_tex,0);
