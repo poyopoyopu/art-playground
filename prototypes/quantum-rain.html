@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <!-- QUANTUM RAIN(仮) — クロちゃん(Claude)作の試作。2026/11/28 おっちゃん依頼(Starkapoo氏の「Quantum Rain」動画)。ap-kit.js統合: クロちゃん -->
+<!-- 2026/11/28 おっちゃん「とても良い！もっとヌルヌルにならないかな？」→ LEDの粒の明るさを別の小さな描画先で計算(粒の中を9点で拾う)。前のコマから滑らかにつなぎ(点くのは素早く、消えるのは少し残光)、明るさの24段階もやめた -->
 <!-- 2026/11/28 おっちゃん「やっぱり横はダメだな無しで、1分おきに大きさを自動で変更にして」→ 向きは上下だけに戻す(横は?m=1/3で残置)。LEDの粒は毎分 大→特大→超特大→巨大→中 と自動で変わる(?cell=で固定) -->
 <!-- 2026/11/28 おっちゃん「流石に横は無理かな？あとは10秒前から少しアクション変えて欲しいな」→ 1分ごとに 下へ→右へ→上へ→左へ と回る(縦⇄横は重ねて入れ替え)。毎分50秒から雨が速く・長く・明るくなり、切り替わって3秒で戻る。?m=0〜3で向き固定、?pre=1で10秒前の状態を固定 -->
 <!-- 2026/11/28 おっちゃん「もう時刻の表示やめて、1分毎に下からの雨に切り替えてみて」→ 時刻の形は出さない。偶数分は上から降り、奇数分は下から昇る雨。分が変わると約1.6秒で減速して止まり、逆向きに動き出す(?up=1で常に下から) -->
@@ -192,31 +193,44 @@ FS_HEAD+'uniform sampler2D u_tex;uniform vec2 u_step,u_inv;uniform float u_thr;o
 ' s+=(f(texture(u_tex,uv+u_step*4.).rgb)+f(texture(u_tex,uv-u_step*4.).rgb))*.016;\n'+
 ' o=vec4(s,1.);}');
 var compP=prog('#version 300 es\nlayout(location=0) in vec2 p;void main(){gl_Position=vec4(p,0.,1.);}',
-FS_HEAD+'uniform sampler2D u_a,u_b,u_c,u_m;uniform vec2 u_inv;uniform float u_cell,u_led,u_mk,u_hue,u_t;out vec4 o;\n'+COMMON+
+FS_HEAD+'uniform sampler2D u_a,u_b,u_c,u_m,u_l;uniform vec2 u_inv;uniform float u_cell,u_led,u_mk,u_hue,u_t;out vec4 o;\n'+COMMON+
 'float hsh(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}\n'+
 'void main(){vec2 uv=gl_FragCoord.xy*u_inv;\n'+
 ' vec3 c;\n'+
 ' if(u_led>.5){\n'+
 '  vec2 cid=floor(gl_FragCoord.xy/u_cell);vec2 f=fract(gl_FragCoord.xy/u_cell)-.5;\n'+
-'  vec2 cc=(cid+.5)*u_cell*u_inv;vec2 q=u_cell*.25*u_inv;\n'+
-'  vec3 s1=texture(u_a,cc+vec2(-q.x,-q.y)).rgb,s2=texture(u_a,cc+vec2(q.x,-q.y)).rgb,s3=texture(u_a,cc+vec2(-q.x,q.y)).rgb,s4=texture(u_a,cc+vec2(q.x,q.y)).rgb;\n'+
-'  vec3 v=mix((s1+s2+s3+s4)*.25,max(max(s1,s2),max(s3,s4)),.65);\n'+                // 細い雨筋も拾う(平均と最大の間)
-'  v=pow(max(v-.03,0.),vec3(1.35))*2.2;\n'+
-'  vec2 mm=texture(u_m,cc).rg;float mk=smoothstep(.25,.6,mm.r)*u_mk;float hl=mm.g*u_mk;\n'+
-'  float fl2=.7+.3*sin(u_t*1.3+cid.y*.9+hsh(vec2(cid.x,0.))*40.);\n'+
-'  float lm=max(max(v.r,v.g),v.b);vec3 tint=mix(vec3(1.,.82,.45),vec3(1.,.95,.85),.35+.25*sin(u_t*.4+cc.y*3.));\n'+
-'  v=mix(v,tint*(lm*1.8+.06),mk);\n'+   // 文字の形の所だけ、同じ雨が金色に変わって流れる(2026/11/28「違う色で流れるは？」)   // 周りは雨が明るく照らされ、文字の形の所だけ抜けて暗い                                  // 時刻の形の所だけ、雨が抜けて暗い(影絵)
-'  v*=.92+.16*hsh(cid);\n'+                                                       // LEDごとの明るさのばらつき
+'  vec3 v=texelFetch(u_l,ivec2(cid),0).rgb;\n'+   // 粒ごとの明るさは別の小さな描画先で計算済み(9点で拾い、前のコマから滑らかにつなぐ)
 '  float d=max(abs(f.x),abs(f.y))*2.;\n'+
 '  float led=smoothstep(.86,.62,d)*(1.+.35*(1.-length(f)*2.));\n'+                 // 四角いLEDの粒(角が少し丸い・中心がやや明るい)
 '  vec2 pid=floor(cid/48.);vec2 pf=fract(cid/48.);\n'+
 '  float seam=1.;\n'+                              // パネルの継ぎ目(48粒ごと)
 '  float off=.022*smoothstep(.9,.5,d)*seam;\n'+                                     // 消えているLEDもうっすら見える
-'  float lum=max(max(v.r,v.g),v.b);vec3 vq=v*floor(min(lum,1.)*24.+.5)/24./max(lum,1e-4);\n'+   // 明るさの段階
+'  vec3 vq=v;\n'+   // 2026/11/28「もっとヌルヌルに」→ 明るさの段階(24段)はやめて滑らかに
 '  float glow=exp(-dot(f,f)*7.)*.35;\n'+                                          // 一粒ずつのにじみ
 '  c=vq*(led*1.6+glow)*seam+vec3(off*.8,off*.85,off)+texture(u_b,uv).rgb*.45+texture(u_c,uv).rgb*.6;\n'+
 ' }else{float mk=smoothstep(.25,.6,texture(u_m,uv).r)*u_mk;vec3 a=texture(u_a,uv).rgb;float lm=max(max(a.r,a.g),a.b);c=mix(a,vec3(1.,.82,.45)*lm*1.35,mk)+texture(u_b,uv).rgb*.55+texture(u_c,uv).rgb*.8;}\n'+
 ' c=c/(1.+max(c-.8,0.)*.8);o=vec4(c,1.);}');
+// ---------- LEDの粒ごとの明るさ(1粒=1テクセル)。粒の中を9点で拾って平均と最大の間をとり、前のコマから滑らかにつなぐ(点くときは素早く、消えるときは少し残光) ----------
+var cellP=prog('#version 300 es\nlayout(location=0) in vec2 p;void main(){gl_Position=vec4(p,0.,1.);}',
+FS_HEAD+'uniform sampler2D u_a,u_p;uniform vec2 u_inv;uniform float u_cell,u_up,u_dec,u_first;out vec4 o;\n'+
+'float hsh(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}\n'+
+'void main(){vec2 cid=floor(gl_FragCoord.xy);vec2 cc=(cid+.5)*u_cell*u_inv;vec2 st=u_cell*u_inv/3.;\n'+
+' vec3 sm=vec3(0.),mx=vec3(0.);for(int j=-1;j<=1;j++)for(int i=-1;i<=1;i++){vec3 x=texture(u_a,cc+vec2(float(i),float(j))*st).rgb;sm+=x;mx=max(mx,x);}\n'+
+' vec3 v=mix(sm/9.*1.3,mx,.5);v=pow(max(v-.03,0.),vec3(1.35))*2.2;v*=.92+.16*hsh(cid);\n'+
+' float lum=max(max(v.r,v.g),v.b);v/=max(lum,1.);\n'+
+' vec3 pv=texelFetch(u_p,ivec2(cid),0).rgb;\n'+
+' vec3 r=mix(max(v,pv*u_dec),mix(pv,v,u_up),step(pv,v));\n'+
+' o=vec4(u_first>.5?v:r,1.);}');
+var cellRT=null,cellIdx=0,cellFirst=true;
+function mkCellRT(w,h){var t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  var f=gl.createFramebuffer();gl.bindFramebuffer(gl.FRAMEBUFFER,f);gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,t,0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);return {t:t,f:f,w:w,h:h};}
+function ensureCellRT(cpx){var w=Math.ceil(W/cpx)+1,h=Math.ceil(H/cpx)+1;
+  if(cellRT&&cellRT[0].w===w&&cellRT[0].h===h)return;
+  if(cellRT)cellRT.forEach(function(r){gl.deleteTexture(r.t);gl.deleteFramebuffer(r.f);});
+  cellRT=[mkCellRT(w,h),mkCellRT(w,h)];cellFirst=true;}
 function mkRT(w,h){var t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
@@ -342,7 +356,15 @@ function frame(now){
   gl.disable(gl.BLEND);gl.bindVertexArray(vaoBg);
   pass(blurP,RT.sc,RT.q1,3/W,0,.15);pass(blurP,RT.q1,RT.q2,0,1.6/RT.q1.h,0);
   pass(blurP,RT.q2,RT.e1,2.2/RT.q2.w,0,0);pass(blurP,RT.e1,RT.e2,0,2.2/RT.e1.h,0);
+  var cpx=Math.max(2,Math.round(GRAIN[gi]*W/innerWidth)),useLed=LED&&GRAIN[gi]>0;
+  if(useLed){ensureCellRT(cpx);var cdst=cellRT[cellIdx],csrc=cellRT[1-cellIdx];
+    gl.bindFramebuffer(gl.FRAMEBUFFER,cdst.f);gl.viewport(0,0,cdst.w,cdst.h);gl.useProgram(cellP.p);
+    gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,RT.sc.t);gl.uniform1i(cellP.u.u_a,0);
+    gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,csrc.t);gl.uniform1i(cellP.u.u_p,1);
+    gl.uniform2f(cellP.u.u_inv,1/W,1/H);gl.uniform1f(cellP.u.u_cell,cpx);gl.uniform1f(cellP.u.u_up,1-Math.exp(-dt*45));gl.uniform1f(cellP.u.u_dec,Math.exp(-dt*11));gl.uniform1f(cellP.u.u_first,cellFirst?1:0);
+    gl.drawArrays(gl.TRIANGLE_STRIP,0,4);cellFirst=false;cellIdx=1-cellIdx;}
   gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.viewport(0,0,W,H);gl.useProgram(compP.p);
+  if(useLed){gl.activeTexture(gl.TEXTURE4);gl.bindTexture(gl.TEXTURE_2D,cellRT[1-cellIdx].t);gl.uniform1i(compP.u.u_l,4);}
   gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,RT.sc.t);gl.uniform1i(compP.u.u_a,0);
   gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,RT.q2.t);gl.uniform1i(compP.u.u_b,1);
   gl.activeTexture(gl.TEXTURE2);gl.bindTexture(gl.TEXTURE_2D,RT.e2.t);gl.uniform1i(compP.u.u_c,2);
