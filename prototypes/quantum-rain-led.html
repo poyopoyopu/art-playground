@@ -3,7 +3,8 @@
 <!-- 画面は細かい四角いLED(約4px角)が並んだ1枚のパネル。絵をぼかして写すのではなく、LED1粒ずつの点灯を直接決める(黒はくっきり消灯)。
      元ネタ(Starkapoo氏「Quantum Rain」)の再現: 列ごとに光の粒が尾を引いてまっすぐ落ちる。奥の列は暗く遅く尾が短い、手前の列は明るく速く尾が長い。尾はデータのようにちらつき、ときどき1粒がきらめく。色は横位置の虹、粒の先頭は白っぽく光る。下ほど光がたまる。
      時計: 横幅が0〜59の目盛り。光の柱=いまの分(1時間かけて左→右)、白く明るい一滴=いまの秒。
-     世界の法則: 毎分0秒から、落ちてくる雨粒が数字の形のLEDに「とまって」灯りつづけ、時刻(時・分)が雨で満ちていく。20秒すぎからとまった粒がほどけて、また雨に戻る。
+     2026/11/28 おっちゃん「この時計の表示も見飽きたな」→「電光掲示板で流れる」を選択: 大きい数字をやめ、30秒ごとに5×7ドット書体の時刻(HH:MM)が雨の中を右から左へ11秒かけて流れる。文字の帯の所は雨が少し暗くなる。?g=1で流れっぱなし。以下の「満ちる数字」は廃止。
+     (旧)世界の法則: 毎分0秒から、落ちてくる雨粒が数字の形のLEDに「とまって」灯りつづけ、時刻(時・分)が雨で満ちていく。20秒すぎからとまった粒がほどけて、また雨に戻る。
      なぞる=触れた所から光の輪が広がる。✦=虹の色をずらす / ↻=元に戻す。確認用: ?t=HH:MM:SS / ?g=1(常に数字が満ちた状態)。WebGL2・音なし・Wake Lock・録画用にpreserveDrawingBuffer -->
 <html lang="ja">
 <head>
@@ -42,7 +43,7 @@ var VS='#version 300 es\nlayout(location=0) in vec2 p;void main(){gl_Position=ve
 // ---------- LEDパネル: 1粒ずつ点灯を決める ----------
 var ledP=prog(VS,
 '#version 300 es\nprecision highp float;\n'+
-'uniform vec2 u_grid;uniform float u_cell,u_t,u_sec,u_min,u_hue,u_fill,u_tt;uniform vec2 u_tp;uniform sampler2D u_dig;out vec4 o;\n'+
+'uniform vec2 u_grid;uniform float u_cell,u_t,u_sec,u_min,u_hue,u_fill,u_tt;uniform vec2 u_tp;uniform sampler2D u_dig;uniform float u_tw,u_tpos,u_ty,u_ts,u_ton;out vec4 o;\n'+
 'float h1(float n){return fract(sin(n*127.1+311.7)*43758.5453);}\n'+
 'float h2(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}\n'+
 'float hueOf(float x){float h;\n'+
@@ -91,8 +92,10 @@ var ledP=prog(VS,
 ' float s=fract(u_sec),idx=floor(u_sec);float scol=floor((idx+.5)/60.*u_grid.x);float shead=s*s*u_grid.y;float sd=shead-r;\n'+
 ' float sdrop=(abs(c-scol)<.5&&sd>=0.&&sd<14.)?exp(-sd/4.)*1.2:0.;\n'+
 // 毎分、雨粒がとまって数字が満ちる
-' float m=texture(u_dig,(cid+.5)/u_grid).r;float dig=0.;\n'+
-' if(m>.5){float hh=h2(cid*1.31+7.);dig=step(hh,u_fill)*(.78+.22*sin(u_t*2.+hh*30.));rain*=.5;}\n'+
+' float dig=0.;\n'+
+' if(u_ton>.5){float lx=floor((cid.x-u_tpos)/u_ts),ly=floor((cid.y-u_ty)/u_ts);\n'+
+'  float band=step(u_ty-2.,cid.y)*step(cid.y,u_ty+7.*u_ts+1.);rain*=1.-.5*band;far*=1.-.6*band;\n'+
+'  if(lx>=0.&&lx<u_tw&&ly>=0.&&ly<7.){float mm=texelFetch(u_dig,ivec2(int(lx),int(6.-ly)),0).r;dig=step(.5,mm)*(.9+.1*sin(u_t*3.+cid.x*.2));}}\n'+
 // なぞった所から広がる光の輪
 ' float rd=length((cid-u_tp)*vec2(1.,1.));float age=u_t-u_tt;float ring=exp(-pow(rd-age*38.,2.)/6.)*exp(-age*1.8)*step(0.,age);\n'+
 ' vec3 hc=hsv(hueOf(xn),.85,1.);\n'+
@@ -135,22 +138,22 @@ var vao=gl.createVertexArray();gl.bindVertexArray(vao);gl.enableVertexAttribArra
 var dpr=Math.min(2,window.devicePixelRatio||1),qscale=1,W=0,H=0,CELL=8,GX=1,GY=1;
 var digTex=gl.createTexture();
 function resize(){var s=dpr*qscale;W=Math.max(2,Math.round(innerWidth*s));H=Math.max(2,Math.round(innerHeight*s));cv.width=W;cv.height=H;
-  CELL=Math.max(3,Math.round(4.2*W/innerWidth));GX=Math.ceil(W/CELL);GY=Math.ceil(H/CELL);digKey='';buildRT();}
+  CELL=Math.max(3,Math.round(4.2*W/innerWidth));GX=Math.ceil(W/CELL);GY=Math.ceil(H/CELL);buildRT();}
 
-// ---------- 数字の形(LEDの格子と同じ細かさで描いて、点灯するLEDを決める) ----------
-var digKey='';function pad(n){return (n<10?'0':'')+n;}
-function buildDigits(hh,mm){var key=hh+':'+mm+':'+GX+'x'+GY;if(key===digKey)return;digKey=key;
-  var c=document.createElement('canvas');c.width=GX;c.height=GY;var x=c.getContext('2d');
-  x.fillStyle='#fff';x.textAlign='center';x.textBaseline='middle';
-  var fam='"Helvetica Neue",Helvetica,Arial,sans-serif';var portrait=GY>GX*1.1,fs;
-  if(portrait){fs=Math.min(GX*.62,GY*.27);x.font='300 '+fs+'px '+fam;x.fillText(pad(hh),GX/2,GY*.36);x.fillText(pad(mm),GX/2,GY*.36+fs*.98);}
-  else{fs=Math.min(GX*.3,GY*.55);x.font='300 '+fs+'px '+fam;x.fillText(pad(hh)+':'+pad(mm),GX/2,GY*.44);}
-  var img=x.getImageData(0,0,GX,GY).data,a=new Uint8Array(GX*GY);
-  for(var y=0;y<GY;y++)for(var i=0;i<GX;i++)a[(GY-1-y)*GX+i]=img[(y*GX+i)*4+3]>110?255:0;   // GLは下から上なので上下を返す
+// ---------- 電光掲示板の文字(5×7ドットの書体) ----------
+var FONT={'0':['01110','10001','10011','10101','11001','10001','01110'],'1':['00100','01100','00100','00100','00100','00100','01110'],
+'2':['01110','10001','00001','00010','00100','01000','11111'],'3':['11111','00010','00100','00010','00001','10001','01110'],
+'4':['00010','00110','01010','10010','11111','00010','00010'],'5':['11111','10000','11110','00001','00001','10001','01110'],
+'6':['00110','01000','10000','11110','10001','10001','01110'],'7':['11111','00001','00010','00100','01000','01000','01000'],
+'8':['01110','10001','10001','01110','10001','10001','01110'],'9':['01110','10001','10001','01111','00001','00010','01100'],
+':':['000','011','011','000','011','011','000'],' ':['000','000','000','000','000','000','000']};
+var digKey='',TW=1;function pad(n){return (n<10?'0':'')+n;}
+function buildDigits(hh,mm){var txt=pad(hh)+':'+pad(mm);if(txt===digKey)return;digKey=txt;
+  var cols=[];for(var i=0;i<txt.length;i++){var g=FONT[txt[i]];for(var x=0;x<g[0].length;x++){var col=[];for(var y=0;y<7;y++)col.push(g[y][x]==='1'?255:0);cols.push(col);}cols.push([0,0,0,0,0,0,0]);}
+  TW=cols.length;var a=new Uint8Array(TW*7);for(var x2=0;x2<TW;x2++)for(var y2=0;y2<7;y2++)a[y2*TW+x2]=cols[x2][y2];   // 1行目=上
   gl.bindTexture(gl.TEXTURE_2D,digTex);gl.pixelStorei(gl.UNPACK_ALIGNMENT,1);
-  gl.texImage2D(gl.TEXTURE_2D,0,gl.R8,GX,GY,0,gl.RED,gl.UNSIGNED_BYTE,a);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);}
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.R8,TW,7,0,gl.RED,gl.UNSIGNED_BYTE,a);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);}
 addEventListener('resize',resize);resize();
 
 // ---------- 時刻 ----------
@@ -174,12 +177,14 @@ function frame(now){
   hueV+=(hueT-hueV)*(1-Math.exp(-dt*1.6));
   var d=nowDate(),sec=d.getSeconds()+d.getMilliseconds()/1000,mn=d.getMinutes();
   buildDigits(d.getHours(),mn);
-  var fill=ss(.3,9,sec)*(1-ss(21,27,sec));if(Q.get('g')==='1')fill=1;   // 0秒から雨粒がとまって満ち、21秒すぎからほどける
+  var fill=0;
+  var ph=sec%30,DUR=11;if(Q.get('g')==='1')ph=t%DUR;   // 30秒ごとに時刻が右から左へ流れる(11秒で通り過ぎる)
+  var TS=Math.max(2,Math.floor(GX/32)),tpos=GX-Math.min(1,ph/DUR)*(GX+TW*TS),ty=Math.round(GY*.56);
   gl.bindVertexArray(vao);
   gl.bindFramebuffer(gl.FRAMEBUFFER,RT.sc.f);gl.viewport(0,0,W,H);gl.useProgram(ledP.p);
   gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,digTex);gl.uniform1i(ledP.u.u_dig,0);
   gl.uniform2f(ledP.u.u_grid,GX,GY);gl.uniform1f(ledP.u.u_cell,CELL);gl.uniform1f(ledP.u.u_t,t);gl.uniform1f(ledP.u.u_sec,sec);gl.uniform1f(ledP.u.u_min,mn);
-  gl.uniform1f(ledP.u.u_hue,hueV);gl.uniform1f(ledP.u.u_fill,fill);gl.uniform2f(ledP.u.u_tp,tp[0],tp[1]);gl.uniform1f(ledP.u.u_tt,tt);
+  gl.uniform1f(ledP.u.u_hue,hueV);gl.uniform1f(ledP.u.u_fill,fill);gl.uniform2f(ledP.u.u_tp,tp[0],tp[1]);gl.uniform1f(ledP.u.u_tt,tt);gl.uniform1f(ledP.u.u_tw,TW);gl.uniform1f(ledP.u.u_tpos,Math.round(tpos));gl.uniform1f(ledP.u.u_ty,ty);gl.uniform1f(ledP.u.u_ts,TS);gl.uniform1f(ledP.u.u_ton,ph<DUR?1:0);
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
   pass(RT.sc,RT.q1,2.5/W,0,.18);pass(RT.q1,RT.q2,0,1.5/RT.q1.h,0);pass(RT.q2,RT.e1,2/RT.q2.w,0,0);pass(RT.e1,RT.e2,0,2/RT.e1.h,0);
   gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.viewport(0,0,W,H);gl.useProgram(compP.p);
@@ -207,7 +212,7 @@ APKit.init({
     {label:'↻',name:'reset',onClick:function(){hueV=hueV-Math.round(hueV);hueT=0;}}
   ]
 });
-showHint('毎分、降る光の雨がLEDにとまって<br>いまの時刻が満ちていく<br>光の柱=分 / 白い一滴=秒',8000);
+showHint('30秒ごとに、雨の中を時刻が流れていく<br>光の柱=分 / 白い一滴=秒',8000);
 })();
 </script>
 </body>
