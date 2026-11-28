@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <!-- QUANTUM RAIN(仮) — クロちゃん(Claude)作の試作。2026/11/28 おっちゃん依頼(Starkapoo氏の「Quantum Rain」動画)。ap-kit.js統合: クロちゃん -->
+<!-- 2026/11/28 おっちゃん「下の光が強いかな」→ 地面に映る灯り・波紋・霧・光の柱の根元・秒の大きな波紋・下の方の雨の明るさを弱めた -->
 <!-- 2026/11/28 おっちゃん「雲と稲妻は要らんのよ」→ 上の雲と稲光を描かない(コードの計算は残置、描画だけ外した) -->
 <!-- 2026/11/28 おっちゃん「細かい四角いLED panelが沢山あるとして描写してみてよ」→ 最後に、絵を細かい四角いLEDの粒(約4px)の並びで光らせる仕上げを追加。消えたLEDもうっすら見える、粒ごとの明るさのばらつき、明るさは段階的。光のにじみはLEDの外にも漏れる。?led=0 で元の描き方 -->
 <!-- 2026/11/28 おっちゃん「ただの雨だな」→ 毎分、ばらばらに降る雨粒の一部が一瞬で集まって時刻(時・分)の数字になり、しばらく保ってから崩れてまた雨に戻る(量子が「測定」で一つの形に決まる見立て)。
@@ -108,15 +109,15 @@ var bgP=prog(
 ' float hh=mix(vn(xw_*36.+u_t*.04),vn(xw_*120.+7.),.45);hh=hh*hh*1.9;\n'+
 ' hh*=.75+.25*sin(u_t*(.6+vn(x*40.)*1.2)+vn(x*40.+3.)*20.);\n'+
 ' float I=exp(-g/(.03+.17*hh))*(.14+.8*hh);\n'+
-' c+=hsv(hueOf(x),.88,1.)*I*.5*(.35+.65*gnd);\n'+                                                // 濡れた地面に映る灯り
+' c+=hsv(hueOf(x),.88,1.)*I*.16*(.35+.65*gnd);\n'+                                                // 濡れた地面に映る灯り
 ' c+=hsv(hueOf(x),.6,1.)*exp(-(g-.16)*(g-.16)/.0009)*.035*(.5+hz);\n'+                             // 地平のにじみ
 ' float mx=x*7.+u_t*.05;float mn_=mix(hash(floor(mx)),hash(floor(mx)+1.),smoothstep(0.,1.,fract(mx)));\n'+
 ' float mist=mn_*exp(-g/.1)*(.5+.5*sin(u_t*.2+x*5.));\n'+
-' c+=hsv(hueOf(x),.55,1.)*mist*.09;\n'+                                                           // 地面をはう霧
+' c+=hsv(hueOf(x),.55,1.)*mist*.045;\n'+                                                           // 地面をはう霧
 ' float m=(u_min+u_sec/60.)/60.;float dm=(x-m)*asp;\n'+
-' float pil=exp(-dm*dm/(2.*.0036*.0036))*exp(-g/.7)*.5+exp(-dm*dm/(2.*.045*.045))*exp(-g/.5)*.2+exp(-dm*dm/(2.*.012*.012))*exp(-g/.05)*.35;\n'+
+' float pil=exp(-dm*dm/(2.*.0036*.0036))*exp(-g/.7)*.5+exp(-dm*dm/(2.*.045*.045))*exp(-g/.5)*.12+exp(-dm*dm/(2.*.012*.012))*exp(-g/.05)*.1;\n'+
 ' c+=mix(vec3(1.),hsv(hueOf(m),.5,1.),.4)*pil;\n'+                                                // 雨を照らす光の柱=分
-' c+=ripples(x,g,asp)*(.55+.45*gnd);\n'+
+' c+=ripples(x,g,asp)*(.2+.15*gnd);\n'+
 ' float s=fract(u_sec),idx=floor(u_sec);float xs=(idx+.5)/60.;float yo=s*s;float go=1.-yo*.985;\n'+
 ' float dx=(x-xs)*asp;vec3 oc=mix(vec3(1.),hsv(hueOf(xs),.7,1.),.5);\n'+
 ' float head=exp(-(dx*dx+(g-go)*(g-go)*.35)/(2.*.0042*.0042));\n'+
@@ -126,7 +127,7 @@ var bgP=prog(
 ' float dxp=(x-xp)*asp,dyp=(g-gn)/.26;float dist=sqrt(dxp*dxp+dyp*dyp);\n'+
 ' float r=s*.2;float wr=.0022+.003*s;\n'+
 ' float big=exp(-(dist-r)*(dist-r)/(2.*wr*wr))*pow(1.-s,1.2)+exp(-(dist-r*.6)*(dist-r*.6)/(2.*wr*wr))*pow(1.-s,1.8)*.6+exp(-dist*dist/(2.*.004*.004))*exp(-s*14.)*1.2;\n'+
-' c+=mix(vec3(1.),hsv(hueOf(xp),.6,1.),.4)*big*.9;\n'+                                              // 地面に大きく広がる波紋=秒の合図
+' c+=mix(vec3(1.),hsv(hueOf(xp),.6,1.),.4)*big*.3;\n'+                                              // 地面に大きく広がる波紋=秒の合図
 ' c*=1.-.35*pow(abs(uv.x-.5)*2.,3.);\n'+
 ' c*=.86+.14*smoothstep(1.,.8,g);\n'+                                                           // 上は暗い夜空
 ' c=1.-exp(-c*1.4);\n'+
@@ -162,7 +163,7 @@ var rainP=prog(
 ' float glint=pow(max(0.,sin(u_t*(2.+seed*3.)+seed*60.)),16.)*step(.4,d)*.9;\n'+
 ' float xc=clamp(xs,0.,1.);float sd=(xc-u_um)*asp;\n'+
 ' float shaft=1.+exp(-sd*sd/(2.*.04*.04))*1.5;\n'+
-' float aFall=(base*shaft+glint*base*2.)*smoothstep(yl,yl-.02,y)*smoothstep(0.,.07,y)*(1.-.93*oof)*(1.+tw*1.4)*(1.+u_fl*.9)*(1.+.45*smoothstep(.4,0.,y));\n'+
+' float aFall=(base*shaft+glint*base*2.)*smoothstep(yl,yl-.02,y)*smoothstep(0.,.07,y)*(1.-.93*oof)*(1.+tw*1.4)*(1.+u_fl*.9)*(1.+.08*smoothstep(.4,0.,y));\n'+
 ' float aForm=.62*(.75+.5*hv);\n'+
 ' v_a=mix(aFall,aForm,gi);\n'+
 ' v_col=hsv(hueOf(clamp(mix(xc,b.x,gi),0.,1.)),mix(.74-.42*d*d,.55,gi),1.);\n'+
