@@ -44,8 +44,8 @@ function makeDischarge(){var x0=rnd(.2,.8),pts=[{x:x0,y:-.02}],segs=[];
   grow(x0,-.02,Math.PI/2,120,0,1);return {segs:segs,t:0};}
 // ---- 砂山(2×2のLEDで1マス) ----
 var SW,SH,sand,topl,sandN=0,lastMin=-1;
-function resetSand(){sand=new Uint8Array(SW*SH);topl=new Float32Array(SW*SH).fill(-99);sandN=0;for(var i=0;i<SW*SH;i++)sand[i]=Math.floor(Math.random()*3.6);}   // 崩れる寸前の状態から始める
-var touch={x:-9,y:-9,on:0},waveImg=null;
+function resetSand(){sand=new Uint8Array(SW*SH);topl=new Float32Array(SW*SH).fill(-99);sandN=0;for(var i=0;i<SW*SH;i++)sand[i]=Math.max(0,Math.min(3,2+(Math.random()<.3?1:0)-(Math.random()<.3?1:0)));}   // 崩れる手前くらいから始める(平均およそ2)
+var touch={x:-9,y:-9,on:0},waveImg=null,sandAcc=0,trcAcc=0;
 function setup(k){GX=k.GX;GY=k.GY;makeConv();vort=[];trc=[];SW=Math.ceil(GX/2);SH=Math.ceil(GY/2);resetSand();}
 // 対流の流れ(セルの数がゆっくり変わる)
 function convVel(x,y,t,out){var nc=3+Math.sin(t*.02)*.8,kx=Math.PI*nc,ky=Math.PI;var ph=t*.03;
@@ -69,12 +69,12 @@ var kit=LEDFilms.init({canvas:cv,onResize:setup,neutralTint:true,draw:function(t
   // ===== 膜2: 渦の列 =====
   c=F[2].ctx;c.globalCompositeOperation='destination-out';c.fillStyle='rgba(0,0,0,'+Math.min(1,.1*dt*60)+')';c.fillRect(0,0,GX,GY);c.globalCompositeOperation='lighter';
   var ox=.5,oy=.16,U=.09;shedT+=dt;if(shedT>1.6){shedT=0;vort.push({x:ox+.035*shedSign,y:oy+.03,g:.0042*shedSign});shedSign=-shedSign;}
-  for(i=0;i<6;i++)trc.push({x:ox+(Math.random()<.5?-.03:.03)+rnd(-.006,.006),y:oy+rnd(0,.01),life:1});
+  trcAcc+=dt*70;for(;trcAcc>=1;trcAcc--)trc.push({x:ox+(Math.random()<.5?-.03:.03)+rnd(-.006,.006),y:oy+rnd(0,.01),life:1});
   function vel(px,py){var ux=0,uy=U;for(var q=0;q<vort.length;q++){var V=vort[q],dx=px-V.x,dy=(py-V.y)*GY/GX,r2=dx*dx+dy*dy+.0004;ux+=-V.g*dy/r2;uy+=V.g*dx/r2;}return [ux,uy];}
   for(i=vort.length-1;i>=0;i--){var V=vort[i],u=vel(V.x,V.y);V.x+=u[0]*dt*.5;V.y+=(U*.8)*dt;V.g*=Math.exp(-dt*.05);if(V.y>1.1)vort.splice(i,1);}
   for(i=trc.length-1;i>=0;i--){var T=trc[i],u2=vel(T.x,T.y);T.x+=u2[0]*dt;T.y+=u2[1]*dt;T.life-=dt*.06;if(T.y>1.05||T.life<=0){trc.splice(i,1);continue;}
-    c.fillStyle='rgba(90,240,220,'+(.35*T.life)+')';c.fillRect(T.x*GX|0,T.y*GY|0,1,1);}
-  if(trc.length>2600)trc.splice(0,trc.length-2600);
+    c.fillStyle='rgba(90,240,220,'+(.26*T.life)+')';c.fillRect(T.x*GX|0,T.y*GY|0,1,1);}
+  if(trc.length>1800)trc.splice(0,trc.length-1800);
   c.fillStyle='rgba(200,255,250,.9)';c.fillRect(Math.round(ox*GX)-2,Math.round(oy*GY),5,2);   // 障害物(横棒)
   // ===== 膜3: 放電 =====
   c=F[3].ctx;c.globalCompositeOperation='destination-out';c.fillStyle='rgba(0,0,0,'+Math.min(1,.18*dt*60)+')';c.fillRect(0,0,GX,GY);c.globalCompositeOperation='lighter';
@@ -83,13 +83,13 @@ var kit=LEDFilms.init({canvas:cv,onResize:setup,neutralTint:true,draw:function(t
     for(i=0;i<dis.segs.length;i++){var S=dis.segs[i];if(S.o>front*1.05||S.drawn)continue;S.drawn=1;c.strokeStyle='rgba(200,150,255,'+(.8*S.b)+')';c.beginPath();c.moveTo(S.x1*GX,S.y1*GY);c.lineTo(S.x2*GX,S.y2*GY);c.stroke();}
     if(front>1.2)dis=null;}
   // ===== 膜4: 砂山の崩れ =====
-  for(var a2=0;a2<3;a2++){var rx=1+Math.floor(Math.random()*(SW-2)),ry=1+Math.floor(Math.random()*(SH-2));sand[ry*SW+rx]++;}   // ばらばらな場所に1粒ずつ落ちる
-  var it=0,moved=true;while(moved&&it<2){moved=false;it++;
+  sandAcc+=dt*14;while(sandAcc>=1){sandAcc--;var a2;{var rx=1+Math.floor(Math.random()*(SW-2)),ry=1+Math.floor(Math.random()*(SH-2));sand[ry*SW+rx]++;}}   // ばらばらな場所に1粒ずつ落ちる
+  var it=0,moved=true,itMax=dt>.025?2:1;while(moved&&it<itMax){moved=false;it++;
     for(y=1;y<SH-1;y++)for(x=1;x<SW-1;x++){var id=y*SW+x;if(sand[id]>=4){sand[id]-=4;sand[id-1]++;sand[id+1]++;sand[id-SW]++;sand[id+SW]++;topl[id]=t;moved=true;}}}
   c=F[4].ctx;c.globalCompositeOperation='source-over';c.clearRect(0,0,GX,GY);c.globalCompositeOperation='lighter';
   var COL=['','rgba(60,30,10,.35)','rgba(140,70,25,.4)','rgba(230,150,60,.45)'];
   for(y=0;y<SH;y++)for(x=0;x<SW;x++){var id3=y*SW+x,hgt=Math.min(3,sand[id3]),fl=Math.exp(-(t-topl[id3])*3);
-    if(hgt===3&&fl<.05&&((x*7+y*13)%23===0)){c.fillStyle='rgba(200,120,50,.18)';c.fillRect(x*2,y*2,2,2);}if(fl>.04){c.fillStyle=fl>.5?'rgba(255,245,215,'+(.8*fl)+')':'rgba(255,150,60,'+(1.2*fl)+')';c.fillRect(x*2,y*2,2,2);}}
+    if(hgt===3&&fl<.05&&((x*7+y*13)%23===0)){c.fillStyle='rgba(200,120,50,.18)';c.fillRect(x*2,y*2,2,2);}if(fl>.04){c.fillStyle=fl>.5?'rgba(255,245,215,'+(.55*fl)+')':'rgba(255,150,60,'+(.8*fl)+')';c.fillRect(x*2,y*2,2,2);}}
   // ===== 1枚ずつ見る =====
   if(solo>=0)for(var L=0;L<5;L++)if(L!==solo){F[L].ctx.globalCompositeOperation='source-over';F[L].ctx.clearRect(0,0,GX,GY);}
 }});
