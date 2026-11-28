@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <!-- QUANTUM RAIN LED(仮) — クロちゃん(Claude)作の試作。2026/11/28 おっちゃん「この細かいLEDパネルを使った美しいのか欲しいな」→「LEDの光の雨」を選択。ap-kit.js統合: クロちゃん -->
+<!-- 2026/11/28 おっちゃん「このLEDまくが、5枚透過してる感じにして」→ 透明なLED膜を5枚、奥へ重ねた。奥の膜ほど小さく暗く粒が少しぼけ、ゆっくり大きく揺れる(視差)。雨は膜ごとに別々に降り、すき間から後ろの膜が透ける。一番奥の膜に虹色の霞と光だまり、一番手前の膜に光の柱(分)・白い一滴(秒)・なぞった光の輪。膜のふちがうっすら光る。 -->
 <!-- 画面は細かい四角いLED(約4px角)が並んだ1枚のパネル。絵をぼかして写すのではなく、LED1粒ずつの点灯を直接決める(黒はくっきり消灯)。
      元ネタ(Starkapoo氏「Quantum Rain」)の再現: 列ごとに光の粒が尾を引いてまっすぐ落ちる。奥の列は暗く遅く尾が短い、手前の列は明るく速く尾が長い。尾はデータのようにちらつき、ときどき1粒がきらめく。色は横位置の虹、粒の先頭は白っぽく光る。下ほど光がたまる。
      時計: 横幅が0〜59の目盛り。光の柱=いまの分(1時間かけて左→右)、白く明るい一滴=いまの秒。
@@ -44,68 +45,58 @@ var VS='#version 300 es\nlayout(location=0) in vec2 p;void main(){gl_Position=ve
 // ---------- LEDパネル: 1粒ずつ点灯を決める ----------
 var ledP=prog(VS,
 '#version 300 es\nprecision highp float;\n'+
-'uniform vec2 u_grid;uniform float u_cell,u_t,u_sec,u_min,u_hue,u_fill,u_tt;uniform vec2 u_tp;uniform sampler2D u_dig;uniform float u_tw,u_tpos,u_ty,u_ts,u_ton;out vec4 o;\n'+
+'uniform vec2 u_grid,u_res;uniform float u_cell,u_t,u_sec,u_min,u_hue,u_fill,u_tt;uniform vec2 u_tp;uniform sampler2D u_dig;uniform float u_tw,u_tpos,u_ty,u_ts,u_ton;out vec4 o;\n'+
 'float h1(float n){return fract(sin(n*127.1+311.7)*43758.5453);}\n'+
 'float h2(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}\n'+
+'float n2(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(h2(i),h2(i+vec2(1.,0.)),f.x),mix(h2(i+vec2(0.,1.)),h2(i+vec2(1.,1.)),f.x),f.y);}\n'+
+'float fbm(vec2 p){float a=.5,s=0.;for(int i=0;i<4;i++){s+=a*n2(p);p=p*2.02+vec2(3.1,1.7);a*=.5;}return s;}\n'+
 'float hueOf(float x){float h;\n'+
 ' if(x<.12)h=mix(.12,0.,x/.12);else if(x<.3)h=mix(0.,-.12,(x-.12)/.18);else if(x<.45)h=mix(-.12,-.24,(x-.3)/.15);\n'+
 ' else if(x<.6)h=mix(-.24,-.38,(x-.45)/.15);else if(x<.8)h=mix(-.38,-.48,(x-.6)/.2);else h=mix(-.48,-.62,(x-.8)/.2);\n'+
 ' return fract(h+u_hue+8.);}\n'+
-'float n2(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(h2(i),h2(i+vec2(1.,0.)),f.x),mix(h2(i+vec2(0.,1.)),h2(i+vec2(1.,1.)),f.x),f.y);}\n'+
-'float fbm(vec2 p){float a=.5,s=0.;for(int i=0;i<4;i++){s+=a*n2(p);p=p*2.02+vec2(3.1,1.7);a*=.5;}return s;}\n'+
 'vec3 hsv(float h,float s,float v){vec3 k=clamp(abs(fract(h+vec3(0.,.6667,.3333))*6.-3.)-1.,0.,1.);return v*mix(vec3(1.),k,s);}\n'+
-'void main(){\n'+
-' vec2 cid=floor(gl_FragCoord.xy/u_cell);vec2 f=fract(gl_FragCoord.xy/u_cell)-.5;\n'+
-' float c=cid.x,r=u_grid.y-1.-cid.y;float xn=(c+.5)/u_grid.x;float yn=r/u_grid.y;\n'+
+// 1枚の透明なLED膜。L=0が一番奥、L=4が一番手前
+'vec3 film(vec2 fc,float L){\n'+
+' float z=L/4.;float s=mix(.56,1.,z);vec2 ctr=u_res*vec2(.5,.52);\n'+
+' vec2 sway=vec2(sin(u_t*.11+L*1.7),cos(u_t*.083+L*.9))*(1.-z)*u_cell*4.;\n'+   // 奥の膜ほどゆっくり大きく揺れる
+' vec2 p=(fc-ctr)/s+ctr+sway;\n'+
+' if(p.x<0.||p.y<0.||p.x>u_res.x||p.y>u_res.y)return vec3(0.);\n'+
+' vec2 cid=floor(p/u_cell);vec2 f=fract(p/u_cell)-.5;\n'+
+' float c=cid.x,cs=c+L*157.3,r=u_grid.y-1.-cid.y;float xn=(c+.5)/u_grid.x;float yn=r/u_grid.y;\n'+
 ' float rain=0.,white=0.;\n'+
-// 雨の粒: 1列に5本のレーン
-' for(int k=0;k<5;k++){float fk=float(k);float a=h1(c*3.17+fk*11.3);\n'+
-'  if(a<.08+.1*fk)continue;\n'+
-'  float dep=h1(c*7.91+fk*5.1);dep=dep*dep;\n'+                                     // 奥(0)〜手前(1)
-'  float spd=mix(7.,30.,dep)*(.85+.3*h1(c*2.3+fk));\n'+
-'  float tail=mix(5.,34.,dep)*(.7+.6*h1(c*4.4+fk*2.));\n'+
-'  float per=u_grid.y+tail+u_grid.y*(.2+1.3*h1(c*9.7+fk*3.));\n'+
-'  float t=u_t*spd+h1(c*1.3+fk*7.)*per;float cyc=floor(t/per);float head=t-cyc*per;\n'+
-'  float d=head-r;if(d<0.||d>tail)continue;\n'+
-'  float fl=.55+.45*step(.3,h2(vec2(c*1.7+fk,r+floor(u_t*6.+h1(c+fk)*9.))));\n'+   // データのようなちらつき
-'  float b=exp(-d/(tail*.32))*mix(.28,1.,dep)*fl;\n'+
-'  rain=max(rain,b);white=max(white,step(d,1.)*mix(.35,.9,dep));}\n'+
-// 背景1: ゆっくり流れてうねる虹色の光の霞(奥のLEDがほのかに灯る)
-' vec2 bp=vec2(xn*2.4,yn*2.4*u_grid.y/u_grid.x);\n'+
-' float wq=fbm(bp*.9+vec2(u_t*.03,-u_t*.05));\n'+
-' float neb=fbm(bp+vec2(wq*1.6+u_t*.02,wq*1.2-u_t*.04));\n'+
-' float bg=smoothstep(.38,.85,neb)*.26+smoothstep(.6,.95,neb)*.2;\n'+
-' float bgh=hueOf(fract(xn+(neb-.5)*.35));\n'+
-// 背景2: ずっと奥で細かく降る、かすかな雨
-' float far=0.;for(int k=0;k<2;k++){float fk=float(k);float a2=h1(c*5.3+fk*17.);if(a2<.35)continue;\n'+
-'  float sp2=mix(3.,6.,h1(c*8.1+fk));float tl=mix(3.,8.,h1(c*6.6+fk));float pr=u_grid.y*(.4+.8*h1(c*2.9+fk*5.))+tl;\n'+
-'  float hd=mod(u_t*sp2+h1(c*3.7+fk*9.)*pr,pr);float d2=hd-mod(r,pr);if(d2>=0.&&d2<tl)far=max(far,exp(-d2/(tl*.4))*.16);}\n'+
-// 背景3: ときどき画面を横切る光の波(約14秒ごと)
-' float wv=fract(u_t/14.);float wy=1.2-wv*1.6;float swell=exp(-pow((yn-wy-(xn-.5)*.25)/.07,2.))*.18*smoothstep(0.,.1,wv)*smoothstep(1.,.75,wv);\n'+
-// きらめき
-' float gs=h2(cid*.73+floor(u_t*1.3+h2(cid)*13.));float gp=fract(u_t*1.3+h2(cid)*13.);\n'+
-' float glint=step(.9975,gs)*pow(1.-gp,3.)*1.4;\n'+
-// 下にたまる光・分の柱・秒の一滴
-' float wave=.6+.4*sin(xn*17.+u_t*.4)*sin(xn*5.3-u_t*.23);\n'+
-' float pool=exp(-(1.-yn)/.11)*.32*wave+exp(-(1.-yn)/.35)*.07;\n'+
-' float mcol=floor((u_min+u_sec/60.)/60.*u_grid.x);float dm=abs(c-mcol);\n'+
-' float pil=(step(dm,.5)*.55+step(dm,1.5)*.18+exp(-dm*.35)*.08)*(.35+.65*yn)*(.75+.25*step(.5,h2(vec2(c,r+floor(u_t*10.)))));\n'+
-' float s=fract(u_sec),idx=floor(u_sec);float scol=floor((idx+.5)/60.*u_grid.x);float shead=s*s*u_grid.y;float sd=shead-r;\n'+
-' float sdrop=(abs(c-scol)<.5&&sd>=0.&&sd<14.)?exp(-sd/4.)*1.2:0.;\n'+
-// 毎分、雨粒がとまって数字が満ちる
-' float dig=0.;\n'+
-' if(u_ton>.5){float lx=floor((cid.x-u_tpos)/u_ts),ly=floor((cid.y-u_ty)/u_ts);\n'+
-'  float band=step(u_ty-2.,cid.y)*step(cid.y,u_ty+7.*u_ts+1.);rain*=1.-.5*band;far*=1.-.6*band;\n'+
-'  if(lx>=0.&&lx<u_tw&&ly>=0.&&ly<7.){float mm=texelFetch(u_dig,ivec2(int(lx),int(6.-ly)),0).r;dig=step(.5,mm)*(.9+.1*sin(u_t*3.+cid.x*.2));}}\n'+
-// なぞった所から広がる光の輪
-' float rd=length((cid-u_tp)*vec2(1.,1.));float age=u_t-u_tt;float ring=exp(-pow(rd-age*38.,2.)/6.)*exp(-age*1.8)*step(0.,age);\n'+
+' for(int k=0;k<2;k++){float fk=float(k);if(h1(cs*3.17+fk*11.3)<.3+.15*fk)continue;\n'+
+'  float dep=clamp(z+(h1(cs*7.91+fk*5.1)-.5)*.3,0.,1.);\n'+
+'  float spd=mix(6.,30.,dep)*(.85+.3*h1(cs*2.3+fk));float tail=mix(5.,34.,dep)*(.7+.6*h1(cs*4.4+fk*2.));\n'+
+'  float per=u_grid.y+tail+u_grid.y*(.2+1.3*h1(cs*9.7+fk*3.));\n'+
+'  float t=u_t*spd+h1(cs*1.3+fk*7.)*per;float head=mod(t,per);float d=head-r;if(d<0.||d>tail)continue;\n'+
+'  float fl=.55+.45*step(.3,h2(vec2(cs*1.7+fk,r+floor(u_t*6.+h1(cs+fk)*9.))));\n'+
+'  rain=max(rain,exp(-d/(tail*.32))*fl);white=max(white,step(d,1.));}\n'+
+' float gs=h2(cid*.73+L*9.1+floor(u_t*1.3+h2(cid+L)*13.));float gp=fract(u_t*1.3+h2(cid+L)*13.);\n'+
+' float glint=step(.998,gs)*pow(1.-gp,3.)*1.4;\n'+
 ' vec3 hc=hsv(hueOf(xn),.85,1.);\n'+
-' vec3 bgc=hsv(bgh,.8,1.)*(bg*(1.+.6*swell/.18)+swell*.6)+hc*far;\n'+
-' vec3 col=bgc+hc*(rain+pool)+mix(hc,vec3(1.),.75)*white*rain*1.2+vec3(1.)*glint*mix(vec3(1.),hc,.4)+mix(vec3(1.),hc,.55)*pil+mix(vec3(1.),hc,.3)*sdrop+mix(hc,vec3(1.),.45)*dig*1.05+mix(vec3(1.),hc,.5)*ring;\n'+
-' float lum=max(max(col.r,col.g),col.b);col*=(floor(min(lum,1.4)*20.+.5)/20.*step(.12,lum)+lum*step(lum,.12))/max(lum,1e-4);\n'+   // 明るさの段階
-' float dd=max(abs(f.x),abs(f.y))*2.;float led=smoothstep(.88,.66,dd)*(1.+.3*(1.-length(f)*2.));\n'+
-' vec3 off=vec3(.014,.015,.02)*smoothstep(.9,.6,dd);\n'+
-' o=vec4(col*led+off,1.);}');
+' vec3 col=hc*rain+mix(hc,vec3(1.),.75)*white*rain*1.1+mix(vec3(1.),hc,.4)*glint;\n'+
+' if(L<.5){\n'+                                                                    // 一番奥の膜: 虹色の霞と下にたまる光
+'  vec2 bp=vec2(xn*2.4,yn*2.4*u_grid.y/u_grid.x);float wq=fbm(bp*.9+vec2(u_t*.03,-u_t*.05));float neb=fbm(bp+vec2(wq*1.6+u_t*.02,wq*1.2-u_t*.04));\n'+
+'  float bg=smoothstep(.38,.85,neb)*.3+smoothstep(.6,.95,neb)*.22;\n'+
+'  float wv=fract(u_t/14.);float wy=1.2-wv*1.6;float swell=exp(-pow((yn-wy-(xn-.5)*.25)/.07,2.))*.2*smoothstep(0.,.1,wv)*smoothstep(1.,.75,wv);\n'+
+'  float wave=.6+.4*sin(xn*17.+u_t*.4)*sin(xn*5.3-u_t*.23);\n'+
+'  col+=hsv(hueOf(fract(xn+(neb-.5)*.35)),.8,1.)*(bg+swell)+hc*(exp(-(1.-yn)/.11)*.35*wave+exp(-(1.-yn)/.35)*.08);}\n'+
+' if(L>3.5){\n'+                                                                   // 一番手前の膜: 分の光の柱・秒の一滴・なぞった光の輪
+'  float mcol=floor((u_min+u_sec/60.)/60.*u_grid.x);float dm=abs(c-mcol);\n'+
+'  float pil=(step(dm,.5)*.5+step(dm,1.5)*.16+exp(-dm*.35)*.07)*(.35+.65*yn)*(.75+.25*step(.5,h2(vec2(c,r+floor(u_t*10.)))));\n'+
+'  float sx=fract(u_sec),idx=floor(u_sec);float scol=floor((idx+.5)/60.*u_grid.x);float sd=sx*sx*u_grid.y-r;\n'+
+'  float sdrop=(abs(c-scol)<.5&&sd>=0.&&sd<14.)?exp(-sd/4.)*1.2:0.;\n'+
+'  float rd=length(cid-u_tp);float age=u_t-u_tt;float ring=exp(-pow(rd-age*38.,2.)/6.)*exp(-age*1.8)*step(0.,age);\n'+
+'  col+=mix(vec3(1.),hc,.55)*pil+mix(vec3(1.),hc,.3)*sdrop+mix(vec3(1.),hc,.5)*ring;}\n'+
+' float lum=max(max(col.r,col.g),col.b);col*=(floor(min(lum,1.4)*20.+.5)/20.*step(.12,lum)+lum*step(lum,.12))/max(lum,1e-4);\n'+
+' float dd=max(abs(f.x),abs(f.y))*2.;float led=smoothstep(.88,.6-.2*(1.-z),dd)*(1.+.3*(1.-length(f)*2.));\n'+   // 奥ほど粒が少しぼける
+' float e=min(min(p.x,p.y),min(u_res.x-p.x,u_res.y-p.y))/u_cell;\n'+
+' vec3 edge=vec3(.5,.55,.7)*exp(-e*1.2)*.07*(1.-z*.5);\n'+                       // 膜のふち(透明な板の存在感)
+' vec3 off=vec3(.010,.011,.015)*smoothstep(.9,.6,dd);\n'+
+' return (col*led+off+edge)*mix(.42,1.,pow(z,.8));}\n'+
+'void main(){vec3 c=vec3(0.);\n'+
+' for(int i=0;i<5;i++){c+=film(gl_FragCoord.xy,float(i));}\n'+                  // 透けて重なる(LEDは発光なので足し合わせ)
+' o=vec4(c,1.);}');
 
 // ---------- 光のにじみ(ブルーム) ----------
 var blurP=prog(VS,'#version 300 es\nprecision highp float;\nuniform sampler2D u_tex;uniform vec2 u_step,u_inv;uniform float u_thr;out vec4 o;\n'+
@@ -184,7 +175,7 @@ function frame(now){
   gl.bindVertexArray(vao);
   gl.bindFramebuffer(gl.FRAMEBUFFER,RT.sc.f);gl.viewport(0,0,W,H);gl.useProgram(ledP.p);
   gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,digTex);gl.uniform1i(ledP.u.u_dig,0);
-  gl.uniform2f(ledP.u.u_grid,GX,GY);gl.uniform1f(ledP.u.u_cell,CELL);gl.uniform1f(ledP.u.u_t,t);gl.uniform1f(ledP.u.u_sec,sec);gl.uniform1f(ledP.u.u_min,mn);
+  gl.uniform2f(ledP.u.u_grid,GX,GY);gl.uniform2f(ledP.u.u_res,W,H);gl.uniform1f(ledP.u.u_cell,CELL);gl.uniform1f(ledP.u.u_t,t);gl.uniform1f(ledP.u.u_sec,sec);gl.uniform1f(ledP.u.u_min,mn);
   gl.uniform1f(ledP.u.u_hue,hueV);gl.uniform1f(ledP.u.u_fill,fill);gl.uniform2f(ledP.u.u_tp,tp[0],tp[1]);gl.uniform1f(ledP.u.u_tt,tt);gl.uniform1f(ledP.u.u_tw,TW);gl.uniform1f(ledP.u.u_tpos,Math.round(tpos));gl.uniform1f(ledP.u.u_ty,ty);gl.uniform1f(ledP.u.u_ts,TS);gl.uniform1f(ledP.u.u_ton,0);   // 電光掲示板の文字は出さない(2026/11/28「ダサすぎる、なんとなくわかる感じでいい」)
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
   pass(RT.sc,RT.q1,2.5/W,0,.18);pass(RT.q1,RT.q2,0,1.5/RT.q1.h,0);pass(RT.q2,RT.e1,2/RT.q2.w,0,0);pass(RT.e1,RT.e2,0,2/RT.e1.h,0);
