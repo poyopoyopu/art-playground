@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <!-- QUANTUM RAIN(仮) — クロちゃん(Claude)作の試作。2026/11/28 おっちゃん依頼(Starkapoo氏の「Quantum Rain」動画)。ap-kit.js統合: クロちゃん -->
+<!-- 2026/11/28 おっちゃん「色合いも10秒毎にランダムで、せっかく時計になってるから目盛みたいなのが欲しいよね」→ 10秒ごとに虹の並びがランダムにずれる(?hue=0で止める)。上の端(画面の上から約46px下)に、LEDの粒で5分ごとの目盛り(0・15・30・45分は2粒の高さで明るく)と、0分からいまの分までの光の線、いまの位置の白い粒 -->
 <!-- 2026/11/28 おっちゃん「とても良い！もっとヌルヌルにならないかな？」→ LEDの粒の明るさを別の小さな描画先で計算(粒の中を9点で拾う)。前のコマから滑らかにつなぎ(点くのは素早く、消えるのは少し残光)、明るさの24段階もやめた -->
 <!-- 2026/11/28 おっちゃん「やっぱり横はダメだな無しで、1分おきに大きさを自動で変更にして」→ 向きは上下だけに戻す(横は?m=1/3で残置)。LEDの粒は毎分 大→特大→超特大→巨大→中 と自動で変わる(?cell=で固定) -->
 <!-- 2026/11/28 おっちゃん「流石に横は無理かな？あとは10秒前から少しアクション変えて欲しいな」→ 1分ごとに 下へ→右へ→上へ→左へ と回る(縦⇄横は重ねて入れ替え)。毎分50秒から雨が速く・長く・明るくなり、切り替わって3秒で戻る。?m=0〜3で向き固定、?pre=1で10秒前の状態を固定 -->
@@ -193,7 +194,7 @@ FS_HEAD+'uniform sampler2D u_tex;uniform vec2 u_step,u_inv;uniform float u_thr;o
 ' s+=(f(texture(u_tex,uv+u_step*4.).rgb)+f(texture(u_tex,uv-u_step*4.).rgb))*.016;\n'+
 ' o=vec4(s,1.);}');
 var compP=prog('#version 300 es\nlayout(location=0) in vec2 p;void main(){gl_Position=vec4(p,0.,1.);}',
-FS_HEAD+'uniform sampler2D u_a,u_b,u_c,u_m,u_l;uniform vec2 u_inv;uniform float u_cell,u_led,u_mk,u_hue,u_t;out vec4 o;\n'+COMMON+
+FS_HEAD+'uniform sampler2D u_a,u_b,u_c,u_m,u_l;uniform vec2 u_inv;uniform float u_cell,u_led,u_mk,u_hue,u_t,u_mf,u_top;out vec4 o;\n'+COMMON+
 'float hsh(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}\n'+
 'void main(){vec2 uv=gl_FragCoord.xy*u_inv;\n'+
 ' vec3 c;\n'+
@@ -205,7 +206,15 @@ FS_HEAD+'uniform sampler2D u_a,u_b,u_c,u_m,u_l;uniform vec2 u_inv;uniform float 
 '  vec2 pid=floor(cid/48.);vec2 pf=fract(cid/48.);\n'+
 '  float seam=1.;\n'+                              // パネルの継ぎ目(48粒ごと)
 '  float off=.022*smoothstep(.9,.5,d)*seam;\n'+                                     // 消えているLEDもうっすら見える
-'  vec3 vq=v;\n'+   // 2026/11/28「もっとヌルヌルに」→ 明るさの段階(24段)はやめて滑らかに
+'  vec3 vq=v;\n'+
+'  float xn=(cid.x+.5)*u_cell*u_inv.x;float rowT=floor((1./u_inv.y-u_top)/u_cell)-1.;float dr=rowT-cid.y;\n'+   // 目盛り: 上の端に、5分ごとの目盛りと、いまの分までの光の線
+'  if(dr>=0.&&dr<2.){float NT=(1./(u_cell*u_inv.x))/12.>=2.5?12.:4.;float k=xn*NT;float kk=mod(floor(k+.5),NT);\n'+   // 粒が大きいときは15分ごと(4本)だけ
+'   float isT=step(abs(k-floor(k+.5)),.5*u_cell*u_inv.x*NT);\n'+
+'   float major=NT>4.?step(mod(kk,3.),.5):1.;\n'+
+'   vec3 tc=vec3(0.);if(dr<1.){tc=hsv(hueOf(xn),.75,1.)*.16*step(xn,u_mf);tc=max(tc,vec3(.75,.78,.85)*isT*(.55+.45*major));\n'+
+'    float cur=1.-smoothstep(0.,1.,abs(xn-u_mf)/(u_cell*u_inv.x));tc=max(tc,mix(vec3(1.),hsv(hueOf(u_mf),.5,1.),.4)*cur);}\n'+
+'   else tc=vec3(.6,.63,.7)*isT*major;\n'+
+'   vq=max(vq*.25,tc);}\n'+   // 2026/11/28「もっとヌルヌルに」→ 明るさの段階(24段)はやめて滑らかに
 '  float glow=exp(-dot(f,f)*7.)*.35;\n'+                                          // 一粒ずつのにじみ
 '  c=vq*(led*1.6+glow)*seam+vec3(off*.8,off*.85,off)+texture(u_b,uv).rgb*.45+texture(u_c,uv).rgb*.6;\n'+
 ' }else{float mk=smoothstep(.25,.6,texture(u_m,uv).r)*u_mk;vec3 a=texture(u_a,uv).rgb;float lm=max(max(a.r,a.g),a.b);c=mix(a,vec3(1.,.82,.45)*lm*1.35,mk)+texture(u_b,uv).rgb*.55+texture(u_c,uv).rgb*.8;}\n'+
@@ -303,7 +312,7 @@ var dpr=Math.min(2,window.devicePixelRatio||1),qscale=1,W=0,H=0;
 function resize(){var s=dpr*qscale;W=Math.max(2,Math.round(innerWidth*s));H=Math.max(2,Math.round(innerHeight*s));cv.width=W;cv.height=H;if(typeof buildRT==='function'&&gl)buildRT();}
 addEventListener('resize',resize);resize();
 
-var hueT=0,hueV=0,rDir=1,rPh=0,phV=0,phH=0,dirV=1,dirH=1,wH=0,preV=0;var LED=Q.get('led')!=='0';
+var hueBlk=null,hueT=0,hueV=0,rDir=1,rPh=0,phV=0,phH=0,dirV=1,dirH=1,wH=0,preV=0;var LED=Q.get('led')!=='0';
 var GRAIN=[8.4,12,16,24,4.2,2.1,0],GNAME=['LEDの粒: 大(約8px)','LEDの粒: 特大(約12px)','LEDの粒: 超特大(約16px)','LEDの粒: 巨大(約24px)','LEDの粒: 中(約4px)','LEDの粒: 小(約2px)','LEDなし(元の描き方)'],gi=0;   // 2026/11/28「あえて大きくした方がインパクトある」→ 既定は大   // 粒の大きさの見比べ(?cell=4/8/2/0 か下の▦ボタン)
 var gAuto=true,gOff=0,AUTO_G=[0,1,2,3,4];   // 2026/11/28「1分おきに大きさを自動で変更にして」→ 毎分、大→特大→超特大→巨大→中 の順に粒が変わる(▦で順番を1つ進める)
 (function(){var c=Q.get('cell');if(c!==null){var k={'8':0,'12':1,'16':2,'24':3,'4':4,'2':5,'0':6}[c];if(k!==undefined){gi=k;gAuto=false;}}})();   // LEDパネル表示(?led=0 で元の描き方)
@@ -319,6 +328,7 @@ var last=performance.now(),frames=0,acc=0;
 function frame(now){
   var dt=Math.min(.1,(now-last)/1000);last=now;
   if(!touch.down)touch.s*=Math.exp(-dt/1.1);
+  var hb=Math.floor((nowDate().getTime()/1000)/10);if(hb!==hueBlk){if(hueBlk!==null&&Q.get('hue')!=='0')hueT+=.12+Math.random()*.5;hueBlk=hb;}   // 2026/11/28「色合いも10秒毎にランダムで」→ 10秒ごとに虹の並びがずれる(?hue=0で止める)
   hueV+=(hueT-hueV)*(1-Math.exp(-dt*1.6));
   var d=nowDate();var sec=d.getSeconds()+d.getMilliseconds()/1000;var mn=d.getMinutes();
   var t=(now-t0)/1000;
@@ -368,7 +378,7 @@ function frame(now){
   gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,RT.sc.t);gl.uniform1i(compP.u.u_a,0);
   gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,RT.q2.t);gl.uniform1i(compP.u.u_b,1);
   gl.activeTexture(gl.TEXTURE2);gl.bindTexture(gl.TEXTURE_2D,RT.e2.t);gl.uniform1i(compP.u.u_c,2);
-  gl.activeTexture(gl.TEXTURE3);gl.bindTexture(gl.TEXTURE_2D,maskTex);gl.uniform1i(compP.u.u_m,3);gl.uniform1f(compP.u.u_mk,maskTex?mkS:0);gl.uniform1f(compP.u.u_hue,hueV);gl.uniform1f(compP.u.u_t,t);
+  gl.activeTexture(gl.TEXTURE3);gl.bindTexture(gl.TEXTURE_2D,maskTex);gl.uniform1i(compP.u.u_m,3);gl.uniform1f(compP.u.u_mk,maskTex?mkS:0);gl.uniform1f(compP.u.u_hue,hueV);gl.uniform1f(compP.u.u_t,t);gl.uniform1f(compP.u.u_mf,um);gl.uniform1f(compP.u.u_top,Math.round(46*W/innerWidth));
   gl.uniform2f(compP.u.u_inv,1/W,1/H);gl.uniform1f(compP.u.u_cell,Math.max(2,Math.round(GRAIN[gi]*W/innerWidth)));gl.uniform1f(compP.u.u_led,(LED&&GRAIN[gi]>0)?1:0);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);gl.activeTexture(gl.TEXTURE0);
   frames++;acc+=dt;if(frames===90){if(acc/90>.021&&qscale>.6){qscale*=.85;resize();}frames=0;acc=0;}
   requestAnimationFrame(frame);}
