@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <!-- STORM(仮) — クロちゃん(Claude)作の試作。2026/11/28 おっちゃん「この透過LED膜を使った作品案を考えさせるか」→ムーちゃん案のSTORMを試作。ap-kit.js統合: クロちゃん -->
+<!-- 2026/11/28 おっちゃん「層ごとに別の動きにすればいいのよ」→ 膜ごとに雲の流れる向き・速さと、雨の角度・速さを変えた(稲妻だけが膜を突き抜ける)。 -->
 <!-- 透明なLED膜5枚(led-films-kit.js)。稲妻は1枚の上の線ではなく、枝ごとに違う膜を通る立体として、奥の膜から手前の膜へ落ちてくる。
      奥の膜の枝は細く暗く、手前の枝は太く明るい。残光は手前の膜ほどゆっくり消えるので、奥から手前へ「通過した」ことが時間差で見える。
      雲は膜ごとに別の塊が漂い、重なって厚みになる。稲光が雲を内側から光らせる。雨は手前の膜ほど太く速い。
@@ -33,7 +34,8 @@ var flash=0,flashX=.5,chargeAt=-1,chargeX=.5,chargeY=.2,nextStrike=2,nextFlicker
 function setup(kit){
   GXc=kit.GX;GYc=kit.GY;glow=[];clouds=[];drops=[];stars=[];
   for(var L=0;L<5;L++){var c=document.createElement('canvas');c.width=kit.GX;c.height=kit.GY;glow.push(c.getContext('2d'));
-    var cl=[];for(var i=0;i<16;i++)cl.push({x:Math.random(),y:rnd(-.05,.5)*(.7+.3*Math.random()),r:rnd(.08,.2),v:rnd(.004,.012)*(L%2?1:-1)*.6,s:Math.random(),lit:0});
+    var CV=[-.012,.022,-.035,.05,-.008][L];   // 膜ごとに雲の流れる向きと速さが違う
+    var cl=[];for(var i=0;i<16;i++)cl.push({x:Math.random(),y:rnd(-.05,.5)*(.7+.3*Math.random()),r:rnd(.08,.2),v:CV*rnd(.8,1.2),s:Math.random(),lit:0});
     clouds.push(cl);var dr=[];for(var j=0;j<70;j++)dr.push({x:Math.random(),y:Math.random(),v:rnd(.6,1)});drops.push(dr);}
   for(var k=0;k<90;k++)stars.push({x:Math.random(),y:Math.random()*.75,p:Math.random()*6.3,b:rnd(.3,1)});
 }
@@ -96,8 +98,8 @@ var kit=LEDFilms.init({canvas:cv,onResize:setup,draw:function(t,dt,k){
       gr.addColorStop(0,'rgba('+cr+','+cg+','+cb+','+Math.min(1,base*1.6+lit*.55*cover)+')');gr.addColorStop(.6,'rgba('+cr+','+cg+','+cb+','+Math.min(1,base+lit*.25*cover)+')');gr.addColorStop(1,'rgba(0,0,0,0)');
       ctx.fillStyle=gr;ctx.beginPath();ctx.arc(cx,cy,R,0,6.283);ctx.fill();}
     // 雨(手前の膜ほど太く速い)
-    if(L>0&&I>.05){var dr=drops[L],n=Math.floor(dr.length*Math.min(1,I*1.3));ctx.strokeStyle='rgba(150,165,220,'+(.16+.22*z)*(1+flash)+')';ctx.lineWidth=z>.7?1.2:1;ctx.beginPath();
-      for(var di=0;di<n;di++){var D=dr[di];D.y+=dt*D.v*(.5+1.1*z);if(D.y>1.05){D.y-=1.1;D.x=Math.random();}var len=(2+5*z)*D.v;ctx.moveTo(D.x*GX+.5,D.y*GY);ctx.lineTo(D.x*GX-.4*len*.15+.5,D.y*GY-len);}ctx.stroke();}
+    if(I>.05){var SL=[.15,.55,-.45,.3,-.1][L],SP=[.35,.8,1.05,1.35,1.7][L];var dr=drops[L],n=Math.floor(dr.length*Math.min(1,I*1.3));   // 膜ごとに雨の角度と速さが違うctx.strokeStyle='rgba(150,165,220,'+(.16+.22*z)*(1+flash)+')';ctx.lineWidth=z>.7?1.2:1;ctx.beginPath();
+      for(var di=0;di<n;di++){var D=dr[di];D.y+=dt*D.v*SP;D.x+=dt*D.v*SP*SL*GY/GX;if(D.y>1.05){D.y-=1.1;D.x=Math.random();}if(D.x<-.05)D.x+=1.1;if(D.x>1.05)D.x-=1.1;var len=(2+5*z)*D.v;ctx.moveTo(D.x*GX+.5,D.y*GY);ctx.lineTo(D.x*GX-SL*len+.5,D.y*GY-len);}ctx.stroke();}
     // 稲妻の残光(手前の膜ほどゆっくり消える)
     var g=glow[L];g.globalCompositeOperation='destination-out';g.fillStyle='rgba(0,0,0,'+Math.min(1,(.5-.4*z)*dt*60*.5)+')';g.fillRect(0,0,GX,GY);
     ctx.globalCompositeOperation='lighter';ctx.drawImage(g.canvas,0,0);
