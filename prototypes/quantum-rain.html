@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <!-- QUANTUM RAIN(仮) — クロちゃん(Claude)作の試作。2026/11/28 おっちゃん依頼(Starkapoo氏の「Quantum Rain」動画)。ap-kit.js統合: クロちゃん -->
+<!-- 2026/11/28 おっちゃん「やっぱり横はダメだな無しで、1分おきに大きさを自動で変更にして」→ 向きは上下だけに戻す(横は?m=1/3で残置)。LEDの粒は毎分 大→特大→超特大→巨大→中 と自動で変わる(?cell=で固定) -->
 <!-- 2026/11/28 おっちゃん「流石に横は無理かな？あとは10秒前から少しアクション変えて欲しいな」→ 1分ごとに 下へ→右へ→上へ→左へ と回る(縦⇄横は重ねて入れ替え)。毎分50秒から雨が速く・長く・明るくなり、切り替わって3秒で戻る。?m=0〜3で向き固定、?pre=1で10秒前の状態を固定 -->
 <!-- 2026/11/28 おっちゃん「もう時刻の表示やめて、1分毎に下からの雨に切り替えてみて」→ 時刻の形は出さない。偶数分は上から降り、奇数分は下から昇る雨。分が変わると約1.6秒で減速して止まり、逆向きに動き出す(?up=1で常に下から) -->
 <!-- 2026/11/28 おっちゃん「微妙だなぁー、違う色で流れるは？」→ 影絵をやめ、時・分の形の所だけ、降っている雨が金色に変わって流れる(雨そのものは止まらない) -->
@@ -290,7 +291,8 @@ addEventListener('resize',resize);resize();
 
 var hueT=0,hueV=0,rDir=1,rPh=0,phV=0,phH=0,dirV=1,dirH=1,wH=0,preV=0;var LED=Q.get('led')!=='0';
 var GRAIN=[8.4,12,16,24,4.2,2.1,0],GNAME=['LEDの粒: 大(約8px)','LEDの粒: 特大(約12px)','LEDの粒: 超特大(約16px)','LEDの粒: 巨大(約24px)','LEDの粒: 中(約4px)','LEDの粒: 小(約2px)','LEDなし(元の描き方)'],gi=0;   // 2026/11/28「あえて大きくした方がインパクトある」→ 既定は大   // 粒の大きさの見比べ(?cell=4/8/2/0 か下の▦ボタン)
-(function(){var c=Q.get('cell');if(c!==null){var k={'8':0,'12':1,'16':2,'24':3,'4':4,'2':5,'0':6}[c];if(k!==undefined)gi=k;}})();   // LEDパネル表示(?led=0 で元の描き方)
+var gAuto=true,gOff=0,AUTO_G=[0,1,2,3,4];   // 2026/11/28「1分おきに大きさを自動で変更にして」→ 毎分、大→特大→超特大→巨大→中 の順に粒が変わる(▦で順番を1つ進める)
+(function(){var c=Q.get('cell');if(c!==null){var k={'8':0,'12':1,'16':2,'24':3,'4':4,'2':5,'0':6}[c];if(k!==undefined){gi=k;gAuto=false;}}})();   // LEDパネル表示(?led=0 で元の描き方)
 var touch={x:.5,y:.5,s:0,down:false};
 function setT(e){touch.x=e.clientX/innerWidth;touch.y=e.clientY/innerHeight;}
 addEventListener('pointerdown',function(e){if(window.APKit&&APKit.isUI&&APKit.isUI(e.clientX,e.clientY))return;touch.down=true;setT(e);touch.s=1;});
@@ -314,13 +316,14 @@ function frame(now){
   var mkS=0;   // 2026/11/28「もう時刻の表示やめて」→ 時刻の形は出さない
   // 1分ごとに、上からの雨と下からの雨が入れ替わる(偶数分=下へ、奇数分=上へ)。切り替わりは約1.6秒で減速→止まる→逆へ
   // 1分ごとに雨の向きが 下へ→右へ→上へ→左へ と回る(縦⇄横は約1.2秒で入れ替わる)。?m=0〜3で固定、?up=1は上へ固定
-  var md=d.getMinutes()%4;if(Q.get('m')!==null)md=(+Q.get('m'))%4;if(Q.get('up')==='1')md=2;
+  var md=(d.getMinutes()%2)?2:0;if(Q.get('m')!==null)md=(+Q.get('m'))%4;   // 2026/11/28「横はダメだな無しで」→ 上下だけ(偶数分=下へ、奇数分=上へ)。横の仕組みは?m=1/3で残置if(Q.get('up')==='1')md=2;
   var kk2=Math.min(1,dt*2.2);wH+=(((md%2)?1:0)-wH)*Math.min(1,dt*2.6);
   var dVT=[1,-1,-1,1][md],dHT=[1,1,-1,-1][md];
   if(md%2===0)dirV+=(dVT-dirV)*kk2;else if(wH>.95)dirV=dVT;
   if(md%2===1)dirH+=(dHT-dirH)*kk2;else if(wH<.05)dirH=dHT;
   // 10秒前から: 雨が速く・長く・明るくなって切り替わりに向かう。切り替わった後3秒で元に戻る
   preV=sec>=50?ss(50,59.6,sec):(sec<3?1-ss(0,3,sec):0);if(Q.get('pre')==='1')preV=1;
+  if(gAuto)gi=AUTO_G[(d.getMinutes()+gOff)%AUTO_G.length];   // 粒の大きさは向きと同時に毎分変わる
   var spd2=1+1.7*preV;phV+=dt*dirV*spd2;phH+=dt*dirH*spd2;   // 毎分0秒に集まり、20秒ごろから崩れて雨に戻る
   var ev=Math.floor(t/11),eh=hsh(ev),tt=t-ev*11;   // 11秒ごとにくじ。当たると雲の中で稲光(二度またたく)
   var fl=0&&eh>.35?Math.exp(-Math.pow((tt-1.2)*5,2))+.6*Math.exp(-Math.pow((tt-1.55)*7,2)):0,fx=hsh(ev+3);
@@ -370,10 +373,10 @@ APKit.init({
   buttons:[
     {label:'✦',name:'mutate',onClick:function(){hueT+=.12+Math.random()*.5;}},   // 虹の色をずらす
     {label:'↻',name:'reset',onClick:function(){hueV=hueV-Math.round(hueV);hueT=0;}},   // 虹を元の並びに戻す
-    {label:'▦',name:'grain',onClick:function(){gi=(gi+1)%GRAIN.length;if(window.APKit&&APKit.toast)APKit.toast(GNAME[gi]);}}   // LEDの粒の大きさを切り替える
+    {label:'▦',name:'grain',onClick:function(){if(gAuto){gOff++;gi=AUTO_G[(nowDate().getMinutes()+gOff)%AUTO_G.length];}else gi=(gi+1)%GRAIN.length;if(window.APKit&&APKit.toast)APKit.toast(GNAME[gi]);}}   // LEDの粒の大きさを切り替える
   ]
 });
-showHint('雨は1分ごとに 下へ→右へ→上へ→左へ と向きを変える<br>横幅が 0〜59 の目盛り(光の柱=分 / 落ちる一滴=秒)<br>なぞると雨が散る',9000);
+showHint('1分ごとに、雨の向きと粒の大きさが変わる<br>横幅が 0〜59 の目盛り(光の柱=分 / 落ちる一滴=秒)<br>なぞると雨が散る',9000);
 window.__qr={count:NR};
 })();
 </script>
