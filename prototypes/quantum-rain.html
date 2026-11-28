@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <!-- QUANTUM RAIN(仮) — クロちゃん(Claude)作の試作。2026/11/28 おっちゃん依頼(Starkapoo氏の「Quantum Rain」動画)。ap-kit.js統合: クロちゃん -->
+<!-- 2026/11/28 おっちゃん「微妙だなぁー、違う色で流れるは？」→ 影絵をやめ、時・分の形の所だけ、降っている雨が金色に変わって流れる(雨そのものは止まらない) -->
 <!-- 2026/11/28 おっちゃん「時計の表示がだめだなー」→3案から「雨の隙間で数字が浮かぶ」: 雨が数字に集まる形をやめ、時・分の形の所だけ雨が抜けて暗くなる影絵に(LEDの粒単位で消える、縁は少しぼける)。?g=1で旧版 -->
 <!-- 2026/11/28 おっちゃん「1粒を倍にするとどんな感じかな？粒感を変化したバージョンが見たい」→ 下の▦ボタンでLEDの粒を ふつう(約4px)→倍(約8px)→半分(約2px)→LEDなし と切り替え。?cell=4/8/2/0 でも指定できる -->
 <!-- 2026/11/28 おっちゃん「下の光が強いかな」→ 地面に映る灯り・波紋・霧・光の柱の根元・秒の大きな波紋・下の方の雨の明るさを弱めた -->
@@ -200,7 +201,8 @@ FS_HEAD+'uniform sampler2D u_a,u_b,u_c,u_m;uniform vec2 u_inv;uniform float u_ce
 '  v=pow(max(v-.03,0.),vec3(1.35))*2.2;\n'+
 '  vec2 mm=texture(u_m,cc).rg;float mk=smoothstep(.25,.6,mm.r)*u_mk;float hl=mm.g*u_mk;\n'+
 '  float fl2=.7+.3*sin(u_t*1.3+cid.y*.9+hsh(vec2(cid.x,0.))*40.);\n'+
-'  v=(v*(1.+1.6*hl)+hsv(hueOf(cc.x),.8,1.)*hl*.2*fl2)*(1.-mk);\n'+   // 文字の周りだけ、雨の膜がぼんやり灯る。文字の形の所だけ抜けて暗い(影絵)   // 周りは雨が明るく照らされ、文字の形の所だけ抜けて暗い                                  // 時刻の形の所だけ、雨が抜けて暗い(影絵)
+'  float lm=max(max(v.r,v.g),v.b);vec3 tint=mix(vec3(1.,.82,.45),vec3(1.,.95,.85),.35+.25*sin(u_t*.4+cc.y*3.));\n'+
+'  v=mix(v,tint*(lm*1.8+.06),mk);\n'+   // 文字の形の所だけ、同じ雨が金色に変わって流れる(2026/11/28「違う色で流れるは？」)   // 周りは雨が明るく照らされ、文字の形の所だけ抜けて暗い                                  // 時刻の形の所だけ、雨が抜けて暗い(影絵)
 '  v*=.92+.16*hsh(cid);\n'+                                                       // LEDごとの明るさのばらつき
 '  float d=max(abs(f.x),abs(f.y))*2.;\n'+
 '  float led=smoothstep(.86,.62,d)*(1.+.35*(1.-length(f)*2.));\n'+                 // 四角いLEDの粒(角が少し丸い・中心がやや明るい)
@@ -209,8 +211,8 @@ FS_HEAD+'uniform sampler2D u_a,u_b,u_c,u_m;uniform vec2 u_inv;uniform float u_ce
 '  float off=.022*smoothstep(.9,.5,d)*seam;\n'+                                     // 消えているLEDもうっすら見える
 '  float lum=max(max(v.r,v.g),v.b);vec3 vq=v*floor(min(lum,1.)*24.+.5)/24./max(lum,1e-4);\n'+   // 明るさの段階
 '  float glow=exp(-dot(f,f)*7.)*.35;\n'+                                          // 一粒ずつのにじみ
-'  c=vq*(led*1.6+glow)*seam+vec3(off*.8,off*.85,off)+(texture(u_b,uv).rgb*.45+texture(u_c,uv).rgb*.6)*(1.-.55*mk);\n'+
-' }else{float mk=texture(u_m,uv).r*u_mk;c=texture(u_a,uv).rgb*(1.-mk)+(texture(u_b,uv).rgb*.55+texture(u_c,uv).rgb*.8)*(1.-.55*mk);}\n'+
+'  c=vq*(led*1.6+glow)*seam+vec3(off*.8,off*.85,off)+texture(u_b,uv).rgb*.45+texture(u_c,uv).rgb*.6;\n'+
+' }else{float mk=smoothstep(.25,.6,texture(u_m,uv).r)*u_mk;vec3 a=texture(u_a,uv).rgb;float lm=max(max(a.r,a.g),a.b);c=mix(a,vec3(1.,.82,.45)*lm*1.35,mk)+texture(u_b,uv).rgb*.55+texture(u_c,uv).rgb*.8;}\n'+
 ' c=c/(1.+max(c-.8,0.)*.8);o=vec4(c,1.);}');
 function mkRT(w,h){var t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
