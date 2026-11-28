@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<!-- STORM(仮) — クロちゃん(Claude)作の試作。2026/11/28 おっちゃん「この透過LED膜を使った作品案を考えさせるか」→ムーちゃん案のSTORMを試作。ap-kit.js統合: クロちゃん -->
+<!-- 透明なLED膜5枚(led-films-kit.js)。稲妻は1枚の上の線ではなく、枝ごとに違う膜を通る立体として、奥の膜から手前の膜へ落ちてくる。
+     奥の膜の枝は細く暗く、手前の枝は太く明るい。残光は手前の膜ほどゆっくり消えるので、奥から手前へ「通過した」ことが時間差で見える。
+     雲は膜ごとに別の塊が漂い、重なって厚みになる。稲光が雲を内側から光らせる。雨は手前の膜ほど太く速い。
+     時計(なんとなく): 嵐は1時間で1回通り過ぎる。正時ごろが一番激しく(稲妻の間隔が短い)、時間が進むと手前の膜から雲が晴れていき、50分ごろには一番奥の膜に星が見える。55分ごろからまた荒れ始める。
+     タップ=その真下に稲妻 / 長押し=雲が明るく充電され、離すと大きな一発。✦=稲光の色を変える / ↻=元の色に。確認用: ?t=HH:MM:SS / ?i=0〜1(嵐の強さを固定)。WebGL2・音なし -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>STORM — 稲妻が、5枚の膜を突き抜けて落ちてくる</title>
+<script src="../ap-kit.js"></script>
+<script src="led-films-kit.js"></script>
+<style>
+html,body{margin:0;height:100%;background:#000;overflow:hidden}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#hint{position:fixed;left:0;right:0;bottom:24%;text-align:center;color:rgba(255,255,255,.88);font:13px/1.8 -apple-system,"Hiragino Sans",sans-serif;letter-spacing:.08em;pointer-events:none;opacity:0;transition:opacity 1.2s;text-shadow:0 0 12px #000,0 0 4px #000}
+#hint.on{opacity:1}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint"></div>
+<script>
+(function(){
+var cv=document.getElementById('c'),hintEl=document.getElementById('hint');
+var PAL=[[175,190,255],[205,165,255],[255,170,225],[160,255,225],[255,225,160]],pal=0;
+function rnd(a,b){return a+Math.random()*(b-a);}
+var glow=[],clouds=[],drops=[],stars=[],bolts=[],flashes=[];
+var flash=0,flashX=.5,chargeAt=-1,chargeX=.5,chargeY=.2,nextStrike=2,nextFlicker=1,GXc=1,GYc=1;
+
+function setup(kit){
+  GXc=kit.GX;GYc=kit.GY;glow=[];clouds=[];drops=[];stars=[];
+  for(var L=0;L<5;L++){var c=document.createElement('canvas');c.width=kit.GX;c.height=kit.GY;glow.push(c.getContext('2d'));
+    var cl=[];for(var i=0;i<16;i++)cl.push({x:Math.random(),y:rnd(-.05,.5)*(.7+.3*Math.random()),r:rnd(.08,.2),v:rnd(.004,.012)*(L%2?1:-1)*.6,s:Math.random(),lit:0});
+    clouds.push(cl);var dr=[];for(var j=0;j<70;j++)dr.push({x:Math.random(),y:Math.random(),v:rnd(.6,1)});drops.push(dr);}
+  for(var k=0;k<90;k++)stars.push({x:Math.random(),y:Math.random()*.75,p:Math.random()*6.3,b:rnd(.3,1)});
+}
+
+// ---------- 稲妻(立体): 奥の膜(z=0)の雲から手前の膜(z=4)の地面へ ----------
+function makeBolt(x0,big){
+  var pts=[{x:x0,y:rnd(.08,.22),z:rnd(0,.8)},{x:x0+rnd(-.22,.22),y:1.02,z:4.2}];
+  for(var lev=0;lev<7;lev++){var np=[];for(var i=0;i<pts.length-1;i++){var a=pts[i],b=pts[i+1];var len=Math.hypot(b.x-a.x,b.y-a.y);
+    np.push(a,{x:(a.x+b.x)/2+rnd(-.5,.5)*len*.42,y:(a.y+b.y)/2+rnd(-.1,.1)*len*.3,z:(a.z+b.z)/2+rnd(-.5,.5)*len*1.4});}np.push(pts[pts.length-1]);pts=np;}
+  var segs=[];function add(p,w,br,ord0){for(var i=0;i<p.length-1;i++)segs.push({a:p[i],b:p[i+1],w:w,br:br,o:ord0+p[i].y});}
+  add(pts,big?1.6:1,1,0);
+  var nb=big?9:5;
+  for(var k=0;k<nb;k++){var st=pts[Math.floor(rnd(.1,.75)*pts.length)];var q=[{x:st.x,y:st.y,z:st.z}];var dx=rnd(-.25,.25),dz=rnd(.3,1.4);var n=Math.floor(rnd(5,11));
+    for(var j=0;j<n;j++){var pr=q[q.length-1];q.push({x:pr.x+dx/n+rnd(-.03,.03),y:pr.y+rnd(.015,.05),z:Math.min(4.2,pr.z+dz/n+rnd(-.15,.15))});}
+    add(q,.55,.55,0);}
+  return {segs:segs,t:0,big:big,x:x0,done:false,strokes:0,nextStroke:0};
+}
+function drawSeg(s,boost){
+  var col=PAL[pal];
+  var steps=Math.max(1,Math.ceil(Math.abs(s.b.z-s.a.z)*3));
+  for(var i=0;i<steps;i++){var f0=i/steps,f1=(i+1)/steps;var z=s.a.z+(s.b.z-s.a.z)*(f0+f1)/2;var L=Math.max(0,Math.min(4,Math.round(z)));var g=glow[L];
+    var x0=(s.a.x+(s.b.x-s.a.x)*f0)*GXc,y0=(s.a.y+(s.b.y-s.a.y)*f0)*GYc,x1=(s.a.x+(s.b.x-s.a.x)*f1)*GXc,y1=(s.a.y+(s.b.y-s.a.y)*f1)*GYc;
+    var w=s.w*(.6+.55*L/4);
+    g.globalCompositeOperation='lighter';g.lineCap='round';
+    g.strokeStyle='rgba('+col[0]+','+col[1]+','+col[2]+','+(.28*s.br*boost)+')';g.lineWidth=w*3.2;g.beginPath();g.moveTo(x0,y0);g.lineTo(x1,y1);g.stroke();
+    g.strokeStyle='rgba(255,255,255,'+(Math.min(1,s.br*boost))+')';g.lineWidth=w;g.beginPath();g.moveTo(x0,y0);g.lineTo(x1,y1);g.stroke();}
+}
+function strike(x,big){bolts.push(makeBolt(x,big));}
+
+var kit=LEDFilms.init({canvas:cv,onResize:setup,draw:function(t,dt,k){
+  var d=k.now(),mn=d.getMinutes()+d.getSeconds()/60;
+  var I=mn<50?Math.pow(1-mn/50,1.2):(mn-50)/10;I=Math.max(0,Math.min(1,I));
+  if(k.query.get('i'))I=+k.query.get('i');
+  var col=PAL[pal];
+  // 稲妻を落とすタイミング
+  nextStrike-=dt;if(nextStrike<=0){strike(rnd(.12,.88),Math.random()<.25+.3*I);nextStrike=(3+27*(1-I))*rnd(.55,1.45);}
+  nextFlicker-=dt;if(nextFlicker<=0){var L0=Math.floor(rnd(0,3)),cl=clouds[L0][Math.floor(Math.random()*16)];cl.lit=1;nextFlicker=(.8+5*(1-I))*rnd(.4,1.6);}
+  // 稲妻の進行(先駆→本体の閃光→2〜3回またたく)
+  for(var b=bolts.length-1;b>=0;b--){var B=bolts[b];B.t+=dt;var prog=B.t/.16;
+    if(!B.done){for(var i=0;i<B.segs.length;i++){var s=B.segs[i];if(s.a.y<prog*1.05&&!s.drawn){drawSeg(s,.35);s.drawn=1;}}
+      if(prog>=1){B.done=true;B.strokes=B.big?3:2;B.nextStroke=0;flashX=B.x;}}
+    else if(B.strokes>0){B.nextStroke-=dt;if(B.nextStroke<=0){for(var j=0;j<B.segs.length;j++)drawSeg(B.segs[j],B.big?1.3:1);flash=Math.min(1.4,flash+(B.big?1.1:.75));flashX=B.x;B.strokes--;B.nextStroke=rnd(.05,.13);}}
+    else bolts.splice(b,1);}
+  flash*=Math.exp(-dt*7);k.flash=flash*.55;k.flashTint=[col[0]/255,col[1]/255,col[2]/255];
+  // 長押しの充電
+  var charge=chargeAt>=0?Math.min(1,(t-chargeAt)/1.5):0;
+  for(var L=0;L<5;L++){var ctx=k.films[L].ctx,z=L/4,GX=k.GX,GY=k.GY;
+    ctx.globalCompositeOperation='source-over';ctx.fillStyle='#000';ctx.fillRect(0,0,GX,GY);
+    var cover=Math.max(0,Math.min(1,I*1.6+.3-.55*z));
+    // 星(一番奥の膜、晴れたとき)
+    if(L===0){var sv=Math.max(0,1-cover*1.6);if(sv>0)for(var si=0;si<stars.length;si++){var S=stars[si];var a=sv*S.b*(.55+.45*Math.sin(t*1.7+S.p));ctx.fillStyle='rgba(210,220,255,'+a+')';ctx.fillRect(Math.floor(S.x*GX),Math.floor(S.y*GY),1,1);}
+      var hg=ctx.createLinearGradient(0,GY*.75,0,GY);hg.addColorStop(0,'rgba(0,0,0,0)');hg.addColorStop(1,'rgba(70,40,110,'+(.25+.25*flash)+')');ctx.fillStyle=hg;ctx.fillRect(0,GY*.75,GX,GY*.25);}
+    // 雲
+    ctx.globalCompositeOperation='lighter';
+    var cl=clouds[L];for(var ci=0;ci<cl.length;ci++){var C=cl[ci];C.x+=C.v*dt;if(C.x<-.3)C.x+=1.6;if(C.x>1.3)C.x-=1.6;C.lit*=Math.exp(-dt*(9+3*Math.sin(t*40+ci)));
+      var near=Math.exp(-Math.abs(C.x-flashX)*3);var lit=flash*near*1.1+C.lit*(.6+.4*Math.sin(t*55+ci*3))+charge*Math.exp(-Math.hypot(C.x-chargeX,C.y-chargeY)*5)*.9;
+      var base=.10*cover,R=C.r*GX*(1.15-.25*z),cx=C.x*GX,cy=C.y*GY;
+      var gr=ctx.createRadialGradient(cx,cy,0,cx,cy,R);
+      var cr=Math.round(40+col[0]*.5*lit),cg=Math.round(42+col[1]*.5*lit),cb=Math.round(80+col[2]*.55*lit);
+      gr.addColorStop(0,'rgba('+cr+','+cg+','+cb+','+Math.min(1,base*1.6+lit*.55*cover)+')');gr.addColorStop(.6,'rgba('+cr+','+cg+','+cb+','+Math.min(1,base+lit*.25*cover)+')');gr.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=gr;ctx.beginPath();ctx.arc(cx,cy,R,0,6.283);ctx.fill();}
+    // 雨(手前の膜ほど太く速い)
+    if(L>0&&I>.05){var dr=drops[L],n=Math.floor(dr.length*Math.min(1,I*1.3));ctx.strokeStyle='rgba(150,165,220,'+(.16+.22*z)*(1+flash)+')';ctx.lineWidth=z>.7?1.2:1;ctx.beginPath();
+      for(var di=0;di<n;di++){var D=dr[di];D.y+=dt*D.v*(.5+1.1*z);if(D.y>1.05){D.y-=1.1;D.x=Math.random();}var len=(2+5*z)*D.v;ctx.moveTo(D.x*GX+.5,D.y*GY);ctx.lineTo(D.x*GX-.4*len*.15+.5,D.y*GY-len);}ctx.stroke();}
+    // 稲妻の残光(手前の膜ほどゆっくり消える)
+    var g=glow[L];g.globalCompositeOperation='destination-out';g.fillStyle='rgba(0,0,0,'+Math.min(1,(.5-.4*z)*dt*60*.5)+')';g.fillRect(0,0,GX,GY);
+    ctx.globalCompositeOperation='lighter';ctx.drawImage(g.canvas,0,0);
+    // 充電中の光
+    if(charge>0&&L===4){var gx=chargeX*GX,gy=chargeY*GY,rg=ctx.createRadialGradient(gx,gy,0,gx,gy,GX*.25);rg.addColorStop(0,'rgba('+col[0]+','+col[1]+','+col[2]+','+(.5*charge)+')');rg.addColorStop(1,'rgba(0,0,0,0)');ctx.fillStyle=rg;ctx.fillRect(0,0,GX,GY);}
+  }
+}});
+if(!kit.ok){hintEl.innerHTML='このブラウザではWebGL2が使えません';hintEl.classList.add('on');return;}
+
+var downT=-1,tBase=performance.now();   // キットの時間(t)とほぼ同じ起点
+addEventListener('pointerdown',function(e){if(window.APKit&&APKit.isUI&&APKit.isUI(e.clientX,e.clientY))return;downT=performance.now();var g=kit.toGrid(e.clientX,e.clientY);chargeX=g.x/kit.GX;chargeY=Math.min(.35,g.y/kit.GY);chargeAt=(performance.now()-tBase)/1000;});
+function release(e){if(downT<0)return;var held=(performance.now()-downT)/1000;var g=kit.toGrid(e.clientX,e.clientY);strike(g.x/kit.GX,held>.6);downT=-1;chargeAt=-1;}
+addEventListener('pointerup',release);addEventListener('pointercancel',function(){downT=-1;chargeAt=-1;});
+
+var hintTimer=0;function showHint(h,ms){hintEl.innerHTML=h;hintEl.classList.add('on');clearTimeout(hintTimer);hintTimer=setTimeout(function(){hintEl.classList.remove('on');},ms);}
+APKit.init({canvas:cv,gifName:'storm-films-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,
+  buttons:[{label:'✦',name:'mutate',onClick:function(){pal=(pal+1+Math.floor(Math.random()*(PAL.length-1)))%PAL.length;}},
+           {label:'↻',name:'reset',onClick:function(){pal=0;}}]});
+showHint('5枚の膜を突き抜けて稲妻が落ちる<br>正時ごろが一番荒れて、だんだん晴れていく<br>タップ=落雷 / 長押しして離す=大きな一発',8000);
+})();
+</script>
+</body>
+</html>

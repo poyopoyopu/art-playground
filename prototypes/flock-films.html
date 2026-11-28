@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<!-- FLOCK(仮) — クロちゃん(Claude)作の試作。2026/11/28 おっちゃん「この透過LED膜を使った作品案を考えさせるか」→ムーちゃん案のFLOCKを試作。ap-kit.js統合: クロちゃん -->
+<!-- 透明なLED膜5枚(led-films-kit.js)。数百の光の鳥の群れは1つの立体で、鳥は奥行き(z)に応じて5枚の膜のどれかに灯る。
+     群れが旋回すると、奥の膜の鳥が手前の膜へ、手前の鳥が奥へ入れ替わり、群れの厚みそのものが動きになる。
+     群れの法則はボイド(近くの鳥と離れすぎず・ぶつからず・向きを揃える)だけ。形は乱数で描かず、この法則から出る。色は鳥の向き(旋回すると色の波が走る)。
+     ときどき見えない鷹が群れを横切り、群れに穴が開いて波が走る。約75秒ごとに群れ全体が一番手前の膜まで迫って画面を埋め、また奥へ引く。
+     時計(なんとなく): 群れの高さが1時間で上下する(正時ごろは低く画面の下を這い、30分ごろは高く上を舞う)。一番奥の膜の空の色が時間帯で変わる(夜は深い藍、夕方は茜)。
+     触る=鳥がそこから逃げる。✦=色の付け方を変える / ↻=群れを散らして集め直す。確認用: ?t=HH:MM:SS / ?a=1(迫る波を常に)。WebGL2・音なし -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>FLOCK — 光の群れが、5枚の膜をまたいでうねる</title>
+<script src="../ap-kit.js"></script>
+<script src="led-films-kit.js"></script>
+<style>
+html,body{margin:0;height:100%;background:#000;overflow:hidden}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#hint{position:fixed;left:0;right:0;bottom:24%;text-align:center;color:rgba(255,255,255,.88);font:13px/1.8 -apple-system,"Hiragino Sans",sans-serif;letter-spacing:.08em;pointer-events:none;opacity:0;transition:opacity 1.2s;text-shadow:0 0 12px #000,0 0 4px #000}
+#hint.on{opacity:1}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint"></div>
+<script>
+(function(){
+var cv=document.getElementById('c'),hintEl=document.getElementById('hint');
+function rnd(a,b){return a+Math.random()*(b-a);}
+var N=380,B=[],mode=0,touch={x:-9,y:-9,on:0},hawk=null,nextHawk=12,stars=[];
+for(var k=0;k<80;k++)stars.push({x:Math.random(),y:Math.random()*.7,p:Math.random()*6.3,b:rnd(.3,1)});
+function scatter(){B=[];for(var i=0;i<N;i++)B.push({x:rnd(.25,.75),y:rnd(.3,.7),z:rnd(.1,.9),vx:rnd(-.1,.1),vy:rnd(-.1,.1),vz:rnd(-.1,.1)});}
+scatter();
+// 空の色(時間帯)
+function skyCol(h){var K=[[0,[8,10,40]],[4.5,[10,12,45]],[6,[90,60,90]],[7.5,[50,80,130]],[12,[40,90,150]],[16.5,[70,80,130]],[17.8,[170,80,60]],[19,[50,30,80]],[24,[8,10,40]]];
+  for(var i=0;i<K.length-1;i++)if(h>=K[i][0]&&h<=K[i+1][0]){var f=(h-K[i][0])/(K[i+1][0]-K[i][0]);return K[i][1].map(function(v,j){return v+(K[i+1][1][j]-v)*f;});}return K[0][1];}
+function hsl(h,s,l,a){return 'hsla('+h+','+s+'%,'+l+'%,'+a+')';}
+
+var kit=LEDFilms.init({canvas:cv,draw:function(t,dt,k){
+  var d=k.now(),hr=d.getHours()+d.getMinutes()/60,mn=d.getMinutes()+d.getSeconds()/60;
+  var hy=.78-.5*(1-Math.abs(mn/30-1));            // 正時=低い(下) / 30分=高い(上)
+  var aw=(t%75)/75,app=Math.sin(Math.PI*Math.max(0,Math.min(1,(aw-.84)/.16)));if(k.query.get('a')==='1')app=1;   // 約75秒ごとに迫る波(約12秒)
+  var Tx=.5+.3*Math.sin(t*.13)+.08*Math.sin(t*.41),Ty=hy+.1*Math.sin(t*.19),Tz=.45+.35*Math.sin(t*.09);
+  Tz=Tz*(1-app)+1.05*app;
+  // 見えない鷹
+  nextHawk-=dt;if(nextHawk<=0&&!hawk){var sd=Math.random()<.5?-1:1;hawk={x:sd<0?1.2:-.2,y:Ty+rnd(-.15,.15),z:Tz,vx:-sd*.55};nextHawk=rnd(14,26);}
+  if(hawk){hawk.x+=hawk.vx*dt;hawk.y+=(Ty-hawk.y)*dt*.5;if(hawk.x<-.3||hawk.x>1.3)hawk=null;}
+  var sdt=Math.min(dt,.04),RN=.11,SEP=.05+.015*app,kC=.32*(1-.75*app),maxS=.34+.1*app,minS=.13;
+  for(var i=0;i<N;i++){var b=B[i],ax=0,ay=0,az=0,cx=0,cy=0,cz=0,vx=0,vy=0,vz=0,n=0,sx=0,sy=0,sz=0;
+    for(var j=0;j<N;j++){if(j===i)continue;var o=B[j],dx=o.x-b.x;if(dx>RN||dx<-RN)continue;var dy=o.y-b.y;if(dy>RN||dy<-RN)continue;
+      var dz=(o.z-b.z)*.3,dd=Math.sqrt(dx*dx+dy*dy+dz*dz);
+      if(dd<RN){n++;cx+=dx;cy+=dy;cz+=dz;vx+=o.vx;vy+=o.vy;vz+=o.vz;
+        if(dd<SEP){var f=(SEP-dd)/SEP/(dd+1e-4);sx-=dx*f;sy-=dy*f;sz-=dz*f;}}}
+    if(n){ax+=cx/n*kC*3+(vx/n-b.vx)*1.4;ay+=cy/n*kC*3+(vy/n-b.vy)*1.4;az+=cz/n*kC*3+(vz/n-b.vz)*1.4;}
+    ax+=sx*2.4;ay+=sy*2.4;az+=sz*1.2;                                                // ぶつからない
+    var gx=Tx-b.x,gy=Ty-b.y,gd=Math.hypot(gx,gy)+1e-4,gk=Math.min(gd,.25)/gd*(.45*(1-.6*app));ax+=gx*gk;ay+=gy*gk;az+=(Tz-b.z)*.6;   // 群れの行き先
+    if(b.x<.06)ax+=(.06-b.x)*9;if(b.x>.94)ax-=(b.x-.94)*9;if(b.y<.06)ay+=(.06-b.y)*9;if(b.y>.94)ay-=(b.y-.94)*9;   // 画面の端で戻る
+    if(hawk){var hx=b.x-hawk.x,hy2=b.y-hawk.y,hd=Math.hypot(hx,hy2);if(hd<.16){var fh=(.16-hd)/.16*3/(hd+.01);ax+=hx*fh;ay+=hy2*fh;}}
+    if(touch.on){var tx=b.x-touch.x,ty=b.y-touch.y,td=Math.hypot(tx,ty);if(td<.2){var ft=(.2-td)/.2*(2+3*b.z)/(td+.01);ax+=tx*ft;ay+=ty*ft;}}
+    b.vx+=ax*sdt;b.vy+=ay*sdt;b.vz+=az*sdt;
+    var sp=Math.hypot(b.vx,b.vy);if(sp>maxS){b.vx*=maxS/sp;b.vy*=maxS/sp;}if(sp<minS){b.vx*=minS/(sp+1e-5);b.vy*=minS/(sp+1e-5);}
+    if(b.vz>.4)b.vz=.4;if(b.vz<-.4)b.vz=-.4;
+  }
+  for(var i2=0;i2<N;i2++){var c=B[i2];c.x+=c.vx*sdt;c.y+=c.vy*sdt;c.z+=c.vz*sdt;if(c.z<0){c.z=0;c.vz=Math.abs(c.vz)*.5;}if(c.z>1){c.z=1;c.vz=-Math.abs(c.vz)*.5;}}
+  var GX=k.GX,GY=k.GY,sky=skyCol(hr);
+  for(var L=0;L<5;L++){var ctx=k.films[L].ctx,z=L/4;
+    // 残像: 手前ほど長く残る
+    ctx.globalCompositeOperation='destination-out';ctx.fillStyle='rgba(0,0,0,'+Math.min(1,(.55-.3*z)*dt*60*.6)+')';ctx.fillRect(0,0,GX,GY);
+    ctx.globalCompositeOperation='lighter';
+    if(L===0){ctx.globalCompositeOperation='source-over';ctx.fillStyle='#000';ctx.fillRect(0,0,GX,GY);
+      var g2=ctx.createLinearGradient(0,0,0,GY);g2.addColorStop(0,'rgba('+(sky[0]*.35|0)+','+(sky[1]*.35|0)+','+(sky[2]*.35|0)+',1)');g2.addColorStop(.7,'rgba('+(sky[0]*.8|0)+','+(sky[1]*.8|0)+','+(sky[2]*.8|0)+',1)');g2.addColorStop(1,'rgba('+(sky[0]|0)+','+(sky[1]|0)+','+(sky[2]|0)+',1)');
+      ctx.fillStyle=g2;ctx.globalAlpha=.55;ctx.fillRect(0,0,GX,GY);ctx.globalAlpha=1;
+      var night=Math.max(0,Math.min(1,Math.abs(hr-12)/3-1.9));ctx.globalCompositeOperation='lighter';
+      if(night>0)for(var si=0;si<stars.length;si++){var S=stars[si];ctx.fillStyle='rgba(220,225,255,'+(night*S.b*(.5+.5*Math.sin(t*1.5+S.p)))+')';ctx.fillRect(S.x*GX|0,S.y*GY|0,1,1);}}
+  }
+  for(var q=0;q<N;q++){var e=B[q],Lb=Math.max(0,Math.min(4,Math.round(e.z*4))),cx2=k.films[Lb].ctx,zz=Lb/4;
+    var hue=mode===0?((Math.atan2(e.vy,e.vx)*57.3+360+t*6)%360):mode===1?200+e.z*40:20+e.z*30;
+    var sat=mode===0?90:mode===1?55:95,lig=mode===1?55+10*zz:46+8*zz;
+    var px=e.x*GX,py=e.y*GY,len=1+2.2*zz,sp2=Math.hypot(e.vx,e.vy)+1e-5;
+    cx2.strokeStyle=hsl(hue,sat,lig,.22+.22*zz);cx2.lineWidth=zz>.7?1.6:1;cx2.lineCap='round';
+    cx2.beginPath();cx2.moveTo(px,py);cx2.lineTo(px-e.vx/sp2*len,py-e.vy/sp2*len);cx2.stroke();
+    cx2.fillStyle=hsl(hue,sat-10,lig+14,.45);cx2.fillRect(px-.5,py-.5,1,1);}
+  k.spread=app*.6;
+}});
+if(!kit.ok){hintEl.innerHTML='このブラウザではWebGL2が使えません';hintEl.classList.add('on');return;}
+function setT(e){var g=kit.toGrid(e.clientX,e.clientY);touch.x=g.x/kit.GX;touch.y=g.y/kit.GY;}
+addEventListener('pointerdown',function(e){if(window.APKit&&APKit.isUI&&APKit.isUI(e.clientX,e.clientY))return;touch.on=1;setT(e);});
+addEventListener('pointermove',function(e){if(touch.on)setT(e);});
+addEventListener('pointerup',function(){touch.on=0;});addEventListener('pointercancel',function(){touch.on=0;});
+var hintTimer=0;function showHint(h,ms){hintEl.innerHTML=h;hintEl.classList.add('on');clearTimeout(hintTimer);hintTimer=setTimeout(function(){hintEl.classList.remove('on');},ms);}
+APKit.init({canvas:cv,gifName:'flock-films-loop',clockFormat:'spec',dock:true,autoHide:true,fullscreenButton:false,
+  buttons:[{label:'✦',name:'mutate',onClick:function(){mode=(mode+1)%3;}},{label:'↻',name:'reset',onClick:function(){scatter();}}]});
+showHint('光の群れが5枚の膜をまたいでうねる<br>群れが低い=正時ごろ / 高い=30分ごろ<br>触ると鳥が逃げる',8000);
+})();
+</script>
+</body>
+</html>
