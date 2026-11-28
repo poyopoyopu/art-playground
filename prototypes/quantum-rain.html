@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <!-- QUANTUM RAIN(仮) — クロちゃん(Claude)作の試作。2026/11/28 おっちゃん依頼(Starkapoo氏の「Quantum Rain」動画)。ap-kit.js統合: クロちゃん -->
+<!-- 2026/11/28 おっちゃん「1粒を倍にするとどんな感じかな？粒感を変化したバージョンが見たい」→ 下の▦ボタンでLEDの粒を ふつう(約4px)→倍(約8px)→半分(約2px)→LEDなし と切り替え。?cell=4/8/2/0 でも指定できる -->
 <!-- 2026/11/28 おっちゃん「下の光が強いかな」→ 地面に映る灯り・波紋・霧・光の柱の根元・秒の大きな波紋・下の方の雨の明るさを弱めた -->
 <!-- 2026/11/28 おっちゃん「雲と稲妻は要らんのよ」→ 上の雲と稲光を描かない(コードの計算は残置、描画だけ外した) -->
 <!-- 2026/11/28 おっちゃん「細かい四角いLED panelが沢山あるとして描写してみてよ」→ 最後に、絵を細かい四角いLEDの粒(約4px)の並びで光らせる仕上げを追加。消えたLEDもうっすら見える、粒ごとの明るさのばらつき、明るさは段階的。光のにじみはLEDの外にも漏れる。?led=0 で元の描き方 -->
@@ -270,7 +271,9 @@ var dpr=Math.min(2,window.devicePixelRatio||1),qscale=1,W=0,H=0;
 function resize(){var s=dpr*qscale;W=Math.max(2,Math.round(innerWidth*s));H=Math.max(2,Math.round(innerHeight*s));cv.width=W;cv.height=H;if(typeof buildRT==='function'&&gl)buildRT();}
 addEventListener('resize',resize);resize();
 
-var hueT=0,hueV=0;var LED=Q.get('led')!=='0';   // LEDパネル表示(?led=0 で元の描き方)
+var hueT=0,hueV=0;var LED=Q.get('led')!=='0';
+var GRAIN=[4.2,8.4,2.1,0],GNAME=['LEDの粒: ふつう(約4px)','LEDの粒: 倍(約8px)','LEDの粒: 半分(約2px)','LEDなし(元の描き方)'],gi=0;   // 粒の大きさの見比べ(?cell=4/8/2/0 か下の▦ボタン)
+(function(){var c=Q.get('cell');if(c!==null){var k={'4':0,'8':1,'2':2,'0':3}[c];if(k!==undefined)gi=k;}})();   // LEDパネル表示(?led=0 で元の描き方)
 var touch={x:.5,y:.5,s:0,down:false};
 function setT(e){touch.x=e.clientX/innerWidth;touch.y=e.clientY/innerHeight;}
 addEventListener('pointerdown',function(e){if(window.APKit&&APKit.isUI&&APKit.isUI(e.clientX,e.clientY))return;touch.down=true;setT(e);touch.s=1;});
@@ -311,7 +314,7 @@ function frame(now){
   gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,RT.sc.t);gl.uniform1i(compP.u.u_a,0);
   gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,RT.q2.t);gl.uniform1i(compP.u.u_b,1);
   gl.activeTexture(gl.TEXTURE2);gl.bindTexture(gl.TEXTURE_2D,RT.e2.t);gl.uniform1i(compP.u.u_c,2);
-  gl.uniform2f(compP.u.u_inv,1/W,1/H);gl.uniform1f(compP.u.u_cell,Math.max(3,Math.round(4.2*W/innerWidth)));gl.uniform1f(compP.u.u_led,LED?1:0);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);gl.activeTexture(gl.TEXTURE0);
+  gl.uniform2f(compP.u.u_inv,1/W,1/H);gl.uniform1f(compP.u.u_cell,Math.max(2,Math.round(GRAIN[gi]*W/innerWidth)));gl.uniform1f(compP.u.u_led,(LED&&GRAIN[gi]>0)?1:0);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);gl.activeTexture(gl.TEXTURE0);
   frames++;acc+=dt;if(frames===90){if(acc/90>.021&&qscale>.6){qscale*=.85;resize();}frames=0;acc=0;}
   requestAnimationFrame(frame);}
 requestAnimationFrame(function(n){last=n;frame(n);});
@@ -336,7 +339,8 @@ APKit.init({
   dock:true, autoHide:true, fullscreenButton:false,
   buttons:[
     {label:'✦',name:'mutate',onClick:function(){hueT+=.12+Math.random()*.5;}},   // 虹の色をずらす
-    {label:'↻',name:'reset',onClick:function(){hueV=hueV-Math.round(hueV);hueT=0;}}   // 虹を元の並びに戻す
+    {label:'↻',name:'reset',onClick:function(){hueV=hueV-Math.round(hueV);hueT=0;}},   // 虹を元の並びに戻す
+    {label:'▦',name:'grain',onClick:function(){gi=(gi+1)%GRAIN.length;if(window.APKit&&APKit.toast)APKit.toast(GNAME[gi]);}}   // LEDの粒の大きさを切り替える
   ]
 });
 showHint('降る雨は、毎分ひとつの時刻に決まる<br>横幅が 0〜59 の目盛り(光の柱=分 / 落ちる一滴=秒)<br>なぞると雨も数字も散る',9000);
